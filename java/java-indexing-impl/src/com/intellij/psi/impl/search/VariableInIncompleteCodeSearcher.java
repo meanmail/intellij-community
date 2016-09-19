@@ -18,9 +18,13 @@ package com.intellij.psi.impl.search;
 import com.intellij.openapi.application.QueryExecutorBase;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.search.*;
+import com.intellij.psi.search.LocalSearchScope;
+import com.intellij.psi.search.PsiSearchHelper;
+import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.search.UsageSearchContext;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.util.Processor;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -46,13 +50,21 @@ public class VariableInIncompleteCodeSearcher extends QueryExecutorBase<PsiRefer
       //process incomplete references to the 'field' in the same file only
       scope = new LocalSearchScope(new PsiElement[]{file}, null, !PsiSearchHelperImpl.shouldProcessInjectedPsi(p.getScopeDeterminedByUser()));
     }
+    else {
+      PsiElement[] elements = ((LocalSearchScope)scope).getScope();
+      PsiElement[] sourceElements = ContainerUtil.findAllAsArray(elements, e -> !(e instanceof PsiCompiledElement));
+      if (sourceElements.length != elements.length) {
+        if (sourceElements.length == 0) return;
+        scope = new LocalSearchScope(sourceElements);
+      }
+    }
 
     PsiElement[] elements = ((LocalSearchScope)scope).getScope();
     if (elements.length == 0) return;
 
     PsiSearchHelper.SERVICE.getInstance(p.getProject()).processElementsWithWord((element, offsetInElement) -> {
       for (PsiElement child = element.findElementAt(offsetInElement); child != null; child = child.getParent()) {
-        if (!name.equals(child.getText())) {
+        if (!child.textMatches(name)) {
           break;
         }
         if (child instanceof PsiJavaCodeReferenceElement) {

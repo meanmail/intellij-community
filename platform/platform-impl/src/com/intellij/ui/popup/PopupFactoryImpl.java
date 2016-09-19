@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,7 +50,6 @@ import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.ui.popup.mock.MockConfirmation;
 import com.intellij.ui.popup.tree.TreePopupImpl;
-import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ContainerUtil;
@@ -88,7 +87,7 @@ public class PopupFactoryImpl extends JBPopupFactory {
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.ui.popup.PopupFactoryImpl");
 
-  private final Map<Disposable, List<Balloon>> myStorage = new WeakHashMap<Disposable, List<Balloon>>();
+  private final Map<Disposable, List<Balloon>> myStorage = new WeakHashMap<>();
 
   @NotNull
   @Override
@@ -105,7 +104,7 @@ public class PopupFactoryImpl extends JBPopupFactory {
   @NotNull
   @Override
   public JBPopup createMessage(String text) {
-    return createListPopup(new BaseListPopupStep<String>(null, new String[]{text}));
+    return createListPopup(new BaseListPopupStep<>(null, new String[]{text}));
   }
 
   @Override
@@ -957,11 +956,11 @@ public class PopupFactoryImpl extends JBPopupFactory {
                               final boolean showDisabled, final boolean honorActionMnemonics)
     {
       myUseAlphaAsNumbers = useAlphaAsNumbers;
-      myListModel = new ArrayList<ActionItem>();
+      myListModel = new ArrayList<>();
       myDataContext = dataContext;
       myShowNumbers = showNumbers;
       myShowDisabled = showDisabled;
-      myAction2presentation = new HashMap<AnAction, Presentation>();
+      myAction2presentation = new HashMap<>();
       myCurrentNumber = 0;
       myPrependWithSeparator = false;
       mySeparatorText = null;
@@ -1168,10 +1167,7 @@ public class PopupFactoryImpl extends JBPopupFactory {
   @NotNull
   @Override
   public BalloonBuilder createHtmlTextBalloonBuilder(@NotNull final String htmlContent, @Nullable final Icon icon, final Color fillColor,
-                                                     @Nullable final HyperlinkListener listener)
-  {
-
-
+                                                     @Nullable final HyperlinkListener listener) {
     JEditorPane text = IdeTooltipManager.initPane(htmlContent, new HintHint().setAwtTooltip(true), null);
 
     if (listener != null) {

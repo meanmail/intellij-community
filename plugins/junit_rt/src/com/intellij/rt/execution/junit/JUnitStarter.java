@@ -15,13 +15,10 @@
  */
 package com.intellij.rt.execution.junit;
 
-import com.intellij.rt.execution.junit.segments.SegmentedOutputStream;
-
 import java.io.*;
 import java.net.InetAddress;
 import java.net.Socket;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Vector;
 
@@ -47,18 +44,7 @@ public class JUnitStarter {
   private static String ourCommandFileName;
   private static String ourWorkingDirs;
   protected static int    ourCount = 1;
-  public static boolean SM_RUNNER = isSmRunner();
   public static String ourRepeatCount = null;
-
-  private static boolean isSmRunner() {
-    try {
-      final String property = System.getProperty("idea.junit.sm_runner");
-      return property != null;
-    }
-    catch (SecurityException e) {
-      return false;
-    }
-  }
 
   public static void main(String[] args) throws IOException {
     Vector argList = new Vector();
@@ -72,7 +58,7 @@ public class JUnitStarter {
 
     String agentName = processParameters(argList, listeners, name);
 
-    if (!canWorkWithJUnitVersion(System.err, agentName)) {
+    if (!JUNIT5_RUNNER_NAME.equals(agentName) && !canWorkWithJUnitVersion(System.err, agentName)) {
       System.exit(-3);
     }
     if (!checkVersion(args, System.err)) {
@@ -172,6 +158,15 @@ public class JUnitStarter {
       }
     }
 
+    if (JUNIT4_RUNNER_NAME.equals(agentName)) {
+      try {
+        Class.forName("org.junit.Test");
+      }
+      catch (ClassNotFoundException e) {
+        return JUNIT3_RUNNER_NAME;
+      }
+    }
+
     try {
       final String forceJUnit3 = System.getProperty("idea.force.junit3");
       if (forceJUnit3 != null && Boolean.valueOf(forceJUnit3).booleanValue()) return JUNIT3_RUNNER_NAME;
@@ -221,45 +216,33 @@ public class JUnitStarter {
     Class.forName("junit.framework.ComparisonFailure");
     getAgentClass(agentName);
     //noinspection UnnecessaryFullyQualifiedName
-    new junit.textui.TestRunner().setPrinter(new com.intellij.junit3.JUnit3IdeaTestRunner.MockResultPrinter());
+    new junit.textui.TestRunner().setPrinter(null); //
   }
 
   private static int prepareStreamsAndStart(String[] args,
                                             final String agentName,
                                             ArrayList listeners,
                                             String name) {
-    PrintStream oldOut = System.out;
-    PrintStream oldErr = System.err;
     try {
       IdeaTestRunner testRunner = (IdeaTestRunner)getAgentClass(agentName).newInstance();
-      Object out = SM_RUNNER ? System.out : (Object)new SegmentedOutputStream(System.out);
-      Object err = SM_RUNNER ? System.err : (Object)new SegmentedOutputStream(System.err);
-      if (!SM_RUNNER) {
-        System.setOut(new PrintStream((OutputStream)out));
-        System.setErr(new PrintStream((OutputStream)err));
-      }
       if (ourCommandFileName != null) {
         if (!"none".equals(ourForkMode) || ourWorkingDirs != null && new File(ourWorkingDirs).length() > 0) {
           final List newArgs = new ArrayList();
           newArgs.add(agentName);
           newArgs.addAll(listeners);
-          PrintStream printOutputStream = SM_RUNNER ? ((PrintStream)out) : ((SegmentedOutputStream)out).getPrintStream();
-          PrintStream printErrStream = SM_RUNNER ? ((PrintStream)err) : ((SegmentedOutputStream)err).getPrintStream();
+          PrintStream printOutputStream = System.out;
+          PrintStream printErrStream = System.err;
           return new JUnitForkedSplitter(ourWorkingDirs, ourForkMode, printOutputStream, printErrStream, newArgs)
             .startSplitting(args, name, ourCommandFileName, ourRepeatCount);
         }
       }
-      testRunner.setStreams(out, err, 0);
       return testRunner.startRunnerWithArgs(args, listeners, name, ourCount, true);
     }
     catch (Exception e) {
       e.printStackTrace(System.err);
       return -2;
     }
-    finally {
-      System.setOut(oldOut);
-      System.setErr(oldErr);
-    }
+
   }
 
   static Class getAgentClass(String agentName) throws ClassNotFoundException {

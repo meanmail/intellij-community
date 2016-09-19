@@ -157,6 +157,7 @@ class TypeRepr {
   }
 
   public static class ClassType implements AbstractType {
+    public static final ClassType[] EMPTY_ARRAY = new ClassType[0];
     public final int className;
 
     @Override
@@ -263,6 +264,25 @@ class TypeRepr {
     }
 
     return r;
+  }
+
+  public static DataExternalizer<ClassType> classTypeExternalizer(final DependencyContext context) {
+    final DataExternalizer<AbstractType> delegate = externalizer(context);
+    return new DataExternalizer<ClassType>() {
+      @Override
+      public void save(@NotNull DataOutput out, ClassType value) throws IOException {
+        delegate.save(out, value);
+      }
+
+      @Override
+      public ClassType read(@NotNull DataInput in) throws IOException {
+        final AbstractType read = delegate.read(in);
+        if (read instanceof ClassType) {
+          return (ClassType)read;
+        }
+        throw new IOException("Expected: "+ ClassType.class.getName() + "; Actual: " + (read == null? "null" : read.getClass().getName()));
+      }
+    };
   }
 
   public static DataExternalizer<AbstractType> externalizer(final DependencyContext context) {

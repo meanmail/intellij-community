@@ -33,9 +33,7 @@ import java.util.EnumSet;
     private boolean allowHexDigitClass;
     private boolean allowEmptyCharacterClass;
     private boolean allowHorizontalWhitespaceClass;
-    private boolean allowCategoryShorthand;
     private boolean allowPosixBracketExpressions;
-    private boolean allowCaretNegatedProperties;
 
     _RegExLexer(EnumSet<RegExpCapability> capabilities) {
       this((java.io.Reader)null);
@@ -47,9 +45,7 @@ import java.util.EnumSet;
       this.allowHexDigitClass = capabilities.contains(RegExpCapability.ALLOW_HEX_DIGIT_CLASS);
       this.allowHorizontalWhitespaceClass = capabilities.contains(RegExpCapability.ALLOW_HORIZONTAL_WHITESPACE_CLASS);
       this.allowEmptyCharacterClass = capabilities.contains(RegExpCapability.ALLOW_EMPTY_CHARACTER_CLASS);
-      this.allowCategoryShorthand = capabilities.contains(RegExpCapability.UNICODE_CATEGORY_SHORTHAND);
       this.allowPosixBracketExpressions = capabilities.contains(RegExpCapability.POSIX_BRACKET_EXPRESSIONS);
-      this.allowCaretNegatedProperties = capabilities.contains(RegExpCapability.CARET_NEGATED_PROPERTIES);
     }
 
     private void yypushstate(int state) {
@@ -80,6 +76,7 @@ import java.util.EnumSet;
 %xstate NEGATE_CLASS1
 %state CLASS2
 %state PROP
+%state NAMED
 %xstate OPTIONS
 %xstate COMMENT
 %xstate NAMED_GROUP
@@ -99,16 +96,16 @@ LBRACKET="["
 RBRACKET="]"
 
 ESCAPE="\\"
-NAME=[:letter:]([:letter:]|_|[:digit:])*
+NAME=[:letter:]([:letter:]|_|-|" "|"("|")"|[:digit:])*
 ANY=[^]
 
 META1 = {ESCAPE} | {LBRACKET} | "^"
 META2= {DOT} | "$" | "?" | "*" | "+" | "|" | {LBRACE} | {LPAREN} | {RPAREN}
 
 CONTROL="t" | "n" | "r" | "f" | "a" | "e"
-BOUNDARY="b" | "B" | "A" | "z" | "Z" | "G"
+BOUNDARY="b" | "b{g}"| "B" | "A" | "z" | "Z" | "G"
 
-CLASS="w" | "W" | "s" | "S" | "d" | "D" | "v" | "V" | "X"
+CLASS="w" | "W" | "s" | "S" | "d" | "D" | "v" | "V" | "X" | "R"
 XML_CLASS="c" | "C" | "i" | "I"
 PROP="p" | "P"
 
@@ -151,15 +148,21 @@ HEX_CHAR=[0-9a-fA-F]
     parser will drop digits until the number is smaller or equal to the existing
     number of groups or it is one digit."
 */
-{ESCAPE} [0-7]{3}             { if (allowOctalNoLeadingZero) return RegExpTT.OCT_CHAR;
-                                if (yystate() == CLASS2) return RegExpTT.ESC_CHARACTER;
-                                while (yylength() > 2 && Integer.parseInt(yytext().toString().substring(1)) > capturingGroupCount) {
-                                  yypushback(1);
+{ESCAPE} {DIGITS}             { if (allowOctalNoLeadingZero) {
+                                  CharSequence s = yytext();
+                                  int i = 1;
+                                  for (; i < s.length(); i++) {
+                                    if (s.charAt(i) > '7') break;
+                                  }
+                                  if (i > 1) {
+                                    yypushback(yylength() - i);
+                                    return RegExpTT.OCT_CHAR;
+                                  }
                                 }
-                                return RegExpTT.BACKREF;
-                              }
-
-{ESCAPE} {DIGITS}             { if (yystate() == CLASS2) return RegExpTT.ESC_CHARACTER;
+                                if (yystate() == CLASS2) {
+                                  yypushback(yylength() - 2);
+                                  return RegExpTT.REDUNDANT_ESCAPE;
+                                }
                                 while (yylength() > 2 && Integer.parseInt(yytext().toString().substring(1)) > capturingGroupCount) {
                                   yypushback(1);
                                 }
@@ -177,6 +180,7 @@ HEX_CHAR=[0-9a-fA-F]
 {ESCAPE}  {CONTROL}           { return RegExpTT.ESC_CTRL_CHARACTER; }
 
 {ESCAPE} [hH]                 { return (allowHexDigitClass || allowHorizontalWhitespaceClass ? RegExpTT.CHAR_CLASS : StringEscapesTokenTypes.INVALID_CHARACTER_ESCAPE_TOKEN); }
+{ESCAPE} "N"                  { yypushstate(NAMED); return RegExpTT.NAMED_CHARACTER; }
 {ESCAPE} "k<"                 { yybegin(NAMED_GROUP); return RegExpTT.RUBY_NAMED_GROUP_REF; }
 {ESCAPE} "k'"                 { yybegin(QUOTED_NAMED_GROUP); return RegExpTT.RUBY_QUOTED_NAMED_GROUP_REF; }
 {ESCAPE} "g<"                 { yybegin(NAMED_GROUP); return RegExpTT.RUBY_NAMED_GROUP_CALL; }
@@ -185,8 +189,7 @@ HEX_CHAR=[0-9a-fA-F]
 {ESCAPE}  [\n\b\t\r\f ]       { return commentMode ? RegExpTT.CHARACTER : RegExpTT.REDUNDANT_ESCAPE; }
 
 <CLASS2> {
-  {ESCAPE} {RBRACKET}         { if (!allowNestedCharacterClasses) return RegExpTT.CHARACTER;
-                                return RegExpTT.REDUNDANT_ESCAPE; }
+  {ESCAPE} {RBRACKET}         { return RegExpTT.ESC_CHARACTER; }
 }
 
 {ESCAPE}  {ANY}               { return RegExpTT.REDUNDANT_ESCAPE; }
@@ -196,7 +199,12 @@ HEX_CHAR=[0-9a-fA-F]
 
 <PROP> {
   {LBRACE}                    { yypopstate(); yypushstate(EMBRACED); return RegExpTT.LBRACE; }
-  "L"|"M"|"Z"|"S"|"N"|"P"|"C" { yypopstate(); if (allowCategoryShorthand) return RegExpTT.CATEGORY_SHORT_HAND; else yypushback(1); }
+  "L"|"M"|"Z"|"S"|"N"|"P"|"C" { yypopstate(); return RegExpTT.CATEGORY_SHORT_HAND; }
+  {ANY}                       { yypopstate(); yypushback(1); }
+}
+
+<NAMED> {
+  {LBRACE}                    { yypopstate(); yypushstate(EMBRACED); return RegExpTT.LBRACE; }
   {ANY}                       { yypopstate(); yypushback(1); }
 }
 
@@ -205,27 +213,13 @@ HEX_CHAR=[0-9a-fA-F]
 {LBRACE}              { if (yystate() != CLASS2) yypushstate(EMBRACED); return RegExpTT.LBRACE; }
 
 <EMBRACED> {
-  "^"                 {
-                        if (allowCaretNegatedProperties) {
-                          return RegExpTT.CARET;
-                        } else if (allowDanglingMetacharacters) {
-                          yypopstate();
-                          yypushback(1);
-                        } else {
-                          return RegExpTT.BAD_CHARACTER;
-                        }
-                      }
+  "^"                 { return RegExpTT.CARET;  }
   {NAME}              { return RegExpTT.NAME;   }
   [:digit:]+          { return RegExpTT.NUMBER; }
   ","                 { return RegExpTT.COMMA;  }
 
   {RBRACE}            { yypopstate(); return RegExpTT.RBRACE; }
-  {ANY}               { if (allowDanglingMetacharacters) {
-                          yypopstate(); yypushback(1);
-                        } else {
-                          return RegExpTT.BAD_CHARACTER;
-                        }
-                      }
+  {ANY}               { yypopstate(); yypushback(1); }
 }
 
 "-"                   { return RegExpTT.MINUS; }
@@ -245,19 +239,26 @@ HEX_CHAR=[0-9a-fA-F]
                             }
                             return RegExpTT.CHARACTER;
                           }
+
+  {LBRACKET} / {ESCAPE} {RBRACKET} { if (allowNestedCharacterClasses) {
+                                       yypushstate(CLASS1);
+                                       return RegExpTT.CLASS_BEGIN;
+                                     }
+                                     return RegExpTT.CHARACTER;
+                                   }
 }
 
-{LBRACKET} / {RBRACKET}   { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(CLASS1);
-                            return RegExpTT.CLASS_BEGIN; }
+{LBRACKET} / {RBRACKET}   { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(CLASS1); return RegExpTT.CLASS_BEGIN; }
+{LBRACKET} / {ESCAPE} {RBRACKET} { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(CLASS1); return RegExpTT.CLASS_BEGIN; }
 
-{LBRACKET} / "^" {RBRACKET} { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(NEGATE_CLASS1);
-                              return RegExpTT.CLASS_BEGIN; }
+{LBRACKET} / "^" {RBRACKET} { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(NEGATE_CLASS1); return RegExpTT.CLASS_BEGIN; }
+{LBRACKET} / "^" {ESCAPE} {RBRACKET} { if (allowEmptyCharacterClass) yypushstate(CLASS2); else yypushstate(NEGATE_CLASS1); return RegExpTT.CLASS_BEGIN; }
 
-{LBRACKET}                { yypushstate(CLASS2);
-                            return RegExpTT.CLASS_BEGIN; }
+{LBRACKET}                { yypushstate(CLASS2); return RegExpTT.CLASS_BEGIN; }
 
 /* []abc] is legal. The first ] is treated as literal character */
 <CLASS1> {
+  {ESCAPE} {RBRACKET}     { yybegin(CLASS2); return RegExpTT.REDUNDANT_ESCAPE; }
   {RBRACKET}              { yybegin(CLASS2); return RegExpTT.CHARACTER; }
   .                       { assert false : yytext(); }
 }
@@ -280,10 +281,12 @@ HEX_CHAR=[0-9a-fA-F]
 
   "&&"                  { if (allowNestedCharacterClasses) return RegExpTT.ANDAND; else yypushback(1); return RegExpTT.CHARACTER; }
   [\n\b\t\r\f]          { return commentMode ? com.intellij.psi.TokenType.WHITE_SPACE : RegExpTT.ESC_CHARACTER; }
+  "^"                   { return RegExpTT.CARET; }
   {ANY}                 { return RegExpTT.CHARACTER; }
 }
 
 <BRACKET_EXPRESSION> {
+  "^"                                     { return RegExpTT.CARET; }
   {NAME}                                  { return RegExpTT.NAME;   }
   ":" {RBRACKET}                          { yybegin(CLASS2); return RegExpTT.BRACKET_EXPRESSION_END; }
   {ANY}                                   { return RegExpTT.BAD_CHARACTER; }

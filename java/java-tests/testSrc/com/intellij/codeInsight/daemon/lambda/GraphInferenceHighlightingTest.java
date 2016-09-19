@@ -478,7 +478,7 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
     doTest();
   }
 
-  @Bombed(month = Calendar.AUGUST, day = 30, user = "ann")
+  @Bombed(month = Calendar.SEPTEMBER, day = 30, user = "ann")
   public void testResolutionOrderForVariableCycles() throws Exception {
     doTest();
   }
@@ -490,10 +490,5 @@ public class GraphInferenceHighlightingTest extends LightDaemonAnalyzerTestCase 
   private void doTest(final boolean checkWarnings) throws Exception {
     IdeaTestUtil.setTestVersion(JavaSdkVersion.JDK_1_8, getModule(), getTestRootDisposable());
     doTest(BASE_PATH + "/" + getTestName(false) + ".java", checkWarnings, false);
-  }
-
-  @Override
-  protected Sdk getProjectJDK() {
-    return IdeaTestUtil.getMockJdk18();
   }
 }

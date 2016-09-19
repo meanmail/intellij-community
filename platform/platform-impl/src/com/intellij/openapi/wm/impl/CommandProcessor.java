@@ -33,7 +33,7 @@ public final class CommandProcessor implements Runnable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.wm.impl.CommandProcessor");
   private final Object myLock = new Object();
 
-  private final List<CommandGroup> myCommandGroupList = new ArrayList<CommandGroup>();
+  private final List<CommandGroup> myCommandGroupList = new ArrayList<>();
   private int myCommandCount;
 
   public final int getCommandCount() {
@@ -80,10 +80,10 @@ public final class CommandProcessor implements Runnable {
       // definitely have some since runnables in command list may (and do) request some PSI activity
       final boolean queueNext = myCommandCount > 0;
       Application application = ApplicationManager.getApplication();
-      ModalityState modalityState = Registry.is("ide.perProjectModality") ? ModalityState.defaultModalityState() : ModalityState.NON_MODAL;
+      ModalityState modalityState = Registry.is("ide.perProjectModality") ? ModalityState.current() : ModalityState.NON_MODAL;
       application.getInvokator().invokeLater(command, modalityState, expire == null ? application.getDisposed() : expire).doWhenDone(() -> {
         if (queueNext) {
-          CommandProcessor.this.run();
+          this.run();
         }
       });
     }

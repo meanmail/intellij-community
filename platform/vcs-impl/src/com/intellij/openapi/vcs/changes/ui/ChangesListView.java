@@ -35,7 +35,6 @@ import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.EditSourceOnDoubleClickHandler;
 import com.intellij.util.EditSourceOnEnterKeyHandler;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.ui.tree.TreeUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NonNls;
@@ -52,7 +51,10 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 
+import static com.intellij.openapi.vcs.changes.ChangesUtil.getAfterRevisionsFiles;
 import static com.intellij.openapi.vcs.changes.ui.ChangesBrowserNode.*;
+import static com.intellij.util.containers.UtilKt.getIfSingle;
+import static com.intellij.util.containers.UtilKt.stream;
 import static java.util.stream.Collectors.toList;
 
 // TODO: Check if we could extend DnDAwareTree here instead of directly implementing DnDAware
@@ -63,7 +65,7 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
 
   @NonNls public static final String HELP_ID_KEY = "helpId";
   @NonNls public static final String ourHelpId = "ideaInterface.changes";
-  @NonNls public static final DataKey<List<VirtualFile>> UNVERSIONED_FILES_DATA_KEY = DataKey.create("ChangeListView.UnversionedFiles");
+  @NonNls public static final DataKey<Stream<VirtualFile>> UNVERSIONED_FILES_DATA_KEY = DataKey.create("ChangeListView.UnversionedFiles");
   @NonNls public static final DataKey<List<FilePath>> MISSING_FILES_DATA_KEY = DataKey.create("ChangeListView.MissingFiles");
   @NonNls public static final DataKey<List<LocallyDeletedChange>> LOCALLY_DELETED_CHANGES = DataKey.create("ChangeListView.LocallyDeletedChanges");
   @NonNls public static final DataKey<String> HELP_ID_DATA_KEY = DataKey.create(HELP_ID_KEY);
@@ -79,7 +81,7 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
     setRootVisible(false);
     setDragEnabled(true);
 
-    new TreeSpeedSearch(this, new NodeToTextConvertor());
+    new TreeSpeedSearch(this, TO_TEXT_CONVERTER);
     SmartExpander.installOn(this);
     myCopyProvider = new ChangesBrowserNodeCopyProvider(this);
     new TreeLinkMouseListener(new ChangesBrowserNodeRenderer(myProject, BooleanGetter.FALSE, false)).installOn(this);
@@ -145,12 +147,15 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
       sink.put(VcsDataKeys.CHANGE_LISTS, getSelectedChangeLists().toArray(ChangeList[]::new));
     }
     else if (key == CommonDataKeys.VIRTUAL_FILE_ARRAY) {
-      sink.put(CommonDataKeys.VIRTUAL_FILE_ARRAY, getSelectedFiles());
+      sink.put(CommonDataKeys.VIRTUAL_FILE_ARRAY, getSelectedFiles().toArray(VirtualFile[]::new));
+    }
+    else if (key == VcsDataKeys.VIRTUAL_FILE_STREAM) {
+      sink.put(VcsDataKeys.VIRTUAL_FILE_STREAM, getSelectedFiles());
     }
     else if (key == CommonDataKeys.NAVIGATABLE) {
-      final VirtualFile[] files = getSelectedFiles();
-      if (files.length == 1 && !files [0].isDirectory()) {
-        sink.put(CommonDataKeys.NAVIGATABLE, new OpenFileDescriptor(myProject, files[0], 0));
+      VirtualFile file = getIfSingle(getSelectedFiles());
+      if (file != null && !file.isDirectory()) {
+        sink.put(CommonDataKeys.NAVIGATABLE, new OpenFileDescriptor(myProject, file, 0));
       }
     }
     else if (key == CommonDataKeys.NAVIGATABLE_ARRAY) {
@@ -165,7 +170,7 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
       sink.put(PlatformDataKeys.COPY_PROVIDER, myCopyProvider);
     }
     else if (key == UNVERSIONED_FILES_DATA_KEY) {
-      sink.put(UNVERSIONED_FILES_DATA_KEY, getSelectedUnversionedFiles().collect(toList()));
+      sink.put(UNVERSIONED_FILES_DATA_KEY, getSelectedUnversionedFiles());
     }
     else if (key == VcsDataKeys.MODIFIED_WITHOUT_EDITING_DATA_KEY) {
       sink.put(VcsDataKeys.MODIFIED_WITHOUT_EDITING_DATA_KEY, getSelectedModifiedWithoutEditing().collect(toList()));
@@ -217,7 +222,7 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
 
   @NotNull
   private Stream<ChangesBrowserNode<?>> getSelectionNodesStream(@Nullable Object tag) {
-    return toStream(getSelectionPaths())
+    return stream(getSelectionPaths())
       .filter(path -> isUnderTag(path, tag))
       .map(TreePath::getLastPathComponent)
       .map(node -> ((ChangesBrowserNode<?>)node));
@@ -229,13 +234,8 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
   }
 
   @NotNull
-  static Stream<TreePath> toStream(@Nullable TreePath[] paths) {
-    return paths == null ? Stream.empty() : Stream.of(paths);
-  }
-
-  @NotNull
   static Stream<VirtualFile> getVirtualFiles(@Nullable TreePath[] paths, @Nullable Object tag) {
-    return toStream(paths)
+    return stream(paths)
       .filter(path -> isUnderTag(path, tag))
       .map(TreePath::getLastPathComponent)
       .map(node -> ((ChangesBrowserNode<?>)node))
@@ -255,7 +255,7 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
 
   @NotNull
   static Stream<Change> getChanges(@NotNull Project project, @Nullable TreePath[] paths) {
-    Stream<Change> changes = toStream(paths)
+    Stream<Change> changes = stream(paths)
       .map(TreePath::getLastPathComponent)
       .map(node -> ((ChangesBrowserNode<?>)node))
       .flatMap(node -> node.getObjectsUnderStream(Change.class))
@@ -293,18 +293,11 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
   }
 
   @NotNull
-  protected VirtualFile[] getSelectedFiles() {
-    Stream<VirtualFile> filesFromChanges = getSelectedChanges()
-      .map(Change::getAfterRevision)
-      .filter(Objects::nonNull)
-      .map(ContentRevision::getFile)
-      .map(FilePath::getVirtualFile)
-      .filter(Objects::nonNull)
-      .filter(VirtualFile::isValid);
-
-    return Stream.concat(filesFromChanges, getSelectedVirtualFiles(null))
-      .distinct()
-      .toArray(VirtualFile[]::new);
+  protected Stream<VirtualFile> getSelectedFiles() {
+    return Stream.concat(
+      getAfterRevisionsFiles(getSelectedChanges()),
+      getSelectedVirtualFiles(null)
+    ).distinct();
   }
 
   // TODO: Does not correspond to getSelectedChanges() - for instance, hijacked changes are not tracked here
@@ -358,14 +351,6 @@ public class ChangesListView extends Tree implements TypeSafeDataProvider, DnDAw
 
   private void updateMenu() {
     PopupHandler.installPopupHandler(this, myMenuGroup, ActionPlaces.CHANGES_VIEW_POPUP, ActionManager.getInstance());
-  }
-
-  private static class NodeToTextConvertor implements Convertor<TreePath, String> {
-    @Override
-    public String convert(final TreePath path) {
-      ChangesBrowserNode node = (ChangesBrowserNode)path.getLastPathComponent();
-      return node.getTextPresentation();
-    }
   }
 
   @Override

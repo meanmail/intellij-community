@@ -34,14 +34,13 @@ public class JUnitTreeByDescriptionHierarchyTest {
   @Test
   public void testEmptySuite() throws Exception {
     doTest(Description.createSuiteDescription("empty suite"), "##teamcity[enteredTheMatrix]\n" +
-                                                              "##teamcity[suiteTreeNode name='empty suite' locationHint='java:test://empty suite.empty suite']\n" +
                                                               "##teamcity[treeEnded]\n");
   }
 
   @Test
   public void test2Parameterized() throws Exception {
     final Description root = Description.createSuiteDescription("root");
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     for (String className : new String[]{"a.TestA", "a.TestB"}) {
       final Description aTestClass = Description.createSuiteDescription(className);
       root.addChild(aTestClass);
@@ -69,40 +68,52 @@ public class JUnitTreeByDescriptionHierarchyTest {
 
 
            "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='TestA']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://a.TestA.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[1|]' locationHint='java:test://a.TestA.testName|[1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='TestA']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='TestB']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://a.TestB.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[1|]' locationHint='java:test://a.TestB.testName|[1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='TestB']\n");
   }
 
   @Test
   public void testClassWithMethodsWithoutSendTreeBefore() throws Exception {
     Description root = Description.createSuiteDescription("ATest");
-    List<Description> tests = new ArrayList<Description>();
+    List<Description> tests = new ArrayList<>();
     tests.add(Description.createTestDescription("ATest", "test1"));
     tests.add(Description.createTestDescription("ATest", "test2"));
 
@@ -120,6 +131,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
     }
     sender.testRunFinished(new Result());
     Assert.assertEquals("output: " + buf, "##teamcity[enteredTheMatrix]\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='ATest' locationHint='java:suite://ATest']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='ATest.test1' locationHint='java:test://ATest.test1']\n" +
@@ -129,13 +141,14 @@ public class JUnitTreeByDescriptionHierarchyTest {
                                           "##teamcity[testStarted name='ATest.test2' locationHint='java:test://ATest.test2']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='ATest.test2']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='ATest']\n", StringUtil.convertLineSeparators(buf.toString()));
   }
 
   @Test
   public void testSameShortNames() throws Exception {
     final Description rootDescription = Description.createSuiteDescription("root");
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     for (String className : new String[]{"a.MyTest", "b.MyTest"}) {
       final Description aTestClass = Description.createSuiteDescription(className);
       rootDescription.addChild(aTestClass);
@@ -152,26 +165,29 @@ public class JUnitTreeByDescriptionHierarchyTest {
                                    "##teamcity[suiteTreeEnded name='MyTest']\n" +
                                    "##teamcity[treeEnded]\n",
            "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='MyTest']\n" +
            "\n" +
            "##teamcity[testStarted name='MyTest.testMe' locationHint='java:test://a.MyTest.testMe']\n" +
            "\n" +
            "##teamcity[testFinished name='MyTest.testMe']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='MyTest']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='MyTest']\n" +
            "\n" +
            "##teamcity[testStarted name='MyTest.testMe' locationHint='java:test://b.MyTest.testMe']\n" +
            "\n" +
            "##teamcity[testFinished name='MyTest.testMe']\n" +
-           "##teamcity[testSuiteFinished nam" +
-           "e='MyTest']\n");
+           "\n" +
+           "##teamcity[testSuiteFinished name='MyTest']\n");
   }
 
   @Test
   public void testSingleParameterizedClass() throws Exception {
     final String className = "a.TestA";
     final Description aTestClassDescription = Description.createSuiteDescription(className);
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     attachParameterizedTests(className, aTestClassDescription, tests);
     doTest(aTestClassDescription, tests,
            //tree
@@ -185,17 +201,21 @@ public class JUnitTreeByDescriptionHierarchyTest {
            "##teamcity[treeEnded]\n",
            //start
            "##teamcity[rootName name = 'TestA' comment = 'a' location = 'java:suite://a.TestA']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://a.TestA.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[1|]' locationHint='java:test://a.TestA.testName|[1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[1|]']\n");
   }
   
@@ -203,7 +223,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
   public void testParameterizedClassWithSameParameters() throws Exception {
     final String className = "a.TestA";
     final Description aTestClassDescription = Description.createSuiteDescription(className);
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     for (String paramName : new String[]{"[0]", "[0]"}) {
       final Description param1 = Description.createSuiteDescription(paramName);
       aTestClassDescription.addChild(param1);
@@ -223,17 +243,21 @@ public class JUnitTreeByDescriptionHierarchyTest {
            "##teamcity[treeEnded]\n",
            //start
            "##teamcity[rootName name = 'TestA' comment = 'a' location = 'java:suite://a.TestA']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://a.TestA.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://a.TestA.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n");
   }
 
@@ -241,7 +265,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
   public void testParameterizedClassWithParamsWithDots() throws Exception {
     final String className = "a.TestA";
     final Description aTestClassDescription = Description.createSuiteDescription(className);
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     for (String paramName : new String[]{"[0: with - 1.1]", "[1: with - 2.1]"}) {
       final Description param1 = Description.createSuiteDescription(paramName);
       aTestClassDescription.addChild(param1);
@@ -261,17 +285,21 @@ public class JUnitTreeByDescriptionHierarchyTest {
            "##teamcity[treeEnded]\n",
            //start
            "##teamcity[rootName name = 'TestA' comment = 'a' location = 'java:suite://a.TestA']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0: with - 1.1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0: with - 1.1|]' locationHint='java:test://a.TestA.testName|[0: with - 1.1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0: with - 1.1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0: with - 1.1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[1: with - 2.1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[1: with - 2.1|]' locationHint='java:test://a.TestA.testName|[1: with - 2.1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[1: with - 2.1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[1: with - 2.1|]']\n");
   }
 
@@ -280,7 +308,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
     final Description root = Description.createSuiteDescription("root");
     final String className = "ATest";
     final String methodName = "test1";
-    final List<Description> tests = new ArrayList<Description>();
+    final List<Description> tests = new ArrayList<>();
     for( String suiteName : new String[] {"ASuite1", "ASuite2"}) {
       final Description aSuite = Description.createSuiteDescription(suiteName);
       root.addChild(aSuite);
@@ -308,21 +336,29 @@ public class JUnitTreeByDescriptionHierarchyTest {
 
            //started
            "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ASuite1']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ATest']\n" +
            "\n" +
            "##teamcity[testStarted name='ATest.test1' locationHint='java:test://ATest.test1']\n" +
            "\n" +
            "##teamcity[testFinished name='ATest.test1']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ASuite1']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ASuite2']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ATest']\n" +
            "\n" +
            "##teamcity[testStarted name='ATest.test1' locationHint='java:test://ATest.test1']\n" +
            "\n" +
            "##teamcity[testFinished name='ATest.test1']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ASuite2']\n");
   }
 
@@ -372,6 +408,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
     sender.testRunFinished(new Result());
 
     Assert.assertEquals("output: " + buf, "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestA']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestA.testName' locationHint='java:test://TestA.testName']\n" +
@@ -379,6 +416,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
                                           "##teamcity[testIgnored name='TestA.testName' details='java.lang.Exception|n' error='true' message='']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestA.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestA']\n", StringUtil.convertLineSeparators(buf.toString()));
   }
 
@@ -409,11 +447,13 @@ public class JUnitTreeByDescriptionHierarchyTest {
     sender.testRunFinished(new Result());
 
     Assert.assertEquals("output: " + buf, "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+                                          "\n" +
                                           "##teamcity[testStarted name='Class Configuration'  locationHint='java:suite://TestA' ]\n" +
                                           "\n" +
                                           "##teamcity[testFailed name='Class Configuration' details='java.lang.Exception|n' error='true' message='']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='Class Configuration']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestA']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestA.testName' locationHint='java:test://TestA.testName']\n" +
@@ -421,6 +461,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
                                           "##teamcity[testIgnored name='TestA.testName']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestA.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestA']\n", StringUtil.convertLineSeparators(buf.toString()));
   }
 
@@ -498,16 +539,19 @@ public class JUnitTreeByDescriptionHierarchyTest {
     sender.testRunFinished(new Result());
 
     Assert.assertEquals("output: " + buf, "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestA']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestA.testName' locationHint='java:test://TestA.testName']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestA.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testStarted name='Class Configuration'  locationHint='java:suite://TestA' ]\n" +
                                           "\n" +
                                           "##teamcity[testFailed name='Class Configuration' details='java.lang.Exception|n' error='true' message='']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='Class Configuration']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestA']\n", StringUtil.convertLineSeparators(buf.toString()));
   }
 
@@ -542,7 +586,9 @@ public class JUnitTreeByDescriptionHierarchyTest {
     sender.testRunFinished(new Result());
 
     Assert.assertEquals("output: " + buf, "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestA']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='param']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestA.testName' locationHint='java:test://TestA.testName']\n" +
@@ -550,7 +596,9 @@ public class JUnitTreeByDescriptionHierarchyTest {
                                           "##teamcity[testIgnored name='TestA.testName' details='java.lang.Exception|n' error='true' message='']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestA.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='param']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestA']\n", StringUtil.convertLineSeparators(buf.toString()));
     buf.setLength(0);
 
@@ -582,7 +630,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
   @Test
   public void testPackageWithoutDescriptionBefore() throws Exception {
     final Description root = Description.createSuiteDescription("root");
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     for (String className : new String[]{"a.TestA", "a.TestB"}) {
       final Description aTestClass = Description.createSuiteDescription(className);
       root.addChild(aTestClass);
@@ -602,17 +650,21 @@ public class JUnitTreeByDescriptionHierarchyTest {
     sender.testRunFinished(new Result());
 
     Assert.assertEquals("output: " + buf, "##teamcity[enteredTheMatrix]\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestA' locationHint='java:suite://a.TestA']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestA.testName' locationHint='java:test://a.TestA.testName']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestA.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestA']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteStarted name='TestB' locationHint='java:suite://a.TestB']\n" +
                                           "\n" +
                                           "##teamcity[testStarted name='TestB.testName' locationHint='java:test://a.TestB.testName']\n" +
                                           "\n" +
                                           "##teamcity[testFinished name='TestB.testName']\n" +
+                                          "\n" +
                                           "##teamcity[testSuiteFinished name='TestB']\n", StringUtil.convertLineSeparators(buf.toString()));
   }
 
@@ -638,7 +690,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
   @Test
   public void testParameterizedTestsUpsideDown() throws Exception {
     final Description aTestClass = Description.createSuiteDescription("ATest");
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     final Description testMethod = Description.createSuiteDescription("testName");
     aTestClass.addChild(testMethod);
     for (String paramName : new String[]{"[0]", "[1]"}) {
@@ -656,6 +708,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
 
 
            "##teamcity[rootName name = 'ATest' location = 'java:suite://ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='testName']\n" +
            "\n" +
            "##teamcity[testStarted name='ATest.testName|[0|]' locationHint='java:test://ATest.testName|[0|]']\n" +
@@ -665,6 +718,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
            "##teamcity[testStarted name='ATest.testName|[1|]' locationHint='java:test://ATest.testName|[1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='ATest.testName|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='testName']\n");
   }
 
@@ -673,7 +727,7 @@ public class JUnitTreeByDescriptionHierarchyTest {
     final Description root = Description.createSuiteDescription("root");
     final Description aTestClass = Description.createSuiteDescription("ATest");
     root.addChild(aTestClass);
-    final ArrayList<Description> tests = new ArrayList<Description>();
+    final ArrayList<Description> tests = new ArrayList<>();
     attachParameterizedTests("ATest", aTestClass, tests);
     final Description suiteDescription = Description.createSuiteDescription("suite");
     root.addChild(suiteDescription);
@@ -701,27 +755,37 @@ public class JUnitTreeByDescriptionHierarchyTest {
 
            //start
            "##teamcity[rootName name = 'root' location = 'java:suite://root']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[0|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[0|]' locationHint='java:test://ATest.testName|[0|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[0|]']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='|[1|]']\n" +
            "\n" +
            "##teamcity[testStarted name='testName|[1|]' locationHint='java:test://ATest.testName|[1|]']\n" +
            "\n" +
            "##teamcity[testFinished name='testName|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='|[1|]']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='suite']\n" +
+           "\n" +
            "##teamcity[testSuiteStarted name='ATest']\n" +
            "\n" +
            "##teamcity[testStarted name='ATest.test' locationHint='java:test://ATest.test']\n" +
            "\n" +
            "##teamcity[testFinished name='ATest.test']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='ATest']\n" +
+           "\n" +
            "##teamcity[testSuiteFinished name='suite']\n");
   }
 

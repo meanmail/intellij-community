@@ -61,11 +61,12 @@ public class PersistentUtil {
 
   @NotNull
   public static <T> PersistentEnumeratorBase<T> createPersistentEnumerator(@NotNull KeyDescriptor<T> keyDescriptor,
-                                                                       @NotNull String storageKind,
-                                                                       @NotNull String logId,
-                                                                       int version) throws IOException {
+                                                                           @NotNull String storageKind,
+                                                                           @NotNull String logId,
+                                                                           int version) throws IOException {
     File storageFile = getStorageFile(storageKind, logId, version);
 
-    return IOUtil.openCleanOrResetBroken(() -> new PersistentBTreeEnumerator<>(storageFile, keyDescriptor, Page.PAGE_SIZE, null, version), storageFile);
+    return IOUtil.openCleanOrResetBroken(() -> new PersistentBTreeEnumerator<>(storageFile, keyDescriptor, Page.PAGE_SIZE, null, version),
+                                         storageFile);
   }
 }

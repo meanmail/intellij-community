@@ -61,8 +61,8 @@ public class PsiPrimitiveType extends PsiType.Stub {
 
   @NotNull
   @Override
-  public String getPresentableText() {
-    return getText(false, true);
+  public String getPresentableText(boolean annotated) {
+    return getText(false, annotated);
   }
 
   @NotNull
@@ -74,11 +74,11 @@ public class PsiPrimitiveType extends PsiType.Stub {
   @NotNull
   @Override
   public String getInternalCanonicalText() {
-    return getText(true, true);
+    return getCanonicalText(true);
   }
 
   private String getText(boolean qualified, boolean annotated) {
-    PsiAnnotation[] annotations = annotated ? getAnnotations() : PsiAnnotation.EMPTY_ARRAY; ;
+    PsiAnnotation[] annotations = annotated ? getAnnotations() : PsiAnnotation.EMPTY_ARRAY;
     if (annotations.length == 0) return myName;
 
     StringBuilder sb = new StringBuilder();

@@ -29,9 +29,11 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.ForeignLeafPsiElement;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBus;
-import com.intellij.util.text.ImmutableText;
+import com.intellij.util.text.CharArrayUtil;
+import com.intellij.util.text.ImmutableCharSequence;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
@@ -48,7 +50,7 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
 
   private volatile Document mySyncDocument;
 
-  public PsiToDocumentSynchronizer(PsiDocumentManagerBase psiDocumentManager, MessageBus bus) {
+  PsiToDocumentSynchronizer(PsiDocumentManagerBase psiDocumentManager, MessageBus bus) {
     myPsiDocumentManager = psiDocumentManager;
     myBus = bus;
   }
@@ -251,13 +253,13 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
     ApplicationManager.getApplication().assertIsDispatchThread();
     final DocumentChangeTransaction documentChangeTransaction = removeTransaction(document);
     if(documentChangeTransaction == null) return false;
-    final PsiElement changeScope = documentChangeTransaction.myChangeScope;
+    final PsiFile changeScope = documentChangeTransaction.myChangeScope;
     try {
       mySyncDocument = document;
 
       final PsiTreeChangeEventImpl fakeEvent = new PsiTreeChangeEventImpl(changeScope.getManager());
       fakeEvent.setParent(changeScope);
-      fakeEvent.setFile(changeScope.getContainingFile());
+      fakeEvent.setFile(changeScope);
       checkPsiModificationAllowed(fakeEvent);
       doSync(fakeEvent, true, new DocSyncAction() {
         @Override
@@ -265,7 +267,11 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
           doCommitTransaction(document, documentChangeTransaction);
         }
       });
-      myBus.syncPublisher(PsiDocumentTransactionListener.TOPIC).transactionCompleted(document, (PsiFile)changeScope);
+      myBus.syncPublisher(PsiDocumentTransactionListener.TOPIC).transactionCompleted(document, changeScope);
+    }
+    catch (Throwable e) {
+      myPsiDocumentManager.forceReload(changeScope.getViewProvider().getVirtualFile(), changeScope.getViewProvider());
+      ExceptionUtil.rethrowAllAsUnchecked(e);
     }
     finally {
       mySyncDocument = null;
@@ -317,13 +323,11 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
       }
     });
     private final PsiFile myChangeScope;
-    private final ImmutableText myDocText;
-    private ImmutableText myPsiText;
+    private ImmutableCharSequence myPsiText;
 
-    public DocumentChangeTransaction(@NotNull Document doc, @NotNull PsiFile scope) {
+    DocumentChangeTransaction(@NotNull Document doc, @NotNull PsiFile scope) {
       myChangeScope = scope;
-      myDocText = ImmutableText.valueOf(doc.getImmutableCharSequence());
-      myPsiText = myDocText;
+      myPsiText = CharArrayUtil.createImmutableCharSequence(doc.getImmutableCharSequence());
     }
 
     @NotNull

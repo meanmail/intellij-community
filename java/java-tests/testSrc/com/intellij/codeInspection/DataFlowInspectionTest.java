@@ -43,6 +43,8 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testNullableAnonymousVolatileNotNull() throws Throwable { doTest(); }
   public void testLocalClass() throws Throwable { doTest(); }
 
+  public void testNotNullOnSuperParameter() { doTest(); }
+
   public void testFieldInAnonymous() throws Throwable { doTest(); }
   public void testFieldInitializerInAnonymous() throws Throwable { doTest(); }
   public void testNullableField() throws Throwable { doTest(); }
@@ -111,6 +113,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testSwitchOnNullable() { doTest(); }
   public void testReturningNullFromVoidMethod() throws Throwable { doTest(); }
   public void testReturningNullConstant() { doTest(); }
+  public void testReturningConstantExpression() { doTest(); }
 
   public void testCatchRuntimeException() throws Throwable { doTest(); }
   // IDEA-129331
@@ -190,6 +193,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void testRememberLocalTransientFieldState() { doTest(); }
   public void testFinalFieldDuringInitialization() { doTest(); }
   public void testFinalFieldDuringSuperInitialization() { doTest(); }
+  public void testFinalFieldInCallBeforeInitialization() { doTest(); }
   public void testFinalFieldInConstructorAnonymous() { doTest(); }
 
   public void testFinalFieldNotDuringInitialization() {
@@ -204,6 +208,7 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
   public void _testSymmetricUncheckedCast() { doTest(); } // https://youtrack.jetbrains.com/issue/IDEABKL-6871
   public void testNullCheckDoesntAffectUncheckedCast() { doTest(); }
   public void testThrowNull() { doTest(); }
+  public void testThrowNullable() { doTest(); }
 
   public void testExplicitlyNullableLocalVar() { doTest(); }
 
@@ -380,56 +385,6 @@ public class DataFlowInspectionTest extends DataFlowInspectionTestCase {
     assertEmpty(myFixture.filterAvailableIntentions("Surround"));
     assertEmpty(myFixture.filterAvailableIntentions("Assert"));
     assertNotEmpty(myFixture.filterAvailableIntentions("Introduce variable"));
-  }
-
-  public void testAssertThat() {
-    myFixture.addClass("package org.hamcrest; public class CoreMatchers { " +
-                       "public static <T> Matcher<T> notNullValue() {}\n" +
-                       "public static <T> Matcher<T> not(Matcher<T> matcher) {}\n" +
-                       "public static <T> Matcher<T> equalTo(T operand) {}\n" +
-                       "}");
-    myFixture.addClass("package org.hamcrest; public interface Matcher<T> {}");
-    myFixture.addClass("package org.junit; public class Assert { " +
-                       "public static <T> void assertThat(T actual, org.hamcrest.Matcher<? super T> matcher) {}\n" +
-                       "public static <T> void assertThat(String msg, T actual, org.hamcrest.Matcher<? super T> matcher) {}\n" +
-                       "}");
-
-    myFixture.addClass("package org.assertj.core.api; public class Assertions { " +
-                       "public static <T> AbstractObjectAssert<?, T> assertThat(Object actual) {}\n" +
-                       "}");
-    myFixture.addClass("package org.assertj.core.api; public class AbstractObjectAssert<S extends AbstractObjectAssert<S, A>, A> {" +
-                       "public S isNotNull() {}" +
-                       "}");
-
-    myFixture.enableInspections(new DataFlowInspection());
-    myFixture.testHighlighting(true, false, true, getTestName(false) + ".java");
-  }
-
-  public void testGoogleTruth() {
-    myFixture.addClass("package com.google.common.truth; public class Truth { " +
-                       "public static Subject assertThat(Object o) {}\n" +
-                       "}");
-    myFixture.addClass("package com.google.common.truth; public class Subject { public void isNotNull() {} }");
-    myFixture.enableInspections(new DataFlowInspection());
-    myFixture.testHighlighting(true, false, true, getTestName(false) + ".java");
-  }
-
-  public void testBooleanPreconditions() {
-    myFixture.addClass("package com.google.common.base; public class Preconditions { " +
-                       "public static <T> T checkArgument(boolean b) {}\n" +
-                       "public static <T> T checkArgument(boolean b, String msg) {}\n" +
-                       "public static <T> T checkState(boolean b, String msg) {}\n" +
-                       "}");
-    myFixture.enableInspections(new DataFlowInspection());
-    myFixture.testHighlighting(true, false, true, getTestName(false) + ".java");
-  }
-
-  public void testGuavaCheckNotNull() {
-    myFixture.addClass("package com.google.common.base; public class Preconditions { " +
-                       "public static <T> T checkNotNull(T reference) {}\n" +
-                       "}");
-    myFixture.enableInspections(new DataFlowInspection());
-    myFixture.testHighlighting(true, false, true, getTestName(false) + ".java");
   }
 
   public void _testNullCheckBeforeInstanceof() { doTest(); } // https://youtrack.jetbrains.com/issue/IDEA-113220

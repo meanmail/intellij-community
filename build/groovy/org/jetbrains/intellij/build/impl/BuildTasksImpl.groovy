@@ -16,18 +16,21 @@
 package org.jetbrains.intellij.build.impl
 
 import com.intellij.openapi.util.io.FileUtil
+import com.intellij.openapi.util.text.StringUtil
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.BuildTasks
-import org.jetbrains.intellij.build.LinuxDistributionCustomizer
-import org.jetbrains.intellij.build.MacDistributionCustomizer
-import org.jetbrains.intellij.build.WindowsDistributionCustomizer
+import org.jetbrains.intellij.build.ProductModulesLayout
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.jps.model.java.JavaSourceRootType
 import org.jetbrains.jps.model.module.JpsModule
 
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.Callable
+import java.util.concurrent.Executors
+import java.util.concurrent.Future
+import java.util.function.Function
 
 /**
  * @author nik
@@ -77,7 +80,9 @@ class BuildTasksImpl extends BuildTasks {
               zipfileset(dir: root.file.absolutePath, prefix: root.properties.packagePrefix.replace('.', '/'), erroronmissingdir: false)
           }
           module.getSourceRoots(JavaResourceRootType.RESOURCE).each { root ->
-            buildContext.ant.zipfileset(dir: root.file.absolutePath, prefix: root.properties.relativeOutputPath, erroronmissingdir: false)
+            buildContext.ant.zipfileset(dir: root.file.absolutePath, prefix: root.properties.relativeOutputPath, erroronmissingdir: false) {
+              exclude(name: "**/*.png")
+            }
           }
         }
       }
@@ -86,10 +91,13 @@ class BuildTasksImpl extends BuildTasks {
     }
   }
 
-//todo[nik] do we need 'cp' and 'jvmArgs' parameters?
   @Override
   void buildSearchableOptions(String targetModuleName, List<String> modulesToIndex, List<String> pathsToLicenses) {
-    //todo[nik] create searchableOptions.xml in a separate directory instead of modifying it in the module output
+    buildSearchableOptions(new File(buildContext.projectBuilder.moduleOutput(buildContext.findRequiredModule(targetModuleName))), modulesToIndex, pathsToLicenses)
+  }
+
+//todo[nik] do we need 'cp' and 'jvmArgs' parameters?
+  void buildSearchableOptions(File targetDirectory, List<String> modulesToIndex, List<String> pathsToLicenses) {
     buildContext.executeStep("Build searchable options index", BuildOptions.SEARCHABLE_OPTIONS_INDEX_STEP, {
       def javaRuntimeClasses = "${buildContext.projectBuilder.moduleOutput(buildContext.findModule("java-runtime"))}"
       if (!new File(javaRuntimeClasses).exists()) {
@@ -98,8 +106,7 @@ class BuildTasksImpl extends BuildTasks {
 
       buildContext.messages.progress("Building searchable options for modules $modulesToIndex")
 
-      def targetModuleOutput = buildContext.projectBuilder.moduleOutput(buildContext.findModule(targetModuleName))
-      String targetFile = "$targetModuleOutput/search/searchableOptions.xml"
+      String targetFile = "${targetDirectory.absolutePath}/search/searchableOptions.xml"
       FileUtil.delete(new File(targetFile))
 
       def tempDir = "$buildContext.paths.temp/searchableOptions"
@@ -123,6 +130,9 @@ class BuildTasksImpl extends BuildTasks {
         sysproperty(key: "idea.home.path", value: buildContext.paths.projectHome)
         sysproperty(key: "idea.system.path", value: systemPath)
         sysproperty(key: "idea.config.path", value: configPath)
+        if (buildContext.productProperties.platformPrefix != null) {
+          sysproperty(key: "idea.platform.prefix", value: buildContext.productProperties.platformPrefix)
+        }
         arg(value: "$classpathFile")
         arg(line: "com.intellij.idea.Main traverseUI")
         arg(value: targetFile)
@@ -142,6 +152,14 @@ class BuildTasksImpl extends BuildTasks {
     File originalFile = new File("$buildContext.paths.communityHome/bin/idea.properties")
 
     String text = originalFile.text
+    if (!buildContext.shouldIDECopyJarsByDefault()) {
+      text += """
+#---------------------------------------------------------------------
+# IDE can copy library .jar files to prevent their locking. Set this property to 'false' to enable copying.
+#---------------------------------------------------------------------
+idea.jars.nocopy=true
+"""
+    }
     buildContext.productProperties.additionalIDEPropertiesFilePaths.each {
       text += "\n" + new File(it).text
     }
@@ -175,91 +193,179 @@ idea.fatal.error.notification=disabled
     def targetFile = new File(buildContext.paths.temp, sourceFile.name)
     def date = LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE)
     BuildUtils.copyAndPatchFile(sourceFile.path, targetFile.path,
-                                ["BUILD_NUMBER": buildContext.fullBuildNumber, "BUILD_DATE": date])
+                                ["BUILD_NUMBER": buildContext.fullBuildNumber, "BUILD_DATE": date, "BUILD": buildContext.buildNumber])
     return targetFile
   }
 
   void layoutShared() {
-    new File(buildContext.paths.distAll, "build.txt").text = buildContext.fullBuildNumber
-    buildContext.ant.copy(todir: "$buildContext.paths.distAll/bin") {
-      fileset(dir: "$buildContext.paths.communityHome/bin") {
-        include(name: "*.*")
-        exclude(name: "idea.properties")
+    buildContext.messages.block("Copy files shared among all distributions") {
+      new File(buildContext.paths.distAll, "build.txt").text = buildContext.fullBuildNumber
+      buildContext.ant.copy(todir: "$buildContext.paths.distAll/bin") {
+        fileset(dir: "$buildContext.paths.communityHome/bin") {
+          include(name: "*.*")
+          exclude(name: "idea.properties")
+        }
       }
-    }
-    buildContext.ant.copy(todir: "$buildContext.paths.distAll/license") {
-      fileset(dir: "$buildContext.paths.communityHome/license")
-      buildContext.productProperties.additionalDirectoriesWithLicenses.each {
-        fileset(dir: it)
+      buildContext.ant.copy(todir: "$buildContext.paths.distAll/license") {
+        fileset(dir: "$buildContext.paths.communityHome/license")
+        buildContext.productProperties.additionalDirectoriesWithLicenses.each {
+          fileset(dir: it)
+        }
       }
-    }
 
-    buildContext.productProperties.copyAdditionalFiles(buildContext, buildContext.paths.distAll)
+      buildContext.productProperties.copyAdditionalFiles(buildContext, buildContext.paths.distAll)
+    }
   }
 
   @Override
   void buildDistributions() {
-    buildContext.messages.block("Copy files shared among all distributions") {
-      layoutShared()
-    }
+    layoutShared()
+
     def propertiesFile = patchIdeaPropertiesFile()
-
-    WindowsDistributionBuilder windowsBuilder = null
-    def windowsDistributionCustomizer = buildContext.windowsDistributionCustomizer
-    if (windowsDistributionCustomizer != null) {
-      buildContext.executeStep("Build Windows distribution", BuildOptions.WINDOWS_DISTRIBUTION_STEP, {
-        windowsBuilder = new WindowsDistributionBuilder(buildContext, windowsDistributionCustomizer)
-        windowsBuilder.layoutWin(propertiesFile)
+    List<BuildTaskRunnable<String>> tasks = [
+      createDistributionForOsTask("win", { BuildContext context ->
+        context.windowsDistributionCustomizer?.with {new WindowsDistributionBuilder(context, it, propertiesFile)}
+      }),
+      createDistributionForOsTask("linux", { BuildContext context ->
+        context.linuxDistributionCustomizer?.with {new LinuxDistributionBuilder(context, it, propertiesFile)}
+      }),
+      createDistributionForOsTask("mac", { BuildContext context ->
+        context.macDistributionCustomizer?.with {new MacDistributionBuilder(context, it, propertiesFile)}
       })
-    }
+    ]
 
-    LinuxDistributionBuilder linuxBuilder = null
-    def linuxDistributionCustomizer = buildContext.linuxDistributionCustomizer
-    if (linuxDistributionCustomizer != null) {
-      buildContext.executeStep("Build Linux distribution", BuildOptions.LINUX_DISTRIBUTION_STEP) {
-        linuxBuilder = new LinuxDistributionBuilder(buildContext, linuxDistributionCustomizer)
-        linuxBuilder.layoutUnix(propertiesFile)
+    List<String> paths = runInParallel(tasks).findAll {it != null}
+
+    if (buildContext.productProperties.buildCrossPlatformDistribution) {
+      if (paths.size() == 3) {
+        buildContext.executeStep("Build cross-platform distribution", BuildOptions.CROSS_PLATFORM_DISTRIBUTION_STEP) {
+          def crossPlatformBuilder = new CrossPlatformDistributionBuilder(buildContext)
+          crossPlatformBuilder.buildCrossPlatformZip(paths[0], paths[1], paths[2])
+        }
+      }
+      else {
+        buildContext.messages.info("Skipping building cross-platform distribution because some OS-specific distributions were skipped")
       }
     }
+  }
 
-    MacDistributionBuilder macBuilder = null
-    def macDistributionCustomizer = buildContext.macDistributionCustomizer
-    if (macDistributionCustomizer != null) {
-      buildContext.executeStep("Build Mac OS distribution", BuildOptions.MAC_DISTRIBUTION_STEP) {
-        macBuilder = new MacDistributionBuilder(buildContext, macDistributionCustomizer)
-        macBuilder.layoutMac(propertiesFile)
+  private static BuildTaskRunnable<String> createDistributionForOsTask(String taskName, Function<BuildContext, OsSpecificDistributionBuilder> factory) {
+    new BuildTaskRunnable<String>(taskName) {
+      @Override
+      String run(BuildContext context) {
+        def builder = factory.apply(context)
+        if (context.shouldBuildDistributionForOS(builder.osTargetId)) {
+          return context.messages.block("Build $builder.osName Distribution") {
+            def distDirectory = builder.copyFilesForOsDistribution()
+            builder.buildArtifacts(distDirectory)
+            distDirectory
+          }
+        }
+        return null
       }
-    }
-
-    if (windowsBuilder != null && linuxBuilder != null && macBuilder != null) {
-      buildContext.executeStep("Build cross-platform distribution", BuildOptions.CROSS_PLATFORM_DISTRIBUTION_STEP) {
-        def crossPlatformBuilder = new CrossPlatformDistributionBuilder(buildContext)
-        crossPlatformBuilder.buildCrossPlatformZip(windowsBuilder.winDistPath, linuxBuilder.unixDistPath, macBuilder.macDistPath)
-      }
-    }
-    else {
-      buildContext.messages.info("Skipping building cross-platform distribution because some OS-specific distributions was skipeed")
     }
   }
 
   @Override
-  void cleanOutput() {
-    buildContext.messages.block("Clean output") {
-      def outputPath = buildContext.paths.buildOutputRoot
-      buildContext.messages.progress("Cleaning output directory $outputPath")
-      new File(outputPath).listFiles()?.each {
-        if (buildContext instanceof BuildContextImpl && buildContext.outputDirectoriesToKeep.contains(it.name)) {
-          buildContext.messages.info("Skipped cleaning for $it.absolutePath")
-        }
-        else {
-          FileUtil.delete(it)
-        }
+  void compileModulesAndBuildDistributions() {
+    checkProductProperties()
+    def distributionJARsBuilder = new DistributionJARsBuilder(buildContext)
+    compileModules(buildContext.productProperties.productLayout.includedPluginModules + distributionJARsBuilder.platformModules)
+    buildContext.messages.block("Build platform and plugin JARs") {
+      distributionJARsBuilder.buildJARs()
+      distributionJARsBuilder.buildAdditionalArtifacts()
+    }
+    if (buildContext.productProperties.scrambleMainJar) {
+      if (buildContext.proprietaryBuildTools.scrambleTool != null) {
+        buildContext.proprietaryBuildTools.scrambleTool.scramble(buildContext.productProperties.productLayout.mainJarName, buildContext)
+      }
+      else {
+        buildContext.messages.warning("Scrambling skipped: 'scrambleTool' isn't defined")
       }
     }
+    buildDistributions()
   }
+
+  private void checkProductProperties() {
+    checkProductLayout()
+    def properties = buildContext.productProperties
+    checkPaths(properties.brandingResourcePaths, "productProperties.brandingResourcePaths")
+    checkPaths(properties.additionalIDEPropertiesFilePaths, "productProperties.additionalIDEPropertiesFilePaths")
+    checkPaths([properties.yourkitAgentBinariesDirectoryPath], "productProperties.yourkitAgentBinariesDirectoryPath")
+    checkPaths(properties.additionalDirectoriesWithLicenses, "productProperties.additionalDirectoriesWithLicenses")
+
+    def winCustomizer = buildContext.windowsDistributionCustomizer
+    checkPaths([winCustomizer?.icoPath], "productProperties.windowsCustomizer.icoPath")
+    checkPaths([winCustomizer?.installerImagesPath], "productProperties.windowsCustomizer.installerImagesPath")
+
+    checkPaths([buildContext.linuxDistributionCustomizer?.iconPngPath], "productProperties.linuxCustomizer.iconPngPath")
+
+    def macCustomizer = buildContext.macDistributionCustomizer
+    checkPaths([macCustomizer?.icnsPath], "productProperties.macCustomizer.icnsPath")
+    checkPaths([macCustomizer?.dmgImagePath], "productProperties.macCustomizer.dmgImagePath")
+    checkPaths([macCustomizer?.dmgImagePathForEAP], "productProperties.macCustomizer.dmgImagePathForEAP")
+  }
+
+  private void checkProductLayout() {
+    ProductModulesLayout layout = buildContext.productProperties.productLayout
+    List<PluginLayout> nonTrivialPlugins = layout.allNonTrivialPlugins
+    def optionalModules = nonTrivialPlugins.collectMany { it.optionalModules } as Set<String>
+    checkPaths(layout.licenseFilesToBuildSearchableOptions, "productProperties.productLayout.licenseFilesToBuildSearchableOptions")
+    checkPluginModules(layout.bundledPluginModules, "productProperties.productLayout.bundledPluginModules", optionalModules)
+    checkPluginModules(layout.pluginModulesToPublish, "productProperties.productLayout.pluginModulesToPublish", optionalModules)
+
+    checkModules(layout.platformApiModules, "productProperties.productLayout.platformApiModules")
+    checkModules(layout.platformImplementationModules, "productProperties.productLayout.platformImplementationModules")
+    checkModules(layout.additionalPlatformJars.values(), "productProperties.productLayout.additionalPlatformJars")
+    checkModules([layout.mainModule], "productProperties.productLayout.mainModule")
+    checkProjectLibraries(layout.projectLibrariesToUnpackIntoMainJar, "productProperties.productLayout.projectLibrariesToUnpackIntoMainJar")
+    nonTrivialPlugins.findAll {layout.enabledPluginModules.contains(it.mainModule)}.each { plugin ->
+      checkModules(plugin.moduleJars.values(), "'$plugin.mainModule' plugin")
+      checkModules(plugin.moduleExcludes.keySet(), "'$plugin.mainModule' plugin")
+      checkProjectLibraries(plugin.includedProjectLibraries, "'$plugin.mainModule' plugin")
+    }
+  }
+
+  private void checkModules(Collection<String> modules, String fieldName) {
+    def unknownModules = modules.findAll {buildContext.findModule(it) == null}
+    if (!unknownModules.empty) {
+      buildContext.messages.error("The following modules from $fieldName aren't found in the project: $unknownModules")
+    }
+  }
+
+  private void checkProjectLibraries(Collection<String> names, String fieldName) {
+    def unknownLibraries = names.findAll {buildContext.project.libraryCollection.findLibrary(it) == null}
+    if (!unknownLibraries.empty) {
+      buildContext.messages.error("The following libraries from $fieldName aren't found in the project: $unknownLibraries")
+    }
+  }
+
+  private void checkPluginModules(List<String> pluginModules, String fieldName, Set<String> optionalModules) {
+    checkModules(pluginModules, fieldName)
+    def unknownBundledPluginModules = pluginModules.findAll { !optionalModules.contains(it) && buildContext.findFileInModuleSources(it, "META-INF/plugin.xml") == null }
+    if (!unknownBundledPluginModules.empty) {
+      buildContext.messages.error(
+        "The following modules from $fieldName don't contain META-INF/plugin.xml file and aren't specified as optional plugin modules " +
+        "in productProperties.productLayout.allNonTrivialPlugins: $unknownBundledPluginModules. "
+      )
+    }
+  }
+
+  private void checkPaths(Collection<String> paths, String fieldName) {
+    def nonExistingFiles = paths.findAll { it != null && !new File(it).exists() }
+    if (!nonExistingFiles.empty) {
+      buildContext.messages.error("$fieldName contains non-existing path${nonExistingFiles.size() > 1 ? "s" : ""}: ${nonExistingFiles.join(",")}")
+    }
+  }
+
 
   @Override
   void compileProjectAndTests(List<String> includingTestsInModules = []) {
+    compileModules(null, includingTestsInModules)
+  }
+
+  @Override
+  void compileModules(List<String> moduleNames, List<String> includingTestsInModules = []) {
     if (buildContext.options.useCompiledClassesFromProjectOutput) {
       buildContext.messages.info("Compilation skipped, the compiled classes from the project output will be used")
       return
@@ -269,10 +375,119 @@ idea.fatal.error.notification=disabled
       return
     }
 
+    ensureKotlinCompilerAddedToClassPath()
+
     buildContext.projectBuilder.cleanOutput()
-    buildContext.projectBuilder.buildProduction()
+    if (moduleNames == null) {
+      buildContext.projectBuilder.buildProduction()
+    }
+    else {
+      List<String> modulesToBuild = ((moduleNames as Set<String>) +
+        buildContext.proprietaryBuildTools.scrambleTool?.additionalModulesToCompile ?: []) as List<String>
+      List<String> invalidModules = modulesToBuild.findAll {buildContext.findModule(it) == null}
+      if (!invalidModules.empty) {
+        buildContext.messages.warning("The following modules won't be compiled: $invalidModules")
+      }
+      buildContext.projectBuilder.buildModules(modulesToBuild.collect {buildContext.findModule(it)}.findAll {it != null})
+    }
     for (String moduleName : includingTestsInModules) {
       buildContext.projectBuilder.makeModuleTests(buildContext.findModule(moduleName))
     }
+  }
+
+  private void ensureKotlinCompilerAddedToClassPath() {
+    try {
+      Class.forName("org.jetbrains.kotlin.jps.build.KotlinBuilder")
+      return
+    }
+    catch (ClassNotFoundException ignored) {}
+
+    def kotlinPluginLibPath = "$buildContext.paths.communityHome/build/kotlinc/plugin/Kotlin/lib"
+    if (new File(kotlinPluginLibPath).exists()) {
+      ["jps/kotlin-jps-plugin.jar", "kotlin-plugin.jar", "kotlin-runtime.jar"].each {
+        BuildUtils.addToJpsClassPath("$kotlinPluginLibPath/$it", buildContext.ant)
+      }
+    }
+    else {
+      buildContext.messages.error("Could not find Kotlin JARs at $kotlinPluginLibPath: run download_kotlin.gant script to download them")
+    }
+  }
+
+  private <V> List<V> runInParallel(List<BuildTaskRunnable<V>> tasks) {
+    if (!buildContext.options.runBuildStepsInParallel) {
+      return tasks.collect {
+        it.run(buildContext)
+      }
+    }
+
+    List<V> results = buildContext.messages.block("Run parallel tasks") {
+      buildContext.messages.info("Started ${tasks.size()} tasks in parallel: ${tasks.collect { it.taskName }}")
+      def executorService = Executors.newCachedThreadPool()
+      List<Future<V>> futures = tasks.collect { task ->
+        def childContext = buildContext.forkForParallelTask(task.taskName)
+        executorService.submit({
+          def start = System.currentTimeMillis()
+          childContext.messages.onForkStarted()
+          try {
+            return task.run(childContext)
+          }
+          finally {
+            buildContext.messages.info("'$task.taskName' task finished in ${StringUtil.formatDuration(System.currentTimeMillis() - start)}")
+            childContext.messages.onForkFinished()
+          }
+        } as Callable<V>)
+      }
+      futures.collect { it.get() }
+    }
+    buildContext.messages.onAllForksFinished()
+    results
+  }
+
+  @Override
+  void buildUpdaterJar() {
+    new LayoutBuilder(buildContext.ant, buildContext.project, false).layout(buildContext.paths.artifacts) {
+      jar("updater.jar") {
+        module("updater")
+      }
+    }
+  }
+
+  @Override
+  void buildUnpackedDistribution(String targetDirectory) {
+    def jarsBuilder = new DistributionJARsBuilder(buildContext)
+    jarsBuilder.buildJARs()
+    layoutShared()
+/*
+    //todo[nik] uncomment this to update os-specific files (e.g. in 'bin' directory) as well
+    def propertiesFile = patchIdeaPropertiesFile()
+    OsSpecificDistributionBuilder builder;
+    if (SystemInfo.isWindows) {
+      builder = new WindowsDistributionBuilder(buildContext, buildContext.windowsDistributionCustomizer, propertiesFile)
+    }
+    else if (SystemInfo.isLinux) {
+      builder = new LinuxDistributionBuilder(buildContext, buildContext.linuxDistributionCustomizer, propertiesFile)
+    }
+    else if (SystemInfo.isMac) {
+      builder = new MacDistributionBuilder(buildContext, buildContext.macDistributionCustomizer, propertiesFile)
+    }
+    else {
+      buildContext.messages.error("Update from source isn't supported for '$SystemInfo.OS_NAME'")
+      return
+    }
+    def osSpecificDistPath = builder.copyFilesForOsDistribution()
+*/
+    buildContext.ant.copy(todir: targetDirectory) {
+      fileset(dir: buildContext.paths.distAll)
+    }
+  }
+
+  private abstract static class BuildTaskRunnable<V> {
+    final String taskName
+
+    BuildTaskRunnable(String name) {
+      taskName = name
+    }
+
+    abstract V run(BuildContext context)
   }
 }

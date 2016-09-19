@@ -134,7 +134,7 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
         return CLASS_OR_PACKAGE_NAME_KIND; // incomplete code
       }
     }
-    if (i == JavaElementType.PACKAGE_STATEMENT) {
+    if (i == JavaElementType.PACKAGE_STATEMENT || i == JavaElementType.EXPORTS_STATEMENT) {
       return PACKAGE_NAME_KIND;
     }
     if (i == JavaElementType.IMPORT_STATEMENT) {
@@ -174,6 +174,9 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
     if (isCodeFragmentType(i)) {
       PsiJavaCodeReferenceCodeFragment fragment = (PsiJavaCodeReferenceCodeFragment)treeParent.getPsi();
       return fragment.isClassesAccepted() ? CLASS_FQ_OR_PACKAGE_NAME_KIND : PACKAGE_NAME_KIND;
+    }
+    if (i == JavaElementType.USES_STATEMENT || i == JavaElementType.PROVIDES_STATEMENT) {
+      return CLASS_FQ_NAME_KIND;
     }
 
     diagnoseUnknownParent();
@@ -574,7 +577,6 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
       return this;
     }
 
-    List<PsiAnnotation> annotations = getAnnotations();
     String text = qName;
     PsiReferenceParameterList parameterList = getParameterList();
     if (parameterList != null) {
@@ -589,7 +591,6 @@ public class PsiJavaCodeReferenceElementImpl extends CompositePsiElement impleme
       throw new IncorrectOperationException(e.getMessage() + " [qname=" + qName + " class=" + aClass + ";" + aClass.getClass().getName() + "]");
     }
 
-    ((PsiJavaCodeReferenceElementImpl)ref).setAnnotations(annotations);
     getTreeParent().replaceChildInternal(this, (TreeElement)ref.getNode());
 
     if (!preserveQualification) {

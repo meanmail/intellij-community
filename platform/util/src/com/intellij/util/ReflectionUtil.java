@@ -19,6 +19,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.DifferenceFilter;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.JBIterable;
+import com.intellij.util.containers.JBTreeTraverser;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -421,7 +423,6 @@ public class ReflectionUtil {
   private static final Method getConstructorAccessorMethod = getDeclaredMethod(Constructor.class, "getConstructorAccessor");
 
   /** @deprecated private API (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   public static ConstructorAccessor getConstructorAccessor(@NotNull Constructor constructor) {
     if (acquireConstructorAccessorMethod == null || getConstructorAccessorMethod == null) {
       throw new IllegalStateException();
@@ -438,7 +439,6 @@ public class ReflectionUtil {
   }
 
   /** @deprecated private API, use {@link #createInstance(Constructor, Object...)} instead (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   public static <T> T createInstanceViaConstructorAccessor(@NotNull ConstructorAccessor constructorAccessor, @NotNull Object... arguments) {
     try {
       @SuppressWarnings("unchecked") T t = (T)constructorAccessor.newInstance(arguments);
@@ -450,7 +450,6 @@ public class ReflectionUtil {
   }
 
   /** @deprecated private API, use {@link #newInstance(Class)} instead (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   public static <T> T createInstanceViaConstructorAccessor(@NotNull ConstructorAccessor constructorAccessor) {
     try {
       @SuppressWarnings("unchecked") T t = (T)constructorAccessor.newInstance(ArrayUtil.EMPTY_OBJECT_ARRAY);
@@ -459,12 +458,6 @@ public class ReflectionUtil {
     catch (Exception e) {
       throw new RuntimeException(e);
     }
-  }
-
-  /** @deprecated use {@link #newInstance(Class)} instead (this method will fail anyway if non-empty {@code parameterTypes} is passed) */
-  @SuppressWarnings("unused")
-  public static <T> T newInstance(@NotNull Class<T> aClass, @NotNull Class... parameterTypes) {
-    return newInstance(aClass);
   }
 
   /**
@@ -504,7 +497,8 @@ public class ReflectionUtil {
                 }
               }
 
-              @SuppressWarnings("unchecked") T t = (T)constructor1.newInstance(new Object[parameterTypes.length]);
+              @SuppressWarnings("unchecked")
+              T t = (T)constructor1.newInstance(new Object[parameterTypes.length]);
               return t;
             }
             catch (Exception e1) {
@@ -628,4 +622,16 @@ public class ReflectionUtil {
   public static boolean isAssignable(@NotNull Class<?> ancestor, @NotNull Class<?> descendant) {
     return ancestor == descendant || ancestor.isAssignableFrom(descendant);
   }
+
+  @NotNull
+  public static JBTreeTraverser<Class> classTraverser(@Nullable Class root) {
+    return new JBTreeTraverser<Class>(CLASS_STRUCTURE).unique().withRoot(root);
+  }
+
+  private static final Function<Class, Iterable<Class>> CLASS_STRUCTURE = new Function<Class, Iterable<Class>>() {
+    @Override
+    public Iterable<Class> fun(Class aClass) {
+      return JBIterable.of(aClass.getSuperclass()).append(aClass.getInterfaces());
+    }
+  };
 }

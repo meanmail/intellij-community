@@ -68,9 +68,8 @@ import javax.swing.plaf.ButtonUI;
 import javax.swing.plaf.ColorUIResource;
 import javax.swing.plaf.UIResource;
 import javax.swing.text.*;
-import javax.swing.text.html.HTMLEditorKit;
+import javax.swing.text.html.*;
 import javax.swing.text.html.ParagraphView;
-import javax.swing.text.html.StyleSheet;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.geom.Rectangle2D;
@@ -102,7 +101,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
   @Override
   @NotNull
   public <T extends Notification> T[] getNotificationsOfType(@NotNull Class<T> klass, @Nullable final Project project) {
-    final List<T> result = new ArrayList<T>();
+    final List<T> result = new ArrayList<>();
     if (project == null || !project.isDefault() && !project.isDisposed()) {
       for (Notification notification : EventLog.getLogModel(project).getNotifications()) {
         if (klass.isInstance(notification)) {
@@ -243,7 +242,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
       final ProjectManager projectManager = ProjectManager.getInstance();
       final boolean noProjects = projectManager.getOpenProjects().length == 0;
       final boolean sticky = NotificationDisplayType.STICKY_BALLOON == displayType || noProjects;
-      Ref<Object> layoutDataRef = newEnabled() ? new Ref<Object>() : null;
+      Ref<Object> layoutDataRef = newEnabled() ? new Ref<>() : null;
       if (layoutDataRef != null) {
         if (project == null || project.isDefault()) {
           BalloonLayoutData layoutData = new BalloonLayoutData();
@@ -430,7 +429,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
       buttons.setOpaque(false);
       content.add(BorderLayout.SOUTH, buttons);
 
-      final Ref<JButton> defaultButton = new Ref<JButton>();
+      final Ref<JButton> defaultButton = new Ref<>();
 
       NotificationActionProvider provider = (NotificationActionProvider)notification;
       for (NotificationActionProvider.Action action : provider.getActions(listener)) {
@@ -676,7 +675,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
 
       text.setCaret(new TextCaret(layoutData));
 
-      expandAction = new LinkLabel<Void>(null, AllIcons.Ide.Notification.Expand, new LinkListener<Void>() {
+      expandAction = new LinkLabel<>(null, AllIcons.Ide.Notification.Expand, new LinkListener<Void>() {
         @Override
         public void linkSelected(LinkLabel link, Void ignored) {
           layoutData.showMinSize = !layoutData.showMinSize;
@@ -791,6 +790,10 @@ public class NotificationsManagerImpl extends NotificationsManager {
     hoverAdapter.addSource(text);
     hoverAdapter.addSource(pane);
 
+    if (buttons == null && actions) {
+      createActionPanel(notification, centerPanel, layoutData.configuration.actionGap, hoverAdapter);
+    }
+
     if (expandAction != null) {
       hoverAdapter.addComponent(expandAction, component -> {
         Rectangle bounds;
@@ -807,10 +810,6 @@ public class NotificationsManagerImpl extends NotificationsManager {
         }
         return bounds;
       });
-    }
-
-    if (buttons == null && actions) {
-      createActionPanel(notification, centerPanel, layoutData.configuration.actionGap, hoverAdapter);
     }
 
     hoverAdapter.initListeners();
@@ -874,9 +873,6 @@ public class NotificationsManagerImpl extends NotificationsManager {
   public static void configureBalloonScrollPane(@NotNull JScrollPane pane, @NotNull Color fillColor) {
     pane.setOpaque(false);
     pane.getViewport().setOpaque(false);
-    if (!Registry.is("ide.scroll.new.layout")) {
-      pane.getVerticalScrollBar().setUI(ButtonlessScrollBarUI.createTransparent());
-    }
     pane.setBackground(fillColor);
     pane.getViewport().setBackground(fillColor);
     pane.getVerticalScrollBar().setBackground(fillColor);
@@ -915,7 +911,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
       Presentation presentation = action.getTemplatePresentation();
       actionPanel.add(
         HorizontalLayout.LEFT,
-        new LinkLabel<AnAction>(presentation.getText(), presentation.getIcon(), new LinkListener<AnAction>() {
+        new LinkLabel<>(presentation.getText(), presentation.getIcon(), new LinkListener<AnAction>() {
           @Override
           public void linkSelected(LinkLabel aSource, AnAction action) {
             Notification.fire(notification, action);
@@ -981,6 +977,18 @@ public class NotificationsManagerImpl extends NotificationsManager {
     }
 
     private void handleEvent(MouseEvent e, boolean pressed, boolean moved) {
+      if (e.getSource() instanceof JEditorPane) {
+        JEditorPane pane = (JEditorPane)e.getSource();
+        int pos = pane.viewToModel(e.getPoint());
+        if (pos >= 0) {
+          HTMLDocument document = (HTMLDocument)pane.getDocument();
+          AttributeSet attributes = document.getCharacterElement(pos).getAttributes();
+          if (attributes.getAttribute(HTML.Tag.A) != null) {
+            return;
+          }
+        }
+      }
+
       for (Pair<Component, ?> p : myComponents) {
         Component component = p.first;
         Rectangle bounds;
@@ -989,6 +997,7 @@ public class NotificationsManagerImpl extends NotificationsManager {
           JBInsets.addTo(bounds, (Insets)p.second);
         }
         else {
+          //noinspection unchecked
           bounds = ((Function<Component, Rectangle>)p.second).fun(component);
         }
         if (bounds.contains(SwingUtilities.convertPoint(e.getComponent(), e.getPoint(), component.getParent()))) {

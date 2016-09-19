@@ -15,7 +15,6 @@
  */
 package com.intellij.ide.startup.impl;
 
-import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.ide.startup.StartupManagerEx;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
@@ -43,6 +42,7 @@ import com.intellij.openapi.vfs.impl.local.FileWatcher;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
+import com.intellij.project.ProjectKt;
 import com.intellij.util.PathUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.TimeoutUtil;
@@ -210,7 +210,7 @@ public class StartupManagerImpl extends StartupManagerEx {
       if (!app.isHeadlessEnvironment()) {
         final long sessionId = VirtualFileManager.getInstance().asyncRefresh(null);
         final MessageBusConnection connection = app.getMessageBus().connect();
-        connection.subscribe(ProjectLifecycleListener.TOPIC, new ProjectLifecycleListener.Adapter() {
+        connection.subscribe(ProjectLifecycleListener.TOPIC, new ProjectLifecycleListener() {
           @Override
           public void afterProjectClosed(@NotNull Project project) {
             if (project != myProject) return;
@@ -242,7 +242,7 @@ public class StartupManagerImpl extends StartupManagerEx {
       if (path == null || FileUtil.isAncestor(PathManager.getConfigPath(), path, true)) {
         return;
       }
-      if (ProjectUtil.isDirectoryBased(myProject)) {
+      if (ProjectKt.isDirectoryBased(myProject)) {
         path = PathUtil.getParentPath(path);
       }
 
@@ -281,7 +281,7 @@ public class StartupManagerImpl extends StartupManagerEx {
 
       Collection<String> manualWatchRoots = watcher.getManualWatchRoots();
       if (!manualWatchRoots.isEmpty()) {
-        List<String> nonWatched = new SmartList<String>();
+        List<String> nonWatched = new SmartList<>();
         for (VirtualFile root : roots) {
           if (!(root.getFileSystem() instanceof LocalFileSystem)) continue;
           String rootPath = root.getPath();
@@ -370,7 +370,7 @@ public class StartupManagerImpl extends StartupManagerEx {
         action.run();
       }
     };
-    if (application.isDispatchThread() && ModalityState.current() == ModalityState.NON_MODAL) {
+    if (application.isDispatchThread()) {
       runnable.run();
     }
     else {

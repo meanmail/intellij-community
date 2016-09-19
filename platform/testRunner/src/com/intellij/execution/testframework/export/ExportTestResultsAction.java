@@ -25,7 +25,6 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -179,8 +178,8 @@ public class ExportTestResultsAction extends DumbAwareAction {
             return;
           }
 
-          final Ref<VirtualFile> result = new Ref<VirtualFile>();
-          final Ref<String> error = new Ref<String>();
+          final Ref<VirtualFile> result = new Ref<>();
+          final Ref<String> error = new Ref<>();
           ApplicationManager.getApplication().invokeAndWait(new Runnable() {
             @Override
             public void run() {
@@ -210,7 +209,7 @@ public class ExportTestResultsAction extends DumbAwareAction {
                 }
               }));
             }
-          }, ModalityState.defaultModalityState());
+          });
 
           if (!result.isNull()) {
             if (config.isOpenResults()) {

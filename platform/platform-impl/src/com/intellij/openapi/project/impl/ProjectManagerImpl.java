@@ -136,7 +136,7 @@ public class ProjectManagerImpl extends ProjectManagerEx implements Disposable {
   public static int TEST_PROJECTS_CREATED;
   private static final boolean LOG_PROJECT_LEAKAGE_IN_TESTS = true;
   private static final int MAX_LEAKY_PROJECTS = 42;
-  @SuppressWarnings("FieldCanBeLocal") private final Map<Project, String> myProjects = new WeakHashMap<Project, String>();
+  @SuppressWarnings("FieldCanBeLocal") private final Map<Project, String> myProjects = new WeakHashMap<>();
 
   @Nullable
   public Project newProject(@Nullable String projectName, @NotNull String filePath, boolean useDefaultProjectSettings, boolean isDummy) {
@@ -154,7 +154,7 @@ public class ProjectManagerImpl extends ProjectManagerEx implements Disposable {
         }
 
         if (myProjects.size() >= MAX_LEAKY_PROJECTS) {
-          List<Project> copy = new ArrayList<Project>(myProjects.keySet());
+          List<Project> copy = new ArrayList<>(myProjects.keySet());
           myProjects.clear();
           throw new TooManyProjectLeakedException(copy);
         }
@@ -536,6 +536,11 @@ public class ProjectManagerImpl extends ProjectManagerEx implements Disposable {
   }
 
   public boolean closeProject(@NotNull final Project project, final boolean save, final boolean dispose, boolean checkCanClose) {
+    if (ApplicationManager.getApplication().isWriteAccessAllowed()) {
+      throw new IllegalStateException("Must not call closeProject() from under write action because fireProjectClosing() listeners must have a chance to do something useful");
+    };
+    ApplicationManager.getApplication().assertIsDispatchThread();
+
     if (isLight(project)) {
       // if we close project at the end of the test, just mark it closed; if we are shutting down the entire test framework, proceed to full dispose
       if (!((ProjectImpl)project).isTemporarilyDisposed()) {
@@ -561,7 +566,6 @@ public class ProjectManagerImpl extends ProjectManagerEx implements Disposable {
         return false;
       }
 
-      LOG.assertTrue(!ApplicationManager.getApplication().isWriteAccessAllowed(), "Must not call closeProject() from under write action because fireProjectClosing() listeners must have a chance to do something useful");
       fireProjectClosing(project); // somebody can start progress here, do not wrap in write action
 
       ApplicationManager.getApplication().runWriteAction(() -> {

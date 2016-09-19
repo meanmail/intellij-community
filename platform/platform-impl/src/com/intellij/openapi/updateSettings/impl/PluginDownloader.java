@@ -218,7 +218,7 @@ public class PluginDownloader {
       StartupActionScriptManager.ActionCommand deleteOld = new StartupActionScriptManager.DeleteCommand(myOldFile);
       StartupActionScriptManager.addActionCommand(deleteOld);
     }
-    PluginInstaller.install(myFile, getPluginName(), true);
+    PluginInstaller.install(myFile, getPluginName(), true, myDescriptor);
     InstalledPluginsState state = InstalledPluginsState.getInstanceIfLoaded();
     if (state != null) {
       state.onPluginInstall(myDescriptor);
@@ -269,6 +269,7 @@ public class PluginDownloader {
     if (fileName == null) {
       // try to find a filename in an URL
       final String usedURL = connection.getURL().toString();
+      LOG.debug("url: " + usedURL);
       fileName = usedURL.substring(usedURL.lastIndexOf('/') + 1);
       if (fileName.length() == 0 || fileName.contains("?")) {
         fileName = myPluginUrl.substring(myPluginUrl.lastIndexOf('/') + 1);
@@ -276,6 +277,7 @@ public class PluginDownloader {
     }
 
     if (!PathUtil.isValidFileName(fileName)) {
+      LOG.debug("fileName: " + fileName);
       FileUtil.delete(file);
       throw new IOException("Invalid filename returned by a server");
     }
@@ -314,7 +316,7 @@ public class PluginDownloader {
         depends = ((PluginNode)descriptor).getDepends();
       }
       else {
-        depends = new ArrayList<PluginId>(Arrays.asList(descriptor.getDependentPluginIds()));
+        depends = new ArrayList<>(Arrays.asList(descriptor.getDependentPluginIds()));
       }
       downloader.setDepends(depends);
       return downloader;

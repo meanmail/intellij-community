@@ -26,6 +26,8 @@ import com.intellij.openapi.components.*
 import com.intellij.openapi.components.StateStorage.SaveSession
 import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.IProjectStore
+import com.intellij.openapi.components.impl.stores.StoreUtil
+import com.intellij.openapi.diagnostic.catchAndLog
 import com.intellij.openapi.module.Module
 import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.project.Project
@@ -39,9 +41,13 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.ReadonlyStatusHandler
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.util.*
+import com.intellij.util.PathUtilRt
+import com.intellij.util.SmartList
+import com.intellij.util.containers.forEachGuaranteed
 import com.intellij.util.containers.isNullOrEmpty
+import com.intellij.util.io.*
 import com.intellij.util.lang.CompoundRuntimeException
+import org.jdom.Element
 import java.io.File
 import java.io.IOException
 import java.nio.file.Path
@@ -53,8 +59,8 @@ const val PROJECT_CONFIG_DIR = "\$PROJECT_CONFIG_DIR$"
 val IProjectStore.nameFile: Path
   get() = Paths.get(projectBasePath, Project.DIRECTORY_STORE_FOLDER, ProjectImpl.NAME_FILE)
 
-internal val PROJECT_FILE_STORAGE_ANNOTATION = ProjectFileStorageAnnotation(PROJECT_FILE, false)
-internal val DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION = ProjectFileStorageAnnotation(PROJECT_FILE, true)
+internal val PROJECT_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(PROJECT_FILE, false)
+internal val DEPRECATED_PROJECT_FILE_STORAGE_ANNOTATION = FileStorageAnnotation(PROJECT_FILE, true)
 
 abstract class ProjectStoreBase(override final val project: ProjectImpl) : ComponentStoreImpl(), IProjectStore {
   // protected setter used in upsource
@@ -90,10 +96,11 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
   override final fun loadProjectFromTemplate(defaultProject: Project) {
     defaultProject.save()
 
-    val element = (defaultProject.stateStore as DefaultProjectStoreImpl).getStateCopy()
-    if (element != null) {
-      (storageManager.getOrCreateStorage(PROJECT_FILE) as XmlElementStorage).setDefaultState(element)
+    val element = (defaultProject.stateStore as DefaultProjectStoreImpl).getStateCopy() ?: return
+    LOG.catchAndLog {
+      removeWorkspaceComponentConfiguration(defaultProject, element)
     }
+    (storageManager.getOrCreateStorage(PROJECT_FILE) as XmlElementStorage).setDefaultState(element)
   }
 
   override final fun getProjectBasePath(): String {
@@ -373,4 +380,35 @@ private fun useOldWorkspaceContent(filePath: String, ws: File) {
   catch (e: IOException) {
     LOG.error(e)
   }
+}
+
+// public only to test
+fun removeWorkspaceComponentConfiguration(defaultProject: Project, element: Element) {
+  val componentElements = element.getChildren("component")
+  if (componentElements.isEmpty()) {
+    return
+  }
+
+  @Suppress("DEPRECATION")
+  val projectComponents = defaultProject.getComponents(PersistentStateComponent::class.java)
+  projectComponents.forEachGuaranteed {
+    val stateAnnotation = StoreUtil.getStateSpec(it.javaClass)
+    if (stateAnnotation == null || stateAnnotation.name.isNullOrEmpty()) {
+      return@forEachGuaranteed
+    }
+
+    val storage = stateAnnotation.storages.sortByDeprecated().firstOrNull() ?: return@forEachGuaranteed
+    if (storage.path != StoragePathMacros.WORKSPACE_FILE) {
+      return@forEachGuaranteed
+    }
+
+    val iterator = componentElements.iterator()
+    for (componentElement in iterator) {
+      if (componentElement.getAttributeValue("name") == stateAnnotation.name) {
+        iterator.remove()
+        break
+      }
+    }
+  }
+  return
 }

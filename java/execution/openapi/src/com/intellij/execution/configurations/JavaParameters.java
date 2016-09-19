@@ -27,7 +27,6 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.PathsList;
-import com.intellij.util.Processor;
 import com.intellij.util.text.VersionComparatorUtil;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
@@ -116,7 +115,6 @@ public class JavaParameters extends SimpleJavaParameters {
   }
 
   /** @deprecated use {@link #getValidJdkToRunModule(Module, boolean)} instead */
-  @SuppressWarnings("unused")
   public static Sdk getModuleJdk(final Module module) throws CantRunException {
     return getValidJdkToRunModule(module, false);
   }
@@ -141,7 +139,7 @@ public class JavaParameters extends SimpleJavaParameters {
       return null;
     }
 
-    final Set<Sdk> sdksFromDependencies = new LinkedHashSet<Sdk>();
+    final Set<Sdk> sdksFromDependencies = new LinkedHashSet<>();
     OrderEnumerator enumerator = OrderEnumerator.orderEntries(module).runtimeOnly().recursively();
     if (productionOnly) {
       enumerator = enumerator.productionOnly();

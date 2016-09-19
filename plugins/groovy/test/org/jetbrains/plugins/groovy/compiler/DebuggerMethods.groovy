@@ -47,7 +47,7 @@ import com.intellij.util.concurrency.Semaphore
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
 
-import static com.intellij.testFramework.UsefulTestCase.edt
+import static com.intellij.testFramework.EdtTestUtil.runInEdtAndWait
 
 @CompileStatic
 trait DebuggerMethods extends CompilerMethods {
@@ -65,7 +65,7 @@ trait DebuggerMethods extends CompilerMethods {
   }
 
   void runDebugger(RunProfile configuration, Closure cl) {
-    edt {
+    runInEdtAndWait {
       def listener = [onTextAvailable: { ProcessEvent evt, type ->
         if (type == ProcessOutputTypes.STDERR) {
           println evt.text
@@ -97,7 +97,7 @@ trait DebuggerMethods extends CompilerMethods {
   }
 
   void addBreakpoint(VirtualFile file, int line) {
-    edt {
+    runInEdtAndWait {
       DebuggerManagerImpl.getInstanceEx(project).breakpointManager.addLineBreakpoint(FileDocumentManager.instance.getDocument(file), line)
     }
   }
@@ -111,7 +111,7 @@ trait DebuggerMethods extends CompilerMethods {
     process.managerThread.schedule {
       semaphore.up()
     }
-    def finished = semaphore.waitFor(ourTimeout);
+    def finished = semaphore.waitFor(ourTimeout)
     assert finished: 'Too long debugger actions'
 
     int i = 0
@@ -144,7 +144,7 @@ trait DebuggerMethods extends CompilerMethods {
   }
 
   void eval(final String codeText, String expected) throws EvaluateException {
-    eval(codeText, expected, null);
+    eval(codeText, expected, null)
   }
 
   void eval(final String codeText, String expected, FileType fileType) throws EvaluateException {

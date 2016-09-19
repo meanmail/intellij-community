@@ -49,9 +49,9 @@ import java.util.*;
 public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRule {
   private static final Logger LOG = Logger.getInstance(GuavaFluentIterableConversionRule.class);
   private static final Map<String, TypeConversionDescriptorFactory> DESCRIPTORS_MAP =
-    new HashMap<String, TypeConversionDescriptorFactory>();
+    new HashMap<>();
 
-  public static final Set<String> CHAIN_HEAD_METHODS = ContainerUtil.newHashSet("from", "of");
+  public static final Set<String> CHAIN_HEAD_METHODS = ContainerUtil.newHashSet("from", "of", "fromNullable");
   public static final String FLUENT_ITERABLE = "com.google.common.collect.FluentIterable";
   public static final String STREAM_COLLECT_TO_LIST = "$it$.collect(java.util.stream.Collectors.toList())";
 
@@ -229,6 +229,24 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
       };
       needSpecifyType = false;
     }
+    else if (methodName.equals("last")) {
+      descriptorBase = new TypeConversionDescriptor("$it$.last()", null) {
+        @Override
+        public PsiExpression replace(PsiExpression expression, TypeEvaluator evaluator) {
+          final JavaCodeStyleManager codeStyleManager = JavaCodeStyleManager.getInstance(expression.getProject());
+          String varA = suggestName("a", codeStyleManager, expression);
+          String varB = suggestName("b", codeStyleManager, expression);
+          setReplaceByString("$it$.reduce((" + varA + ", " + varB + ") -> " + varB + ")");
+          return super.replace(expression, evaluator);
+        }
+
+        private  String suggestName(String baseName, JavaCodeStyleManager codeStyleManager, PsiElement place) {
+          final SuggestedNameInfo suggestedNameInfo = codeStyleManager
+            .suggestVariableName(VariableKind.LOCAL_VARIABLE, baseName, null, null, false);
+          return codeStyleManager.suggestUniqueVariableName(suggestedNameInfo, place, false).names[0];
+        }
+      };
+    }
     else {
       final TypeConversionDescriptorFactory base = DESCRIPTORS_MAP.get(methodName);
       if (base != null) {
@@ -281,7 +299,7 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
   public static GuavaChainedConversionDescriptor buildCompoundDescriptor(PsiMethodCallExpression expression,
                                                                           PsiType to,
                                                                           TypeMigrationLabeler labeler) {
-    List<TypeConversionDescriptorBase> methodDescriptors = new SmartList<TypeConversionDescriptorBase>();
+    List<TypeConversionDescriptorBase> methodDescriptors = new SmartList<>();
 
     NotNullLazyValue<TypeConversionRule> optionalDescriptor = new NotNullLazyValue<TypeConversionRule>() {
       @NotNull
@@ -334,7 +352,8 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
           return null;
         }
         final PsiClass aClass = method.getContainingClass();
-        if (aClass == null || !FLUENT_ITERABLE.equals(aClass.getQualifiedName())) {
+        if (aClass == null || !(FLUENT_ITERABLE.equals(aClass.getQualifiedName()) ||
+                                GuavaOptionalConversionRule.GUAVA_OPTIONAL.equals(aClass.getQualifiedName()))) {
           return null;
         }
         break;
@@ -370,14 +389,14 @@ public class GuavaFluentIterableConversionRule extends BaseGuavaTypeConversionRu
     private final PsiType myToType;
 
     private GuavaChainedConversionDescriptor(List<TypeConversionDescriptorBase> descriptors, PsiType to) {
-      myMethodDescriptors = new ArrayList<TypeConversionDescriptorBase>(descriptors);
+      myMethodDescriptors = new ArrayList<>(descriptors);
       Collections.reverse(myMethodDescriptors);
       myToType = to;
     }
 
     @Override
     public PsiExpression replace(@NotNull PsiExpression expression, TypeEvaluator evaluator) throws IncorrectOperationException {
-      Stack<PsiMethodCallExpression> methodChainStack = new Stack<PsiMethodCallExpression>();
+      Stack<PsiMethodCallExpression> methodChainStack = new Stack<>();
       PsiMethodCallExpression current = (PsiMethodCallExpression) expression;
       while (current != null) {
         methodChainStack.add(current);

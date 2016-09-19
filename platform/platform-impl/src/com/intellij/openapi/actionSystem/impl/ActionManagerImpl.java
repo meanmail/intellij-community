@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -116,18 +116,18 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
   private static final int TIMER_DELAY = 500;
   private static final int UPDATE_DELAY_AFTER_TYPING = 500;
   private final Object myLock = new Object();
-  private final Map<String,AnAction> myId2Action = new THashMap<String, AnAction>();
-  private final Map<PluginId, THashSet<String>> myPlugin2Id = new THashMap<PluginId, THashSet<String>>();
-  private final TObjectIntHashMap<String> myId2Index = new TObjectIntHashMap<String>();
-  private final Map<Object,String> myAction2Id = new THashMap<Object, String>();
-  private final MultiMap<String,String> myId2GroupId = new MultiMap<String, String>();
-  private final List<String> myNotRegisteredInternalActionIds = new ArrayList<String>();
+  private final Map<String,AnAction> myId2Action = new THashMap<>();
+  private final Map<PluginId, THashSet<String>> myPlugin2Id = new THashMap<>();
+  private final TObjectIntHashMap<String> myId2Index = new TObjectIntHashMap<>();
+  private final Map<Object,String> myAction2Id = new THashMap<>();
+  private final MultiMap<String,String> myId2GroupId = new MultiMap<>();
+  private final List<String> myNotRegisteredInternalActionIds = new ArrayList<>();
   private final List<AnActionListener> myActionListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final KeymapManager myKeymapManager;
   private final DataManager myDataManager;
-  private final List<ActionPopupMenuImpl> myPopups = new ArrayList<ActionPopupMenuImpl>();
-  private final Map<AnAction, DataContext> myQueuedNotifications = new LinkedHashMap<AnAction, DataContext>();
-  private final Map<AnAction, AnActionEvent> myQueuedNotificationsEvents = new LinkedHashMap<AnAction, AnActionEvent>();
+  private final List<ActionPopupMenuImpl> myPopups = new ArrayList<>();
+  private final Map<AnAction, DataContext> myQueuedNotifications = new LinkedHashMap<>();
+  private final Map<AnAction, AnActionEvent> myQueuedNotificationsEvents = new LinkedHashMap<>();
   private MyTimer myTimer;
   private int myRegisteredActionsCount;
   private String myLastPreformedActionId;
@@ -482,20 +482,25 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
   }
 
   private AnAction getActionImpl(String id, boolean canReturnStub) {
+    AnAction action;
     synchronized (myLock) {
-      AnAction action = myId2Action.get(id);
-      if (!canReturnStub && action instanceof ActionStub) {
-        action = convert((ActionStub)action);
+      action = myId2Action.get(id);
+      if (canReturnStub || !(action instanceof ActionStub)) {
+        return action;
+      }
+    }
+    AnAction converted = convertStub((ActionStub)action);
+    synchronized (myLock) {
+      action = myId2Action.get(id);
+      if (action instanceof ActionStub) {
+        action = replaceStub((ActionStub)action, converted);
       }
       return action;
     }
   }
 
-  /**
-   * Converts action's stub to normal action.
-   */
   @NotNull
-  private AnAction convert(@NotNull ActionStub stub) {
+  private AnAction replaceStub(@NotNull ActionStub stub, AnAction anAction) {
     LOG.assertTrue(myAction2Id.containsKey(stub));
     myAction2Id.remove(stub);
 
@@ -505,7 +510,6 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
     LOG.assertTrue(action != null);
     LOG.assertTrue(action.equals(stub));
 
-    AnAction anAction = convertStub(stub);
     myAction2Id.put(anAction, stub.getId());
 
     return addToMap(stub.getId(), anAction, stub.getPluginId(), stub.getProjectType());
@@ -522,7 +526,7 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
   @Override
   public String[] getActionIds(@NotNull String idPrefix) {
     synchronized (myLock) {
-      ArrayList<String> idList = new ArrayList<String>();
+      ArrayList<String> idList = new ArrayList<>();
       for (String id : myId2Action.keySet()) {
         if (id.startsWith(idPrefix)) {
           idList.add(id);
@@ -989,12 +993,7 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
       myId2Index.put(actionId, myRegisteredActionsCount++);
       myAction2Id.put(action, actionId);
       if (pluginId != null && !(action instanceof ActionGroup)){
-        THashSet<String> pluginActionIds = myPlugin2Id.get(pluginId);
-        if (pluginActionIds == null){
-          pluginActionIds = new THashSet<String>();
-          myPlugin2Id.put(pluginId, pluginActionIds);
-        }
-        pluginActionIds.add(actionId);
+        myPlugin2Id.computeIfAbsent(pluginId, k -> new THashSet<>()).add(actionId);
       }
       action.registerCustomShortcutSet(new ProxyShortcutSet(actionId, myKeymapManager), null);
     }
@@ -1241,7 +1240,7 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
 
   public Set<String> getActionIds(){
     synchronized (myLock) {
-      return new HashSet<String>(myId2Action.keySet());
+      return new HashSet<>(myId2Action.keySet());
     }
   }
 
@@ -1386,7 +1385,7 @@ public final class ActionManagerImpl extends ActionManagerEx implements Disposab
       boolean transparentOnly = myLastTimePerformed == lastEventCount;
 
       try {
-        Set<TimerListener> notified = new HashSet<TimerListener>();
+        Set<TimerListener> notified = new HashSet<>();
         myTransparentOnlyUpdate = transparentOnly;
         notifyListeners(myTransparentTimerListeners, notified);
 

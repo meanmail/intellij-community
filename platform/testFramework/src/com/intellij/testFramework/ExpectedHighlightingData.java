@@ -40,7 +40,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.rt.execution.junit.FileComparisonFailure;
 import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.util.ConstantFunction;
-import com.intellij.util.Function;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashMap;
@@ -83,12 +82,12 @@ public class ExpectedHighlightingData {
       this.severity = severity;
       this.endOfLine = endOfLine;
       this.enabled = enabled;
-      this.infos = new THashSet<HighlightInfo>();
+      this.infos = new THashSet<>();
     }
   }
 
-  private final Map<String, ExpectedHighlightingSet> myHighlightingTypes = new LinkedHashMap<String, ExpectedHighlightingSet>();
-  private final Map<RangeMarker, LineMarkerInfo> myLineMarkerInfos = new THashMap<RangeMarker, LineMarkerInfo>();
+  private final Map<String, ExpectedHighlightingSet> myHighlightingTypes = new LinkedHashMap<>();
+  private final Map<RangeMarker, LineMarkerInfo> myLineMarkerInfos = new THashMap<>();
   private final Document myDocument;
   @SuppressWarnings("StatefulEp") private final PsiFile myFile;
   private final String myText;
@@ -190,7 +189,8 @@ public class ExpectedHighlightingData {
       assert element != null : value;
       TextRange range = new TextRange(startOffset, endOffset);
       final String tooltip = value.getLineMarkerTooltip();
-      LineMarkerInfo markerInfo = new LineMarkerInfo<PsiElement>(element, range, null, value.updatePass, e -> tooltip, null, GutterIconRenderer.Alignment.RIGHT);
+      LineMarkerInfo markerInfo =
+        new LineMarkerInfo<>(element, range, null, value.updatePass, e -> tooltip, null, GutterIconRenderer.Alignment.RIGHT);
       entry.setValue(markerInfo);
     }
   }
@@ -221,7 +221,7 @@ public class ExpectedHighlightingData {
       endOffset -= endTag.length();
 
       LineMarkerInfo markerInfo = new LineMarkerInfo<PsiElement>(myFile, new TextRange(startOffset, endOffset), null, Pass.LINE_MARKERS,
-                                                                 new ConstantFunction<PsiElement, String>(descr), null,
+                                                                 new ConstantFunction<>(descr), null,
                                                                  GutterIconRenderer.Alignment.RIGHT);
 
       myLineMarkerInfos.put(document.createRangeMarker(startOffset, endOffset), markerInfo);
@@ -453,7 +453,7 @@ public class ExpectedHighlightingData {
   }
 
   private static <T> List<T> reverseCollection(Collection<T> infos) {
-    return ContainerUtil.reverse(infos instanceof List ? (List<T>)infos : new ArrayList<T>(infos));
+    return ContainerUtil.reverse(infos instanceof List ? (List<T>)infos : new ArrayList<>(infos));
   }
 
   private void compareTexts(Collection<HighlightInfo> infos, String text, String failMessage, @Nullable String filePath) {
@@ -611,10 +611,8 @@ public class ExpectedHighlightingData {
   }
 
   /** @deprecated use {@link #registerHighlightingType(String, ExpectedHighlightingSet)} (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   protected final Map<String, ExpectedHighlightingSet> highlightingTypes = myHighlightingTypes;
 
   /** @deprecated use {@link #registerHighlightingType(String, ExpectedHighlightingSet)} (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   protected void initAdditionalHighlightingTypes() { }
 }

@@ -63,14 +63,14 @@ public class DeferredIconImpl<T> implements DeferredIcon, RetrievableIcon, Scala
   private float myScale = 1f;
   private Icon myOriginalDeferredIcon = null;
 
-  private static final Executor ourIconsCalculatingExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor(1);
+  private static final Executor ourIconsCalculatingExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("ourIconsCalculating pool",1);
 
   private final IconListener<T> myEvalListener;
   private static final TransferToEDTQueue<Runnable> ourLaterInvocator = TransferToEDTQueue.createRunnableMerger("Deferred icon later invocator", 200);
 
   @Override
   public Icon scale(final float scaleFactor) {
-    if (scaleFactor != myScale) {
+    if (scaleFactor != myScale && myDelegateIcon instanceof ScalableIcon) {
       myDelegateIcon = ((ScalableIcon)myDelegateIcon).scale(myScale = scaleFactor);
     }
     return this;
@@ -308,7 +308,7 @@ public class DeferredIconImpl<T> implements DeferredIcon, RetrievableIcon, Scala
 
   private static class RepaintScheduler {
     private final Alarm myAlarm = new Alarm();
-    private final Set<RepaintRequest> myQueue = new LinkedHashSet<RepaintRequest>();
+    private final Set<RepaintRequest> myQueue = new LinkedHashSet<>();
 
     private void pushDirtyComponent(@NotNull Component c, final Rectangle rec) {
       ApplicationManager.getApplication().assertIsDispatchThread(); // assert myQueue accessed from EDT only

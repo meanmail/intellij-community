@@ -20,6 +20,7 @@
  */
 package com.intellij.codeInspection.ex;
 
+import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInspection.CommonProblemDescriptor;
 import com.intellij.codeInspection.QuickFix;
 import com.intellij.codeInspection.reference.RefDirectory;
@@ -27,6 +28,7 @@ import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefModule;
 import com.intellij.codeInspection.ui.*;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -67,13 +69,13 @@ public abstract class InspectionRVContentProvider {
       if (myEntity == null) return null;
       final RefEntity entity = myEntity.getOwner();
       return entity instanceof RefElement && !(entity instanceof RefDirectory)
-             ? new RefEntityContainer<Descriptor>(entity, myDescriptors)
+             ? new RefEntityContainer<>(entity, myDescriptors)
              : null;
     }
 
     @NotNull
     public RefElementNode createNode(@NotNull InspectionToolPresentation presentation) {
-      return new RefElementNode(myEntity, presentation);
+      return ReadAction.compute(() -> presentation.createRefNode(myEntity));
     }
 
     @Nullable
@@ -171,7 +173,7 @@ public abstract class InspectionRVContentProvider {
                                @NotNull Function<T, RefEntityContainer<?>> computeContainer,
                                final boolean showStructure,
                                final UnaryOperator<InspectionTreeNode> createdNodesConsumer) {
-    final Map<String, Map<String, InspectionPackageNode>> module2PackageMap = new HashMap<String, Map<String, InspectionPackageNode>>();
+    final Map<String, Map<String, InspectionPackageNode>> module2PackageMap = new HashMap<>();
     boolean supportStructure = showStructure;
     final MultiMap<InspectionPackageNode, RefEntityContainer<?>> packageDescriptors = new MultiMap<>();
     for (String packageName : packageContents.keySet()) {
@@ -182,7 +184,7 @@ public abstract class InspectionRVContentProvider {
         final String moduleName = showStructure ? container.getModule() : null;
         Map<String, InspectionPackageNode> packageNodes = module2PackageMap.get(moduleName);
         if (packageNodes == null) {
-          packageNodes = new HashMap<String, InspectionPackageNode>();
+          packageNodes = new HashMap<>();
           module2PackageMap.put(moduleName, packageNodes);
         }
         InspectionPackageNode pNode = packageNodes.get(packageName);
@@ -196,14 +198,14 @@ public abstract class InspectionRVContentProvider {
     }
 
     if (supportStructure) {
-      final HashMap<String, InspectionModuleNode> moduleNodes = new HashMap<String, InspectionModuleNode>();
+      final HashMap<String, InspectionModuleNode> moduleNodes = new HashMap<>();
       for (final String moduleName : module2PackageMap.keySet()) {
         final Map<String, InspectionPackageNode> packageNodes = module2PackageMap.get(moduleName);
         InspectionModuleNode moduleNode = moduleNodes.get(moduleName);
 
         if (moduleNode == null) {
           if (moduleName != null) {
-            final Module module = ModuleManager.getInstance(myProject).findModuleByName(moduleName);
+            final Module module = ReadAction.compute(() -> ModuleManager.getInstance(myProject).findModuleByName(moduleName));
             if (module != null) {
               moduleNode = new InspectionModuleNode(module);
               moduleNodes.put(moduleName, moduleNode);
@@ -259,7 +261,7 @@ public abstract class InspectionRVContentProvider {
             }
             LOG.assertTrue(childNode instanceof RefElementNode, childNode.getClass().getName());
             final RefElementNode elementNode = (RefElementNode)childNode;
-            final Set<RefElementNode> parentNodes = new LinkedHashSet<RefElementNode>();
+            final Set<RefElementNode> parentNodes = new LinkedHashSet<>();
             if (pNode.getPackageName() != null) {
               parentNodes.add(elementNode);
             } else {
@@ -278,21 +280,22 @@ public abstract class InspectionRVContentProvider {
                 continue;
               }
             }
-            for (RefElementNode parentNode : parentNodes) {
-              final List<ProblemDescriptionNode> nodes = new ArrayList<ProblemDescriptionNode>();
-              TreeUtil.traverse(parentNode, new TreeUtil.Traverse() {
-                @Override
-                public boolean accept(final Object node) {
+
+            //allow unused declaration to have structure at file level even when there are unused parameters
+            if (!HighlightInfoType.UNUSED_SYMBOL_SHORT_NAME.equals(toolWrapper.getShortName())) {
+              for (RefElementNode parentNode : parentNodes) {
+                final List<ProblemDescriptionNode> nodes = new ArrayList<>();
+                TreeUtil.traverse(parentNode, node -> {
                   if (node instanceof ProblemDescriptionNode) {
                     nodes.add((ProblemDescriptionNode)node);
                   }
                   return true;
+                });
+                if (nodes.isEmpty()) continue;
+                parentNode.removeAllChildren();
+                for (ProblemDescriptionNode node : nodes) {
+                  parentNode.add(node);
                 }
-              });
-              if (nodes.isEmpty()) continue;  //FilteringInspectionTool == DeadCode
-              parentNode.removeAllChildren();
-              for (ProblemDescriptionNode node : nodes) {
-                parentNode.add(node);
               }
             }
             for (RefElementNode node : parentNodes) {
@@ -309,34 +312,31 @@ public abstract class InspectionRVContentProvider {
                                                   @NotNull InspectionToolPresentation presentation,
                                                   final InspectionTreeNode parentNode) {
     final RefElementNode nodeToBeAdded = container.createNode(presentation);
-    final Ref<Boolean> firstLevel = new Ref<Boolean>(true);
+    final Ref<Boolean> firstLevel = new Ref<>(true);
     RefElementNode prevNode = null;
-    final Ref<RefElementNode> result = new Ref<RefElementNode>();
+    final Ref<RefElementNode> result = new Ref<>();
     while (true) {
       final RefElementNode currentNode = firstLevel.get() ? nodeToBeAdded : container.createNode(presentation);
       final RefEntityContainer finalContainer = container;
       final RefElementNode finalPrevNode = prevNode;
-      TreeUtil.traverseDepth(parentNode, new TreeUtil.Traverse() {
-        @Override
-        public boolean accept(Object node) {
-          if (node instanceof RefElementNode) {
-            final RefElementNode refElementNode = (RefElementNode)node;
-            final RefEntity userObject = finalContainer.getRefEntity();
-            final RefEntity object = refElementNode.getElement();
-            if (userObject != null && object != null && (userObject.getClass().equals(object.getClass())) && finalContainer.areEqual(object, userObject)) {
-              if (firstLevel.get()) {
-                result.set(refElementNode);
-                return false;
-              }
-              else {
-                refElementNode.insertByOrder(finalPrevNode, false);
-                result.set(nodeToBeAdded);
-                return false;
-              }
+      TreeUtil.traverseDepth(parentNode, node -> {
+        if (node instanceof RefElementNode) {
+          final RefElementNode refElementNode = (RefElementNode)node;
+          final RefEntity userObject = finalContainer.getRefEntity();
+          final RefEntity object = refElementNode.getElement();
+          if (userObject != null && object != null && (userObject.getClass().equals(object.getClass())) && finalContainer.areEqual(object, userObject)) {
+            if (firstLevel.get()) {
+              result.set(refElementNode);
+              return false;
+            }
+            else {
+              refElementNode.insertByOrder(finalPrevNode, false);
+              result.set(nodeToBeAdded);
+              return false;
             }
           }
-          return true;
         }
+        return true;
       });
       if(!result.isNull()) return result.get();
 
@@ -356,39 +356,41 @@ public abstract class InspectionRVContentProvider {
 
   @SuppressWarnings({"ConstantConditions"}) //class cast suppression
   public static InspectionTreeNode merge(InspectionTreeNode child, InspectionTreeNode parent, boolean merge) {
-    if (merge) {
-      for (int i = 0; i < parent.getChildCount(); i++) {
-        InspectionTreeNode current = (InspectionTreeNode)parent.getChildAt(i);
-        if (child.getClass() != current.getClass()) {
-          continue;
-        }
-        if (current instanceof InspectionPackageNode) {
-          if (((InspectionPackageNode)current).getPackageName().compareTo(((InspectionPackageNode)child).getPackageName()) == 0) {
-            processDepth(child, current);
-            return current;
+    return ReadAction.compute(() -> {
+      if (merge) {
+        for (int i = 0; i < parent.getChildCount(); i++) {
+          InspectionTreeNode current = (InspectionTreeNode)parent.getChildAt(i);
+          if (child.getClass() != current.getClass()) {
+            continue;
           }
-        }
-        else if (current instanceof RefElementNode) {
-          if (InspectionResultsViewComparator.getInstance().compare(current, child) == 0) {
-            processDepth(child, current);
-            return current;
+          if (current instanceof InspectionPackageNode) {
+            if (((InspectionPackageNode)current).getPackageName().compareTo(((InspectionPackageNode)child).getPackageName()) == 0) {
+              processDepth(child, current);
+              return current;
+            }
           }
-        }
-        else if (current instanceof InspectionNode) {
-          if (((InspectionNode)current).getToolWrapper().getShortName().compareTo(((InspectionNode)child).getToolWrapper().getShortName()) == 0) {
-            processDepth(child, current);
-            return current;
+          else if (current instanceof RefElementNode) {
+            if (InspectionResultsViewComparator.getInstance().compare(current, child) == 0) {
+              processDepth(child, current);
+              return current;
+            }
           }
-        }
-        else if (current instanceof InspectionModuleNode) {
-          if (((InspectionModuleNode)current).getName().compareTo(((InspectionModuleNode)child).getName()) == 0) {
-            processDepth(child, current);
-            return current;
+          else if (current instanceof InspectionNode) {
+            if (((InspectionNode)current).getToolWrapper().getShortName().compareTo(((InspectionNode)child).getToolWrapper().getShortName()) == 0) {
+              processDepth(child, current);
+              return current;
+            }
+          }
+          else if (current instanceof InspectionModuleNode) {
+            if (((InspectionModuleNode)current).getName().compareTo(((InspectionModuleNode)child).getName()) == 0) {
+              processDepth(child, current);
+              return current;
+            }
           }
         }
       }
-    }
-    return parent.insertByOrder(child, false);
+      return parent.insertByOrder(child, false);
+    });
   }
 
   private static void processDepth(final InspectionTreeNode child, final InspectionTreeNode current) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.vcs.checkin;
 
-import com.intellij.ide.impl.ProjectUtil;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.OutOfSourcesChecker;
@@ -24,6 +23,7 @@ import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.project.ProjectKt;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.util.PsiUtilCore;
@@ -41,7 +41,7 @@ import java.util.List;
 public class CheckinHandlerUtil {
   public static List<VirtualFile> filterOutGeneratedAndExcludedFiles(@NotNull Collection<VirtualFile> files, @NotNull Project project) {
     ProjectFileIndex fileIndex = ProjectFileIndex.SERVICE.getInstance(project);
-    List<VirtualFile> result = new ArrayList<VirtualFile>(files.size());
+    List<VirtualFile> result = new ArrayList<>(files.size());
     for (VirtualFile file : files) {
       if (!fileIndex.isExcluded(file) && !GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(file, project)) {
         result.add(file);
@@ -51,11 +51,11 @@ public class CheckinHandlerUtil {
   }
 
   public static PsiFile[] getPsiFiles(final Project project, final Collection<VirtualFile> selectedFiles) {
-    ArrayList<PsiFile> result = new ArrayList<PsiFile>();
+    ArrayList<PsiFile> result = new ArrayList<>();
     PsiManager psiManager = PsiManager.getInstance(project);
 
     VirtualFile projectFileDir = null;
-    if (ProjectUtil.isDirectoryBased(project)) {
+    if (ProjectKt.isDirectoryBased(project)) {
       VirtualFile baseDir = project.getBaseDir();
       if (baseDir != null) {
         projectFileDir = baseDir.findChild(Project.DIRECTORY_STORE_FOLDER);

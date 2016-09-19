@@ -59,7 +59,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -166,7 +165,7 @@ public abstract class AbstractLayoutCodeProcessor {
   {
     myProject = project;
     myModule = null;
-    myFiles = filterFilesTo(files, new ArrayList<PsiFile>());
+    myFiles = filterFilesTo(files, new ArrayList<>());
     myProgressText = progressText;
     myCommandName = commandName;
     myPostRunnable = postRunnable;
@@ -225,7 +224,7 @@ public abstract class AbstractLayoutCodeProcessor {
     final FutureTask<Boolean> previousTask = getPreviousProcessorTask(file, processChangedTextOnly);
     final FutureTask<Boolean> currentTask = prepareTask(file, processChangedTextOnly);
 
-    return new FutureTask<Boolean>(() -> {
+    return new FutureTask<>(() -> {
       if (previousTask != null) {
         previousTask.run();
         if (!previousTask.get() || previousTask.isCancelled()) return false;
@@ -315,7 +314,7 @@ public abstract class AbstractLayoutCodeProcessor {
       return;
     }
 
-    final Ref<FutureTask<Boolean>> writeActionRunnable = new Ref<FutureTask<Boolean>>();
+    final Ref<FutureTask<Boolean>> writeActionRunnable = new Ref<>();
     Runnable readAction = () -> {
       if (!checkFileWritable(file)) return;
       try{
@@ -534,7 +533,7 @@ public abstract class AbstractLayoutCodeProcessor {
         ProgressIndicatorProvider.checkCanceled();
         FutureTask<Boolean> writeTask = writeTaskRef.get();
         
-        ApplicationManager.getApplication().invokeAndWait(() -> WriteCommandAction.runWriteCommandAction(myProject, myCommandName, null, writeTask), ModalityState.defaultModalityState());
+        ApplicationManager.getApplication().invokeAndWait(() -> WriteCommandAction.runWriteCommandAction(myProject, myCommandName, null, writeTask));
 
         checkStop(writeTask, file);
       });
@@ -591,7 +590,7 @@ public abstract class AbstractLayoutCodeProcessor {
   }
 
   protected static List<TextRange> getSelectedRanges(@NotNull SelectionModel selectionModel) {
-    final List<TextRange> ranges = new SmartList<TextRange>();
+    final List<TextRange> ranges = new SmartList<>();
     if (selectionModel.hasSelection()) {
       TextRange range = TextRange.create(selectionModel.getSelectionStart(), selectionModel.getSelectionEnd());
       ranges.add(range);

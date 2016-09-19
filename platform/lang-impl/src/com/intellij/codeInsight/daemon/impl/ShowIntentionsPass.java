@@ -37,6 +37,7 @@ import com.intellij.codeInspection.ex.QuickFixWrapper;
 import com.intellij.concurrency.JobLauncher;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -47,16 +48,17 @@ import com.intellij.openapi.editor.ex.MarkupModelEx;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
+import com.intellij.util.CommonProcessors;
 import com.intellij.util.Processor;
 import com.intellij.util.Processors;
 import com.intellij.util.containers.ContainerUtil;
@@ -84,11 +86,11 @@ public class ShowIntentionsPass extends TextEditorHighlightingPass {
     final int offset = ((EditorEx)editor).getExpectedCaretOffset();
     final Project project = file.getProject();
 
-    final List<HighlightInfo.IntentionActionDescriptor> result = new ArrayList<>();
-    DaemonCodeAnalyzerImpl.processHighlightsNearOffset(editor.getDocument(), project, HighlightSeverity.INFORMATION, offset, true, info -> {
-      addAvailableActionsForGroups(info, editor, file, result, passId, offset);
-      return true;
-    });
+    List<HighlightInfo> infos = new ArrayList<>();
+    DaemonCodeAnalyzerImpl.processHighlightsNearOffset(editor.getDocument(), project, HighlightSeverity.INFORMATION, offset, true,
+                                                       new CommonProcessors.CollectProcessor<>(infos));
+    List<HighlightInfo.IntentionActionDescriptor> result = new ArrayList<>();
+    infos.forEach(info->addAvailableActionsForGroups(info, editor, file, result, passId, offset));
     return result;
   }
 
@@ -314,7 +316,18 @@ public class ShowIntentionsPass extends TextEditorHighlightingPass {
     }
 
     if (HighlightingLevelManager.getInstance(project).shouldInspect(hostFile)) {
-      collectIntentionsFromDoNotShowLeveledInspections(project, hostFile, psiElement, offset, intentions);
+      PsiElement intentionElement = psiElement;
+      int intentionOffset = offset;
+      if (psiElement instanceof PsiWhiteSpace && offset == psiElement.getTextRange().getStartOffset() && offset > 0) {
+        final PsiElement prev = hostFile.findElementAt(offset - 1);
+        if (prev != null && prev.isValid()) {
+          intentionElement = prev;
+          intentionOffset = offset - 1;
+        }
+      }
+      if (intentionElement != null && intentionElement.getManager().isInProject(intentionElement)) {
+        collectIntentionsFromDoNotShowLeveledInspections(project, hostFile, intentionElement, intentionOffset, intentions);
+      }
     }
 
     final int line = hostDocument.getLineNumber(offset);
@@ -344,6 +357,14 @@ public class ShowIntentionsPass extends TextEditorHighlightingPass {
                                                                        final int offset,
                                                                        @NotNull final IntentionsInfo intentions) {
     if (psiElement != null) {
+      if (!psiElement.isPhysical()) {
+        VirtualFile virtualFile = hostFile.getVirtualFile();
+        String text = hostFile.getText();
+        LOG.error("not physical: '" + psiElement.getText() + "' @" + offset + psiElement.getTextRange() +
+                  " elem:" + psiElement + " (" + psiElement.getClass().getName() + ")" +
+                  " in:" + psiElement.getContainingFile() + " host:" + hostFile + "(" + hostFile.getClass().getName() + ")",
+                  new Attachment(virtualFile != null ? virtualFile.getPresentableUrl() : "null", text != null ? text : "null"));
+      }
       final List<LocalInspectionToolWrapper> intentionTools = new ArrayList<>();
       final InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
       final InspectionToolWrapper[] tools = profile.getInspectionTools(hostFile);

@@ -25,6 +25,8 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilder;
+import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
+import com.intellij.debugger.engine.evaluation.expression.UnBoxingEvaluator;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.requests.Requestor;
@@ -252,13 +254,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
   
   public static int getEnabledNumber(ClassFilter[] classFilters) {
-    int res = 0;
-    for (ClassFilter filter : classFilters) {
-      if (filter.isEnabled()) {
-        res++;
-      }
-    }
-    return res;
+    return (int)Arrays.stream(classFilters).filter(ClassFilter::isEnabled).count();
   }
 
   public static ClassFilter[] readFilters(List<Element> children) throws InvalidDataException {
@@ -363,25 +359,23 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   @NotNull
-  public static List<Pair<Breakpoint, Event>> getEventDescriptors(SuspendContextImpl suspendContext) {
+  public static List<Pair<Breakpoint, Event>> getEventDescriptors(@Nullable SuspendContextImpl suspendContext) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    if(suspendContext == null) {
-      return Collections.emptyList();
-    }
-    final EventSet events = suspendContext.getEventSet();
-    if(events == null) {
-      return Collections.emptyList();
-    }
-    final List<Pair<Breakpoint, Event>> eventDescriptors = new SmartList<>();
-
-    final RequestManagerImpl requestManager = suspendContext.getDebugProcess().getRequestsManager();
-    for (final Event event : events) {
-      final Requestor requestor = requestManager.findRequestor(event.request());
-      if (requestor instanceof Breakpoint) {
-        eventDescriptors.add(Pair.create((Breakpoint)requestor, event));
+    if (suspendContext != null) {
+      EventSet events = suspendContext.getEventSet();
+      if (!ContainerUtil.isEmpty(events)) {
+        List<Pair<Breakpoint, Event>> eventDescriptors = ContainerUtil.newSmartList();
+        RequestManagerImpl requestManager = suspendContext.getDebugProcess().getRequestsManager();
+        for (Event event : events) {
+          Requestor requestor = requestManager.findRequestor(event.request());
+          if (requestor instanceof Breakpoint) {
+            eventDescriptors.add(Pair.create((Breakpoint)requestor, event));
+          }
+        }
+        return eventDescriptors;
       }
     }
-    return eventDescriptors;
+    return Collections.emptyList();
   }
 
   public static TextWithImports getEditorText(final Editor editor) {
@@ -867,6 +861,14 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return PsiParameter.EMPTY_ARRAY;
   }
 
+  public static boolean evaluateBoolean(ExpressionEvaluator evaluator, EvaluationContextImpl context) throws EvaluateException {
+    Object value = UnBoxingEvaluator.unbox(evaluator.evaluate(context), context);
+    if (!(value instanceof BooleanValue)) {
+      throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.boolean.expected"));
+    }
+    return ((BooleanValue)value).booleanValue();
+  }
+
   public static boolean intersects(@NotNull TextRange range, @NotNull PsiElement elem) {
     TextRange elemRange = elem.getTextRange();
     return elemRange != null && elemRange.intersects(range);
@@ -916,6 +918,23 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       return Comparing.equal(expectedMethod, currentMethod);
     }
     return false;
+  }
+
+  public static boolean methodMatches(@NotNull PsiMethod psiMethod,
+                                      String className,
+                                      String name,
+                                      String signature,
+                                      DebugProcessImpl process) {
+    PsiClass containingClass = psiMethod.getContainingClass();
+    try {
+      return containingClass != null && Objects.equals(JVMNameUtil.getClassVMName(containingClass), className) &&
+             JVMNameUtil.getJVMMethodName(psiMethod).equals(name) &&
+             JVMNameUtil.getJVMSignature(psiMethod).getName(process).equals(signature);
+    }
+    catch (EvaluateException e) {
+      LOG.debug(e);
+      return false;
+    }
   }
 
   @Nullable

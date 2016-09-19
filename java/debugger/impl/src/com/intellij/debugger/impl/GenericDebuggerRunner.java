@@ -116,7 +116,6 @@ public class GenericDebuggerRunner extends JavaPatchableProgramRunner<GenericDeb
     }
 
     final DebugProcessImpl debugProcess = debuggerSession.getProcess();
-
     return XDebuggerManager.getInstance(env.getProject()).startSession(env, new XDebugProcessStarter() {
       @Override
       @NotNull

@@ -15,7 +15,9 @@
  */
 package com.intellij.diff;
 
+import com.intellij.diff.actions.DocumentFragmentContent;
 import com.intellij.diff.contents.*;
+import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -26,6 +28,7 @@ import com.intellij.openapi.fileTypes.BinaryFileTypeDecompilers;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FilePath;
@@ -143,6 +146,19 @@ public class DiffContentFactoryImpl extends DiffContentFactory {
     return (FileContent)create(project, file);
   }
 
+  @NotNull
+  @Override
+  public DocumentContent createFragment(@Nullable Project project, @NotNull Document document, @NotNull TextRange range) {
+    DocumentContent content = create(project, document);
+    return new DocumentFragmentContent(project, content, range);
+  }
+
+  @NotNull
+  @Override
+  public DocumentContent createFragment(@Nullable Project project, @NotNull DocumentContent content, @NotNull TextRange range) {
+    return new DocumentFragmentContent(project, content, range);
+  }
+
   @Override
   @NotNull
   public DiffContent createClipboardContent() {
@@ -157,7 +173,9 @@ public class DiffContentFactoryImpl extends DiffContentFactory {
     FileType type = mainContent != null ? mainContent.getContentType() : null;
     VirtualFile highlightFile = mainContent != null ? mainContent.getHighlightFile() : null;
 
-    return createImpl(StringUtil.notNullize(text), type, highlightFile, null, true, false);
+    DocumentContent content = createImpl(StringUtil.notNullize(text), type, highlightFile, null, true, false);
+    content.putUserData(DiffUserDataKeysEx.FILE_NAME, "Clipboard.txt");
+    return content;
   }
 
   @NotNull
@@ -201,7 +219,7 @@ public class DiffContentFactoryImpl extends DiffContentFactory {
   @Override
   @NotNull
   public DiffContent createBinary(@Nullable Project project,
-                                  @NotNull String name,
+                                  @NotNull String fileName,
                                   @NotNull FileType type,
                                   @NotNull byte[] content) throws IOException {
     // workaround - our JarFileSystem and decompilers can't process non-local files
@@ -209,15 +227,10 @@ public class DiffContentFactoryImpl extends DiffContentFactory {
 
     VirtualFile file;
     if (useTemporalFile) {
-      if (type.getDefaultExtension().isEmpty()) {
-        file = createTemporalFile(project, "tmp_", "_" + name, content);
-      }
-      else {
-        file = createTemporalFile(project, name + "_", "." + type.getDefaultExtension(), content);
-      }
+      file = createTemporalFile(project, "tmp", fileName, content);
     }
     else {
-      file = new BinaryLightVirtualFile(name, type, content);
+      file = new BinaryLightVirtualFile(fileName, type, content);
       file.setWritable(false);
     }
 
@@ -225,10 +238,10 @@ public class DiffContentFactoryImpl extends DiffContentFactory {
   }
 
   @NotNull
-  public static VirtualFile createTemporalFile(@Nullable Project project,
-                                               @NotNull String prefix,
-                                               @NotNull String suffix,
-                                               @NotNull byte[] content) throws IOException {
+  private static VirtualFile createTemporalFile(@Nullable Project project,
+                                                @NotNull String prefix,
+                                                @NotNull String suffix,
+                                                @NotNull byte[] content) throws IOException {
     File tempFile = FileUtil.createTempFile(PathUtil.suggestFileName(prefix + "_", true, false),
                                             PathUtil.suggestFileName("_" + suffix, true, false), true);
     if (content.length != 0) {

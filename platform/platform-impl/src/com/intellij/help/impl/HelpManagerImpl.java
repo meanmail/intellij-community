@@ -57,31 +57,26 @@ public class HelpManagerImpl extends HelpManager {
       HelpSet set = createHelpSet();
       if (set != null) {
         broker = new IdeaHelpBroker(set);
-        myBrokerReference = new WeakReference<IdeaHelpBroker>(broker);
+        myBrokerReference = new WeakReference<>(broker);
       }
     }
 
     if (broker == null) {
       ApplicationInfoEx info = ApplicationInfoEx.getInstanceEx();
-      String productVersion = info.getMajorVersion() + "." + info.getMinorVersion();
+      String minorVersion = info.getMinorVersion();
+      int dot = minorVersion.indexOf('.');
+      if (dot != -1) {
+        minorVersion = minorVersion.substring(0, dot);
+      }
+      String productVersion = info.getMajorVersion() + "." + minorVersion;
       String productCode = info.getPackageCode();
 
-      String url = info.getWebHelpUrl() + "?";
+      String url = info.getWebHelpUrl() + "/" + productVersion + "/?" + id;
       
       if (PlatformUtils.isJetBrainsProduct()) {
-        url += "utm_source=from_product&utm_medium=help_link&utm_campaign=" + productCode + "&utm_content=" + productVersion + "&";
+        url += "&utm_source=from_product&utm_medium=help_link&utm_campaign=" + productCode + "&utm_content=" + productVersion;
       }
 
-      if (PlatformUtils.isCLion()) {
-        url += "Keyword=" + id;
-        url += "&ProductVersion=" + productVersion;
-        
-        if (info.isEAP()) {
-          url += "&EAP"; 
-        }
-      } else {
-        url += id;
-      }
       BrowserUtil.browse(url);
       return;
     }

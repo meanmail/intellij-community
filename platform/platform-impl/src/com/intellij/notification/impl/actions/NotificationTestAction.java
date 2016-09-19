@@ -132,7 +132,7 @@ public class NotificationTestAction extends AnAction implements DumbAware {
     }
 
     private void newNotification(String text) {
-      final List<NotificationInfo> notifications = new ArrayList<NotificationInfo>();
+      final List<NotificationInfo> notifications = new ArrayList<>();
       NotificationInfo notification = null;
 
       for (String line : StringUtil.splitByLines(text, false)) {
@@ -261,7 +261,7 @@ public class NotificationTestAction extends AnAction implements DumbAware {
 
     public void addContent(@NotNull String content) {
       if (myContent == null) {
-        myContent = new ArrayList<String>();
+        myContent = new ArrayList<>();
       }
       myContent.add(content);
     }
@@ -292,7 +292,7 @@ public class NotificationTestAction extends AnAction implements DumbAware {
 
     @Override
     public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
-      if (MessageDialogBuilder.yesNo("Notification Listener", event.getDescription() + "      Expire?").is()) {
+      if (MessageDialogBuilder.yesNo("Notification Listener", event.getDescription() + "      Expire?").isYes()) {
         myNotification.expire();
         myNotification = null;
       }
@@ -314,7 +314,7 @@ public class NotificationTestAction extends AnAction implements DumbAware {
 
       @Override
       public void actionPerformed(AnActionEvent e) {
-        if (MessageDialogBuilder.yesNo("AnAction", getTemplatePresentation().getText() + "      Expire?").is()) {
+        if (MessageDialogBuilder.yesNo("AnAction", getTemplatePresentation().getText() + "      Expire?").isYes()) {
           myNotification.expire();
           myNotification = null;
         }

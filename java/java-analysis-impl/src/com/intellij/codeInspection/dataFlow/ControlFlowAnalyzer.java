@@ -16,11 +16,11 @@
 package com.intellij.codeInspection.dataFlow;
 
 import com.intellij.codeInsight.AnnotationUtil;
+import com.intellij.codeInsight.ExceptionUtil;
 import com.intellij.codeInspection.dataFlow.instructions.*;
 import com.intellij.codeInspection.dataFlow.value.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -56,7 +56,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
   private final DfaValue myString;
   private final PsiType myNpe;
   private final PsiType myAssertionError;
-  private final Stack<PsiElement> myElementStack = new Stack<PsiElement>();
+  private final Stack<PsiElement> myElementStack = new Stack<>();
 
   /**
    * Variables for try-related control transfers. Contain exceptions or an (Throwable-inconvertible) string to indicate return inside finally
@@ -88,7 +88,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
 
   @Nullable
   public ControlFlow buildControlFlow() {
-    myCatchStack = new Stack<CatchDescriptor>();
+    myCatchStack = new Stack<>();
     myCurrentFlow = new ControlFlow(myFactory);
     try {
       myCodeFragment.accept(this);
@@ -459,7 +459,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
 
   @Override public void visitForStatement(PsiForStatement statement) {
     startElement(statement);
-    final ArrayList<PsiElement> declaredVariables = new ArrayList<PsiElement>();
+    final ArrayList<PsiElement> declaredVariables = new ArrayList<>();
 
     PsiStatement initialization = statement.getInitialization();
     if (initialization != null) {
@@ -625,7 +625,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
       if (psiClass != null) {
         addInstruction(new FieldReferenceInstruction(caseExpression, "switch statement expression"));
         if (psiClass.isEnum()) {
-          enumValues = new HashSet<PsiEnumConstant>();
+          enumValues = new HashSet<>();
           for (PsiField f : psiClass.getFields()) {
             if (f instanceof PsiEnumConstant) {
               enumValues.add((PsiEnumConstant)f);
@@ -739,19 +739,20 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
       exception.accept(this);
       CatchDescriptor cd = findNextCatch(false);
       if (cd == null) {
+        addInstruction(new FieldReferenceInstruction(exception, "thrown exception"));
         addInstruction(new ReturnInstruction(true, statement));
         finishElement(statement);
         return;
       }
-      
+
       addConditionalRuntimeThrow();
       addInstruction(new DupInstruction());
       addInstruction(new PushInstruction(myFactory.getConstFactory().getNull(), null));
       addInstruction(new BinopInstruction(JavaTokenType.EQEQ, null, myProject));
       ConditionalGotoInstruction gotoInstruction = new ConditionalGotoInstruction(null, true, null);
       addInstruction(gotoInstruction);
-      
-      addInstruction(new PopInstruction());
+
+      addInstruction(new FieldReferenceInstruction(exception, "thrown exception"));
       initException(myNpe, cd);
       addThrowCode(cd, statement);
 
@@ -1041,9 +1042,9 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
         ((PsiResourceExpression)resource).getExpression().accept(this);
       }
 
-      PsiMethod closer = PsiUtil.getResourceCloserMethod(resource);
-      if (closer != null) {
-        addMethodThrows(closer, null);
+      final List<PsiClassType> closerExceptions = ExceptionUtil.getCloserExceptions(resource);
+      if (!closerExceptions.isEmpty()) {
+        addThrows(null, findNextCatch(false), closerExceptions.toArray(new PsiClassType[closerExceptions.size()]));
       }
     }
   }
@@ -1309,7 +1310,7 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
   }
 
   private void generateAndExpression(PsiExpression[] operands, final PsiType exprType, boolean shortCircuit) {
-    List<ConditionalGotoInstruction> branchToFail = new ArrayList<ConditionalGotoInstruction>();
+    List<ConditionalGotoInstruction> branchToFail = new ArrayList<>();
     for (int i = 0; i < operands.length; i++) {
       PsiExpression operand = operands[i];
       operand.accept(this);
@@ -1411,15 +1412,19 @@ public class ControlFlowAnalyzer extends JavaElementVisitor {
     CatchDescriptor cd = findNextCatch(false);
     if (method != null) {
       PsiClassType[] refs = method.getThrowsList().getReferencedTypes();
-      for (PsiClassType ref : refs) {
-        pushUnknown();
-        ConditionalGotoInstruction cond = new ConditionalGotoInstruction(null, false, null);
-        addInstruction(cond);
-        addInstruction(new EmptyStackInstruction());
-        initException(ref, cd);
-        addThrowCode(cd, explicitCall);
-        cond.setOffset(myCurrentFlow.getInstructionCount());
-      }
+      addThrows(explicitCall, cd, refs);
+    }
+  }
+
+  private void addThrows(@Nullable PsiElement explicitCall, CatchDescriptor cd, PsiClassType[] refs) {
+    for (PsiClassType ref : refs) {
+      pushUnknown();
+      ConditionalGotoInstruction cond = new ConditionalGotoInstruction(null, false, null);
+      addInstruction(cond);
+      addInstruction(new EmptyStackInstruction());
+      initException(ref, cd);
+      addThrowCode(cd, explicitCall);
+      cond.setOffset(myCurrentFlow.getInstructionCount());
     }
   }
 

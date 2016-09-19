@@ -2,6 +2,8 @@ package com.jetbrains.edu.coursecreator.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.command.undo.BasicUndoableAction;
+import com.intellij.openapi.command.undo.UnexpectedUndoException;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
@@ -12,13 +14,13 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.JBColor;
 import com.intellij.util.DocumentUtil;
-import com.jetbrains.edu.coursecreator.ui.CCCreateAnswerPlaceholderDialog;
 import com.jetbrains.edu.learning.StudyUtils;
 import com.jetbrains.edu.learning.core.EduAnswerPlaceholderPainter;
 import com.jetbrains.edu.learning.core.EduNames;
 import com.jetbrains.edu.learning.core.EduUtils;
 import com.jetbrains.edu.learning.courseFormat.AnswerPlaceholder;
 import com.jetbrains.edu.learning.courseFormat.TaskFile;
+import com.jetbrains.edu.learning.ui.CCCreateAnswerPlaceholderDialog;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -52,7 +54,7 @@ public class CCAddAnswerPlaceholder extends CCAnswerPlaceholderAction {
     if (document == null) {
       return;
     }
-
+    FileDocumentManager.getInstance().saveDocument(document);
     final SelectionModel model = editor.getSelectionModel();
     final int offset = model.hasSelection() ? model.getSelectionStart() : editor.getCaretModel().getOffset();
     final AnswerPlaceholder answerPlaceholder = new AnswerPlaceholder();
@@ -60,7 +62,8 @@ public class CCAddAnswerPlaceholder extends CCAnswerPlaceholderAction {
     answerPlaceholder.setOffset(offset);
     answerPlaceholder.setUseLength(false);
 
-    answerPlaceholder.setPossibleAnswer(model.hasSelection() ? model.getSelectedText() : EduNames.PLACEHOLDER);
+    String defaultPlaceholderText = "type here";
+    answerPlaceholder.setPossibleAnswer(model.hasSelection() ? model.getSelectedText() : defaultPlaceholderText);
 
     CCCreateAnswerPlaceholderDialog dlg = new CCCreateAnswerPlaceholderDialog(project, answerPlaceholder);
     dlg.show();
@@ -69,43 +72,47 @@ public class CCAddAnswerPlaceholder extends CCAnswerPlaceholderAction {
     }
 
     if (!model.hasSelection()) {
-      DocumentUtil.writeInRunUndoTransparentAction(() -> document.insertString(offset, EduNames.PLACEHOLDER));
+      DocumentUtil.writeInRunUndoTransparentAction(() -> document.insertString(offset, defaultPlaceholderText));
     }
 
     TaskFile taskFile = state.getTaskFile();
-    int index = taskFile.getAnswerPlaceholders().size() + 1;
+    int index = taskFile.getAnswerPlaceholders().size();
     answerPlaceholder.setIndex(index);
-    taskFile.addAnswerPlaceholder(answerPlaceholder);
     answerPlaceholder.setTaskFile(taskFile);
     taskFile.sortAnswerPlaceholders();
-
-
-    computeInitialState(project, file, taskFile, document);
-
-    EduAnswerPlaceholderPainter.drawAnswerPlaceholder(editor, answerPlaceholder, JBColor.BLUE);
-    EduAnswerPlaceholderPainter.createGuardedBlocks(editor, answerPlaceholder);
+    answerPlaceholder.setPossibleAnswer(model.hasSelection() ? model.getSelectedText() : defaultPlaceholderText);
+    AddAction action = new AddAction(answerPlaceholder, taskFile, editor);
+    EduUtils.runUndoableAction(project, "Add Answer Placeholder", action);
   }
 
-  private static void computeInitialState(Project project, PsiFile file, TaskFile taskFile, Document document) {
-    Document patternDocument = StudyUtils.getPatternDocument(taskFile, file.getName());
-    if (patternDocument == null) {
-      return;
-    }
-    DocumentUtil.writeInRunUndoTransparentAction(() -> {
-      patternDocument.replaceString(0, patternDocument.getTextLength(), document.getCharsSequence());
-      FileDocumentManager.getInstance().saveDocument(patternDocument);
-    });
-    TaskFile target = new TaskFile();
-    TaskFile.copy(taskFile, target);
-    List<AnswerPlaceholder> placeholders = target.getAnswerPlaceholders();
-    for (AnswerPlaceholder placeholder : placeholders) {
-      placeholder.setUseLength(false);
-    }
-    EduUtils.createStudentDocument(project, target, file.getVirtualFile(), patternDocument);
+  static class AddAction extends BasicUndoableAction {
+    private final AnswerPlaceholder myPlaceholder;
+    private final TaskFile myTaskFile;
+    private final Editor myEditor;
 
-    for (int i = 0; i < placeholders.size(); i++) {
-      AnswerPlaceholder fromPlaceholder = placeholders.get(i);
-      taskFile.getAnswerPlaceholders().get(i).setInitialState(new AnswerPlaceholder.MyInitialState(fromPlaceholder.getOffset(), fromPlaceholder.getLength()));
+    public AddAction(AnswerPlaceholder placeholder, TaskFile taskFile, Editor editor) {
+      super(editor.getDocument());
+      myPlaceholder = placeholder;
+      myTaskFile = taskFile;
+      myEditor = editor;
+    }
+
+    @Override
+    public void undo() throws UnexpectedUndoException {
+      final List<AnswerPlaceholder> answerPlaceholders = myTaskFile.getAnswerPlaceholders();
+      if (answerPlaceholders.contains(myPlaceholder)) {
+        answerPlaceholders.remove(myPlaceholder);
+        myEditor.getMarkupModel().removeAllHighlighters();
+        StudyUtils.drawAllWindows(myEditor, myTaskFile);
+        EduAnswerPlaceholderPainter.createGuardedBlocks(myEditor, myTaskFile);
+      }
+    }
+
+    @Override
+    public void redo() throws UnexpectedUndoException {
+      myTaskFile.addAnswerPlaceholder(myPlaceholder);
+      EduAnswerPlaceholderPainter.drawAnswerPlaceholder(myEditor, myPlaceholder, JBColor.BLUE);
+      EduAnswerPlaceholderPainter.createGuardedBlocks(myEditor, myPlaceholder);
     }
   }
 
@@ -122,19 +129,19 @@ public class CCAddAnswerPlaceholder extends CCAnswerPlaceholderAction {
 
   private static void deletePlaceholder(@NotNull CCState state) {
     Project project = state.getProject();
-    PsiFile psiFile = state.getFile();
-    final Document document = PsiDocumentManager.getInstance(project).getDocument(psiFile);
-    if (document == null) return;
     TaskFile taskFile = state.getTaskFile();
     AnswerPlaceholder answerPlaceholder = state.getAnswerPlaceholder();
-    final List<AnswerPlaceholder> answerPlaceholders = taskFile.getAnswerPlaceholders();
-    if (answerPlaceholders.contains(answerPlaceholder)) {
-      answerPlaceholders.remove(answerPlaceholder);
-      final Editor editor = state.getEditor();
-      editor.getMarkupModel().removeAllHighlighters();
-      StudyUtils.drawAllWindows(editor, taskFile);
-      EduAnswerPlaceholderPainter.createGuardedBlocks(editor, taskFile);
-    }
+    EduUtils.runUndoableAction(project, "Delete Answer Placeholder", new AddAction(answerPlaceholder, taskFile, state.getEditor()) {
+      @Override
+      public void undo() throws UnexpectedUndoException {
+        super.redo();
+      }
+
+      @Override
+      public void redo() throws UnexpectedUndoException {
+        super.undo();
+      }
+    });
   }
 
   @Override

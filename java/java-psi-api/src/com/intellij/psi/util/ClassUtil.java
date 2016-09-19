@@ -99,7 +99,6 @@ public class ClassUtil {
     return indices.get(psiClass);
   }
 
-  @SuppressWarnings("unused")
   public static PsiClass findNonQualifiedClassByIndex(@NotNull String indexName, @NotNull PsiClass containingClass) {
     return findNonQualifiedClassByIndex(indexName, containingClass, false);
   }
@@ -267,8 +266,12 @@ public class ClassUtil {
       return false;
     }
 
-    final PsiFile parentFile = aClass.getContainingFile();
-                                        // do not select JspClass
-    return parentFile != null && parentFile.getLanguage() == JavaLanguage.INSTANCE;
+    PsiElement parent = aClass.getParent();
+    if (parent instanceof PsiDeclarationStatement && parent.getParent() instanceof PsiCodeBlock) {
+      return false;
+    }
+
+    PsiFile parentFile = aClass.getContainingFile();
+    return parentFile != null && parentFile.getLanguage() == JavaLanguage.INSTANCE;  // do not select JspClass
   }
 }

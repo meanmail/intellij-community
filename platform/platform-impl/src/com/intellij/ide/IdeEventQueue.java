@@ -139,7 +139,7 @@ public class IdeEventQueue extends EventQueue {
     systemEventQueue.push(this);
     addIdleTimeCounterRequest();
 
-    final KeyboardFocusManager keyboardFocusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager();
+    KeyboardFocusManager keyboardFocusManager = IdeKeyboardFocusManager.replaceDefault();
     keyboardFocusManager.addPropertyChangeListener("permanentFocusOwner", e -> {
       final Application application = ApplicationManager.getApplication();
       if (application == null) {
@@ -155,6 +155,7 @@ public class IdeEventQueue extends EventQueue {
     });
 
     addDispatcher(new WindowsAltSuppressor(), null);
+    addDispatcher(new EditingCanceller(), null);
 
     abracadabraDaberBoreh();
   }
@@ -261,7 +262,6 @@ public class IdeEventQueue extends EventQueue {
   }
 
   /** @deprecated use {@link #addActivityListener(Runnable, Disposable)} (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   public void addActivityListener(@NotNull final Runnable runnable) {
     synchronized (myLock) {
       myActivityListeners.add(runnable);
@@ -373,15 +373,16 @@ public class IdeEventQueue extends EventQueue {
     }
 
     boolean wasInputEvent = myIsInInputEvent;
-    myIsInInputEvent = e instanceof InputEvent || e instanceof InputMethodEvent || e instanceof WindowEvent || e instanceof ActionEvent;
+    myIsInInputEvent = isInputEvent(e);
     if (myIsInInputEvent) {
       HeavyProcessLatch.INSTANCE.prioritizeUiActivity();
+    } else {
+      HeavyProcessLatch.INSTANCE.stopThreadPrioritizing();
     }
     AWTEvent oldEvent = myCurrentEvent;
     myCurrentEvent = e;
 
-    boolean userActivity = myIsInInputEvent || e instanceof ItemEvent || e instanceof FocusEvent && !((FocusEvent)e).isTemporary();
-    try (AccessToken ignored = startActivity(userActivity)) {
+    try (AccessToken ignored = startActivity(e)) {
       _dispatchEvent(e, false);
     }
     catch (Throwable t) {
@@ -401,6 +402,10 @@ public class IdeEventQueue extends EventQueue {
     }
   }
 
+  private static boolean isInputEvent(@NotNull AWTEvent e) {
+    return e instanceof InputEvent || e instanceof InputMethodEvent || e instanceof WindowEvent || e instanceof ActionEvent;
+  }
+
   @Override
   public AWTEvent getNextEvent() throws InterruptedException {
     AWTEvent event = super.getNextEvent();
@@ -411,11 +416,15 @@ public class IdeEventQueue extends EventQueue {
   }
 
   @Nullable
-  private static AccessToken startActivity(boolean userActivity) {
+  static AccessToken startActivity(AWTEvent e) {
     if (ourTransactionGuard == null && appIsLoaded()) {
-      ourTransactionGuard = (TransactionGuardImpl)TransactionGuard.getInstance();
+      if (ApplicationManager.getApplication() != null && !ApplicationManager.getApplication().isDisposed()) {
+        ourTransactionGuard = (TransactionGuardImpl)TransactionGuard.getInstance();
+      }
     }
-    return ourTransactionGuard == null ? null : ourTransactionGuard.startActivity(userActivity);
+    return ourTransactionGuard == null
+           ? null
+           : ourTransactionGuard.startActivity(isInputEvent(e) || e instanceof ItemEvent || e instanceof FocusEvent);
   }
 
   private void processException(Throwable t) {
@@ -439,83 +448,49 @@ public class IdeEventQueue extends EventQueue {
     // Try to get it from editor
     Component sourceComponent = WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow();
 
-    if (ke.getID() == KeyEvent.KEY_PRESSED) {
-      switch (ke.getKeyCode()) {
-        case KeyEvent.VK_CONTROL:
-          if ((ke.getModifiersEx() & (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) != (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) {
-            ctrlIsPressedCount++;
-          }
-          break;
-        case KeyEvent.VK_ALT:
-          if (ke.getKeyLocation() == KeyEvent.KEY_LOCATION_LEFT) {
-            if ((ke.getModifiersEx() & (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) != (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) {
-              leftAltIsPressed = true;
-            }
-          }
-          break;
-      }
-    }
-    else if (ke.getID() == KeyEvent.KEY_RELEASED) {
-      switch (ke.getKeyCode()) {
-        case KeyEvent.VK_CONTROL:
-          ctrlIsPressedCount--;
-          break;
-        case KeyEvent.VK_ALT:
-          if (ke.getKeyLocation() == KeyEvent.KEY_LOCATION_LEFT) {
-            leftAltIsPressed = false;
-          }
-          break;
-      }
+    switch (ke.getID()) {
+      case KeyEvent.KEY_PRESSED:
+        break;
+      case KeyEvent.KEY_RELEASED:
+        break;
     }
 
-    if (!leftAltIsPressed && KeyboardSettingsExternalizable.getInstance().isUkrainianKeyboard(sourceComponent)) {
-      if ('ґ' == ke.getKeyChar() || ke.getKeyCode() == KeyEvent.VK_U) {
-        ke = new KeyEvent(ke.getComponent(), ke.getID(), ke.getWhen(), 0,
-                          KeyEvent.VK_UNDEFINED, 'ґ', ke.getKeyLocation());
-        ke.setKeyCode(KeyEvent.VK_U);
-        ke.setKeyChar('ґ');
-        return ke;
-      }
-    }
+    //if (!leftAltIsPressed && KeyboardSettingsExternalizable.getInstance().isUkrainianKeyboard(sourceComponent)) {
+    //  if ('ґ' == ke.getKeyChar() || ke.getKeyCode() == KeyEvent.VK_U) {
+    //    ke = new KeyEvent(ke.getComponent(), ke.getID(), ke.getWhen(), 0,
+    //                     KeyEvent.VK_UNDEFINED, 'ґ', ke.getKeyLocation());
+    //    ke.setKeyCode(KeyEvent.VK_U);
+    //    ke.setKeyChar('ґ');
+    //    return ke;
+    //  }
+    //}
+
+    // NB: Standard keyboard layout is an English keyboard layout. If such
+    //     layout is active every KeyEvent that is received has
+    //     a @{code KeyEvent.getKeyCode} key code corresponding to
+    //     the @{code KeyEvent.getKeyChar} key char in the event.
+    //     For  example, VK_MINUS key code and '-' character
+    //
+    // We have a key char. On some non standard layouts it does not correspond to
+    // key code in the event.
 
     Integer keyCodeFromChar = CharToVKeyMap.get(ke.getKeyChar());
+
+    // Now we have a correct key code as if we'd gotten  a KeyEvent for
+    // standard English layout
+
+    if (keyCodeFromChar == ke.getKeyCode() || keyCodeFromChar == KeyEvent.VK_UNDEFINED) {
+      return e;
+    }
+
+    // Farther we handle a non standard layout
+
     if (keyCodeFromChar != null) {
       if (keyCodeFromChar != ke.getKeyCode()) {
         // non-english layout
         ke.setKeyCode(keyCodeFromChar);
       }
-
-      //for (int i = 0; sourceComponent == null && i < WindowManagerEx.getInstanceEx().getAllProjectFrames().length; i++) {
-      //  sourceComponent = WindowManagerEx.getInstanceEx().getAllProjectFrames()[i].getComponent();
-      //}
-
-      if (sourceComponent != null) {
-        if (KeyboardSettingsExternalizable.isSupportedKeyboardLayout(sourceComponent)) {
-          if ((ke.getModifiersEx() & (InputEvent.ALT_DOWN_MASK | InputEvent.CTRL_DOWN_MASK)) != 0 /*&& ke.getKeyLocation() == KeyEvent.KEY_LOCATION_RIGHT*/) {
-            // On German keyboard layout on Windows  we are getting on key press
-            // ctrl + alt instead of AltGr
-
-            int modifiers = ke.getModifiersEx() ^ InputEvent.ALT_DOWN_MASK ^ InputEvent.CTRL_DOWN_MASK;
-
-            if (ctrlIsPressedCount > 1) {
-              modifiers |= InputEvent.CTRL_DOWN_MASK;
-            }
-
-            if (leftAltIsPressed) {
-              modifiers |= InputEvent.ALT_MASK;
-            }
-
-            int oldKeyCode = ke.getKeyCode();
-
-            //noinspection MagicConstant
-            ke = new KeyEvent(ke.getComponent(), ke.getID(), ke.getWhen(), modifiers,
-                             KeyEvent.VK_UNDEFINED, ke.getKeyChar(), KeyEvent.KEY_LOCATION_UNKNOWN);
-
-            ke.setKeyCode(oldKeyCode);
-          }
-        }
       }
-    }
 
     return ke;
   }
@@ -1135,6 +1110,27 @@ public class IdeEventQueue extends EventQueue {
       }
 
       return !dispatch;
+    }
+  }
+
+  //We have to stop editing with <ESC> (if any) and consume the event to prevent any further processing (dialog closing etc.)
+  private static class EditingCanceller implements EventDispatcher {
+    @Override
+    public boolean dispatch(AWTEvent e) {
+      if (e instanceof KeyEvent && e.getID() == KeyEvent.KEY_PRESSED && ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ESCAPE) {
+        final Component owner = UIUtil.findParentByCondition(KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner(),
+                                                             component -> component instanceof JTable || component instanceof JTree);
+
+        if (owner instanceof JTable && ((JTable)owner).isEditing()) {
+          ((JTable)owner).editingCanceled(null);
+          return true;
+        }
+        if (owner instanceof JTree && ((JTree)owner).isEditing()) {
+          ((JTree)owner).cancelEditing();
+          return true;
+        }
+      }
+      return false;
     }
   }
 

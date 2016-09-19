@@ -51,8 +51,6 @@ import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.wm.ToolWindowAnchor;
-import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
 import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Alarm;
@@ -539,8 +537,8 @@ public class EditorMarkupModelImpl extends MarkupModelImpl implements EditorMark
     }
 
     @Override
-    public void uiSettingsChanged(UISettings source) {
-      if (!UISettings.getInstance().SHOW_EDITOR_TOOLTIP) {
+    public void uiSettingsChanged(UISettings uiSettings) {
+      if (!uiSettings.SHOW_EDITOR_TOOLTIP) {
         hideMyEditorPreviewHint();
       }
       setMinMarkHeight(DaemonCodeAnalyzerSettings.getInstance().ERROR_STRIPE_MARK_MIN_HEIGHT);
@@ -565,21 +563,8 @@ public class EditorMarkupModelImpl extends MarkupModelImpl implements EditorMark
           g2d.setTransform(old);
         }
       }
-      else if (Registry.is("ide.scroll.new.layout")) {
-        super.paintThumb(g, c, thumbBounds);
-      }
       else {
-        int shift;
-        if (Registry.is("editor.full.width.scrollbar")) {
-          shift = isMirrored() ? -myMinMarkHeight + 1 : myMinMarkHeight;
-        }
-        else {
-          int half = getThickness() / 2;
-          shift = isMirrored() ? -half + 2 : half - 1;
-        }
-        g.translate(shift, 0);
         super.paintThumb(g, c, thumbBounds);
-        g.translate(-shift, 0);
       }
     }
 
@@ -629,7 +614,7 @@ public class EditorMarkupModelImpl extends MarkupModelImpl implements EditorMark
     
     @Override
     protected void paintTrack(@NotNull Graphics g, @NotNull JComponent c, @NotNull Rectangle trackBounds) {
-      if (transparent()) {
+      if (transparent() && !myEditor.isDisposed()) {
         doPaintTrack(g, c, trackBounds);
       }
       else {
@@ -1213,7 +1198,7 @@ public class EditorMarkupModelImpl extends MarkupModelImpl implements EditorMark
           public Dimension getPreferredSize() {
             int width = myEditor.getGutterComponentEx().getWidth() + myEditor.getScrollingModel().getVisibleArea().width
                         - myEditor.getVerticalScrollBar().getWidth();
-            if (!ToolWindowManagerEx.getInstanceEx(myEditor.getProject()).getIdsOn(ToolWindowAnchor.LEFT).isEmpty()) width--;
+            width--;
             return new Dimension(width - BalloonImpl.POINTER_WIDTH, myEditor.getLineHeight() * (myEndVisualLine - myStartVisualLine));
           }
 

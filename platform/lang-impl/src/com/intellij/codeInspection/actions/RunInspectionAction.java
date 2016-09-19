@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,11 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.ui.ScrollPaneFactory;
+import com.intellij.ui.SideBorder;
 import com.intellij.ui.TitledSeparator;
+import com.intellij.util.ui.JBDimension;
+import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -102,7 +106,7 @@ public class RunInspectionAction extends GotoActionBase {
                                    PsiElement psiElement,
                                    PsiFile psiFile) {
     final PsiElement element = psiFile == null ? psiElement : psiFile;
-    final InspectionProfile currentProfile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
+    final InspectionProfile currentProfile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
     final InspectionToolWrapper toolWrapper = element != null ? currentProfile.getInspectionTool(shortName, element)
                                                               : currentProfile.getInspectionTool(shortName, project);
     LOGGER.assertTrue(toolWrapper != null, "Missed inspection: " + shortName);
@@ -152,7 +156,14 @@ public class RunInspectionAction extends GotoActionBase {
           additionPanel.add(fileFilter);
           myUpdatedSettingsToolWrapper = copyToolWithSettings(toolWrapper);//new InheritOptionsForToolPanel(toolWrapper.getShortName(), project);
           additionPanel.add(new TitledSeparator(IdeBundle.message("goto.inspection.action.choose.inherit.settings.from")));
-          additionPanel.add(myUpdatedSettingsToolWrapper.getTool().createOptionsPanel());
+          JComponent optionsPanel = myUpdatedSettingsToolWrapper.getTool().createOptionsPanel();
+          LOGGER.assertTrue(optionsPanel != null);
+          if (UIUtil.hasScrollPane(optionsPanel)) {
+            additionPanel.add(optionsPanel);
+          }
+          else {
+            additionPanel.add(ScrollPaneFactory.createScrollPane(optionsPanel, SideBorder.NONE));
+          }
           return additionPanel;
         } else {
           return fileFilter;
@@ -185,7 +196,7 @@ public class RunInspectionAction extends GotoActionBase {
       @NotNull
       @Override
       protected Action[] createActions() {
-        final List<Action> actions = new ArrayList<Action>();
+        final List<Action> actions = new ArrayList<>();
         final boolean hasFixAll = toolWrapper.getTool() instanceof CleanupLocalInspectionTool;
         actions.add(new AbstractAction(hasFixAll ? AnalysisScopeBundle.message("action.analyze.verb")
                                                  : CommonBundle.getOkButtonText()) {

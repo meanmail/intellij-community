@@ -28,13 +28,12 @@ public abstract class VcsLogUiPropertiesImpl implements PersistentStateComponent
   private static final int RECENTLY_FILTERED_VALUES_LIMIT = 10;
 
   public static class State {
-    public boolean SHOW_DETAILS = true;
-    public boolean SHOW_BRANCHES_PANEL = false;
+    public boolean SHOW_DETAILS_IN_CHANGES = true;
     public boolean LONG_EDGES_VISIBLE = false;
     public int BEK_SORT_TYPE = 0;
     public boolean SHOW_ROOT_NAMES = false;
-    public Deque<UserGroup> RECENTLY_FILTERED_USER_GROUPS = new ArrayDeque<UserGroup>();
-    public Deque<UserGroup> RECENTLY_FILTERED_BRANCH_GROUPS = new ArrayDeque<UserGroup>();
+    public Deque<UserGroup> RECENTLY_FILTERED_USER_GROUPS = new ArrayDeque<>();
+    public Deque<UserGroup> RECENTLY_FILTERED_BRANCH_GROUPS = new ArrayDeque<>();
     public Map<String, Boolean> HIGHLIGHTERS = ContainerUtil.newTreeMap();
   }
 
@@ -48,12 +47,12 @@ public abstract class VcsLogUiPropertiesImpl implements PersistentStateComponent
    */
   @Override
   public boolean isShowDetails() {
-    return getState().SHOW_DETAILS;
+    return getState().SHOW_DETAILS_IN_CHANGES;
   }
 
   @Override
   public void setShowDetails(boolean showDetails) {
-    getState().SHOW_DETAILS = showDetails;
+    getState().SHOW_DETAILS_IN_CHANGES = showDetails;
   }
 
   @Override
@@ -136,18 +135,8 @@ public abstract class VcsLogUiPropertiesImpl implements PersistentStateComponent
     getState().HIGHLIGHTERS.put(id, value);
   }
 
-  @Override
-  public boolean isShowBranchesPanel() {
-    return getState().SHOW_BRANCHES_PANEL;
-  }
-
-  @Override
-  public void setShowBranchesPanel(boolean show) {
-    getState().SHOW_BRANCHES_PANEL = show;
-  }
-
   public static class UserGroup {
-    public List<String> users = new ArrayList<String>();
+    public List<String> users = new ArrayList<>();
 
     @Override
     public boolean equals(Object o) {

@@ -69,6 +69,7 @@ public class PythonConsoleView extends LanguageConsoleImpl implements Observable
   private final PyHighlighter myPyHighlighter;
   private final EditorColorsScheme myScheme;
   private boolean myHyperlink;
+  private boolean myFirstRun = true;
 
   private XStandaloneVariablesView mySplitView;
 
@@ -93,6 +94,14 @@ public class PythonConsoleView extends LanguageConsoleImpl implements Observable
 
   public void setExecutionHandler(@NotNull PydevConsoleExecuteActionHandler consoleExecuteActionHandler) {
     myExecuteActionHandler = consoleExecuteActionHandler;
+  }
+
+  public void showStartMessageForFirstExecution(String startCommand) {
+    if (myFirstRun && myExecuteActionHandler != null) {
+      setPrompt("");
+      executeStatement(startCommand + "\n", ProcessOutputTypes.SYSTEM);
+      myFirstRun = false;
+    }
   }
 
   public void inputRequested() {
@@ -159,7 +168,7 @@ public class PythonConsoleView extends LanguageConsoleImpl implements Observable
       String text = getConsoleEditor().getDocument().getText();
 
       setInputText(code);
-      myExecuteActionHandler.runExecuteAction(PythonConsoleView.this);
+      myExecuteActionHandler.runExecuteAction(this);
 
       if (!StringUtil.isEmpty(text)) {
         setInputText(text);

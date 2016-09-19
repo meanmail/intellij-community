@@ -19,7 +19,6 @@ import com.intellij.Patches;
 import com.intellij.debugger.*;
 import com.intellij.debugger.actions.DebuggerAction;
 import com.intellij.debugger.actions.DebuggerActions;
-import com.intellij.debugger.apiAdapters.ConnectionServiceWrapper;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
@@ -54,6 +53,11 @@ import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.JavaSdkType;
+import com.intellij.openapi.projectRoots.ProjectJdkTable;
+import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Pair;
@@ -87,7 +91,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.*;
@@ -118,8 +121,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private RemoteConnection myConnection;
   private JavaDebugProcess myXDebugProcess;
 
-  private ConnectionServiceWrapper myConnectionService;
-  private Map<String, Connector.Argument> myArguments;
+  private volatile Map<String, Connector.Argument> myArguments;
 
   private final List<NodeRenderer> myRenderers = new ArrayList<>();
 
@@ -135,7 +137,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   protected DebuggerSession mySession;
   @Nullable protected MethodReturnValueWatcher myReturnValueWatcher;
   private final Disposable myDisposable = Disposer.newDisposable();
-  private final Alarm myStatusUpdateAlarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD, myDisposable);
+  private final Alarm myStatusUpdateAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, myDisposable);
 
   private final ThreadBlockedMonitor myThreadBlockedMonitor = new ThreadBlockedMonitor(this, myDisposable);
 
@@ -224,7 +226,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     return myNodeRenderersMap.computeIfAbsent(type, t ->
-      myRenderers.stream().filter(r -> r.isApplicable(type)).findFirst().orElseGet(() -> getDefaultRenderer(type)));
+      myRenderers.stream().
+        filter(r -> DebuggerUtilsImpl.suppressExceptions(() -> r.isApplicable(type), false)).
+        findFirst().orElseGet(() -> getDefaultRenderer(type)));
   }
 
   @NotNull
@@ -301,8 +305,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private void stopConnecting() {
-    DebuggerManagerThreadImpl.assertIsManagerThread();
-
     Map<String, Connector.Argument> arguments = myArguments;
     try {
       if (arguments == null) {
@@ -317,20 +319,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           connector.stopListening(arguments);
         }
       }
-      else {
-        if(myConnectionService != null) {
-          myConnectionService.close();
-        }
-      }
     }
     catch (IOException | IllegalConnectorArgumentsException e) {
       LOG.debug(e);
     }
     catch (ExecutionException e) {
       LOG.error(e);
-    }
-    finally {
-      closeProcess(true);
     }
   }
 
@@ -574,7 +568,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
     finally {
       myArguments = null;
-      myConnectionService = null;
     }
   }
 
@@ -616,11 +609,35 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private void checkVirtualMachineVersion(VirtualMachine vm) {
     final String version = vm.version();
     if ("1.4.0".equals(version)) {
-      SwingUtilities.invokeLater(() -> Messages.showMessageDialog(
-        getProject(),
+      DebuggerInvocationUtil.swingInvokeLater(myProject, () -> Messages.showMessageDialog(
+        myProject,
         DebuggerBundle.message("warning.jdk140.unstable"), DebuggerBundle.message("title.jdk140.unstable"), Messages.getWarningIcon()
       ));
     }
+    if (getSession().getAlternativeJre() == null) {
+      Sdk projectSdk = ProjectRootManager.getInstance(myProject).getProjectSdk();
+      if ((projectSdk == null || projectSdk.getSdkType() instanceof JavaSdkType) && !versionMatch(projectSdk, version)) {
+        Arrays.stream(ProjectJdkTable.getInstance().getAllJdks())
+          .filter(sdk -> versionMatch(sdk, version))
+          .findFirst().ifPresent(sdk -> {
+          XDebugSessionImpl.NOTIFICATION_GROUP.createNotification(
+            DebuggerBundle.message("message.remote.jre.version.mismatch",
+                                   version,
+                                   projectSdk != null ? projectSdk.getVersionString() : "unknown",
+                                   sdk.getName())
+            , MessageType.INFO).notify(myProject);
+          getSession().setAlternativeJre(sdk);
+        });
+      }
+    }
+  }
+
+  private static boolean versionMatch(@Nullable Sdk sdk, String version) {
+    if (sdk != null && sdk.getSdkType() instanceof JavaSdkType) {
+      String versionString = sdk.getVersionString();
+      return versionString != null && versionString.contains(version);
+    }
+    return false;
   }
 
   /*Event dispatching*/
@@ -1444,6 +1461,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @Override
   public void stop(boolean forceTerminate) {
+    stopConnecting(); // does this first place in case debugger manager hanged accepting debugger connection (forever)
     getManagerThread().terminateAndInvoke(createStopCommand(forceTerminate), DebuggerManagerThreadImpl.COMMAND_TIMEOUT);
   }
 
@@ -1482,7 +1500,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         }
       }
       else {
-        stopConnecting();
+        try {
+          stopConnecting();
+        }
+        finally {
+          closeProcess(true);
+        }
       }
     }
   }
@@ -1971,12 +1994,16 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                 }
               }
               else {
+                ProcessHandler processHandler = getProcessHandler();
+                boolean terminated =
+                  processHandler != null && (processHandler.isProcessTerminating() || processHandler.isProcessTerminated());
+
                 fail();
                 DebuggerInvocationUtil.swingInvokeLater(myProject, () -> {
                   // propagate exception only in case we succeeded to obtain execution result,
                   // otherwise if the error is induced by the fact that there is nothing to debug, and there is no need to show
                   // this problem to the user
-                  if (myExecutionResult != null || !connectorIsReady.get()) {
+                  if ((myExecutionResult != null && !terminated) || !connectorIsReady.get()) {
                     ExecutionUtil.handleExecutionError(myProject, ToolWindowId.DEBUG, sessionName, e);
                   }
                 });

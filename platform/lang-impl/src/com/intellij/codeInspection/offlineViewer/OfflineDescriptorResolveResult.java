@@ -30,6 +30,7 @@ import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.ui.InspectionToolPresentation;
 import com.intellij.lang.Language;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -71,7 +72,8 @@ class OfflineDescriptorResolveResult {
                                                 @NotNull InspectionToolWrapper wrapper,
                                                 @NotNull InspectionToolPresentation presentation) {
     final RefEntity element = descriptor.getRefElement(presentation.getContext().getRefManager());
-    final CommonProblemDescriptor resolvedDescriptor = createDescriptor(element, descriptor, wrapper, presentation);
+    final CommonProblemDescriptor resolvedDescriptor =
+      ReadAction.compute(() -> createDescriptor(element, descriptor, wrapper, presentation));
     return new OfflineDescriptorResolveResult(element, resolvedDescriptor);
   }
 
@@ -150,7 +152,7 @@ class OfflineDescriptorResolveResult {
 
   private static PsiElement[] getElementsIntersectingRange(PsiFile file, final int startOffset, final int endOffset) {
     final FileViewProvider viewProvider = file.getViewProvider();
-    final Set<PsiElement> result = new LinkedHashSet<PsiElement>();
+    final Set<PsiElement> result = new LinkedHashSet<>();
     for (Language language : viewProvider.getLanguages()) {
       final PsiFile psiRoot = viewProvider.getPsi(language);
       if (HighlightingLevelManager.getInstance(file.getProject()).shouldInspect(psiRoot)) {
@@ -162,7 +164,7 @@ class OfflineDescriptorResolveResult {
 
   @Nullable
   private static LocalQuickFix[] getFixes(@NotNull CommonProblemDescriptor descriptor, List<String> hints, InspectionToolPresentation presentation) {
-    final List<LocalQuickFix> fixes = new ArrayList<LocalQuickFix>(hints == null ? 1 : hints.size());
+    final List<LocalQuickFix> fixes = new ArrayList<>(hints == null ? 1 : hints.size());
     if (hints == null) {
       addFix(descriptor, fixes, null, presentation);
     }

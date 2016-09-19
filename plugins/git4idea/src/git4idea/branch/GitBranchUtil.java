@@ -83,6 +83,11 @@ public class GitBranchUtil {
     return null;
   }
 
+  @Nullable
+  public static GitBranchTrackInfo getTrackInfo(@NotNull GitRepository repository, @NotNull String localBranchName) {
+    return ContainerUtil.find(repository.getBranchTrackInfos(), it -> it.getLocalBranch().getName().equals(localBranchName));
+  }
+
   @NotNull
   static String getCurrentBranchOrRev(@NotNull Collection<GitRepository> repositories) {
     if (repositories.size() > 1) {
@@ -173,7 +178,7 @@ public class GitBranchUtil {
   @Deprecated
   @Nullable
   public static GitRemoteBranch tracked(@NotNull Project project, @NotNull VirtualFile root, @NotNull String branchName) throws VcsException {
-    final HashMap<String, String> result = new HashMap<String, String>();
+    final HashMap<String, String> result = new HashMap<>();
     GitConfigUtil.getValues(project, root, null, result);
     String remoteName = result.get(trackedRemoteKey(branchName));
     if (remoteName == null) {
@@ -344,7 +349,7 @@ public class GitBranchUtil {
     }
 
     if (commonBranches != null) {
-      ArrayList<String> common = new ArrayList<String>(commonBranches);
+      ArrayList<String> common = new ArrayList<>(commonBranches);
       Collections.sort(common);
       return common;
     }

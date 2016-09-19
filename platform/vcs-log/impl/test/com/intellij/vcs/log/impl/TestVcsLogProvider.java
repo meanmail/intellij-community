@@ -29,6 +29,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.Semaphore;
@@ -241,13 +244,29 @@ public class TestVcsLogProvider implements VcsLogProvider {
 
     @NotNull
     @Override
-    public List<RefGroup> group(Collection<VcsRef> refs) {
+    public List<RefGroup> groupForBranchFilter(@NotNull Collection<VcsRef> refs) {
       return ContainerUtil.map(refs, new Function<VcsRef, RefGroup>() {
         @Override
         public RefGroup fun(VcsRef ref) {
           return new SingletonRefGroup(ref);
         }
       });
+    }
+
+    @NotNull
+    @Override
+    public List<RefGroup> groupForTable(@NotNull Collection<VcsRef> refs) {
+      return groupForBranchFilter(refs);
+    }
+
+    @Override
+    public void serialize(@NotNull DataOutput out, @NotNull VcsRefType type) throws IOException {
+    }
+
+    @NotNull
+    @Override
+    public VcsRefType deserialize(@NotNull DataInput in) throws IOException {
+      return null;
     }
 
     @NotNull
@@ -280,6 +299,5 @@ public class TestVcsLogProvider implements VcsLogProvider {
       myBlocked = false;
       release();
     }
-
   }
 }

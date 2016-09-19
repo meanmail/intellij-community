@@ -115,9 +115,9 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
   private boolean myTransparentIconBackground;
 
   public SimpleColoredComponent() {
-    myFragments = new ArrayList<String>(3);
-    myLayouts = new ArrayList<TextLayout>(3);
-    myAttributes = new ArrayList<SimpleTextAttributes>(3);
+    myFragments = new ArrayList<>(3);
+    myLayouts = new ArrayList<>(3);
+    myAttributes = new ArrayList<>(3);
     myIpad = new JBInsets(1, 2, 1, 2);
     myIconTextGap = JBUI.scale(2);
     myBorder = new MyBorder();
@@ -214,7 +214,7 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
   private synchronized void _append(String fragment, SimpleTextAttributes attributes, Object tag) {
     append(fragment, attributes);
     if (myFragmentTags == null) {
-      myFragmentTags = new ArrayList<Object>();
+      myFragmentTags = new ArrayList<>();
     }
     while (myFragmentTags.size() < myFragments.size() - 1) {
       myFragmentTags.add(null);
@@ -754,7 +754,7 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
       offset += myBorder.getBorderInsets(this).left;
     }
 
-    final List<Object[]> searchMatches = new ArrayList<Object[]>();
+    final List<Object[]> searchMatches = new ArrayList<>();
 
     applyAdditionalHints(g);
     final Font baseFont = getBaseFont();
@@ -830,15 +830,18 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
 
       // 1. Strikeout effect
       if (attributes.isStrikeout() && !attributes.isSearchMatch()) {
-        drawStrikeout(g, offset, offset + fragmentWidth, textBaseline);
+        EffectPainter.STRIKE_THROUGH.paint(g, offset, textBaseline, fragmentWidth, getCharHeight(g), null);
       }
       // 2. Waved effect
       if (attributes.isWaved()) {
-        EffectPainter.WAVE_UNDERSCORE.paint(g, offset, textBaseline + 1, fragmentWidth, Math.max(2, metrics.getDescent()), attributes.getWaveColor());
+        if (attributes.getWaveColor() != null) {
+          g.setColor(attributes.getWaveColor());
+        }
+        EffectPainter.WAVE_UNDERSCORE.paint(g, offset, textBaseline + 1, fragmentWidth, Math.max(2, metrics.getDescent()), null);
       }
       // 3. Underline
       if (attributes.isUnderline()) {
-        EffectPainter.LINE_UNDERSCORE.paint(g, offset, textBaseline, fragmentWidth, metrics.getDescent(), g.getColor());
+        EffectPainter.LINE_UNDERSCORE.paint(g, offset, textBaseline, fragmentWidth, metrics.getDescent(), null);
       }
       // 4. Bold Dotted Line
       if (attributes.isBoldDottedLine()) {
@@ -882,16 +885,15 @@ public class SimpleColoredComponent extends JComponent implements Accessible, Co
       g.drawString(text, x1, baseline);
 
       if (((SimpleTextAttributes)info[5]).isStrikeout()) {
-        drawStrikeout(g, x1, x2, baseline);
+        EffectPainter.STRIKE_THROUGH.paint(g, x1, baseline, x2 - x1, getCharHeight(g), null);
       }
     }
     return offset;
   }
 
-  private static void drawStrikeout(Graphics g, int x1, int x2, int y) {
+  private static int getCharHeight(Graphics g) {
     // magic of determining character height
-    int strikeOutAt = y - g.getFontMetrics().charWidth('a') / 2;
-    UIUtil.drawLine(g, x1, strikeOutAt, x2, strikeOutAt);
+    return g.getFontMetrics().charWidth('a');
   }
 
   private int computeTextAlignShift(@NotNull Font font) {

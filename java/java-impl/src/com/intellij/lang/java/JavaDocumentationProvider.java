@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,6 +34,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
@@ -60,7 +61,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.builtInWebServer.BuiltInWebBrowserUrlProvider;
+import org.jetbrains.builtInWebServer.BuiltInWebBrowserUrlProviderKt;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -373,7 +374,7 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
   @Override
   public PsiComment findExistingDocComment(final PsiComment comment) {
     if (comment instanceof PsiDocComment) {
-      final PsiDocCommentOwner owner = ((PsiDocComment)comment).getOwner();
+      final PsiJavaDocumentedElement owner = ((PsiDocComment)comment).getOwner();
       if (owner != null) {
         return owner.getDocComment();
       }
@@ -394,12 +395,11 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
 
   @Override
   public String generateDocumentationContentStub(PsiComment _comment) {
-    PsiDocCommentOwner commentOwner = ((PsiDocComment)_comment).getOwner();
-    assert commentOwner != null;
-    final Project project = commentOwner.getProject();
+    final PsiJavaDocumentedElement commentOwner = ((PsiDocComment)_comment).getOwner();
+    final Project project = _comment.getProject();
     final StringBuilder builder = new StringBuilder();
-    final CodeDocumentationAwareCommenter commenter = (CodeDocumentationAwareCommenter)LanguageCommenters.INSTANCE
-      .forLanguage(commentOwner.getLanguage());
+    final CodeDocumentationAwareCommenter commenter =
+      (CodeDocumentationAwareCommenter)LanguageCommenters.INSTANCE.forLanguage(_comment.getLanguage());
     if (commentOwner instanceof PsiMethod) {
       PsiMethod psiMethod = (PsiMethod)commentOwner;
       generateParametersTakingDocFromSuperMethods(project, builder, commenter, psiMethod);
@@ -433,7 +433,7 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
                                                                  StringBuilder builder,
                                                                  CodeDocumentationAwareCommenter commenter, PsiMethod psiMethod) {
     final PsiParameter[] parameters = psiMethod.getParameterList().getParameters();
-    final Map<String, String> param2Description = new HashMap<String, String>();
+    final Map<String, String> param2Description = new HashMap<>();
     final PsiMethod[] superMethods = psiMethod.findSuperMethods();
 
     for (PsiMethod superMethod : superMethods) {
@@ -548,12 +548,16 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
   }
 
   @Nullable
-  public static String generateExternalJavadoc(final PsiElement element) {
+  public static String generateExternalJavadoc(@NotNull final PsiElement element) {
     final JavaDocInfoGenerator javaDocInfoGenerator = JavaDocInfoGeneratorFactory.create(element.getProject(), element);
-    final List<String> docURLs = getExternalJavaDocUrl(element);
-    return JavaDocExternalFilter.filterInternalDocInfo(javaDocInfoGenerator.generateDocInfo(docURLs));
+    return generateExternalJavadoc(element, javaDocInfoGenerator);
   }
 
+  @Nullable
+  public static String generateExternalJavadoc(@NotNull final PsiElement element, @NotNull JavaDocInfoGenerator generator) {
+    final List<String> docURLs = getExternalJavaDocUrl(element);
+    return JavaDocExternalFilter.filterInternalDocInfo(generator.generateDocInfo(docURLs));
+  }
 
   @Nullable
   private static String fetchExternalJavadoc(final PsiElement element, String fromUrl, @NotNull JavaDocExternalFilter filter) {
@@ -563,8 +567,9 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
         return externalDoc;
       }
     }
-    catch (Exception ignored) {
-      //try to generate some javadoc
+    catch (ProcessCanceledException ignored) {}
+    catch (Exception e) {
+      LOG.warn(e);
     }
     return null;
   }
@@ -670,7 +675,7 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
   }
 
   public static Set<String> getHtmlMethodSignatures(PsiMethod method, boolean java8FormatFirst) {
-    final Set<String> signatures = new LinkedHashSet<String>();
+    final Set<String> signatures = new LinkedHashSet<>();
     signatures.add(formatMethodSignature(method, true, java8FormatFirst));
     signatures.add(formatMethodSignature(method, false, java8FormatFirst));
 
@@ -745,9 +750,9 @@ public class JavaDocumentationProvider extends DocumentationProviderEx implement
       for (VirtualFile root : orderEntry.getFiles(JavadocOrderRootType.getInstance())) {
         if (root.getFileSystem() == JarFileSystem.getInstance()) {
           VirtualFile file = root.findFileByRelativePath(relPath);
-          List<Url> urls = file == null ? null : BuiltInWebBrowserUrlProvider.getUrls(file, project, null);
+          List<Url> urls = file == null ? null : BuiltInWebBrowserUrlProviderKt.getBuiltInServerUrls(file, project, null);
           if (!ContainerUtil.isEmpty(urls)) {
-            List<String> result = new SmartList<String>();
+            List<String> result = new SmartList<>();
             for (Url url : urls) {
               result.add(url.toExternalForm());
             }

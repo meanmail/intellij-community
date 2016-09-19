@@ -17,7 +17,7 @@ package com.intellij.ide.customize;
 
 import com.intellij.CommonBundle;
 import com.intellij.ide.WelcomeWizardUtil;
-import com.intellij.ide.cloudConfiguration.CloudConfigurationManager;
+import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.laf.IntelliJLaf;
 import com.intellij.ide.ui.laf.LafManagerImpl;
@@ -27,9 +27,9 @@ import com.intellij.openapi.options.OptionsBundle;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.util.IconUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -81,7 +81,7 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
   private boolean myInitial = true;
   private boolean myColumnMode;
   private JLabel myPreviewLabel;
-  private Set<ThemeInfo> myThemes = new LinkedHashSet<ThemeInfo>();
+  private Set<ThemeInfo> myThemes = new LinkedHashSet<>();
 
   public CustomizeUIThemeStepPanel() {
     setLayout(createSmallBorderLayout());
@@ -98,14 +98,15 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
       final JRadioButton radioButton = new JRadioButton(theme.name, myDefaultTheme == theme);
       radioButton.setOpaque(false);
       final JPanel panel = createBigButtonPanel(createSmallBorderLayout(), radioButton, () -> {
-        applyLaf(theme, CustomizeUIThemeStepPanel.this);
+        applyLaf(theme, this);
         theme.apply();
       });
       panel.setBorder(createSmallEmptyBorder());
       panel.add(radioButton, myColumnMode ? BorderLayout.WEST : BorderLayout.NORTH);
       Icon icon = theme.getIcon();
+      int maxThumbnailSize = 400 / myThemes.size();
       final JLabel label = new JLabel(
-        myColumnMode ? IconUtil.scale(IconUtil.cropIcon(icon, icon.getIconWidth() * 2 / 3, icon.getIconHeight() * 2 / 3), .5) : icon);
+        myColumnMode ? IconUtil.scale(IconUtil.cropIcon(icon, maxThumbnailSize * 2, maxThumbnailSize * 2), .5) : icon);
       label.setVerticalAlignment(SwingConstants.TOP);
       label.setHorizontalAlignment(SwingConstants.RIGHT);
       panel.add(label, BorderLayout.CENTER);
@@ -123,35 +124,8 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
       wrapperPanel.add(myPreviewLabel);
       add(wrapperPanel, BorderLayout.CENTER);
     }
-    SwingUtilities.invokeLater(() -> applyLaf(myDefaultTheme, CustomizeUIThemeStepPanel.this));
+    SwingUtilities.invokeLater(() -> applyLaf(myDefaultTheme, this));
     myInitial = false;
-  }
-
-  @NotNull
-  private ThemeInfo getDefaultTheme() {
-    String sharedLaf = CloudConfigurationManager.getCustomizeProvider().getSharedLaf();
-    if (sharedLaf != null) {
-      ThemeInfo theme = findTheme(sharedLaf);
-      if (theme == null && AQUA.name.equals(sharedLaf)) {
-        theme = findTheme(INTELLIJ.name);
-      }
-      if (theme != null) {
-        return theme;
-      }
-    }
-
-    return myThemes.iterator().next();
-  }
-
-  @Nullable
-  private ThemeInfo findTheme(@NotNull String name) {
-    for (ThemeInfo theme : myThemes) {
-      if (name.equals(theme.name)) {
-        mySkipFirstShowing = true;
-        return theme;
-      }
-    }
-    return null;
   }
 
   protected void initThemes(Collection<ThemeInfo> result) {
@@ -173,6 +147,21 @@ public class CustomizeUIThemeStepPanel extends AbstractCustomizeWizardStep {
       result.add(DARCULA);
       result.add(GTK);
     }
+  }
+
+  @NotNull
+  private ThemeInfo getDefaultTheme() {
+    CloudConfigProvider provider = CloudConfigProvider.getProvider();
+    if (provider != null) {
+      String lafClassName = provider.getLafClassName();
+      if (lafClassName != null) {
+        ThemeInfo result = ContainerUtil.find(myThemes, theme -> lafClassName.equals(theme.laf));
+        if (result != null) {
+          return result;
+        }
+      }
+    }
+    return myThemes.iterator().next();
   }
 
   @Override

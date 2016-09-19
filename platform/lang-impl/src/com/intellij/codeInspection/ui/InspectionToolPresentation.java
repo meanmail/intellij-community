@@ -48,6 +48,12 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
                                 @NotNull InspectionTreeNode parentNode,
                                 final boolean showStructure,
                                 final boolean groupBySeverity);
+
+  @NotNull
+  default RefElementNode createRefNode(@Nullable RefEntity entity) {
+    return new RefElementNode(entity, this);
+  }
+
   void updateContent();
 
   boolean hasReportedProblems();
@@ -74,7 +80,7 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
   @NotNull
   Set<RefModule> getModuleProblems();
   @Nullable
-  QuickFixAction[] getQuickFixes(@NotNull final RefEntity[] refElements, @Nullable CommonProblemDescriptor[] descriptors);
+  QuickFixAction[] getQuickFixes(@NotNull final RefEntity[] refElements, @Nullable InspectionTree tree);
   @NotNull
   Map<RefEntity, CommonProblemDescriptor[]> getProblemElements();
   @NotNull
@@ -107,5 +113,9 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
    */
   default boolean isDummy() {
     return false;
+  }
+
+  default int getProblemsCount(InspectionTree tree) {
+    return tree.getSelectedDescriptors().length;
   }
 }

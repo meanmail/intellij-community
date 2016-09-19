@@ -670,6 +670,10 @@ public final class EditorUtil {
     return calcSurroundingRange(editor, editor.getCaretModel().getVisualPosition(), editor.getCaretModel().getVisualPosition());
   }
 
+  public static Pair<LogicalPosition, LogicalPosition> calcCaretLineRange(@NotNull Caret caret) {
+    return calcSurroundingRange(caret.getEditor(), caret.getVisualPosition(), caret.getVisualPosition());
+  }
+
   /**
    * Calculates logical positions that surround given visual positions and conform to the following criteria:
    * <pre>
@@ -891,6 +895,10 @@ public final class EditorUtil {
   public static boolean attributesImpactFontStyleOrColor(@Nullable TextAttributes attributes) {
     return attributes == TextAttributes.ERASE_MARKER ||
            (attributes != null && (attributes.getFontType() != Font.PLAIN || attributes.getForegroundColor() != null));
+  }
+
+  public static boolean isCurrentCaretPrimary(@NotNull Editor editor) {
+    return editor.getCaretModel().getCurrentCaret() == editor.getCaretModel().getPrimaryCaret();
   }
 }
 

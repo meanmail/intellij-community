@@ -144,7 +144,7 @@ public class FindPopupPanel extends JBPanel {
   private StateRestoringCheckBox myCbFileFilter;
   private ActionToolbarImpl myScopeSelectionToolbar;
   private TextFieldWithAutoCompletion<String> myFileMaskField;
-  private ArrayList<String> myFileMasks = new ArrayList<String>();
+  private ArrayList<String> myFileMasks = new ArrayList<>();
   private ActionButton myFilterContextButton;
   private ActionButton myTabResultsButton;
   private JButton myOKButton;
@@ -225,7 +225,7 @@ public class FindPopupPanel extends JBPanel {
     initByModel();
     updateReplaceVisibility();
 
-    ApplicationManager.getApplication().invokeLater(() -> FindPopupPanel.this.scheduleResultsUpdate(), ModalityState.any());
+    ApplicationManager.getApplication().invokeLater(() -> this.scheduleResultsUpdate(), ModalityState.any());
   }
 
   private void initComponents() {
@@ -524,9 +524,12 @@ public class FindPopupPanel extends JBPanel {
         if (index != -1) {
           UsageInfo usageInfo = ((UsageInfo2UsageAdapter)myResultsPreviewTable.getModel().getValueAt(index, 0)).getUsageInfo();
           myUsagePreviewPanel.updateLayout(Collections.singletonList(usageInfo));
+          VirtualFile file = usageInfo.getVirtualFile();
+          myUsagePreviewPanel.setBorder(IdeBorderFactory.createTitledBorder(file != null ? file.getPath() : "", false));
         }
         else {
           myUsagePreviewPanel.updateLayout(null);
+          myUsagePreviewPanel.setBorder(IdeBorderFactory.createBorder());
         }
       }
     });
@@ -618,7 +621,7 @@ public class FindPopupPanel extends JBPanel {
     }
     mySelectedScope = getScope(myModel);
     final String dirName = myModel.getDirectoryName();
-    setDirectories(FindSettings.getInstance().getRecentDirectories(), dirName);
+    setDirectories(FindInProjectSettings.getInstance(myProject).getRecentDirectories(), dirName);
 
     if (!StringUtil.isEmptyOrSpaces(dirName)) {
       VirtualFile dir = LocalFileSystem.getInstance().findFileByPath(dirName);
@@ -643,14 +646,18 @@ public class FindPopupPanel extends JBPanel {
     myFileMaskField.setEnabled(isThereFileFilter);
     updateScopeDetailsPanel();
     String toSearch = myModel.getStringToFind();
+    FindInProjectSettings findInProjectSettings = FindInProjectSettings.getInstance(myProject);
+
     if (StringUtil.isEmpty(toSearch)) {
-      String[] history = FindSettings.getInstance().getRecentFindStrings();
+      String[] history = findInProjectSettings.getRecentFindStrings();
       toSearch = history.length > 0 ? history[history.length - 1] : "";
     }
+
     mySearchComponent.setText(toSearch);
     String toReplace = myModel.getStringToReplace();
+
     if (StringUtil.isEmpty(toReplace)) {
-      String[] history = FindSettings.getInstance().getRecentReplaceStrings();
+      String[] history = findInProjectSettings.getRecentReplaceStrings();
       toReplace = history.length > 0 ? history[history.length - 1] : "";
     }
     myReplaceComponent.setText(toReplace);
@@ -783,7 +790,7 @@ public class FindPopupPanel extends JBPanel {
 
     model.addColumn("Usages");
     // Use previously shown usage files as hint for faster search and better usage preview performance if pattern length increased
-    final LinkedHashSet<VirtualFile> filesToScanInitially = new LinkedHashSet<VirtualFile>();
+    final LinkedHashSet<VirtualFile> filesToScanInitially = new LinkedHashSet<>();
 
     if (myPreviousModel != null && myPreviousModel.getStringToFind().length() < myModel.getStringToFind().length()) {
       final DefaultTableModel previousModel = (DefaultTableModel)myResultsPreviewTable.getModel();
@@ -820,7 +827,7 @@ public class FindPopupPanel extends JBPanel {
 
         final FindUsagesProcessPresentation processPresentation =
           FindInProjectUtil.setupProcessPresentation(myProject, showPanelIfOnlyOneUsage, presentation);
-        Ref<VirtualFile> lastUsageFileRef = new Ref<VirtualFile>();
+        Ref<VirtualFile> lastUsageFileRef = new Ref<>();
 
         FindInProjectUtil.findUsages(myModel.clone(), myProject, info -> {
           final Usage usage = UsageInfo2UsageAdapter.CONVERTER.fun(info);
@@ -1216,7 +1223,7 @@ public class FindPopupPanel extends JBPanel {
     for (int row : rows) {
       Object valueAt = source.getModel().getValueAt(row, 0);
       if (valueAt instanceof Usage) {
-        if (navigations == null) navigations = new SmartList<Usage>();
+        if (navigations == null) navigations = new SmartList<>();
         Usage at = (Usage)valueAt;
         navigations.add(at);
       }

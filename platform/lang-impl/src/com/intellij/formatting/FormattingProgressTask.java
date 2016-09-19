@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,6 +33,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.WeakReference;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ConcurrentMap;
 
@@ -46,15 +47,8 @@ public class FormattingProgressTask extends SequentialModalProgressTask implemen
   };
 
   private static final double MAX_PROGRESS_VALUE = 1;
-  private static final double TOTAL_WEIGHT;
-
-  static {
-    double weight = 0;
-    for (FormattingStateId state : FormattingStateId.values()) {
-      weight += state.getProgressWeight();
-    }
-    TOTAL_WEIGHT = weight;
-  }
+  private static final double TOTAL_WEIGHT =
+    Arrays.stream(FormattingStateId.values()).mapToDouble(FormattingStateId::getProgressWeight).sum();
 
   private final ConcurrentMap<EventType, Collection<Runnable>> myCallbacks = ContainerUtil.newConcurrentMap();
 
@@ -71,8 +65,8 @@ public class FormattingProgressTask extends SequentialModalProgressTask implemen
 
   public FormattingProgressTask(@Nullable Project project, @NotNull PsiFile file, @NotNull Document document) {
     super(project, getTitle(file));
-    myFile = new WeakReference<VirtualFile>(file.getVirtualFile());
-    myDocument = new WeakReference<Document>(document);
+    myFile = new WeakReference<>(file.getVirtualFile());
+    myDocument = new WeakReference<>(document);
     myFileTextLength = file.getTextLength();
     addCallback(EventType.CANCEL, new MyCancelCallback());
   }
@@ -90,15 +84,12 @@ public class FormattingProgressTask extends SequentialModalProgressTask implemen
 
   @Override
   protected void prepare(@NotNull final SequentialTask task) {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        Document document = myDocument.get();
-        if (document != null) {
-          myDocumentModificationStampBefore = document.getModificationStamp();
-        }
-        task.prepare();
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      Document document = myDocument.get();
+      if (document != null) {
+        myDocumentModificationStampBefore = document.getModificationStamp();
       }
+      task.prepare();
     });
   }
 

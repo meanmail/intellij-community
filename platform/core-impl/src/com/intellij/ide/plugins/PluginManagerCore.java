@@ -41,10 +41,10 @@ import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.Graph;
 import com.intellij.util.graph.GraphGenerator;
 import com.intellij.util.io.URLUtil;
+import com.intellij.util.xmlb.JDOMXIncluder;
 import com.intellij.util.xmlb.XmlSerializationException;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
-import gnu.trove.TIntProcedure;
 import gnu.trove.TObjectIntHashMap;
 import org.jdom.Document;
 import org.jetbrains.annotations.NotNull;
@@ -65,7 +65,7 @@ import java.util.zip.ZipFile;
 public class PluginManagerCore {
   private static final Logger LOG = Logger.getInstance(PluginManagerCore.class);
 
-  private static final String DISABLED_PLUGINS_FILENAME = "disabled_plugins.txt";
+  public static final String DISABLED_PLUGINS_FILENAME = "disabled_plugins.txt";
   public static final String CORE_PLUGIN_ID = "com.intellij";
   private static final String META_INF = "META-INF";
   public static final String PLUGIN_XML = "plugin.xml";
@@ -100,6 +100,8 @@ public class PluginManagerCore {
       return ourBuildNumber;
     }
   }
+
+  private static List<Runnable> myDisablePluginListeners;
 
   /**
    * do not call this method during bootstrap, should be called in a copy of PluginManager, loaded by IdeaClassLoader
@@ -140,6 +142,7 @@ public class PluginManagerCore {
           reader.close();
           if (!requiredPlugins.isEmpty()) {
             savePluginsList(disabledPlugins, false, new File(PathManager.getConfigPath(), DISABLED_PLUGINS_FILENAME));
+            fireEditDisablePlugins();
           }
         }
       }
@@ -204,6 +207,27 @@ public class PluginManagerCore {
     return app != null && app.isUnitTestMode();
   }
 
+  public static void addDisablePluginListener(@NotNull Runnable listener) {
+    if (myDisablePluginListeners == null) {
+      myDisablePluginListeners = new ArrayList<Runnable>();
+    }
+    myDisablePluginListeners.add(listener);
+  }
+
+  public static void removeDisablePluginListener(@NotNull Runnable listener) {
+    if (myDisablePluginListeners != null) {
+      myDisablePluginListeners.remove(listener);
+    }
+  }
+
+  private static void fireEditDisablePlugins() {
+    if (myDisablePluginListeners != null) {
+      for (Runnable listener : myDisablePluginListeners) {
+        listener.run();
+      }
+    }
+  }
+
   public static void savePluginsList(@NotNull Collection<String> ids, boolean append, @NotNull File plugins) throws IOException {
     if (!plugins.isFile()) {
       FileUtil.ensureCanCreateFile(plugins);
@@ -256,6 +280,7 @@ public class PluginManagerCore {
     File plugins = new File(PathManager.getConfigPath(), DISABLED_PLUGINS_FILENAME);
     savePluginsList(ids, append, plugins);
     ourDisabledPlugins = null;
+    fireEditDisablePlugins();
   }
 
   public static Logger getLogger() {
@@ -528,28 +553,17 @@ public class PluginManagerCore {
     final Graph<PluginId> graph = createPluginIdGraph(idToDescriptorMap);
     final DFSTBuilder<PluginId> builder = new DFSTBuilder<PluginId>(graph);
     if (!builder.isAcyclic()) {
-      final List<String> cycles = new ArrayList<String>();
-      builder.getSCCs().forEach(new TIntProcedure() {
-        private int myTNumber;
-        @Override
-        public boolean execute(int size) {
-          if (size > 1) {
-            String cycle = "";
-            for (int j = 0; j < size; j++) {
-              PluginId id = builder.getNodeByTNumber(myTNumber + j);
-              idToDescriptorMap.get(id).setEnabled(false);
-              cycle += id.getIdString() + " ";
-            }
-            cycles.add(cycle);
-          }
-          myTNumber += size;
-          return true;
-        }
-      });
-
       final String cyclePresentation;
       if (ApplicationManager.getApplication().isInternal()) {
-        cyclePresentation = StringUtil.join(cycles, ";");
+        final StringBuilder cycles = new StringBuilder();
+        for (Collection<PluginId> component : builder.getComponents()) {
+          if (cycles.length() > 0) cycles.append(';');
+          for (PluginId id : component) {
+            idToDescriptorMap.get(id).setEnabled(false);
+            cycles.append(id.getIdString()).append(' ');
+          }
+        }
+        cyclePresentation = cycles.toString();
       }
       else {
         final Couple<PluginId> circularDependency = builder.getCircularDependency();
@@ -632,10 +646,10 @@ public class PluginManagerCore {
   }
 
   @Nullable
-  private static IdeaPluginDescriptorImpl loadDescriptorFromJar(@NotNull File file, @NotNull String fileName) {
+  private static IdeaPluginDescriptorImpl loadDescriptorFromJar(@NotNull File file, @NotNull String fileName,
+                                                                @NotNull JDOMXIncluder.PathResolver pathResolver) {
     try {
-      String fileURL = StringUtil.replace(file.toURI().toASCIIString(), "!", "%21");
-      URL jarURL = new URL(URLUtil.JAR_PROTOCOL + ':' + fileURL + URLUtil.JAR_SEPARATOR + META_INF + '/' + fileName);
+      URL jarURL = URLUtil.getJarEntryURL(file, META_INF + '/' + fileName);
 
       ZipFile zipFile = new ZipFile(file);
       try {
@@ -643,7 +657,7 @@ public class PluginManagerCore {
         if (entry != null) {
           Document document = JDOMUtil.loadDocument(zipFile.getInputStream(entry));
           IdeaPluginDescriptorImpl descriptor = new IdeaPluginDescriptorImpl(file);
-          descriptor.readExternal(document, jarURL);
+          descriptor.readExternal(document, jarURL, pathResolver);
           return descriptor;
         }
       }
@@ -689,9 +703,10 @@ public class PluginManagerCore {
             return 0;
           }
         });
+        PluginXmlPathResolver pathResolver = new PluginXmlPathResolver(files);
         for (final File f : files) {
           if (FileUtil.isJarOrZip(f)) {
-            descriptor = loadDescriptorFromJar(f, fileName);
+            descriptor = loadDescriptorFromJar(f, fileName, pathResolver);
             if (descriptor != null) {
               descriptor.setPath(file);
               break;
@@ -712,7 +727,7 @@ public class PluginManagerCore {
       }
     }
     else if (StringUtil.endsWithIgnoreCase(file.getName(), ".jar") && file.exists()) {
-      descriptor = loadDescriptorFromJar(file, fileName);
+      descriptor = loadDescriptorFromJar(file, fileName, JDOMXIncluder.DEFAULT_PATH_RESOLVER);
     }
 
     if (descriptor != null) {
@@ -1334,7 +1349,7 @@ public class PluginManagerCore {
       descriptor = loadDescriptorFromDir(pluginRoot, fileName);
     }
     else {
-      descriptor = loadDescriptorFromJar(pluginRoot, fileName);
+      descriptor = loadDescriptorFromJar(pluginRoot, fileName, JDOMXIncluder.DEFAULT_PATH_RESOLVER);
     }
     if (descriptor != null) {
       registerExtensionPointsAndExtensions(area, Collections.singletonList(descriptor));

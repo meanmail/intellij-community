@@ -18,7 +18,6 @@ package git4idea.commands;
 import com.intellij.concurrency.JobScheduler;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
@@ -88,7 +87,7 @@ public class GitTask {
   // this is always sync
   @NotNull
   public GitTaskResult execute(boolean modal) {
-    final AtomicReference<GitTaskResult> result = new AtomicReference<GitTaskResult>(GitTaskResult.INITIAL);
+    final AtomicReference<GitTaskResult> result = new AtomicReference<>(GitTaskResult.INITIAL);
     execute(true, modal, new GitTaskResultHandlerAdapter() {
       @Override
       protected void run(GitTaskResult res) {
@@ -126,12 +125,7 @@ public class GitTask {
           completed.set(true);
         }
       };
-      ApplicationManager.getApplication().invokeAndWait(new Runnable() {
-        @Override
-        public void run() {
-          ProgressManager.getInstance().run(task);
-        }
-      }, ModalityState.defaultModalityState());
+      ApplicationManager.getApplication().invokeAndWait(() -> ProgressManager.getInstance().run(task));
     } else {
       final BackgroundableTask task = new BackgroundableTask(myProject, myHandler, myTitle) {
         @Override public void onSuccess() {

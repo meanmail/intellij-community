@@ -16,10 +16,10 @@ from _pydevd_bundle.pydevd_comm import CMD_RUN, CMD_VERSION, CMD_LIST_THREADS, C
     CMD_SET_PY_EXCEPTION, CMD_GET_FILE_CONTENTS, CMD_SET_PROPERTY_TRACE, CMD_ADD_EXCEPTION_BREAK, \
     CMD_REMOVE_EXCEPTION_BREAK, CMD_LOAD_SOURCE, CMD_ADD_DJANGO_EXCEPTION_BREAK, CMD_REMOVE_DJANGO_EXCEPTION_BREAK, \
     CMD_EVALUATE_CONSOLE_EXPRESSION, InternalEvaluateConsoleExpression, InternalConsoleGetCompletions, \
-    CMD_RUN_CUSTOM_OPERATION, InternalRunCustomOperation, CMD_IGNORE_THROWN_EXCEPTION_AT, CMD_ENABLE_DONT_TRACE,\
-    CMD_SHOW_RETURN_VALUES, ID_TO_MEANING
-from _pydevd_bundle.pydevd_constants import get_thread_id, IS_PY3K, DebugInfoHolder, dict_contains, dict_keys, dict_pop
-import pydevd_file_utils
+    CMD_RUN_CUSTOM_OPERATION, InternalRunCustomOperation, CMD_IGNORE_THROWN_EXCEPTION_AT, CMD_ENABLE_DONT_TRACE, \
+    CMD_SHOW_RETURN_VALUES, ID_TO_MEANING, CMD_GET_DESCRIPTION, InternalGetDescription
+from _pydevd_bundle.pydevd_constants import get_thread_id, IS_PY3K, DebugInfoHolder, dict_contains, dict_keys, dict_pop, \
+    STATE_RUN
 
 
 def process_net_command(py_db, cmd_id, seq, text):
@@ -84,7 +84,7 @@ def process_net_command(py_db, cmd_id, seq, text):
             elif cmd_id == CMD_THREAD_SUSPEND:
                 # Yes, thread suspend is still done at this point, not through an internal command!
                 t = pydevd_find_thread_by_id(text)
-                if t:
+                if t and not hasattr(t, 'pydev_do_not_trace'):
                     additional_info = None
                     try:
                         additional_info = t.additional_info
@@ -103,9 +103,9 @@ def process_net_command(py_db, cmd_id, seq, text):
             elif cmd_id == CMD_THREAD_RUN:
                 t = pydevd_find_thread_by_id(text)
                 if t:
-                    thread_id = get_thread_id(t)
-                    int_cmd = InternalRunThread(thread_id)
-                    py_db.post_internal_command(int_cmd, thread_id)
+                    t.additional_info.pydev_step_cmd = -1
+                    t.additional_info.pydev_step_stop = None
+                    t.additional_info.pydev_state = STATE_RUN
 
                 elif text.startswith('__frame__:'):
                     sys.stderr.write("Can't make tasklet run: %s\n" % (text,))
@@ -228,6 +228,14 @@ def process_net_command(py_db, cmd_id, seq, text):
 
                 except:
                     traceback.print_exc()
+            elif cmd_id == CMD_GET_DESCRIPTION:
+                try:
+
+                    thread_id, frame_id, expression = text.split('\t', 2)
+                    int_cmd = InternalGetDescription(seq, thread_id, frame_id, expression)
+                    py_db.post_internal_command(int_cmd, thread_id)
+                except:
+                    traceback.print_exc()
 
             elif cmd_id == CMD_GET_FRAME:
                 thread_id, frame_id, scope = text.split('\t', 2)
@@ -239,6 +247,7 @@ def process_net_command(py_db, cmd_id, seq, text):
                 # func name: 'None': match anything. Empty: match global, specified: only method context.
                 # command to add some breakpoint.
                 # text is file\tline. Add to breakpoints dictionary
+                suspend_policy = "NONE"
                 if py_db._set_breakpoints_with_id:
                     breakpoint_id, type, file, line, func_name, condition, expression = text.split('\t', 6)
 
@@ -255,7 +264,7 @@ def process_net_command(py_db, cmd_id, seq, text):
                 else:
                     #Note: this else should be removed after PyCharm migrates to setting
                     #breakpoints by id (and ideally also provides func_name).
-                    type, file, line, func_name, condition, expression = text.split('\t', 5)
+                    type, file, line, func_name, suspend_policy, condition, expression = text.split('\t', 6)
                     # If we don't have an id given for each breakpoint, consider
                     # the id to be the line.
                     breakpoint_id = line = int(line)
@@ -283,9 +292,8 @@ def process_net_command(py_db, cmd_id, seq, text):
                 if len(expression) <= 0 or expression is None or expression == "None":
                     expression = None
 
-                supported_type = False
                 if type == 'python-line':
-                    breakpoint = LineBreakpoint(line, condition, func_name, expression)
+                    breakpoint = LineBreakpoint(line, condition, func_name, expression, suspend_policy)
                     breakpoints = py_db.breakpoints
                     file_to_id_to_breakpoint = py_db.file_to_id_to_line_breakpoint
                     supported_type = True
@@ -369,9 +377,9 @@ def process_net_command(py_db, cmd_id, seq, text):
             elif cmd_id == CMD_EVALUATE_EXPRESSION or cmd_id == CMD_EXEC_EXPRESSION:
                 #command to evaluate the given expression
                 #text is: thread\tstackframe\tLOCAL\texpression
-                thread_id, frame_id, scope, expression, trim = text.split('\t', 4)
+                thread_id, frame_id, scope, expression, trim, temp_name = text.split('\t', 5)
                 int_cmd = InternalEvaluateExpression(seq, thread_id, frame_id, expression,
-                    cmd_id == CMD_EXEC_EXPRESSION, int(trim) == 1)
+                    cmd_id == CMD_EXEC_EXPRESSION, int(trim) == 1, temp_name)
                 py_db.post_internal_command(int_cmd, thread_id)
 
             elif cmd_id == CMD_CONSOLE_EXEC:

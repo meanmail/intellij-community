@@ -7,12 +7,16 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.util.xmlb.annotations.Transient;
 import com.jetbrains.edu.learning.StudyUtils;
 import com.jetbrains.edu.learning.core.EduNames;
+import com.jetbrains.edu.learning.stepic.EduStepicConnector;
+import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,23 +24,23 @@ import java.util.Map;
  * Implementation of task which contains task files, tests, input file for tests
  */
 public class Task implements StudyItem {
-  @Expose
-  private String name;
+  @Expose private String name;
 
   // index is visible to user number of task from 1 to task number
   private int myIndex;
   private StudyStatus myStatus = StudyStatus.Unchecked;
 
-  @Expose private int myStepicId;
-
-  @Expose
+  @SerializedName("stepic_id")
+  @Expose private int myStepId;
+  
   @SerializedName("task_files")
-  public Map<String, TaskFile> taskFiles = new HashMap<String, TaskFile>();
+  @Expose public Map<String, TaskFile> taskFiles = new HashMap<>();
 
   private String text;
-  private Map<String, String> testsText = new HashMap<String, String>();
+  private Map<String, String> testsText = new HashMap<>();
 
   @Transient private Lesson myLesson;
+  @Expose @SerializedName("update_date") private Date myUpdateDate;
 
   public Task() {}
 
@@ -200,12 +204,12 @@ public class Task implements StudyItem {
     return result;
   }
 
-  public void setStepicId(int stepicId) {
-    myStepicId = stepicId;
+  public void setStepId(int stepId) {
+    myStepId = stepId;
   }
 
-  public int getStepicId() {
-    return myStepicId;
+  public int getStepId() {
+    return myStepId;
   }
 
   public StudyStatus getStatus() {
@@ -219,5 +223,31 @@ public class Task implements StudyItem {
         placeholder.setStatus(status);
       }
     }
+  }
+
+  public Task copy() {
+    Element element = XmlSerializer.serialize(this);
+    Task copy = XmlSerializer.deserialize(element, Task.class);
+    if (copy == null) {
+      return null;
+    }
+    copy.initTask(null, true);
+    return copy;
+  }
+
+  public void setUpdateDate(Date date) {
+    myUpdateDate = date;
+  }
+
+  public Date getUpdateDate() {
+    return myUpdateDate;
+  }
+
+  public boolean isUpToDate() {
+    if (getStepId() == 0) return true;
+    final Date date = EduStepicConnector.getTaskUpdateDate(getStepId());
+    if (date == null) return true;
+    if (myUpdateDate == null) return false;
+    return !date.after(myUpdateDate);
   }
 }

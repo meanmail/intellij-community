@@ -27,9 +27,7 @@ import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.ComponentTreeEventDispatcher;
-import com.intellij.util.EventDispatcher;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.ui.UIUtil;
@@ -40,6 +38,7 @@ import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Transient;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import sun.swing.SwingUtilities2;
 
 import javax.swing.*;
@@ -57,6 +56,7 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
 
   private static UISettings ourSettings;
 
+  @Nullable
   public static UISettings getInstance() {
     return ourSettings = ServiceManager.getService(UISettings.class);
   }
@@ -65,6 +65,7 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
    * Use this method if you are not sure whether the application is initialized.
    * @return persisted UISettings instance or default values.
    */
+  @NotNull
   public static UISettings getShadowInstance() {
     Application application = ApplicationManager.getApplication();
     UISettings settings = application == null ? null : getInstance();
@@ -136,7 +137,6 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
   public boolean SORT_BOOKMARKS = false;
   public boolean MERGE_EQUAL_STACKTRACES = true;
 
-  private final EventDispatcher<UISettingsListener> myDispatcher = EventDispatcher.create(UISettingsListener.class);
   private final ComponentTreeEventDispatcher<UISettingsListener> myTreeDispatcher = ComponentTreeEventDispatcher.create(UISettingsListener.class);
 
   public UISettings() {
@@ -159,14 +159,11 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
   }
 
   /**
-   * @deprecated use {@link UISettings#addUISettingsListener(UISettingsListener, Disposable disposable)} instead.
+   * @deprecated Please use {@link UISettingsListener#TOPIC}
    */
-  public void addUISettingsListener(UISettingsListener listener) {
-    myDispatcher.addListener(listener);
-  }
-
-  public void addUISettingsListener(@NotNull final UISettingsListener listener, @NotNull Disposable parentDisposable) {
-    myDispatcher.addListener(listener, parentDisposable);
+  @Deprecated
+  public void addUISettingsListener(@NotNull UISettingsListener listener, @NotNull Disposable parentDisposable) {
+    ApplicationManager.getApplication().getMessageBus().connect(parentDisposable).subscribe(UISettingsListener.TOPIC, listener);
   }
 
   /**
@@ -174,7 +171,9 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
    */
   public void fireUISettingsChanged() {
     incModificationCount();
-    myDispatcher.getMulticaster().uiSettingsChanged(this);
+    if (myCounter == 1) {
+      return;
+    }
 
     if (ourSettings == this) {
       // if this is the main UISettings instance push event to bus and to all current components
@@ -182,16 +181,7 @@ public class UISettings extends SimpleModificationTracker implements PersistentS
       ApplicationManager.getApplication().getMessageBus().syncPublisher(UISettingsListener.TOPIC).uiSettingsChanged(this);
     }
 
-    IconLoader.setFilter(Registry.is("color.blindness.daltonization")
-                         ? DaltonizationFilter.get(COLOR_BLINDNESS)
-                         : MatrixFilter.get(COLOR_BLINDNESS));
-  }
-
-  /**
-   * @deprecated use {@link UISettings#addUISettingsListener(UISettingsListener, Disposable disposable)} instead.
-   */
-  public void removeUISettingsListener(UISettingsListener listener) {
-    myDispatcher.removeListener(listener);
+    IconLoader.setFilter(MatrixFilter.get(COLOR_BLINDNESS));
   }
 
   private void setSystemFontFaceAndSize() {

@@ -23,7 +23,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.util.Alarm;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.io.IOUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,13 +35,12 @@ import java.util.List;
 public class CompositePrintable implements Printable, Disposable {
   public static final String NEW_LINE = "\n";
 
-  protected final List<Printable> myNestedPrintables = new ArrayList<Printable>();
+  protected final List<Printable> myNestedPrintables = new ArrayList<>();
   private final PrintablesWrapper myWrapper = new PrintablesWrapper();
   protected int myExceptionMark;
   private int myCurrentSize = 0;
   private String myOutputFile = null;
   private String myFrameworkOutputFile;
-  private static final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.SHARED_THREAD);
 
   public void flush() {
     synchronized (myNestedPrintables) {
@@ -59,20 +58,20 @@ public class CompositePrintable implements Printable, Disposable {
     if (sync) {
       runnable.run();
     } else {
-      myAlarm.addRequest(runnable, 0);
+      AppExecutorUtil.getAppExecutorService().execute(runnable);
     }
   }
 
   public void printOn(final Printer printer) {
     final ArrayList<Printable> printables;
     synchronized (myNestedPrintables) {
-      printables = new ArrayList<Printable>(myNestedPrintables);
+      printables = new ArrayList<>(myNestedPrintables);
     }
     myWrapper.printOn(printer, printables);
   }
   
   public void printOwnPrintablesOn(final Printer printer) {
-    final ArrayList<Printable> printables = new ArrayList<Printable>();
+    final ArrayList<Printable> printables = new ArrayList<>();
     synchronized (myNestedPrintables) {
       for (Printable printable : myNestedPrintables) {
         if (printable instanceof AbstractTestProxy) continue;
@@ -197,7 +196,7 @@ public class CompositePrintable implements Printable, Disposable {
 
     public void flush(final List<Printable> printables) {
       if (printables.isEmpty()) return;
-      final ArrayList<Printable> currentPrintables = new ArrayList<Printable>(printables);
+      final ArrayList<Printable> currentPrintables = new ArrayList<>(printables);
       //move out from AWT thread
       final Runnable request = () -> {
         synchronized (myFileLock) {

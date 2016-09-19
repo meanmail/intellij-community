@@ -15,27 +15,30 @@
  */
 package com.intellij.psi.impl.compiled;
 
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.PsiJavaModule;
-import com.intellij.psi.PsiJavaModuleReference;
+import com.intellij.navigation.ItemPresentation;
+import com.intellij.navigation.ItemPresentationProviders;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.java.stubs.PsiJavaModuleStub;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
 import com.intellij.psi.impl.source.tree.JavaElementType;
 import com.intellij.psi.impl.source.tree.TreeElement;
+import com.intellij.psi.javadoc.PsiDocComment;
+import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class ClsJavaModuleImpl extends ClsRepositoryPsiElement<PsiJavaModuleStub> implements PsiJavaModule {
-  private PsiJavaModuleReference myReference;
+  private PsiJavaModuleReferenceElement myReference;
 
   public ClsJavaModuleImpl(PsiJavaModuleStub stub) {
     super(stub);
-    myReference = new ClsJavaModuleReferenceImpl(this, stub.getName());
+    myReference = new ClsJavaModuleReferenceElementImpl(this, stub.getName());
   }
 
   @NotNull
   @Override
-  public PsiJavaModuleReference getNameElement() {
+  public PsiJavaModuleReferenceElement getNameElement() {
     return myReference;
   }
 
@@ -54,6 +57,33 @@ public class ClsJavaModuleImpl extends ClsRepositoryPsiElement<PsiJavaModuleStub
   public void setMirror(@NotNull TreeElement element) throws InvalidMirrorException {
     setMirrorCheckingType(element, JavaElementType.MODULE);
     setMirror(getNameElement(), SourceTreeToPsiMap.<PsiJavaModule>treeToPsiNotNull(element).getNameElement());
+  }
+
+  @Override
+  public String getName() {
+    return getModuleName();
+  }
+
+  @Override
+  public PsiElement setName(@NonNls @NotNull String name) throws IncorrectOperationException {
+    throw cannotModifyException(this);
+  }
+
+  @Nullable
+  @Override
+  public PsiDocComment getDocComment() {
+    return null;
+  }
+
+  @Override
+  public ItemPresentation getPresentation() {
+    return ItemPresentationProviders.getItemPresentation(this);
+  }
+
+  @NotNull
+  @Override
+  public PsiElement getNavigationElement() {
+    return getNameElement();
   }
 
   @Override

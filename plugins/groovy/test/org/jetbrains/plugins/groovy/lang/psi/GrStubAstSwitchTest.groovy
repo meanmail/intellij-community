@@ -225,7 +225,7 @@ class X {
     assert file.contentsLoaded
   }
 
-  public void "test do not load content for findMethodsByName"() {
+  void "test do not load content for findMethodsByName"() {
     GroovyFileImpl file = myFixture.addFileToProject('usage.groovy', '''\
 class X {
   void foo(int a, int b = 2) {}
@@ -253,8 +253,8 @@ class A {
 
     final Collection<GrAnonymousClassDefinition> classes = StubIndex.getElements(
       GrAnonymousClassIndex.KEY, "Runnable", getProject(), GlobalSearchScope.allScope(project), GrAnonymousClassDefinition
-    );
-    assert classes.size() == 1;
+    )
+    assert classes.size() == 1
 
     def definition = classes.first()
     assert (definition as GrAnonymousClassDefinitionImpl).stub

@@ -59,7 +59,7 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   protected FontSize myQuickDocFontSize = DEFAULT_FONT_SIZE;
   protected float myLineSpacing;
 
-  @NotNull private final Map<EditorFontType, Font> myFonts                  = new EnumMap<EditorFontType, Font>(EditorFontType.class);
+  @NotNull private final Map<EditorFontType, Font> myFonts                  = new EnumMap<>(EditorFontType.class);
   @NotNull private final FontPreferences           myFontPreferences        = new FontPreferences();
   @NotNull private final FontPreferences           myConsoleFontPreferences = new FontPreferences();
 
@@ -70,6 +70,8 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   private float myConsoleLineSpacing = -1;
   
   private boolean myIsSaveNeeded;
+  
+  private boolean myCanBeDeleted = true;
 
   // version influences XML format and triggers migration
   private int myVersion = CURR_VERSION;
@@ -181,8 +183,8 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
       newScheme.setFont(type, font);
     }
 
-    newScheme.myAttributesMap = new HashMap<TextAttributesKey, TextAttributes>(myAttributesMap);
-    newScheme.myColorsMap = new HashMap<ColorKey, Color>(myColorsMap);
+    newScheme.myAttributesMap = new HashMap<>(myAttributesMap);
+    newScheme.myColorsMap = new HashMap<>(myColorsMap);
     newScheme.myVersion = myVersion;
   }
 
@@ -394,7 +396,7 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   private void readMetaInfo(@NotNull Element metaInfoElement) {
     myMetaInfo.clear();
     for (Element e: metaInfoElement.getChildren()) {
-      if (META_INFO_ELEMENT.equals(e.getName())) {
+      if (PROPERTY_ELEMENT.equals(e.getName())) {
         String propertyName = e.getAttributeValue(PROPERTY_NAME_ATTR);
         if (propertyName != null) {
           myMetaInfo.setProperty(propertyName, e.getText());
@@ -428,8 +430,7 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   }
 
   @Deprecated
-  @SuppressWarnings("unused")
-  public static final Map<String, Color> DEFAULT_ERROR_STRIPE_COLOR = new THashMap<String, Color>();
+  public static final Map<String, Color> DEFAULT_ERROR_STRIPE_COLOR = new THashMap<>();
 
   @SuppressWarnings("UseJBColor")
   private static final Map<String, Couple<Color>> DEFAULT_STRIPE_COLORS = new THashMap<String, Couple<Color>>() {
@@ -642,7 +643,7 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   }
 
   private void writeAttributes(Element attrElements) throws WriteExternalException {
-    List<TextAttributesKey> list = new ArrayList<TextAttributesKey>(myAttributesMap.keySet());
+    List<TextAttributesKey> list = new ArrayList<>(myAttributesMap.keySet());
     Collections.sort(list);
 
     for (TextAttributesKey key: list) {
@@ -702,7 +703,7 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   }
 
   private void writeColors(Element colorElements) {
-    List<ColorKey> list = new ArrayList<ColorKey>(myColorsMap.keySet());
+    List<ColorKey> list = new ArrayList<>(myColorsMap.keySet());
     Collections.sort(list);
 
     for (ColorKey key : list) {
@@ -830,4 +831,45 @@ public abstract class AbstractColorsScheme implements EditorColorsScheme {
   }
   
   public boolean isReadOnly() { return  false; }
+
+  @NotNull
+  @Override
+  public Properties getMetaProperties() {
+    return myMetaInfo;
+  }
+  
+  public boolean canBeDeleted() {
+    return myCanBeDeleted;
+  }
+  
+  public void setCanBeDeleted(boolean canBeDeleted) {
+    myCanBeDeleted = canBeDeleted;
+  }
+  
+  public boolean isVisible() {
+    return true;
+  }
+
+  public static boolean isVisible(@NotNull EditorColorsScheme scheme) {
+    return !(scheme instanceof AbstractColorsScheme) || ((AbstractColorsScheme)scheme).isVisible();
+  }
+  
+  public static String getDisplayName(@NotNull EditorColorsScheme scheme) {
+    String schemeName = scheme.getName();
+    return 
+      schemeName.startsWith(DefaultColorsScheme.EDITABLE_COPY_PREFIX) ? 
+      schemeName.substring(DefaultColorsScheme.EDITABLE_COPY_PREFIX.length()) : 
+      schemeName; 
+  }
+  
+  
+  @Nullable
+  public AbstractColorsScheme getOriginal() {
+    String originalSchemeName = getMetaProperties().getProperty(META_INFO_ORIGINAL);
+    if (originalSchemeName != null) {
+      EditorColorsScheme originalScheme = EditorColorsManager.getInstance().getScheme(originalSchemeName);
+      if (originalScheme instanceof AbstractColorsScheme) return (AbstractColorsScheme)originalScheme;
+    }
+    return null;
+  }
 }

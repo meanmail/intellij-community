@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,6 +25,9 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
+import com.intellij.openapi.editor.colors.EditorColorsListener;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.event.EditorEventMulticaster;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
 import com.intellij.openapi.editor.event.EditorFactoryListener;
@@ -59,14 +62,18 @@ public class EditorFactoryImpl extends EditorFactory implements ApplicationCompo
       @Override
       public void projectOpened(final Project project) {
         // validate all editors are disposed after fireProjectClosed() was called, because it's the place where editor should be released
-        Disposer.register(project, new Disposable() {
-          @Override
-          public void dispose() {
-            final Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
-            final boolean isLastProjectClosed = openProjects.length == 0;
-            validateEditorsAreReleased(project, isLastProjectClosed);
-          }
+        Disposer.register(project, () -> {
+          final Project[] openProjects = ProjectManager.getInstance().getOpenProjects();
+          final boolean isLastProjectClosed = openProjects.length == 0;
+          validateEditorsAreReleased(project, isLastProjectClosed);
         });
+      }
+    });
+
+    ApplicationManager.getApplication().getMessageBus().connect().subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
+      @Override
+      public void globalSchemeChange(EditorColorsScheme scheme) {
+        refreshAllEditors();
       }
     });
   }
@@ -79,12 +86,9 @@ public class EditorFactoryImpl extends EditorFactory implements ApplicationCompo
 
   @Override
   public void initComponent() {
-    ModalityStateListener myModalityStateListener = new ModalityStateListener() {
-      @Override
-      public void beforeModalityStateChanged(boolean entering) {
-        for (Editor editor : myEditors) {
-          ((EditorImpl)editor).beforeModalityStateChanged();
-        }
+    ModalityStateListener myModalityStateListener = entering -> {
+      for (Editor editor : myEditors) {
+        ((EditorImpl)editor).beforeModalityStateChanged();
       }
     };
     LaterInvocator.addModalityStateListener(myModalityStateListener, ApplicationManager.getApplication());
@@ -196,7 +200,7 @@ public class EditorFactoryImpl extends EditorFactory implements ApplicationCompo
     myEditorFactoryEventDispatcher.getMulticaster().editorCreated(new EditorFactoryEvent(this, editor));
 
     if (LOG.isDebugEnabled()) {
-      LOG.debug("number of Editor's:" + myEditors.size());
+      LOG.debug("number of Editors after create: " + myEditors.size());
     }
 
     return editor;
@@ -214,7 +218,7 @@ public class EditorFactoryImpl extends EditorFactory implements ApplicationCompo
       finally {
         myEditors.remove(editor);
         if (LOG.isDebugEnabled()) {
-          LOG.debug("number of Editor's:" + myEditors.size());
+          LOG.debug("number of Editors after release: " + myEditors.size());
         }
       }
     }
@@ -227,7 +231,7 @@ public class EditorFactoryImpl extends EditorFactory implements ApplicationCompo
     for (Editor editor : myEditors) {
       Project project1 = editor.getProject();
       if (editor.getDocument().equals(document) && (project == null || project1 == null || project1.equals(project))) {
-        if (list == null) list = new SmartList<Editor>();
+        if (list == null) list = new SmartList<>();
         list.add(editor);
       }
     }

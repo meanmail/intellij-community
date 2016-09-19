@@ -111,12 +111,6 @@ public class PythonDebuggerTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
-  public void testDebug() { //TODO: merge it into pydev tests
-    unittests("tests_pydevd/test_egg_zip_exist.py");
-  }
-
-  @Test
   public void testConditionalBreakpoint() throws Exception {
     runPythonTest(new PyDebuggerTask("/debug", "test1.py") {
       @Override
@@ -707,6 +701,37 @@ public class PythonDebuggerTest extends PyEnvTestCase {
 
   @Test
   @Staging
+  public void testMultiprocessingSubprocess() throws Exception {
+    runPythonTest(new PyDebuggerTask("/debug", "test_multiprocess_args.py") {
+      @Override
+      protected void init() {
+        setMultiprocessDebug(true);
+      }
+
+      @Override
+      public void before() throws Exception {
+        toggleBreakpoint(getFilePath("test_remote.py"), 2);
+      }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        eval("sys.argv[1]").hasValue("'subprocess'");
+        eval("sys.argv[2]").hasValue("'etc etc'");
+
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron", "-jython"); //can't run on iron and jython
+      }
+    });
+  }
+
+  @Test
+  @Staging
   public void testPyQtQThreadInheritor() throws Exception {
     if (UsefulTestCase.IS_UNDER_TEAMCITY && SystemInfo.isWindows) {
       return; //Don't run under Windows
@@ -916,7 +941,6 @@ public class PythonDebuggerTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
   public void testReturnValues() throws Exception {
     runPythonTest(new PyDebuggerTask("/debug", "test_return_values.py") {
       @Override
@@ -936,11 +960,17 @@ public class PythonDebuggerTest extends PyEnvTestCase {
       @Override
       public void testing() throws Exception {
         waitForPause();
-        eval(PyDebugValue.RETURN_VALUES_PREFIX + "bar[0]").hasValue("1");
+        eval(PyDebugValue.RETURN_VALUES_PREFIX + "['bar'][0]").hasValue("1");
         resume();
         waitForPause();
-        eval(PyDebugValue.RETURN_VALUES_PREFIX + "foo").hasValue("33");
+        eval(PyDebugValue.RETURN_VALUES_PREFIX + "['foo']").hasValue("33");
         resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron");
       }
     });
   }
@@ -949,6 +979,11 @@ public class PythonDebuggerTest extends PyEnvTestCase {
   @Staging
   public void testSuspendAllThreadsPolicy() throws Exception {
     runPythonTest(new PyDebuggerTask("/debug", "test_two_threads.py") {
+      @Override
+      protected void init() {
+        setMultiprocessDebug(true);
+      }
+
       @Override
       public void before() throws Exception {
         toggleBreakpoint(getFilePath(getScriptName()), 12);
@@ -961,6 +996,40 @@ public class PythonDebuggerTest extends PyEnvTestCase {
         eval("m").hasValue("42");
         assertNull(getRunningThread());
         resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron");
+      }
+    });
+  }
+
+  @Test
+  @Staging
+  public void testSuspendAllThreadsResume() throws Exception {
+    runPythonTest(new PyDebuggerTask("/debug", "test_two_threads_resume.py") {
+      @Override
+      public void before() throws Exception {
+        toggleBreakpoint(getFilePath(getScriptName()), 10);
+        setBreakpointSuspendPolicy(getProject(), 10, SuspendPolicy.ALL);
+      }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        eval("x").hasValue("12");
+        resume();
+        waitForPause();
+        eval("x").hasValue("12");
+        resume();
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron");
       }
     });
   }
@@ -985,6 +1054,29 @@ public class PythonDebuggerTest extends PyEnvTestCase {
     });
   }
 
+  @Test
+  @Staging
+  public void testShowReferringObjects() throws Exception {
+    runPythonTest(new PyDebuggerTask("/debug", "test_ref.py") {
+      @Override
+      public void before() throws Exception {
+        toggleBreakpoint(getFilePath(getScriptName()), 3);
+      }
+
+      @Override
+      public void testing() throws Exception {
+        waitForPause();
+        int numberOfReferringObjects = getNumberOfReferringObjects("l");
+        assertEquals(3, numberOfReferringObjects);
+      }
+
+      @NotNull
+      @Override
+      public Set<String> getTags() {
+        return ImmutableSet.of("-iron");
+      }
+    });
+  }
 
   //TODO: fix me as I don't work properly sometimes (something connected with process termination on agent)
   @Staging

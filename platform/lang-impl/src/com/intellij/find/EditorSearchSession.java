@@ -16,6 +16,7 @@
 
 package com.intellij.find;
 
+import com.intellij.execution.impl.ConsoleViewUtil;
 import com.intellij.find.editorHeaderActions.*;
 import com.intellij.find.impl.livePreview.LivePreviewController;
 import com.intellij.find.impl.livePreview.SearchResults;
@@ -68,13 +69,14 @@ public class EditorSearchSession implements SearchSession,
   private final FindModel myFindModel;
   private final SearchReplaceComponent myComponent;
 
-  private final LinkLabel<Object> myClickToHighlightLabel = new LinkLabel<Object>("Click to highlight", null, new LinkListener<Object>() {
+  private final LinkLabel<Object> myClickToHighlightLabel = new LinkLabel<>("Click to highlight", null, new LinkListener<Object>() {
     @Override
     public void linkSelected(LinkLabel aSource, Object aLinkData) {
       setMatchesLimit(Integer.MAX_VALUE);
       updateResults(true);
     }
   });
+  private final Disposable myDisposable = Disposer.newDisposable(EditorSearchSession.class.getName());
 
   public EditorSearchSession(@NotNull Editor editor, Project project) {
     this(editor, project, createDefaultFindModel(project, editor));
@@ -90,7 +92,7 @@ public class EditorSearchSession implements SearchSession,
     myEditor = editor;
 
     mySearchResults = new SearchResults(myEditor, project);
-    myLivePreviewController = new LivePreviewController(mySearchResults, this);
+    myLivePreviewController = new LivePreviewController(mySearchResults, this, myDisposable);
 
     myComponent = SearchReplaceComponent
       .buildFor(project, myEditor.getContentComponent())
@@ -153,7 +155,7 @@ public class EditorSearchSession implements SearchSession,
         updateUIWithFindModel();
         mySearchResults.clear();
         updateResults(true);
-        FindUtil.updateFindInFileModel(getProject(), myFindModel);
+        FindUtil.updateFindInFileModel(getProject(), myFindModel, !ConsoleViewUtil.isConsoleViewEditor(editor));
       }
     });
 
@@ -164,16 +166,15 @@ public class EditorSearchSession implements SearchSession,
     }
     updateMultiLineStateIfNeed();
 
-    Disposable disposable = Disposer.newDisposable(EditorSearchSession.class.getName());
     EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryAdapter() {
       @Override
       public void editorReleased(@NotNull EditorFactoryEvent event) {
         if (event.getEditor() == myEditor) {
-          Disposer.dispose(disposable);
+          Disposer.dispose(myDisposable);
           myLivePreviewController.dispose();
         }
       }
-    }, disposable);
+    }, myDisposable);
   }
 
   @Nullable

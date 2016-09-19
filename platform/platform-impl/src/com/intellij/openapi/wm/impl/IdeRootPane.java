@@ -70,7 +70,7 @@ public class IdeRootPane extends JRootPane implements UISettingsListener {
   private boolean myStatusBarDisposed;
 
   private final Box myNorthPanel = Box.createVerticalBox();
-  private final List<IdeRootPaneNorthExtension> myNorthComponents = new ArrayList<IdeRootPaneNorthExtension>();
+  private final List<IdeRootPaneNorthExtension> myNorthComponents = new ArrayList<>();
 
   /**
    * Current <code>ToolWindowsPane</code>. If there is no such pane then this field is null.
@@ -337,12 +337,12 @@ public class IdeRootPane extends JRootPane implements UISettingsListener {
     return null;
   }
 
-  public void uiSettingsChanged(UISettings source) {
-    setMemoryIndicatorVisible(source.SHOW_MEMORY_INDICATOR);
+  public void uiSettingsChanged(UISettings uiSettings) {
+    setMemoryIndicatorVisible(uiSettings.SHOW_MEMORY_INDICATOR);
     updateToolbarVisibility();
     updateStatusBarVisibility();
     for (IdeRootPaneNorthExtension component : myNorthComponents) {
-      component.uiSettingsChanged(source);
+      component.uiSettingsChanged(uiSettings);
     }
     IdeFrame frame = UIUtil.getParentOfType(IdeFrame.class, this);
     BalloonLayout layout = frame != null ? frame.getBalloonLayout() : null;

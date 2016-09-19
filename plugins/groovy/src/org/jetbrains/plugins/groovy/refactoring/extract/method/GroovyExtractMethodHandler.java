@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -132,13 +132,13 @@ public class GroovyExtractMethodHandler implements RefactoringActionHandler {
 
   private static boolean findConflicts(InitialInfo info) {
     //new ConflictsDialog()
-    final MultiMap<PsiElement, String> conflicts = new MultiMap<PsiElement, String>();
+    final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
     final PsiElement declarationOwner = info.getContext().getParent();
 
     GroovyRecursiveElementVisitor visitor = new GroovyRecursiveElementVisitor() {
       @Override
-      public void visitReferenceExpression(GrReferenceExpression referenceExpression) {
+      public void visitReferenceExpression(@NotNull GrReferenceExpression referenceExpression) {
         super.visitReferenceExpression(referenceExpression);
 
         GroovyResolveResult resolveResult = referenceExpression.advancedResolve();
@@ -274,7 +274,7 @@ public class GroovyExtractMethodHandler implements RefactoringActionHandler {
     for (ParameterInfo info : helper.getParameterInfos()) {
       final String oldName = info.getOriginalName();
       final String newName = info.getName();
-      final ArrayList<GrExpression> result = new ArrayList<GrExpression>();
+      final ArrayList<GrExpression> result = new ArrayList<>();
       if (!oldName.equals(newName)) {
         for (final GrStatement statement : statements) {
           statement.accept(new PsiRecursiveElementVisitor() {

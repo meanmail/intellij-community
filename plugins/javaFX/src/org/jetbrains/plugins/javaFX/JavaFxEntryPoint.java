@@ -32,8 +32,10 @@ import com.intellij.util.CommonProcessors;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxCommonNames;
+import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
 public class JavaFxEntryPoint extends EntryPoint {
+  public static final String INITIALIZE_METHOD_NAME = "initialize";
   public boolean ADD_JAVAFX_TO_ENTRIES = true;
 
   @NotNull
@@ -47,18 +49,26 @@ public class JavaFxEntryPoint extends EntryPoint {
 
   @Override
   public boolean isEntryPoint(@NotNull PsiElement psiElement) {
-    if (ADD_JAVAFX_TO_ENTRIES) {
-      if (psiElement instanceof PsiMethod) {
-        final PsiMethod method = (PsiMethod)psiElement;
-        if (method.getParameterList().getParameters().length == 1 &&
-            PsiType.VOID.equals(method.getReturnType()) &&
-            "start".equals(method.getName())) {
-          return InheritanceUtil.isInheritor(method.getContainingClass(), true, JavaFxCommonNames.JAVAFX_APPLICATION_APPLICATION);
-        }
+    if (psiElement instanceof PsiMethod) {
+      final PsiMethod method = (PsiMethod)psiElement;
+      final int paramsCount = method.getParameterList().getParameters().length;
+      final String methodName = method.getName();
+      final PsiClass containingClass = method.getContainingClass();
+      if (paramsCount == 1 &&
+          PsiType.VOID.equals(method.getReturnType()) &&
+          "start".equals(methodName)) {
+        return InheritanceUtil.isInheritor(containingClass, true, JavaFxCommonNames.JAVAFX_APPLICATION_APPLICATION);
       }
-      else if (psiElement instanceof PsiClass) {
-        return InheritanceUtil.isInheritor((PsiClass)psiElement, true, JavaFxCommonNames.JAVAFX_APPLICATION_APPLICATION);
+      if (paramsCount == 0 && INITIALIZE_METHOD_NAME.equals(methodName) &&
+          method.hasModifierProperty(PsiModifier.PUBLIC) &&
+          containingClass != null &&
+          JavaFxPsiUtil.isControllerClass(containingClass)) {
+        return true;
       }
+
+    }
+    else if (psiElement instanceof PsiClass) {
+      return InheritanceUtil.isInheritor((PsiClass)psiElement, true, JavaFxCommonNames.JAVAFX_APPLICATION_APPLICATION);
     }
     return false;
   }

@@ -147,6 +147,7 @@ public class RegExpParsingTest extends ParsingTestCase {
   public void testCharclasses66() throws IOException { doCodeTest("\\X"); }
   public void testCharclasses67() throws IOException { doCodeTest("\\-[\\*\\-\\[\\]\\\\\\+]"); }
   public void testCharclasses68() throws IOException { doCodeTest("[\\b]"); }
+  public void testCharClasses69() throws IOException { doCodeTest("\\p{^L}"); }
 
   public void testGroups1() throws IOException { doCodeTest("()ef"); }
   public void testGroups2() throws IOException { doCodeTest("()*"); }
@@ -209,6 +210,10 @@ public class RegExpParsingTest extends ParsingTestCase {
   public void testEscapes23() throws IOException { doCodeTest("a\\Qabc?*+.))]][]\\E)"); }
   public void testEscapes24() throws IOException { doCodeTest("\\Q\\j\\E"); }
   public void testEscapes25() throws IOException { doCodeTest("\\c0"); }
+  public void testEscapes26() throws IOException { doCodeTest("[\\]]"); }
+  public void testEscapes27() throws IOException { doCodeTest("[^\\]]"); }
+  public void testEscapes28() throws IOException { doCodeTest("[a\\]]"); }
+  public void testEscapes29() throws IOException { doCodeTest("[^a\\]]"); }
 
   public void testAnchors1() throws IOException { doCodeTest("^*"); }
   public void testAnchors2() throws IOException { doCodeTest("$*"); }
@@ -231,6 +236,9 @@ public class RegExpParsingTest extends ParsingTestCase {
   public void testNamedchars8() throws IOException { doCodeTest("\\p{Digit}+"); }
   public void testNamedchars9() throws IOException { doCodeTest("[:xdigit:]+"); }
   public void testNamedchars10() throws IOException { doCodeTest("\\p{unknown}+"); }
+  public void testNamedchars11() throws IOException { doCodeTest("[:^xdigit:]+"); }
+  public void testNamedchars12() throws IOException { doCodeTest("\\p{InArabic Extended-A}"); }
+  public void testNamedchars13() throws IOException { doCodeTest("\\N{Mahjong Tile Winter}"); }
 
   public void testBackrefs1() throws IOException { doCodeTest("(ac*)c*d[ac]*\\1"); }
   public void testBackrefs2() throws IOException { doCodeTest("(.)=\\1"); }

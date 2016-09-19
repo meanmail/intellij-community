@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
  */
 package com.intellij.profile;
 
-import com.intellij.openapi.project.Project;
+import com.intellij.profile.codeInspection.ProjectInspectionProfileManagerKt;
 import com.intellij.util.xmlb.SmartSerializer;
 import com.intellij.util.xmlb.annotations.OptionTag;
 import com.intellij.util.xmlb.annotations.Transient;
@@ -35,7 +35,6 @@ public abstract class ProfileEx implements Profile {
   @NotNull
   protected String myName;
 
-  @SuppressWarnings("unused")
   @OptionTag("myLocal")
   // exists only to preserve compatibility
   private boolean myLocal;
@@ -62,19 +61,6 @@ public abstract class ProfileEx implements Profile {
   }
 
   @Override
-  public void copyFrom(@NotNull Profile profile) {
-    Element config = new Element("config");
-    profile.writeExternal(config);
-    readExternal(config);
-  }
-
-  @Override
-  @Transient
-  public boolean isLocal() {
-    return !myIsProjectLevel;
-  }
-
-  @Override
   @Transient
   public boolean isProjectLevel() {
     return myIsProjectLevel;
@@ -83,11 +69,6 @@ public abstract class ProfileEx implements Profile {
   @Override
   public void setProjectLevel(boolean isProjectLevel) {
     myIsProjectLevel = isProjectLevel;
-  }
-
-  @Override
-  public void setLocal(boolean isLocal) {
-    myIsProjectLevel = !isLocal;
   }
 
   @Override
@@ -117,11 +98,8 @@ public abstract class ProfileEx implements Profile {
   }
 
   @Override
-  public void writeExternal(Element element) {
+  public final void writeExternal(Element element) {
     serializeInto(element, true);
-  }
-
-  public void profileChanged() {
   }
 
   public boolean equals(Object o) {
@@ -140,6 +118,15 @@ public abstract class ProfileEx implements Profile {
     return 0;
   }
 
-  public void convert(@NotNull Element element, @NotNull Project project) {
+  @Override
+  public final void copyFrom(@NotNull Profile profile) {
+    readExternal(serializeProfile(profile));
+  }
+
+  @NotNull
+  public static Element serializeProfile(@NotNull Profile profile) {
+    Element result = new Element(ProjectInspectionProfileManagerKt.PROFILE);
+    profile.writeExternal(result);
+    return result;
   }
 }

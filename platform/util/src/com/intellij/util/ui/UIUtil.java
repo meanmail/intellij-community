@@ -188,8 +188,8 @@ public class UIUtil {
     drawLine(g, startX, bottomY, endX, bottomY, null, color);
   }
 
-  private static final GrayFilter DEFAULT_GRAY_FILTER = new GrayFilter(true, 50);
-  private static final GrayFilter DARCULA_GRAY_FILTER = new GrayFilter(true, 30);
+  private static final GrayFilter DEFAULT_GRAY_FILTER = new GrayFilter(true, 70);
+  private static final GrayFilter DARCULA_GRAY_FILTER = new GrayFilter(true, 20);
 
   public static GrayFilter getGrayFilter() {
     return isUnderDarcula() ? DARCULA_GRAY_FILTER : DEFAULT_GRAY_FILTER;
@@ -634,12 +634,12 @@ public class UIUtil {
 
   public static void setEnabled(Component component, boolean enabled, boolean recursively, final boolean visibleOnly) {
     JBIterable<Component> all = recursively ? uiTraverser(component).expandAndFilter(
-      visibleOnly ? Conditions.<Component>alwaysTrue() : new Condition<Component>() {
+      visibleOnly ? new Condition<Component>() {
         @Override
         public boolean value(Component c) {
           return c.isVisible();
         }
-      }).traverse() : JBIterable.of(component);
+      } : Conditions.<Component>alwaysTrue()).traverse() : JBIterable.of(component);
     Color fg = enabled ? getLabelForeground() : getLabelDisabledForeground();
     for (Component c : all) {
       c.setEnabled(enabled);
@@ -1779,6 +1779,15 @@ public class UIUtil {
     }
   }
 
+  /**
+   * Creates a HiDPI-aware BufferedImage in device scale.
+   *
+   * @param width the width in user coordinate space
+   * @param height the height in user coordinate space
+   * @param type the type of the image
+   *
+   * @return a HiDPI-aware BufferedImage in device scale
+   */
   @NotNull
   public static BufferedImage createImage(int width, int height, int type) {
     if (isRetina()) {
@@ -1788,6 +1797,16 @@ public class UIUtil {
     return new BufferedImage(width, height, type);
   }
 
+  /**
+   * Creates a HiDPI-aware BufferedImage in the graphics scale.
+   *
+   * @param g the graphics of the referent scale
+   * @param width the width in user coordinate space
+   * @param height the height in user coordinate space
+   * @param type the type of the image
+   *
+   * @return a HiDPI-aware BufferedImage in the graphics scale
+   */
   @NotNull
   public static BufferedImage createImageForGraphics(Graphics2D g, int width, int height, int type) {
     if (isRetina(g)) {
@@ -2236,8 +2255,7 @@ public class UIUtil {
   }
 
   /**
-   * @deprecated
-   * @use JBColor.border()
+   * @deprecated use {@link JBColor#border()}
    */
   public static Color getBorderColor() {
     return isUnderDarcula() ? Gray._50 : BORDER_COLOR;
@@ -2363,7 +2381,8 @@ public class UIUtil {
     return String.format("<p style=\"margin: 0 %dpx 0 %dpx;\">%s</p>", hPadding, hPadding, html);
   }
 
-  public static String convertSpace2Nbsp(String html) {
+  @NotNull
+  public static String convertSpace2Nbsp(@NotNull String html) {
     @NonNls StringBuilder result = new StringBuilder();
     int currentPos = 0;
     int braces = 0;
@@ -2389,8 +2408,8 @@ public class UIUtil {
   }
 
   /**
-   * Please use Application.invokeLater() with a modality state, unless you work with Swings internals
-   * and 'runnable' deals with Swings components only and doesn't access any PSI, VirtualFiles, project/module model or other project settings.<p/>
+   * Please use Application.invokeLater() with a modality state (or GuiUtils, or TransactionGuard methods), unless you work with Swings internals
+   * and 'runnable' deals with Swings components only and doesn't access any PSI, VirtualFiles, project/module model or other project settings. For those, use GuiUtils, application.invoke* or TransactionGuard methods.<p/>
    *
    * On AWT thread, invoked runnable immediately, otherwise do {@link SwingUtilities#invokeLater(Runnable)} on it.
    */
@@ -2404,7 +2423,7 @@ public class UIUtil {
   }
 
   /**
-   * Please use Application.invokeAndWait() with a modality state, unless you work with Swings internals
+   * Please use Application.invokeAndWait() with a modality state (or GuiUtils, or TransactionGuard methods), unless you work with Swings internals
    * and 'runnable' deals with Swings components only and doesn't access any PSI, VirtualFiles, project/module model or other project settings.<p/>
    *
    * Invoke and wait in the event dispatch thread
@@ -2430,7 +2449,7 @@ public class UIUtil {
   }
 
   /**
-   * Please use Application.invokeAndWait() with a modality state, unless you work with Swings internals
+   * Please use Application.invokeAndWait() with a modality state (or GuiUtils, or TransactionGuard methods), unless you work with Swings internals
    * and 'runnable' deals with Swings components only and doesn't access any PSI, VirtualFiles, project/module model or other project settings.<p/>
    *
    * Invoke and wait in the event dispatch thread
@@ -2453,7 +2472,7 @@ public class UIUtil {
   }
 
   /**
-   * Please use Application.invokeAndWait() with a modality state, unless you work with Swings internals
+   * Please use Application.invokeAndWait() with a modality state (or GuiUtils, or TransactionGuard methods), unless you work with Swings internals
    * and 'runnable' deals with Swings components only and doesn't access any PSI, VirtualFiles, project/module model or other project settings.<p/>
    *
    * Invoke and wait in the event dispatch thread
@@ -3596,6 +3615,22 @@ public class UIUtil {
    */
   public static Window getWindow(Component component) {
     return component instanceof Window ? (Window)component : SwingUtilities.getWindowAncestor(component);
+  }
+
+  /**
+   * Places the specified window at the top of the stacking order and shows it in front of any other windows.
+   * If the window is iconified it will be shown anyway.
+   *
+   * @param window the window to activate
+   */
+  public static void toFront(Window window) {
+    if (window instanceof Frame) {
+      Frame frame = (Frame)window;
+      frame.setState(Frame.NORMAL);
+    }
+    if (window != null) {
+      window.toFront();
+    }
   }
 
   public static Image getDebugImage(Component component) {

@@ -69,9 +69,10 @@ public class EditorPaintingTest extends AbstractEditorTest {
     checkResult();
   }
   
-  public void testCaretRowHasLowerPriorityThanSyntax() throws Exception {
+  public void testCaretRowWinsOverSyntaxEvenInPresenceOfHighlighter() throws Exception {
     initText("foo");
     setUniformEditorHighlighter(new TextAttributes(null, Color.red, null, null, Font.PLAIN));
+    addRangeHighlighter(0, 3, 0, null, Color.blue);
     checkResult();
   }
   
@@ -197,7 +198,7 @@ public class EditorPaintingTest extends AbstractEditorTest {
     }
   }
 
-  private void fail(String message, File expectedResultsFile, BufferedImage actualImage) throws IOException {
+  private void fail(@NotNull String message, @NotNull File expectedResultsFile, BufferedImage actualImage) throws IOException {
     File savedImage = FileUtil.createTempFile(getName(), ".png", false);
     addTmpFileToKeep(savedImage);
     ImageIO.write(actualImage, "png", savedImage);

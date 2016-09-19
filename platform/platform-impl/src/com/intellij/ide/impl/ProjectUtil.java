@@ -25,7 +25,6 @@ import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.ServiceKt;
 import com.intellij.openapi.components.StorageScheme;
-import com.intellij.openapi.components.impl.stores.IComponentStore;
 import com.intellij.openapi.components.impl.stores.IProjectStore;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
@@ -112,7 +111,7 @@ public class ProjectUtil {
     }
 
     if (path.endsWith(ProjectFileType.DOT_DEFAULT_EXTENSION) ||
-        virtualFile.isDirectory() && virtualFile.findChild(Project.DIRECTORY_STORE_FOLDER) != null) {
+        virtualFile.isDirectory() && new File(path, Project.DIRECTORY_STORE_FOLDER).exists()) {
       return openProject(path, projectToClose, forceOpenInNewFrame);
     }
 
@@ -335,10 +334,5 @@ public class ProjectUtil {
     //noinspection HardCodedStringLiteral
     return userHome.replace('/', File.separatorChar) + File.separator + ApplicationNamesInfo.getInstance().getLowercaseProductName() +
            "Projects";
-  }
-
-  public static boolean isDirectoryBased(@NotNull Project project) {
-    IComponentStore store = ServiceKt.getStateStore(project);
-    return store instanceof IProjectStore && StorageScheme.DIRECTORY_BASED.equals(((IProjectStore)store).getStorageScheme());
   }
 }

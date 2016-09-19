@@ -872,6 +872,8 @@ public class AllIcons {
     public static final Icon J2eeParameter = IconLoader.getIcon("/nodes/j2eeParameter.png"); // 16x16
     public static final Icon JarDirectory = IconLoader.getIcon("/nodes/jarDirectory.png"); // 16x16
     public static final Icon JavaDocFolder = IconLoader.getIcon("/nodes/javaDocFolder.png"); // 16x16
+    public static final Icon JavaModule = IconLoader.getIcon("/nodes/javaModule.png"); // 16x16
+    public static final Icon JavaModuleRoot = IconLoader.getIcon("/nodes/javaModuleRoot.png"); // 16x16
     
     public static class Jsf {
       public static final Icon Component = IconLoader.getIcon("/nodes/jsf/component.png"); // 16x16
@@ -1270,6 +1272,7 @@ public class AllIcons {
     public static final Icon CloseActive = IconLoader.getIcon("/windows/closeActive.png"); // 16x16
     public static final Icon CloseHover = IconLoader.getIcon("/windows/closeHover.png"); // 16x16
     public static final Icon CloseInactive = IconLoader.getIcon("/windows/closeInactive.png"); // 16x16
+    public static final Icon HelpButton = IconLoader.getIcon("/windows/helpButton.png"); // 16x16
     public static final Icon MaximizeInactive = IconLoader.getIcon("/windows/maximizeInactive.png"); // 16x16
     public static final Icon Minimize = IconLoader.getIcon("/windows/minimize.png"); // 16x16
     public static final Icon MinimizeInactive = IconLoader.getIcon("/windows/minimizeInactive.png"); // 16x16

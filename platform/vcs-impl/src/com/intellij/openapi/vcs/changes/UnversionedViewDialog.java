@@ -47,7 +47,6 @@ import javax.swing.*;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.Arrays;
 import java.util.List;
 
 public class UnversionedViewDialog extends DialogWrapper {
@@ -72,7 +71,7 @@ public class UnversionedViewDialog extends DialogWrapper {
       public void calcData(DataKey key, DataSink sink) {
         super.calcData(key, sink);
         if (ChangesListView.UNVERSIONED_FILES_DATA_KEY.is(key.getName())) {
-          sink.put(key, Arrays.asList(getSelectedFiles()));
+          sink.put(ChangesListView.UNVERSIONED_FILES_DATA_KEY, getSelectedFiles());
         }
       }
 

@@ -26,7 +26,6 @@ import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.NavigatablePsiElement;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.IdeBorderFactory;
@@ -61,7 +60,6 @@ public class InspectionResultsViewUtil {
       final PsiFile containingFile = containingElement.getContainingFile();
       if (containingFile != null) {
         final VirtualFile file = containingFile.getVirtualFile();
-        PsiDocumentManager.getInstance(containingFile.getProject()).commitAllDocuments();
         final Document document = FileDocumentManager.getInstance().getDocument(file);
         if (document != null && document.getLineCount() > lineNumber - 1) {
           return new OpenFileDescriptor(containingElement.getProject(),

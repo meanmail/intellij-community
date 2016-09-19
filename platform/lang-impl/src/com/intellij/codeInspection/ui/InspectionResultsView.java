@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -250,16 +250,20 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
     PsiManager.getInstance(myProject).addPsiTreeChangeListener(new InspectionViewPsiTreeChangeAdapter(this), this);
 
     final InspectionProjectProfileManager profileManager = InspectionProjectProfileManager.getInstance(myProject);
-    profileManager.addProfilesListener(new ProfileChangeAdapter() {
+    profileManager.addProfileChangeListener(new ProfileChangeAdapter() {
       @Override
       public void profileChanged(Profile profile) {
-        if (profile == profileManager.getProjectProfileImpl()) {
-          myTree.revalidate();
-          myTree.repaint();
-          syncRightPanel();
+        if (profile == profileManager.getCurrentProfile()) {
+          InspectionResultsView.this.profileChanged();
         }
       }
     }, this);
+  }
+
+  public void profileChanged() {
+    myTree.revalidate();
+    myTree.repaint();
+    syncRightPanel();
   }
 
   private void initTreeListeners() {
@@ -538,8 +542,11 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
       JComponent previewPanel = null;
       final InspectionToolWrapper tool = myTree.getSelectedToolWrapper(true);
       if (tool != null && refEntity != null && refEntity.isValid()) {
-        final InspectionToolPresentation presentation = myGlobalInspectionContext.getPresentation(tool);
-        previewPanel = presentation.getCustomPreviewPanel(refEntity);
+        final TreePath path = myTree.getSelectionPath();
+        if (path == null || !(path.getLastPathComponent() instanceof ProblemDescriptionNode)) {
+          final InspectionToolPresentation presentation = myGlobalInspectionContext.getPresentation(tool);
+          previewPanel = presentation.getCustomPreviewPanel(refEntity);
+        }
       }
       EditorEx previewEditor = null;
       if (previewPanel == null) {
@@ -605,7 +612,9 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
         DiffUtil.setFoldingModelSupport(myPreviewEditor);
         final EditorSettings settings = myPreviewEditor.getSettings();
         settings.setLineNumbersShown(false);
-        settings.setLineMarkerAreaShown(false);
+        settings.setFoldingOutlineShown(true);
+        settings.setLineMarkerAreaShown(true);
+        settings.setGutterIconsShown(false);
         settings.setAdditionalColumnsCount(0);
         settings.setAdditionalLinesCount(0);
         settings.setLeadingWhitespaceShown(true);
@@ -615,7 +624,6 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
       if (problemCount == 0) {
         myPreviewEditor.getScrollingModel().scrollTo(myPreviewEditor.offsetToLogicalPosition(selectedElement.getTextOffset()), ScrollType.CENTER_UP);
       }
-      myPreviewEditor.getSettings().setFoldingOutlineShown(problemCount > 1);
       myPreviewEditor.getComponent().setBorder(IdeBorderFactory.createEmptyBorder());
       return Pair.create(myPreviewEditor.getComponent(), myPreviewEditor);
     }
@@ -759,14 +767,16 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
         final HighlightDisplayKey key = HighlightDisplayKey.find(defaultToolWrapper.getShortName());
         for (ScopeToolState state : myProvider.getTools(currentTools)) {
           InspectionToolWrapper toolWrapper = state.getTool();
-          ReadAction.run(() -> {
-            if (myProvider.checkReportedProblems(myGlobalInspectionContext, toolWrapper)) {
-              addTool(toolWrapper,
-                      profile.getErrorLevel(key, state.getScope(myProject), myProject),
-                      isGroupedBySeverity,
-                      singleInspectionRun);
-            }
-          });
+          if (ReadAction.compute(() -> myProvider.checkReportedProblems(myGlobalInspectionContext, toolWrapper))) {
+            //ReadAction.run(
+            //  () ->
+                addTool(toolWrapper,
+                                         profile.getErrorLevel(key, state.getScope(myProject), myProject),
+                                         isGroupedBySeverity,
+                                         singleInspectionRun)
+            //)
+            ;
+          }
         }
       }
     }
@@ -972,7 +982,7 @@ public class InspectionResultsView extends JPanel implements Disposable, Occuren
 
   private PsiElement[] collectPsiElements() {
     RefEntity[] refElements = myTree.getSelectedElements();
-    List<PsiElement> psiElements = new ArrayList<PsiElement>();
+    List<PsiElement> psiElements = new ArrayList<>();
     for (RefEntity refElement : refElements) {
       PsiElement psiElement = refElement instanceof RefElement ? ((RefElement)refElement).getElement() : null;
       if (psiElement != null && psiElement.isValid()) {

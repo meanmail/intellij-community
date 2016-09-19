@@ -36,7 +36,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
-import com.intellij.profile.codeInspection.InspectionProjectProfileManagerImpl;
+import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ArrayUtil;
@@ -69,11 +69,13 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
 
   private static final Object lock = new Object();
   private final Map<RefEntity, CommonProblemDescriptor[]> myProblemElements = ContainerUtil.newConcurrentMap(TObjectHashingStrategy.IDENTITY);
-  private final Map<String, Set<RefEntity>> myContents = Collections.synchronizedMap(new HashMap<String, Set<RefEntity>>(1)); // keys can be null
-  private final Set<RefModule> myModulesProblems = Collections.synchronizedSet(new THashSet<RefModule>(TObjectHashingStrategy.IDENTITY));
-  private final Map<CommonProblemDescriptor, RefEntity> myProblemToElements = Collections.synchronizedMap(new THashMap<CommonProblemDescriptor, RefEntity>(TObjectHashingStrategy.IDENTITY));
+  protected final Map<String, Set<RefEntity>> myContents = Collections.synchronizedMap(new HashMap<String, Set<RefEntity>>(1)); // keys can be null
+  private final Set<RefModule> myModulesProblems = Collections.synchronizedSet(new THashSet<>(TObjectHashingStrategy.IDENTITY));
+  private final Map<CommonProblemDescriptor, RefEntity> myProblemToElements = Collections.synchronizedMap(
+    new THashMap<>(TObjectHashingStrategy.IDENTITY));
   private DescriptorComposer myComposer;
-  private final Map<RefEntity, Set<QuickFix>> myQuickFixActions = Collections.synchronizedMap(new THashMap<RefEntity, Set<QuickFix>>(TObjectHashingStrategy.IDENTITY));
+  private final Map<RefEntity, Set<QuickFix>> myQuickFixActions = Collections.synchronizedMap(
+    new THashMap<>(TObjectHashingStrategy.IDENTITY));
   private final Map<RefEntity, CommonProblemDescriptor[]> myIgnoredElements = Collections.synchronizedMap(new THashMap<RefEntity, CommonProblemDescriptor[]>(TObjectHashingStrategy.IDENTITY) {
 
 
@@ -120,7 +122,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
         }
       }
 
-      final InspectionProfile profile = InspectionProjectProfileManager.getInstance(context.getProject()).getInspectionProfile();
+      final InspectionProfile profile = InspectionProjectProfileManager.getInstance(context.getProject()).getCurrentProfile();
       final HighlightDisplayLevel level = profile.getErrorLevel(HighlightDisplayKey.find(shortName), psiElement);
       return level.getSeverity();
     }
@@ -143,7 +145,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
     if (highlightType == ProblemHighlightType.LIKE_UNUSED_SYMBOL) {
       return HighlightInfoType.UNUSED_SYMBOL.getAttributesKey().getExternalName();
     }
-    SeverityRegistrar registrar = InspectionProjectProfileManagerImpl.getInstanceImpl(project).getSeverityRegistrar();
+    SeverityRegistrar registrar = ProjectInspectionProfileManager.getInstanceImpl(project).getSeverityRegistrar();
     return registrar.getHighlightInfoTypeBySeverity(severity).getAttributesKey().getExternalName();
   }
 
@@ -224,13 +226,13 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
                      view.addTool(myToolWrapper, HighlightDisplayLevel.find(getSeverity((RefElement)refElement)),
                                   uiOptions.GROUP_BY_SEVERITY, view.isSingleInspectionRun()) : myToolNode;
 
-          final Map<RefEntity, CommonProblemDescriptor[]> problems = new HashMap<RefEntity, CommonProblemDescriptor[]>();
+          final Map<RefEntity, CommonProblemDescriptor[]> problems = new HashMap<>();
           problems.put(refElement, descriptors);
-          final Map<String, Set<RefEntity>> contents = new HashMap<String, Set<RefEntity>>();
+          final Map<String, Set<RefEntity>> contents = new HashMap<>();
           final String groupName = refElement.getRefManager().getGroupName((RefElement)refElement);
           Set<RefEntity> content = contents.get(groupName);
           if (content == null) {
-            content = new HashSet<RefEntity>();
+            content = new HashSet<>();
             contents.put(groupName, content);
           }
           content.add(refElement);
@@ -284,7 +286,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
   public void setToolNode(InspectionNode toolNode) {
     myToolNode = toolNode;
   }
-  
+
   protected boolean isDisposed() {
     return isDisposed;
   }
@@ -335,7 +337,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
     if (fixes != null && fixes.length != 0) {
       Set<QuickFix> localQuickFixes = getQuickFixActions().get(refEntity);
       if (localQuickFixes == null) {
-        localQuickFixes = new HashSet<QuickFix>();
+        localQuickFixes = new HashSet<>();
         getQuickFixActions().put(refEntity, localQuickFixes);
       }
       ContainerUtil.addAll(localQuickFixes, fixes);
@@ -384,7 +386,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
       synchronized (lock) {
         CommonProblemDescriptor[] descriptors = problemElements.get(refEntity);
         if (descriptors != null) {
-          ArrayList<CommonProblemDescriptor> newDescriptors = new ArrayList<CommonProblemDescriptor>(Arrays.asList(descriptors));
+          ArrayList<CommonProblemDescriptor> newDescriptors = new ArrayList<>(Arrays.asList(descriptors));
           newDescriptors.remove(problem);
           CommonProblemDescriptor[] newDescriptorsAsArray = newDescriptors.toArray(new CommonProblemDescriptor[newDescriptors.size()]);
           getQuickFixActions().put(refEntity, null);
@@ -519,7 +521,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
         severity = getSeverity(refElement);
       }
       else {
-        final InspectionProfile profile = InspectionProjectProfileManager.getInstance(getContext().getProject()).getInspectionProfile();
+        final InspectionProfile profile = InspectionProjectProfileManager.getInstance(getContext().getProject()).getCurrentProfile();
         final HighlightDisplayLevel level = profile.getErrorLevel(HighlightDisplayKey.find(myToolWrapper.getShortName()), psiElement);
         severity = level.getSeverity();
       }
@@ -576,6 +578,10 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
   public void updateContent() {
     myContents.clear();
     myModulesProblems.clear();
+    updateProblemElements();
+  }
+
+  protected void updateProblemElements() {
     final Set<RefEntity> elements = getProblemElements().keySet();
     for (RefEntity element : elements) {
       if (getContext().getUIOptions().FILTER_RESOLVED_ITEMS && getIgnoredElements().containsKey(element)) continue;
@@ -584,14 +590,18 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
       }
       else {
         String groupName = element instanceof RefElement ? element.getRefManager().getGroupName((RefElement)element) : element.getQualifiedName() ;
-        Set<RefEntity> content = myContents.get(groupName);
-        if (content == null) {
-          content = new HashSet<RefEntity>();
-          myContents.put(groupName, content);
-        }
-        content.add(element);
+        registerContentEntry(element, groupName);
       }
     }
+  }
+
+  protected void registerContentEntry(RefEntity element, String packageName) {
+    Set<RefEntity> content = myContents.get(packageName);
+    if (content == null) {
+      content = new HashSet<>();
+      myContents.put(packageName, content);
+    }
+    content.add(element);
   }
 
   @NotNull
@@ -608,8 +618,8 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
 
   @Override
   @Nullable
-  public QuickFixAction[] getQuickFixes(@NotNull final RefEntity[] refElements, CommonProblemDescriptor[] allowedDescriptors) {
-    return extractActiveFixes(refElements, getProblemElements(), allowedDescriptors);
+  public QuickFixAction[] getQuickFixes(@NotNull final RefEntity[] refElements, InspectionTree tree) {
+    return extractActiveFixes(refElements, getProblemElements(), tree != null ? tree.getSelectedDescriptors() : null);
   }
 
   @Override
@@ -618,7 +628,7 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
                                              @NotNull Map<RefEntity, CommonProblemDescriptor[]> descriptorMap,
                                              @Nullable CommonProblemDescriptor[] allowedDescriptors) {
     final Set<CommonProblemDescriptor> allowedDescriptorSet = allowedDescriptors == null ? null : ContainerUtil.newHashSet(allowedDescriptors);
-    Map<Class, QuickFixAction> result = new com.intellij.util.containers.HashMap<>();
+    Map<String, LocalQuickFixWrapper> result = new com.intellij.util.containers.HashMap<>();
     boolean isFirst = true;
     for (RefEntity refElement : refElements) {
       final CommonProblemDescriptor[] descriptors = descriptorMap.get(refElement);
@@ -632,34 +642,34 @@ public class DefaultInspectionToolPresentation implements ProblemDescriptionsPro
           if (isFirst) {
             for (QuickFix fix : fixes) {
               if (fix == null) continue;
-              final Class klass = getFixClass(fix);
               LocalQuickFixWrapper quickFixWrapper = new LocalQuickFixWrapper(fix, myToolWrapper);
-              result.put(klass, quickFixWrapper);
+              result.put(fix.getFamilyName(), quickFixWrapper);
             }
             isFirst = false;
           }
           else {
-            for (Class clazz : new ArrayList<>(result.keySet())) {
+            for (String familyName : new ArrayList<>(result.keySet())) {
               boolean isFound = false;
               for (QuickFix fix : fixes) {
                 if (fix == null) continue;
-                final Class klass = getFixClass(fix);
-                if (clazz.equals(klass)) {
+                if (familyName.equals(fix.getFamilyName())) {
                   isFound = true;
-                  final QuickFixAction quickFixAction = result.get(clazz);
+                  final LocalQuickFixWrapper quickFixAction = result.get(fix.getFamilyName());
+                  LOG.assertTrue(getFixClass(fix).equals(getFixClass(quickFixAction.getFix())),
+                                 "QuickFix-es with the same getFamilyName() should be the same class instances. " +
+                                 "Please assign reported exception for the fix \"" + fix.getClass().getName() + "\" developer");
                   try {
-                    String familyName = fix.getFamilyName();
-                    ((LocalQuickFixWrapper)quickFixAction).setText(StringUtil.escapeMnemonics(familyName));
+                    quickFixAction.setText(StringUtil.escapeMnemonics(fix.getFamilyName()));
                   }
                   catch (AbstractMethodError e) {
                     //for plugin compatibility
-                    ((LocalQuickFixWrapper)quickFixAction).setText("Name is not available");
+                    quickFixAction.setText("Name is not available");
                   }
                   break;
                 }
               }
               if (!isFound) {
-                result.remove(clazz);
+                result.remove(familyName);
                 if (result.isEmpty()) {
                   return QuickFixAction.EMPTY;
                 }

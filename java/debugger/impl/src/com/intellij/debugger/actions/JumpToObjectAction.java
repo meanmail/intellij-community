@@ -105,10 +105,10 @@ public class JumpToObjectAction extends DebuggerAction{
         final ClassType clsType = (ClassType)type;
         Location lambdaLocation = null;
         if (DebuggerUtilsEx.isLambdaClassName(clsType.name())) {
-          List<Method> notConstructorMethods = ContainerUtil.filter(clsType.methods(), m -> !m.isConstructor());
-          if (notConstructorMethods.size() == 1) {
+          List<Method> applicableMethods = ContainerUtil.filter(clsType.methods(), m -> m.isPublic() && !m.isBridge());
+          if (applicableMethods.size() == 1) {
             AtomicReference<Location> locationRef = new AtomicReference<>();
-            MethodBytecodeUtil.visit(clsType, notConstructorMethods.get(0), new MethodVisitor(Opcodes.ASM5) {
+            MethodBytecodeUtil.visit(clsType, applicableMethods.get(0), new MethodVisitor(Opcodes.API_VERSION) {
               @Override
               public void visitMethodInsn(int opcode, String owner, String name, String desc, boolean itf) {
                 ReferenceType cls = ContainerUtil.getFirstItem(clsType.virtualMachine().classesByName(owner));
@@ -133,17 +133,17 @@ public class JumpToObjectAction extends DebuggerAction{
         }
         final Location location = lambdaLocation != null ? lambdaLocation : ContainerUtil.getFirstItem(clsType.allLineLocations());
         if (location != null) {
+          SourcePosition position = debugProcess.getPositionManager().getSourcePosition(location);
           return ApplicationManager.getApplication().runReadAction(new Computable<SourcePosition>() {
             @Override
             public SourcePosition compute() {
-              SourcePosition position = debugProcess.getPositionManager().getSourcePosition(location);
               // adjust position for non-anonymous classes
               if (clsType.name().indexOf('$') < 0) {
-                final PsiClass classAt = JVMNameUtil.getClassAt(position);
+                PsiClass classAt = JVMNameUtil.getClassAt(position);
                 if (classAt != null) {
-                  final SourcePosition classPosition = SourcePosition.createFromElement(classAt);
+                  SourcePosition classPosition = SourcePosition.createFromElement(classAt);
                   if (classPosition != null) {
-                    position = classPosition;
+                    return classPosition;
                   }
                 }
               }

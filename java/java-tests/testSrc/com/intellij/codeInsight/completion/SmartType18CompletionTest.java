@@ -144,6 +144,11 @@ public class SmartType18CompletionTest extends LightFixtureCompletionTestCase {
     doTest(true);
   }
 
+  public void testStaticMethodReference() { doTest(false); }
+
+  public void testOuterMethodReference() { doTest(true); }
+  public void testNoAnonymousOuterMethodReference() { doAntiTest(); }
+
   public void testMethodReferenceOnAncestor() { doTest(true); }
 
   public void testNoLambdaSuggestionForGenericsFunctionalInterfaceMethod() throws Exception {
@@ -210,4 +215,6 @@ public void testConvertToObjectStream() {
   public void testSuggestMapInheritors() { doTest(); }
 
   public void testUnboundTypeArgs() { doTest(); }
+
+  public void testCallBeforeLambda() { doTest(false); }
 }

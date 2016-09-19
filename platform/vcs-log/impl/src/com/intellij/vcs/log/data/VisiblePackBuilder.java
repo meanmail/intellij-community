@@ -40,14 +40,14 @@ class VisiblePackBuilder {
 
   private static final Logger LOG = Logger.getInstance(VisiblePackBuilder.class);
 
-  @NotNull private final VcsLogHashMap myHashMap;
-  @NotNull private final Map<Integer, VcsCommitMetadata> myTopCommitsDetailsCache;
+  @NotNull private final VcsLogStorage myHashMap;
+  @NotNull private final TopCommitsCache myTopCommitsDetailsCache;
   @NotNull private final DataGetter<VcsFullCommitDetails> myCommitDetailsGetter;
   @NotNull private final Map<VirtualFile, VcsLogProvider> myLogProviders;
 
   VisiblePackBuilder(@NotNull Map<VirtualFile, VcsLogProvider> providers,
-                     @NotNull VcsLogHashMap hashMap,
-                     @NotNull Map<Integer, VcsCommitMetadata> topCommitsDetailsCache,
+                     @NotNull VcsLogStorage hashMap,
+                     @NotNull TopCommitsCache topCommitsDetailsCache,
                      @NotNull DataGetter<VcsFullCommitDetails> detailsGetter) {
     myHashMap = hashMap;
     myTopCommitsDetailsCache = topCommitsDetailsCache;
@@ -140,18 +140,18 @@ class VisiblePackBuilder {
     if (filteredByBranch == null) return filteredByFile;
     if (filteredByFile == null) return filteredByBranch;
 
-    return new HashSet<Integer>(ContainerUtil.intersection(filteredByBranch, filteredByFile));
+    return new HashSet<>(ContainerUtil.intersection(filteredByBranch, filteredByFile));
   }
 
   private Set<Integer> getMatchingHeads(@NotNull VcsLogRefs refs, @NotNull final VcsLogBranchFilter filter) {
-    return new HashSet<Integer>(ContainerUtil.mapNotNull(refs.getBranches(), ref -> {
+    return new HashSet<>(ContainerUtil.mapNotNull(refs.getBranches(), ref -> {
       boolean acceptRef = filter.matches(ref.getName());
       return acceptRef ? myHashMap.getCommitIndex(ref.getCommitHash(), ref.getRoot()) : null;
     }));
   }
 
   private Set<Integer> getMatchingHeads(@NotNull VcsLogRefs refs, @NotNull Collection<VirtualFile> roots) {
-    Set<Integer> result = new HashSet<Integer>();
+    Set<Integer> result = new HashSet<>();
     for (VcsRef branch : refs.getBranches()) {
       if (roots.contains(branch.getRoot())) {
         result.add(myHashMap.getCommitIndex(branch.getCommitHash(), branch.getRoot()));

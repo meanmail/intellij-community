@@ -27,6 +27,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.FoldingGroup;
 import com.intellij.openapi.progress.ProgressIndicatorProvider;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.IndexNotReadyException;
@@ -522,6 +523,7 @@ public abstract class JavaFoldingBuilderBase extends CustomFoldingBuilder implem
 
     PsiClass[] classes = file.getClasses();
     for (PsiClass aClass : classes) {
+      ProgressManager.checkCanceled();
       ProgressIndicatorProvider.checkCanceled();
       addElementsToFold(descriptors, aClass, document, true, quick);
     }
@@ -748,12 +750,6 @@ public abstract class JavaFoldingBuilderBase extends CustomFoldingBuilder implem
     else if (element instanceof PsiComment) {
       return settings.isCollapseEndOfLineComments();
     }
-    else if (ParameterNameFoldingManager.isLiteralExpression(element)
-             && element.getParent() instanceof PsiExpressionList
-             && (element.getParent().getParent() instanceof PsiCallExpression
-                 || element.getParent().getParent() instanceof PsiAnonymousClass)) {
-      return settings.isInlineParameterNamesForLiteralCallArguments();
-    }
     else {
       LOG.error("Unknown element:" + element);
       return false;
@@ -779,7 +775,6 @@ public abstract class JavaFoldingBuilderBase extends CustomFoldingBuilder implem
       public void visitMethodCallExpression(PsiMethodCallExpression expression) {
         if (!dumb) {
           addMethodGenericParametersFolding(expression, foldElements, document, quick);
-          inlineLiteralArgumentsNames(expression, foldElements, quick);
         }
 
         super.visitMethodCallExpression(expression);
@@ -789,7 +784,6 @@ public abstract class JavaFoldingBuilderBase extends CustomFoldingBuilder implem
       public void visitNewExpression(PsiNewExpression expression) {
         if (!dumb) {
           addGenericParametersFolding(expression, foldElements, document, quick);
-          inlineLiteralArgumentsNames(expression, foldElements, quick);
         }
 
         super.visitNewExpression(expression);
@@ -801,17 +795,6 @@ public abstract class JavaFoldingBuilderBase extends CustomFoldingBuilder implem
         super.visitComment(comment);
       }
     });
-  }
-
-  private static void inlineLiteralArgumentsNames(@NotNull PsiCallExpression expression,
-                                                  @NotNull List<FoldingDescriptor> foldElements,
-                                                  boolean quick)
-  {
-    if (quick || !JavaCodeFoldingSettings.getInstance().isInlineParameterNamesForLiteralCallArguments()) {
-      return;
-    }
-    ParameterNameFoldingManager manager = new ParameterNameFoldingManager(expression);
-    foldElements.addAll(manager.buildDescriptors());
   }
 
   private boolean addClosureFolding(@NotNull PsiClass aClass,

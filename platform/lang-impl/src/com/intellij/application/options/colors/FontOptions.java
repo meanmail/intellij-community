@@ -198,6 +198,7 @@ public class FontOptions extends JPanel implements OptionsPanel{
     myEnableLigaturesCheckbox.addActionListener(e -> {
       getFontPreferences().setUseLigatures(myEnableLigaturesCheckbox.isSelected());
       updateWarningIconVisibility(warningIcon);
+      updateDescription(true);
     });
   }
 
@@ -324,7 +325,7 @@ public class FontOptions extends JPanel implements OptionsPanel{
   public boolean updateDescription(boolean modified) {
     EditorColorsScheme scheme = myOptions.getSelectedScheme();
 
-    if (modified && (ColorAndFontOptions.isReadOnly(scheme) || ColorSettingsUtil.isSharedScheme(scheme))) {
+    if (modified && ColorAndFontOptions.isReadOnly(scheme)) {
       return false;
     }
 

@@ -21,8 +21,12 @@
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInspection.CommonProblemDescriptor;
-import com.intellij.codeInspection.reference.*;
+import com.intellij.codeInspection.reference.RefElement;
+import com.intellij.codeInspection.reference.RefEntity;
+import com.intellij.codeInspection.reference.RefModule;
+import com.intellij.codeInspection.reference.RefUtil;
 import com.intellij.codeInspection.ui.*;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
@@ -77,7 +81,7 @@ public class InspectionRVContentProviderImpl extends InspectionRVContentProvider
   public QuickFixAction[] getQuickFixes(@NotNull final InspectionToolWrapper toolWrapper, @NotNull final InspectionTree tree) {
     final RefEntity[] refEntities = tree.getSelectedElements();
     InspectionToolPresentation presentation = tree.getContext().getPresentation(toolWrapper);
-    return refEntities.length == 0 ? null : presentation.getQuickFixes(refEntities, tree.getSelectedDescriptors());
+    return refEntities.length == 0 ? null : presentation.getQuickFixes(refEntities, tree);
   }
 
 
@@ -97,7 +101,7 @@ public class InspectionRVContentProviderImpl extends InspectionRVContentProvider
     if (!moduleProblems.isEmpty()) {
       Set<RefEntity> entities = contents.get("");
       if (entities == null) {
-        entities = new HashSet<RefEntity>();
+        entities = new HashSet<>();
         contents.put("", entities);
       }
       entities.addAll(moduleProblems);
@@ -106,7 +110,7 @@ public class InspectionRVContentProviderImpl extends InspectionRVContentProvider
               contents,
               false,
               toolWrapper,
-              refElement -> new RefEntityContainer<CommonProblemDescriptor>(refElement, problems.get(refElement)),
+              refElement -> new RefEntityContainer<>(refElement, problems.get(refElement)),
               showStructure,
               node -> merge(node, mergedToolNode, true));
     return mergedToolNode;
@@ -125,7 +129,8 @@ public class InspectionRVContentProviderImpl extends InspectionRVContentProvider
         final RefElementNode elemNode = addNodeToParent(container, presentation, pNode);
         for (CommonProblemDescriptor problem : problems) {
           assert problem != null;
-          elemNode.insertByOrder(new ProblemDescriptionNode(refElement, problem, toolWrapper,presentation), true);
+          elemNode
+            .insertByOrder(ReadAction.compute(() -> new ProblemDescriptionNode(refElement, problem, toolWrapper, presentation)), true);
           if (problems.length == 1) {
             elemNode.setProblem(problems[0]);
           }
@@ -135,7 +140,7 @@ public class InspectionRVContentProviderImpl extends InspectionRVContentProvider
       if (canPackageRepeat && pNode instanceof InspectionPackageNode) {
         final Set<RefEntity> currentElements = presentation.getContent().get(((InspectionPackageNode) pNode).getPackageName());
         if (currentElements != null) {
-          final Set<RefEntity> currentEntities = new HashSet<RefEntity>(currentElements);
+          final Set<RefEntity> currentEntities = new HashSet<>(currentElements);
           if (RefUtil.contains(refElement, currentEntities)) return;
         }
       }

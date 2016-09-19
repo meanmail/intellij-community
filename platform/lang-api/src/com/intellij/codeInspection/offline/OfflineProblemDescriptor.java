@@ -20,16 +20,12 @@
  */
 package com.intellij.codeInspection.offline;
 
-import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefManager;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.openapi.application.ReadAction;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
 import java.util.List;
 
 public class OfflineProblemDescriptor {
@@ -91,14 +87,7 @@ public class OfflineProblemDescriptor {
 
   @Nullable
   public RefEntity getRefElement(final RefManager refManager) {
-    final RefEntity refElement = refManager.getReference(myType, myFQName);
-    if (refElement instanceof RefElement) {
-      final PsiElement element = ((RefElement)refElement).getElement();
-      if (element != null && element.isValid()) {
-        UIUtil.invokeLaterIfNeeded(() -> PsiDocumentManager.getInstance(element.getProject()).commitAllDocuments());
-      }
-    }
-    return refElement;
+    return ReadAction.compute(() -> refManager.getReference(myType, myFQName));
   }
 
   public boolean equals(final Object o) {

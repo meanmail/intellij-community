@@ -26,7 +26,6 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.ex.Range.InnerRange;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.diff.FilesTooBigForDiffException;
 import org.jetbrains.annotations.NotNull;
 
@@ -68,7 +67,7 @@ public class RangesBuilder {
                                                 int vcsShift) throws FilesTooBigForDiffException {
     FairDiffIterable iterable = ByLine.compare(vcs, current, ComparisonPolicy.DEFAULT, DumbProgressIndicator.INSTANCE);
 
-    List<Range> result = new ArrayList<Range>();
+    List<Range> result = new ArrayList<>();
     for (com.intellij.diff.util.Range range : iterable.iterateChanges()) {
       int vcsLine1 = vcsShift + range.start1;
       int vcsLine2 = vcsShift + range.end1;
@@ -83,123 +82,81 @@ public class RangesBuilder {
   @NotNull
   private static List<Range> createRangesSmart(@NotNull List<String> current,
                                                @NotNull List<String> vcs,
-                                               int shift,
+                                               int currentShift,
                                                int vcsShift) throws FilesTooBigForDiffException {
     FairDiffIterable iwIterable = ByLine.compare(vcs, current, ComparisonPolicy.IGNORE_WHITESPACES, DumbProgressIndicator.INSTANCE);
 
-    RangeBuilder rangeBuilder = new RangeBuilder(current, vcs, shift, vcsShift);
+    RangeBuilder rangeBuilder = new RangeBuilder(current, vcs, currentShift, vcsShift);
 
-    for (Pair<com.intellij.diff.util.Range, Boolean> pair : DiffIterableUtil.iterateAll(iwIterable)) {
-      com.intellij.diff.util.Range range = pair.first;
-      Boolean equals = pair.second;
-
-      if (equals) {
-        int count = range.end1 - range.start1;
-        for (int i = 0; i < count; i++) {
-          int vcsIndex = range.start1 + i;
-          int currentIndex = range.start2 + i;
-          String vcsLine = vcs.get(vcsIndex);
-          String currentLine = current.get(currentIndex);
-
-          if (vcsLine.equals(currentLine)) {
-            rangeBuilder.flushChange();
-          }
-          else {
-            rangeBuilder.markChangedWhitespaces(vcsIndex, currentIndex);
-          }
+    for (com.intellij.diff.util.Range range : iwIterable.iterateUnchanged()) {
+      int count = range.end1 - range.start1;
+      for (int i = 0; i < count; i++) {
+        int vcsIndex = range.start1 + i;
+        int currentIndex = range.start2 + i;
+        if (vcs.get(vcsIndex).equals(current.get(currentIndex))) {
+          rangeBuilder.markEqual(vcsIndex, currentIndex);
         }
-      }
-      else {
-        rangeBuilder.markChanged(range.start1, range.end1, range.start2, range.end2);
       }
     }
 
     return rangeBuilder.finish();
   }
 
-  private static class RangeBuilder {
+  private static class RangeBuilder extends DiffIterableUtil.ChangeBuilderBase {
     @NotNull private final List<String> myCurrent;
     @NotNull private final List<String> myVcs;
     private final int myCurrentShift;
     private final int myVcsShift;
 
-    @NotNull private final List<Range> myRanges = new ArrayList<>();
-
-    private com.intellij.diff.util.Range change;
-    private ArrayList<InnerRange> innerRanges;
+    @NotNull private final List<Range> myResult = new ArrayList<>();
 
     public RangeBuilder(@NotNull List<String> current,
                         @NotNull List<String> vcs,
                         int currentShift,
                         int vcsShift) {
+      super(vcs.size(), current.size());
       myCurrent = current;
       myVcs = vcs;
       myCurrentShift = currentShift;
       myVcsShift = vcsShift;
     }
 
-    public void flushChange() {
-      if (change == null) return;
-
-      for (InnerRange range : innerRanges) {
-        range.shift(myCurrentShift);
-      }
-      innerRanges.trimToSize();
-
-      change = TrimUtil.expand(myVcs, myCurrent, change.start1, change.start2, change.end1, change.end2);
-
-      int currentLine1 = myCurrentShift + change.start2;
-      int currentLine2 = myCurrentShift + change.end2;
-      int vcsLine1 = myVcsShift + change.start1;
-      int vcsLine2 = myVcsShift + change.end1;
-      myRanges.add(new Range(currentLine1, currentLine2, vcsLine1, vcsLine2, innerRanges));
-
-      change = null;
-      innerRanges = null;
+    @NotNull
+    public List<Range> finish() {
+      doFinish();
+      return myResult;
     }
 
-    public void markChangedWhitespaces(int vcsIndex, int currentIndex) {
-      appendChangedLine(vcsIndex, vcsIndex + 1, currentIndex, currentIndex + 1);
-      appendInnerEquals(vcsIndex, vcsIndex + 1, currentIndex, currentIndex + 1);
-    }
+    @Override
+    protected void addChange(int vcsStart, int currentStart, int vcsEnd, int currentEnd) {
+      com.intellij.diff.util.Range range = TrimUtil.expand(myVcs, myCurrent, vcsStart, currentStart, vcsEnd, currentEnd);
+      if (range.isEmpty()) return;
 
-    public void markChanged(int vcsStart, int vcsEnd, int currentStart, int currentEnd) {
-      appendChangedLine(vcsStart, vcsEnd, currentStart, currentEnd);
-      appendInnerChange(vcsStart, vcsEnd, currentStart, currentEnd);
+      List<InnerRange> innerRanges = calcInnerRanges(range);
+      Range newRange = new Range(range.start2, range.end2, range.start1, range.end1, innerRanges);
+      newRange.shift(myCurrentShift);
+      newRange.vcsShift(myVcsShift);
+
+      myResult.add(newRange);
     }
 
     @NotNull
-    public List<Range> finish() {
-      flushChange();
-      return myRanges;
-    }
+    private List<InnerRange> calcInnerRanges(@NotNull com.intellij.diff.util.Range blockRange) {
+      List<String> vcs = myVcs.subList(blockRange.start1, blockRange.end1);
+      List<String> current = myCurrent.subList(blockRange.start2, blockRange.end2);
 
-    private void appendChangedLine(int vcsStart, int vcsEnd, int currentStart, int currentEnd) {
-      if (change == null) {
-        change = new com.intellij.diff.util.Range(vcsStart, vcsEnd, currentStart, currentEnd);
-        innerRanges = new ArrayList<>();
-      }
-      else {
-        assert vcsStart == change.end1;
-        assert currentStart == change.end2;
-        change = new com.intellij.diff.util.Range(change.start1, vcsEnd, change.start2, currentEnd);
-      }
-    }
+      ArrayList<InnerRange> result = new ArrayList<>();
+      FairDiffIterable iwIterable = ByLine.compare(vcs, current, ComparisonPolicy.IGNORE_WHITESPACES, DumbProgressIndicator.INSTANCE);
+      for (Pair<com.intellij.diff.util.Range, Boolean> pair : DiffIterableUtil.iterateAll(iwIterable)) {
+        com.intellij.diff.util.Range range = pair.first;
+        Boolean equals = pair.second;
 
-    private void appendInnerChange(int vcsStart, int vcsEnd, int currentStart, int currentEnd) {
-      byte type = getChangeType(vcsStart, vcsEnd, currentStart, currentEnd);
-      innerRanges.add(new InnerRange(currentStart, currentEnd, type));
-    }
-
-    private void appendInnerEquals(int vcsStart, int vcsEnd, int currentStart, int currentEnd) {
-      InnerRange last = ContainerUtil.getLastItem(innerRanges);
-      if (last == null || last.getType() != Range.EQUAL) {
-        innerRanges.add(new InnerRange(currentStart, currentEnd, Range.EQUAL));
+        byte type = equals ? Range.EQUAL : getChangeType(range.start1, range.end1, range.start2, range.end2);
+        result.add(new InnerRange(range.start2 + blockRange.start2, range.end2 + blockRange.start2,
+                                  type));
       }
-      else {
-        assert currentStart == last.getLine2();
-        innerRanges.set(innerRanges.size() - 1, new InnerRange(last.getLine1(), currentEnd, Range.EQUAL));
-      }
+      result.trimToSize();
+      return result;
     }
   }
 

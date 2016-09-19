@@ -58,19 +58,20 @@ public final class EditorHistoryManager implements PersistentStateComponent<Elem
   /**
    * State corresponding to the most recent file is the last
    */
-  private final List<HistoryEntry> myEntriesList = new ArrayList<HistoryEntry>();
+  private final List<HistoryEntry> myEntriesList = new ArrayList<>();
 
-  EditorHistoryManager(@NotNull Project project, @NotNull UISettings uiSettings) {
+  EditorHistoryManager(@NotNull Project project) {
     myProject = project;
 
-    uiSettings.addUISettingsListener(new UISettingsListener() {
+    MessageBusConnection connection = project.getMessageBus().connect();
+
+    connection.subscribe(UISettingsListener.TOPIC, new UISettingsListener() {
       @Override
-      public void uiSettingsChanged(UISettings source) {
+      public void uiSettingsChanged(UISettings uiSettings) {
         trimToSize();
       }
-    }, project);
+    });
 
-    MessageBusConnection connection = project.getMessageBus().connect();
     connection.subscribe(FileEditorManagerListener.Before.FILE_EDITOR_MANAGER, new FileEditorManagerListener.Before.Adapter() {
       @Override
       public void beforeFileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
@@ -216,7 +217,7 @@ public final class EditorHistoryManager implements PersistentStateComponent<Elem
    * @return array of valid files that are in the history, oldest first. May contain duplicates.
    */
   public synchronized VirtualFile[] getFiles(){
-    final List<VirtualFile> result = new ArrayList<VirtualFile>(myEntriesList.size());
+    final List<VirtualFile> result = new ArrayList<>(myEntriesList.size());
     for (HistoryEntry entry : myEntriesList) {
       VirtualFile file = entry.getFile();
       if (file != null) result.add(file);

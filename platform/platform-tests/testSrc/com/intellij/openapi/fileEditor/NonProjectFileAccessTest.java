@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -60,7 +60,7 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
     super.setUp();
     EditorNotifications notifications = new EditorNotificationsImpl(getProject());
     ((ComponentManagerImpl)getProject()).registerComponentInstance(EditorNotifications.class, notifications);
-    NonProjectFileWritingAccessProvider.enableChecksInTests(myTestRootDisposable);
+    NonProjectFileWritingAccessProvider.enableChecksInTests(getTestRootDisposable());
     ProjectManagerEx.getInstanceEx().blockReloadingProjectOnExternalChanges();
   }
 
@@ -259,7 +259,7 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
     typeAndCheck(nonProjectFile1, false);
     typeAndCheck(nonProjectFile2, false);
     
-    List<VirtualFile> allowed = new ArrayList<VirtualFile>();
+    List<VirtualFile> allowed = new ArrayList<>();
     registerAccessCheckExtension(allowed, Collections.emptyList());
 
     typeAndCheck(nonProjectFile1, false);
@@ -286,7 +286,7 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
     typeAndCheck(nonProjectFile1, true);
     typeAndCheck(nonProjectFile2, true);
     
-    List<VirtualFile> denied = new ArrayList<VirtualFile>();
+    List<VirtualFile> denied = new ArrayList<>();
     registerAccessCheckExtension(Collections.emptyList(), denied);
 
     typeAndCheck(nonProjectFile1, true);
@@ -307,13 +307,13 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
   }
 
   private Set<VirtualFile> registerWriteAccessProvider(final VirtualFile... filesToDeny) {
-    final Set<VirtualFile> requested = new LinkedHashSet<VirtualFile>();
+    final Set<VirtualFile> requested = new LinkedHashSet<>();
     PlatformTestUtil.registerExtension(Extensions.getArea(getProject()), WritingAccessProvider.EP_NAME, new WritingAccessProvider() {
       @NotNull
       @Override
       public Collection<VirtualFile> requestWriting(VirtualFile... files) {
         Collections.addAll(requested, files);
-        HashSet<VirtualFile> denied = new HashSet<VirtualFile>(Arrays.asList(filesToDeny));
+        HashSet<VirtualFile> denied = new HashSet<>(Arrays.asList(filesToDeny));
         denied.retainAll(Arrays.asList(files));
         return denied;
       }
@@ -322,7 +322,7 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
       public boolean isPotentiallyWritable(@NotNull VirtualFile file) {
         return true;
       }
-    }, myTestRootDisposable);
+    }, getTestRootDisposable());
     return requested;
   }
 
@@ -339,7 +339,7 @@ public class NonProjectFileAccessTest extends HeavyFileEditorManagerTestCase {
                                            return filesToDeny.contains(file);
                                          }
                                        },
-                                       myTestRootDisposable);
+                                       getTestRootDisposable());
   }
 
   @NotNull

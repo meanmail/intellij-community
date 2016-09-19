@@ -16,60 +16,64 @@
 package com.intellij.formatting;
 
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.codeStyle.DiffInfo;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.codeStyle.ChangedRangesInfo;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
-public class FormatTextRanges {
-
-  private final List<FormatTextRange> myRanges = new ArrayList<>();
-  private final DiffInfo myDiffInfo;
+public class FormatTextRanges implements FormattingRangesInfo {
+  private final List<TextRange> myInsertedRanges;
+  private final FormatRangesStorage myStorage = new FormatRangesStorage();
 
   public FormatTextRanges() {
-    myDiffInfo = null;
+    myInsertedRanges = null;
   }
 
   public FormatTextRanges(TextRange range, boolean processHeadingWhitespace) {
-    myDiffInfo = null;
+    myInsertedRanges = null;
     add(range, processHeadingWhitespace);
   }
   
-  public FormatTextRanges(DiffInfo info) {
-    myDiffInfo = info;
+  public FormatTextRanges(@NotNull ChangedRangesInfo changedRangesInfo) {
+    changedRangesInfo.allChangedRanges.forEach((range) -> add(range, true));
+    myInsertedRanges = changedRangesInfo.insertedRanges;
   }
 
   public void add(TextRange range, boolean processHeadingWhitespace) {
-    myRanges.add(new FormatTextRange(range, processHeadingWhitespace));
+    myStorage.add(range, processHeadingWhitespace);
   }
 
-  public boolean isWhitespaceReadOnly(TextRange range) {
-    for (FormatTextRange formatTextRange : myRanges) {
-      if (!formatTextRange.isWhitespaceReadOnly(range)) {
-        return false;
-      }
-    }
-    return true;
+  @Override
+  public boolean isWhitespaceReadOnly(final @NotNull TextRange range) {
+    return myStorage.isWhiteSpaceReadOnly(range);  
+  }
+  
+  @Override
+  public boolean isReadOnly(@NotNull TextRange range) {
+    return myStorage.isReadOnly(range);
   }
 
-  public boolean isReadOnly(TextRange range, boolean rootIsRightBlock) {
-    for (FormatTextRange formatTextRange : myRanges) {
-      if (!formatTextRange.isReadOnly(range, rootIsRightBlock)) {
-        return false;
-      }
-    }
-    return true;
-  }
+  @Override
+  public boolean isOnInsertedLine(int offset) {
+    if (myInsertedRanges == null) return false;
 
+    Optional<TextRange> enclosingRange = myInsertedRanges.stream()
+      .filter((range) -> range.contains(offset))
+      .findAny();
+
+    return enclosingRange.isPresent();
+  }
+  
   public List<FormatTextRange> getRanges() {
-    return myRanges;
+    return myStorage.getRanges();
   }
 
   public FormatTextRanges ensureNonEmpty() {
     FormatTextRanges result = new FormatTextRanges();
-    for (FormatTextRange range : myRanges) {
+    for (FormatTextRange range : myStorage.getRanges()) {
       if (range.isProcessHeadingWhitespace()) {
         result.add(range.getNonEmptyTextRange(), true);
       }
@@ -80,14 +84,21 @@ public class FormatTextRanges {
     return result;
   }
 
-  @Override
-  public String toString() {
-    return "FormatTextRanges{" + StringUtil.join(myRanges, StringUtil.createToStringFunction(FormatTextRange.class), ",");
+  public boolean isEmpty() {
+    return myStorage.isEmpty();
   }
-  
-  @Nullable
-  protected DiffInfo getDiffInfo() {
-    return myDiffInfo;
+
+  public boolean isFullReformat(PsiFile file) {
+    List<FormatTextRange> ranges = myStorage.getRanges();
+    return ranges.size() == 1 && file.getTextRange().equals(ranges.get(0).getTextRange());
+  }
+
+  public List<TextRange> getTextRanges() {
+    return myStorage
+      .getRanges()
+      .stream()
+      .map(FormatTextRange::getTextRange)
+      .collect(Collectors.toList());
   }
   
 }

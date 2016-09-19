@@ -38,6 +38,7 @@ public class TemplateContext {
   private static class ContextInterner {
     private static final Map<String, String> internMap = Arrays.stream(TemplateContextType.EP_NAME.getExtensions())
       .map(TemplateContextType::getContextId)
+      .distinct()
       .collect(Collectors.toMap(Function.identity(), Function.identity()));
   }
 
@@ -79,7 +80,7 @@ public class TemplateContext {
   // used during initialization => no sync
   @VisibleForTesting
   public void setDefaultContext(@NotNull TemplateContext defContext) {
-    HashMap<String, Boolean> copy = new HashMap<String, Boolean>(myContextStates);
+    HashMap<String, Boolean> copy = new HashMap<>(myContextStates);
     myContextStates.clear();
     myContextStates.putAll(defContext.myContextStates);
     myContextStates.putAll(copy);

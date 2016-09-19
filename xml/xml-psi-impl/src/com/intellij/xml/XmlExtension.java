@@ -42,9 +42,7 @@ import java.util.List;
  * @author Dmitry Avdeev
  */
 public abstract class XmlExtension {
-  public static final ExtensionPointName<XmlExtension> EP_NAME = new ExtensionPointName<XmlExtension>("com.intellij.xml.xmlExtension");
-
-  public static final XmlExtension DEFAULT_EXTENSION = new DefaultXmlExtension();
+  public static final ExtensionPointName<XmlExtension> EP_NAME = new ExtensionPointName<>("com.intellij.xml.xmlExtension");
 
   public static XmlExtension getExtension(@NotNull final PsiFile file) {
     return CachedValuesManager.getCachedValue(file, () -> CachedValueProvider.Result.create(calcExtension(file), PsiModificationTracker.MODIFICATION_COUNT));
@@ -56,7 +54,7 @@ public abstract class XmlExtension {
         return extension;
       }
     }
-    return DEFAULT_EXTENSION;
+    return DefaultXmlExtension.DEFAULT_EXTENSION;
   }
 
   @SuppressWarnings("ConstantConditions")

@@ -78,7 +78,7 @@ public class GotoActionModel implements ChooseByNameModel, Comparator<Object>, E
   protected final SearchableOptionsRegistrar myIndex;
   protected final Map<AnAction, String> myActionGroups = ContainerUtil.newHashMap();
 
-  protected final Map<String, ApplyIntentionAction> myIntentions = new TreeMap<String, ApplyIntentionAction>();
+  protected final Map<String, ApplyIntentionAction> myIntentions = new TreeMap<>();
   private final Map<String, String> myConfigurablesNames = ContainerUtil.newTroveMap();
 
   public GotoActionModel(@Nullable Project project, Component component, @Nullable Editor editor, @Nullable PsiFile file) {
@@ -259,7 +259,6 @@ public class GotoActionModel implements ChooseByNameModel, Comparator<Object>, E
   public static AnActionEvent updateActionBeforeShow(@NotNull AnAction anAction, @NotNull DataContext dataContext) {
     AnActionEvent event = AnActionEvent.createFromDataContext(ActionPlaces.ACTION_SEARCH, null, dataContext);
     ActionUtil.performDumbAwareUpdate(anAction, event, false);
-    ActionUtil.performDumbAwareUpdate(anAction, event, true);
     return event;
   }
 

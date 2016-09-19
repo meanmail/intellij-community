@@ -14,23 +14,24 @@
  * limitations under the License.
  */
 
-import org.jetbrains.intellij.build.BuildContext
-import org.jetbrains.intellij.build.BuildOptions
-import org.jetbrains.intellij.build.BuildTasks
-import org.jetbrains.intellij.build.IdeaCommunityProperties
-import org.jetbrains.jps.model.module.JpsModule
+
+import org.jetbrains.intellij.build.*
 import org.jetbrains.jps.util.JpsPathUtil
 
 import static org.jetbrains.jps.idea.IdeaProjectLoader.guessHome
 
 includeTargets << new File("${guessHome(this)}/build/scripts/utils.gant")
 
+/**
+ * @deprecated use 'update-from-sources' from dist.gant instead
+ */
 target('default': "Developers update") {
   //when IDEA CE is updated from IDEA UE sources project should be loaded from IDEA UE directory
   String projectHome = isDefined("devIdeaHome") ? devIdeaHome : home
   def options = new BuildOptions()
   options.useCompiledClassesFromProjectOutput = true
-  def context = BuildContext.createContext(ant, projectBuilder, project, global, home, projectHome, "$home/out/release-ce", new IdeaCommunityProperties(home), options)
+  def context = BuildContext.createContext(ant, projectBuilder, project, global, home, projectHome, new IdeaCommunityProperties(home),
+                                           ProprietaryBuildTools.DUMMY, options)
   context.paths.distAll = deploy
   layoutFull(context)
 }
@@ -43,6 +44,9 @@ List<String> getExcludedPlugins() {
   return isDefined("productProperties") ? productProperties.excludedPlugins : []
 }
 
+/**
+ * @deprecated this method isn't called anymore, it's temporary left for compatibility only; modify {@link org.jetbrains.intellij.build.IdeaCommunityProperties} instead
+ */
 def layoutFull(BuildContext context) {
   binding.setVariable("productProperties", context.productProperties)
   String home = context.paths.communityHome
@@ -224,11 +228,6 @@ def layoutFull(BuildContext context) {
         include(name: "kotlin-reflect.jar")
       }
 
-      dir("src") {
-        fileset(dir: "$home/lib/src") {
-          include(name: "trove4j_src.jar")
-        }
-      }
       fileset(dir: "$home/xml/relaxng/lib", includes: "*.jar")
 
       dir("ant") {
@@ -286,6 +285,10 @@ def layoutFull(BuildContext context) {
   return info
 }
 
+/**
+ * @deprecated this method isn't used in new build scripts (it's still used in CLion and AppCode build scripts which aren't rewritten yet and
+ * in third-party products); specify non-trivial layout of plugins in {@link org.jetbrains.intellij.build.CommunityRepositoryModules} instead
+ */
 public def layoutCommunityPlugins(String home, BuildContext buildContext = null) {
   if (!isDefined("pluginFilter") || pluginFilter.contains("android")) {
     if (buildContext == null) {
@@ -338,6 +341,9 @@ public def layoutCommunityPlugins(String home, BuildContext buildContext = null)
       jar("maven-jps-plugin.jar") {
         module("maven-jps-plugin")
       }
+      jar("aether-dependency-resolver.jar") {
+        module("aether-dependency-resolver")
+      }
       jar("maven-server-api.jar") {
         module("maven-server-api")
       }
@@ -350,8 +356,8 @@ public def layoutCommunityPlugins(String home, BuildContext buildContext = null)
       jar("maven30-server-impl.jar") {
         module("maven30-server-impl")
       }
-      jar("maven32-server-impl.jar") {
-        module("maven32-server-impl")
+      jar("maven3-server-impl.jar") {
+        module("maven3-server-impl")
       }
 
       jar("artifact-resolver-m2.jar") {
@@ -373,7 +379,7 @@ public def layoutCommunityPlugins(String home, BuildContext buildContext = null)
         fileset(dir: "$home/plugins/maven/maven3-server-common/lib") {include(name: "*.jar")}
       }
       dir("maven3") {
-        fileset(dir: "$home/plugins/maven/maven30-server-impl/lib/maven3")
+        fileset(dir: "$home/plugins/maven/maven3-server-impl/lib/maven3")
       }
 
       dir("maven2-server-lib") {
@@ -428,7 +434,12 @@ public def layoutCommunityPlugins(String home, BuildContext buildContext = null)
     }
 
     layoutPlugin("svn4idea") {
-      fileset(dir: "$home/plugins/svn4idea/lib", excludes: "**/svnkitsrc.zip")
+      fileset(dir: "$home/plugins/svn4idea/lib") {
+        exclude(name: "svnkitsrc.zip")
+        exclude(name: "sqljetsrc.zip")
+        exclude(name: "svnkit-javahl16.zip")
+        exclude(name: "trileadsrc.zip")
+      }
     }
 
     layoutPlugin("junit", "junit", "idea-junit") {
@@ -775,6 +786,10 @@ def reorder(String home, String targetDirectory) {
   }
 }
 
+/**
+ * @deprecated this method isn't used in new build scripts (it's still used in Android Studio build scripts which aren't rewritten yet);
+ * layout of Android plugin in specified in {@link org.jetbrains.intellij.build.CommunityRepositoryModules}
+ */
 def layoutAndroid(String androidHome, String androidToolsBaseHome) {
   dir("plugins") {
     layoutPlugin("android") {
@@ -892,6 +907,11 @@ def layoutJps(String home, String targetDir, String buildNumber, Closure additio
 
 
       jar("maven-jps-plugin.jar") { module("maven-jps-plugin") }
+      jar("aether-dependency-resolver.jar") { module("aether-dependency-resolver") }
+      fileset(dir: "$home/plugins/maven/lib") {
+        include(name: "aether-*.jar")
+        include(name: "maven-aether-provider-*.jar")
+      }
       jar("gradle-jps-plugin.jar") { module("gradle-jps-plugin") }
       fileset(dir: "$home/plugins/maven/maven30-server-impl/lib/maven3/lib") {include(name: "plexus-utils-*.jar")}
 
@@ -952,7 +972,7 @@ def layout_core(String home, String target) {
     }
 
     fileset(dir: "$home/lib") {
-      include(name: "guava-17.0.jar")
+      include(name: "guava-19.0.jar")
       include(name: "picocontainer.jar")
       include(name: "trove4j.jar")
       include(name: "cli-parser-1.1.jar")

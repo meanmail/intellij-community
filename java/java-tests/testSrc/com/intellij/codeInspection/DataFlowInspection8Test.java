@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -49,6 +49,19 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
   public void testOptionalOfNullable() { doTest(); }
   public void testPrimitiveInVoidLambda() { doTest(); }
   public void testNotNullLambdaParameter() { doTest(); }
+  public void testNotNullOptionalLambdaParameter() { doTest(); }
+
+  public void testNullArgumentIsFailingMethodCall() {
+    doTest();
+  }
+
+  public void testNullArgumentIsNotFailingMethodCall() {
+    doTest();
+  }
+
+  public void testNullArgumentButParameterIsReassigned() {
+    doTest();
+  }
 
   public void testNullableArrayComponent() {
     setupCustomAnnotations();
@@ -75,7 +88,7 @@ public class DataFlowInspection8Test extends DataFlowInspectionTestCase {
     NullableNotNullManager nnnManager = NullableNotNullManager.getInstance(getProject());
     nnnManager.setNotNulls("foo.NotNull");
     nnnManager.setNullables("foo.Nullable");
-    Disposer.register(myTestRootDisposable, () -> {
+    Disposer.register(getTestRootDisposable(), () -> {
       nnnManager.setNotNulls();
       nnnManager.setNullables();
     });

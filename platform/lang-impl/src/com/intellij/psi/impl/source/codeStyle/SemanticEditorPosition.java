@@ -46,6 +46,13 @@ public abstract class SemanticEditorPosition {
     return this;
   }
   
+  public SemanticEditorPosition beforeOptionalMix(@NotNull SyntaxElement... elements) {
+    while (isAtAnyOf(elements)) {
+      myIterator.retreat();
+    }
+    return this;
+  }
+  
   public boolean isAtMultiline() {
     if (!myIterator.atEnd()) {
       return CharArrayUtil.containLineBreaks(myChars, myIterator.getStart(), myIterator.getEnd());
@@ -120,6 +127,10 @@ public abstract class SemanticEditorPosition {
   
   public boolean isAt(@NotNull SyntaxElement syntaxElement) {
     return !myIterator.atEnd() && syntaxElement.equals(map(myIterator.getTokenType()));
+  }
+
+  public boolean isAt(@NotNull IElementType elementType) {
+    return !myIterator.atEnd() && myIterator.getTokenType() == elementType;
   }
   
   public boolean isAtEnd() {

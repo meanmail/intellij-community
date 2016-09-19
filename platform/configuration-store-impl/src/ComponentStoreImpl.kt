@@ -19,7 +19,6 @@ import com.intellij.notification.NotificationsManager
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.PathManager
 import com.intellij.openapi.application.ex.DecodeDefaultsUtil
-import com.intellij.openapi.application.runBatchUpdate
 import com.intellij.openapi.application.runWriteAction
 import com.intellij.openapi.components.*
 import com.intellij.openapi.components.StateStorage.SaveSession
@@ -66,7 +65,7 @@ abstract class ComponentStoreImpl : IComponentStore {
   private val components = Collections.synchronizedMap(THashMap<String, Any>())
   private val settingsSavingComponents = CopyOnWriteArrayList<SettingsSavingComponent>()
 
-  protected open val project: Project?
+  internal open val project: Project?
     get() = null
 
   open val loadPolicy: StateLoadPolicy

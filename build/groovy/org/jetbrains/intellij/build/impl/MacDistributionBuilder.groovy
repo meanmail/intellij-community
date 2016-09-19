@@ -15,58 +15,83 @@
  */
 package org.jetbrains.intellij.build.impl
 
+import com.intellij.util.PathUtilRt
 import org.jetbrains.intellij.build.BuildContext
 import org.jetbrains.intellij.build.BuildOptions
 import org.jetbrains.intellij.build.JvmArchitecture
 import org.jetbrains.intellij.build.MacDistributionCustomizer
 
 import java.time.LocalDate
+
 /**
  * @author nik
  */
-class MacDistributionBuilder {
-  private final BuildContext buildContext
-  final String macDistPath
+class MacDistributionBuilder extends OsSpecificDistributionBuilder {
   private final MacDistributionCustomizer customizer
+  private final File ideaProperties
 
-  MacDistributionBuilder(BuildContext buildContext, MacDistributionCustomizer customizer) {
+  MacDistributionBuilder(BuildContext buildContext, MacDistributionCustomizer customizer, File ideaProperties) {
+    super(BuildOptions.OS_MAC, "Mac OS", buildContext)
+    this.ideaProperties = ideaProperties
     this.customizer = customizer
-    this.buildContext = buildContext
-    macDistPath = "$buildContext.paths.buildOutputRoot/dist.mac"
+
   }
 
-  public layoutMac(File ideaPropertiesFile) {
-    def docTypes = customizer.docTypes ?: """
+  @Override
+  String copyFilesForOsDistribution() {
+    buildContext.messages.progress("Building distributions for Mac OS")
+    String macDistPath = "$buildContext.paths.buildOutputRoot/dist.mac"
+    def docTypes = (customizer.associateIpr ? """
       <dict>
         <key>CFBundleTypeExtensions</key>
         <array>
           <string>ipr</string>
         </array>
         <key>CFBundleTypeIconFile</key>
-        <string>${buildContext.productProperties.baseFileName}.icns</string>
+        <string>${PathUtilRt.getFileName(customizer.icnsPath ?: "idea.icns")}</string>
         <key>CFBundleTypeName</key>
         <string>${buildContext.applicationInfo.productName} Project File</string>
         <key>CFBundleTypeRole</key>
         <string>Editor</string>
       </dict>
-"""
-    Map<String, String> customIdeaProperties = ["idea.jre.check": "$buildContext.productProperties.toolsJarRequired"];
-    layoutMacApp(ideaPropertiesFile, customIdeaProperties, docTypes)
+""" : "") + customizer.additionalDocTypes
+    Map<String, String> customIdeaProperties = [:]
+    if (buildContext.productProperties.toolsJarRequired) {
+      customIdeaProperties["idea.jre.check"] = "true"
+    }
+    customIdeaProperties.putAll(customizer.customIdeaProperties(buildContext.applicationInfo))
+    layoutMacApp(ideaProperties, customIdeaProperties, docTypes, macDistPath)
     customizer.copyAdditionalFiles(buildContext, macDistPath)
-    def macZipPath = buildMacZip()
-    if (buildContext.macHostProperties == null) {
+
+    if (!customizer.binariesToSign.empty) {
+      if (buildContext.proprietaryBuildTools.macHostProperties == null) {
+        buildContext.messages.info("A Mac OS build agent isn't configured, binary files won't be signed")
+      }
+      else {
+        buildContext.executeStep("Sign binaries for Mac OS distribution", BuildOptions.MAC_SIGN_STEP) {
+          MacDmgBuilder.signBinaryFiles(buildContext, customizer, buildContext.proprietaryBuildTools.macHostProperties, macDistPath)
+        }
+      }
+    }
+    return macDistPath
+  }
+
+  @Override
+  void buildArtifacts(String osSpecificDistPath) {
+    def macZipPath = buildMacZip(osSpecificDistPath)
+    if (buildContext.proprietaryBuildTools.macHostProperties == null) {
       buildContext.messages.info("A Mac OS build agent isn't configured, dmg artifact won't be produced")
       buildContext.notifyArtifactBuilt(macZipPath)
     }
     else {
       buildContext.executeStep("Build dmg artifact for Mac OS X", BuildOptions.MAC_DMG_STEP) {
-        MacDmgBuilder.signAndBuildDmg(buildContext, customizer, buildContext.macHostProperties, macZipPath)
+        MacDmgBuilder.signAndBuildDmg(buildContext, customizer, buildContext.proprietaryBuildTools.macHostProperties, macZipPath)
         buildContext.ant.delete(file: macZipPath)
       }
     }
   }
 
-  private void layoutMacApp(File ideaPropertiesFile, Map<String, String> customIdeaProperties, String docTypes) {
+  private void layoutMacApp(File ideaPropertiesFile, Map<String, String> customIdeaProperties, String docTypes, String macDistPath) {
     String target = macDistPath
     def macCustomizer = customizer
     buildContext.ant.copy(todir: "$target/bin") {
@@ -76,6 +101,9 @@ class MacDistributionBuilder {
           include(name: "libyjpagent.jnilib")
         }
       }
+    }
+    buildContext.ant.copy(todir: "$target/lib/libpty/macosx") {
+      fileset(dir: "$buildContext.paths.communityHome/lib/libpty/macosx")
     }
 
     buildContext.ant.copy(todir: target) {
@@ -190,25 +218,28 @@ class MacDistributionBuilder {
       buildContext.ant.move(file: "$target/MacOS/idea", tofile: "$target/MacOS/$executable")
     }
 
-    buildContext.ant.replace(file: "$target/bin/inspect.sh") {
+    buildContext.ant.replace(dir: "$target/bin", includes: "inspect.sh,format.sh") {
       replacefilter(token: "@@product_full@@", value: fullName)
       replacefilter(token: "@@script_name@@", value: executable)
     }
-    String inspectScript = buildContext.productProperties.inspectScriptName
+    String inspectScript = buildContext.productProperties.inspectCommandName
     if (inspectScript != "inspect") {
-      buildContext.ant.move(file: "$target/bin/inspect.sh", tofile: "$target/bin/${inspectScript}.sh")
+      String targetPath = "$target/bin/${inspectScript}.sh"
+      buildContext.ant.move(file: "$target/bin/inspect.sh", tofile: targetPath)
+      buildContext.patchInspectScript(targetPath)
     }
 
     buildContext.ant.fixcrlf(srcdir: "$target/bin", includes: "*.sh", eol: "unix")
     buildContext.ant.fixcrlf(srcdir: "$target/bin", includes: "*.py", eol: "unix")
   }
 
-  private String buildMacZip() {
+  private String buildMacZip(String macDistPath) {
     return buildContext.messages.block("Build zip archive for Mac OS") {
       def extraBins = customizer.extraExecutables
       def allPaths = [buildContext.paths.distAll, macDistPath]
-      def zipRoot = customizer.rootDirectoryName(buildContext.applicationInfo, buildContext.buildNumber)
+      String zipRoot = "${customizer.rootDirectoryName(buildContext.applicationInfo, buildContext.buildNumber)}/Contents"
       def targetPath = "$buildContext.paths.artifacts/${buildContext.productProperties.baseArtifactName(buildContext.applicationInfo, buildContext.buildNumber)}.mac.zip"
+      buildContext.messages.progress("Building zip archive for Mac OS")
       buildContext.ant.zip(zipfile: targetPath) {
         allPaths.each {
           zipfileset(dir: it, prefix: zipRoot) {
@@ -301,11 +332,10 @@ class MacDistributionBuilder {
        "java.endorsed.dirs"                    : "",
        "idea.smooth.progress"                  : "false",
        "apple.laf.useScreenMenuBar"            : "true",
+       "apple.awt.fileDialogForDirectories"    : "true",
        "apple.awt.graphics.UseQuartz"          : "true",
        "apple.awt.fullscreencapturealldisplays": "false"]
-    if (buildContext.productProperties.platformPrefix != null
-//todo[nik] remove later. This is added to keep current behavior (platform prefix for CE is set in MainImpl anyway)
-      && buildContext.productProperties.platformPrefix != "Idea") {
+    if (buildContext.productProperties.platformPrefix != null) {
       properties["idea.platform.prefix"] = buildContext.productProperties.platformPrefix
     }
 

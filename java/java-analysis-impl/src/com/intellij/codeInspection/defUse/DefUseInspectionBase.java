@@ -54,6 +54,14 @@ public class DefUseInspectionBase extends BaseJavaBatchLocalInspectionTool {
       public void visitClassInitializer(PsiClassInitializer initializer) {
         checkCodeBlock(initializer.getBody(), holder, isOnTheFly);
       }
+
+      @Override
+      public void visitLambdaExpression(PsiLambdaExpression expression) {
+        PsiElement body = expression.getBody();
+        if (body instanceof PsiCodeBlock) {
+          checkCodeBlock((PsiCodeBlock)body, holder, isOnTheFly);
+        }
+      }
     };
   }
 
@@ -61,7 +69,7 @@ public class DefUseInspectionBase extends BaseJavaBatchLocalInspectionTool {
                               final ProblemsHolder holder,
                               final boolean isOnTheFly) {
     if (body == null) return;
-    final Set<PsiVariable> usedVariables = new THashSet<PsiVariable>();
+    final Set<PsiVariable> usedVariables = new THashSet<>();
     List<DefUseUtil.Info> unusedDefs = DefUseUtil.getUnusedDefs(body, usedVariables);
 
     if (unusedDefs != null && !unusedDefs.isEmpty()) {
@@ -80,24 +88,15 @@ public class DefUseInspectionBase extends BaseJavaBatchLocalInspectionTool {
         PsiVariable psiVariable = info.getVariable();
 
         if (context instanceof PsiDeclarationStatement || context instanceof PsiResourceVariable) {
-          if (!info.isRead()) {
-            if (!isOnTheFly) {
-              holder.registerProblem(ObjectUtils.notNull(psiVariable.getNameIdentifier(), psiVariable),
-                                     InspectionsBundle.message("inspection.unused.assignment.problem.descriptor1", "<code>#ref</code> #loc"),
-                                     ProblemHighlightType.LIKE_UNUSED_SYMBOL);
-            }
-          }
-          else {
-            if (REPORT_REDUNDANT_INITIALIZER) {
-              List<LocalQuickFix> fixes = ContainerUtil.createMaybeSingletonList(
-                isOnTheFlyOrNoSideEffects(isOnTheFly, psiVariable, psiVariable.getInitializer()) ? createRemoveInitializerFix() : null);
-              holder.registerProblem(ObjectUtils.notNull(psiVariable.getInitializer(), psiVariable),
-                                     InspectionsBundle.message("inspection.unused.assignment.problem.descriptor2",
-                                                               "<code>" + psiVariable.getName() + "</code>", "<code>#ref</code> #loc"),
-                                     ProblemHighlightType.LIKE_UNUSED_SYMBOL,
-                                     fixes.toArray(new LocalQuickFix[fixes.size()])
-              );
-            }
+          if (info.isRead() && REPORT_REDUNDANT_INITIALIZER) {
+            List<LocalQuickFix> fixes = ContainerUtil.createMaybeSingletonList(
+              isOnTheFlyOrNoSideEffects(isOnTheFly, psiVariable, psiVariable.getInitializer()) ? createRemoveInitializerFix() : null);
+            holder.registerProblem(ObjectUtils.notNull(psiVariable.getInitializer(), psiVariable),
+                                   InspectionsBundle.message("inspection.unused.assignment.problem.descriptor2",
+                                                             "<code>" + psiVariable.getName() + "</code>", "<code>#ref</code> #loc"),
+                                   ProblemHighlightType.LIKE_UNUSED_SYMBOL,
+                                   fixes.toArray(new LocalQuickFix[fixes.size()])
+            );
           }
         }
         else if (context instanceof PsiAssignmentExpression) {
@@ -119,28 +118,12 @@ public class DefUseInspectionBase extends BaseJavaBatchLocalInspectionTool {
         }
       }
     }
-
-    if (!isOnTheFly) {
-      body.accept(new JavaRecursiveElementWalkingVisitor() {
-        @Override
-        public void visitClass(PsiClass aClass) { }
-
-        @Override
-        public void visitLocalVariable(PsiLocalVariable variable) {
-          if (!usedVariables.contains(variable) && variable.getInitializer() == null) {
-            PsiElement element = ObjectUtils.notNull(variable.getNameIdentifier(), variable);
-            String message = InspectionsBundle.message("inspection.unused.assignment.problem.descriptor5", "<code>#ref</code> #loc");
-            holder.registerProblem(element, message, ProblemHighlightType.LIKE_UNUSED_SYMBOL);
-          }
-        }
-      });
-    }
   }
 
   private static boolean isOnTheFlyOrNoSideEffects(boolean isOnTheFly,
                                                    PsiVariable psiVariable,
                                                    PsiExpression initializer) {
-    return isOnTheFly || !RemoveUnusedVariableUtil.checkSideEffects(initializer, psiVariable, new ArrayList<PsiElement>());
+    return isOnTheFly || !RemoveUnusedVariableUtil.checkSideEffects(initializer, psiVariable, new ArrayList<>());
   }
 
   protected LocalQuickFix createRemoveInitializerFix() {

@@ -9,11 +9,12 @@ import javax.swing.*;
 
 public class LoginDialog extends DialogWrapper {
   protected final LoginPanel myLoginPanel;
+  private StepicUser myStepicUser;
 
   public LoginDialog() {
     super(false);
     myLoginPanel = new LoginPanel(this);
-    setTitle("Login to Stepic");
+    setTitle("Login to Stepik");
     setOKButtonText("Login");
     init();
   }
@@ -41,8 +42,8 @@ public class LoginDialog extends DialogWrapper {
   @Override
   protected void doOKAction() {
     if (!validateLoginAndPasswordFields()) return;
-    final StepicUser user = EduStepicConnector.login(myLoginPanel.getLogin(), myLoginPanel.getPassword());
-    if (user != null) {
+    myStepicUser = EduStepicAuthorizedClient.login(myLoginPanel.getLogin(), myLoginPanel.getPassword());
+    if (myStepicUser != null) {
       doJustOkAction();
     }
     else {
@@ -68,5 +69,9 @@ public class LoginDialog extends DialogWrapper {
 
   public void clearErrors() {
     setErrorText(null);
+  }
+
+  public StepicUser getStepicUser() {
+    return myStepicUser;
   }
 }

@@ -15,93 +15,102 @@
  */
 package com.intellij.vcs.log.ui.frame;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.issueLinks.IssueLinkHtmlRenderer;
 import com.intellij.openapi.vcs.ui.FontUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.BrowserHyperlinkListener;
-import com.intellij.ui.JBColor;
+import com.intellij.ui.ColorUtil;
+import com.intellij.ui.UI;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBPanel;
+import com.intellij.ui.components.JBScrollPane;
+import com.intellij.ui.components.panels.Wrapper;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.DateFormatUtil;
-import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
-import com.intellij.vcs.log.Hash;
+import com.intellij.util.ui.*;
 import com.intellij.vcs.log.VcsFullCommitDetails;
 import com.intellij.vcs.log.VcsRef;
+import com.intellij.vcs.log.VcsRefType;
+import com.intellij.vcs.log.VcsUser;
 import com.intellij.vcs.log.data.LoadingDetails;
 import com.intellij.vcs.log.data.VcsLogData;
-import com.intellij.vcs.log.data.VisiblePack;
 import com.intellij.vcs.log.ui.VcsLogColorManager;
-import com.intellij.vcs.log.ui.render.VcsRefPainter;
+import com.intellij.vcs.log.ui.render.GraphCommitCellRenderer;
+import com.intellij.vcs.log.ui.render.RectangleReferencePainter;
+import com.intellij.vcs.log.ui.render.LabelIcon;
+import com.intellij.vcs.log.ui.render.RectanglePainter;
 import com.intellij.vcs.log.util.VcsUserUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.border.CompoundBorder;
-import javax.swing.border.MatteBorder;
 import javax.swing.event.HyperlinkEvent;
-import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultCaret;
 import javax.swing.text.Document;
-import javax.swing.text.Position;
+import javax.swing.text.html.HTMLDocument;
+import javax.swing.text.html.StyleSheet;
 import java.awt.*;
-import java.io.IOException;
-import java.io.StringWriter;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 import static com.intellij.openapi.vcs.history.VcsHistoryUtil.getCommitDetailsFont;
 
 class CommitPanel extends JBPanel {
-  private static final Logger LOG = Logger.getInstance("Vcs.Log");
-
   public static final int BOTTOM_BORDER = 2;
+  private static final int REFERENCES_BORDER = 12;
+  private static final int TOP_BORDER = 4;
 
   @NotNull private final VcsLogData myLogData;
-  @NotNull private final VcsLogColorManager myColorManager;
 
   @NotNull private final ReferencesPanel myReferencesPanel;
   @NotNull private final DataPanel myDataPanel;
+  @NotNull private final BranchesPanel myBranchesPanel;
+  @NotNull private final RootPanel myRootPanel;
+  @NotNull private final VcsLogColorManager myColorManager;
 
-  @NotNull private VisiblePack myDataPack;
   @Nullable private VcsFullCommitDetails myCommit;
 
-  public CommitPanel(@NotNull VcsLogData logData, @NotNull VcsLogColorManager colorManager, @NotNull VisiblePack dataPack) {
+  public CommitPanel(@NotNull VcsLogData logData, @NotNull VcsLogColorManager colorManager) {
     myLogData = logData;
     myColorManager = colorManager;
-    myDataPack = dataPack;
 
-    setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
+    setLayout(new VerticalFlowLayout(VerticalFlowLayout.TOP, 0, 0, true, false));
     setOpaque(false);
 
-    myReferencesPanel = new ReferencesPanel(myColorManager);
-    myDataPanel = new DataPanel(myLogData.getProject(), myLogData.isMultiRoot());
+    myRootPanel = new RootPanel();
+    myReferencesPanel = new ReferencesPanel();
+    myReferencesPanel.setBorder(JBUI.Borders.empty(REFERENCES_BORDER, 0, 0, 0));
+    myDataPanel = new DataPanel(myLogData.getProject());
+    myBranchesPanel = new BranchesPanel();
 
-    add(myReferencesPanel);
+    add(myRootPanel);
     add(myDataPanel);
-  }
+    add(myReferencesPanel);
+    add(myBranchesPanel);
 
-  public void setDataPack(@NotNull VisiblePack visiblePack) {
-    myDataPack = visiblePack;
+    setBorder(getDetailsBorder());
   }
 
   public void setCommit(@NotNull VcsFullCommitDetails commitData) {
     if (!Comparing.equal(myCommit, commitData)) {
       if (commitData instanceof LoadingDetails) {
         myDataPanel.setData(null);
-        myReferencesPanel.setReferences(Collections.emptyList());
-        updateBorder(null);
+        myRootPanel.setRoot("", null);
       }
       else {
         myDataPanel.setData(commitData);
-        myReferencesPanel.setReferences(sortRefs(commitData.getId(), commitData.getRoot()));
-        updateBorder(commitData);
+        VirtualFile root = commitData.getRoot();
+        if (myColorManager.isMultipleRoots()) {
+          myRootPanel.setRoot(root.getName(), VcsLogGraphTable.getRootBackgroundColor(root, myColorManager));
+        }
+        else {
+          myRootPanel.setRoot("", null);
+        }
       }
       myCommit = commitData;
     }
@@ -110,45 +119,45 @@ class CommitPanel extends JBPanel {
     if (!(commitData instanceof LoadingDetails)) {
       branches = myLogData.getContainingBranchesGetter().requestContainingBranches(commitData.getRoot(), commitData.getId());
     }
-    myDataPanel.setBranches(branches);
+    myBranchesPanel.setBranches(branches);
 
     myDataPanel.update();
+    myBranchesPanel.update();
     revalidate();
+  }
+
+  public void setRefs(@NotNull Collection<VcsRef> refs) {
+    myReferencesPanel.setReferences(sortRefs(refs));
   }
 
   public void update() {
     myDataPanel.update();
+    myRootPanel.update();
+    myReferencesPanel.update();
+    myBranchesPanel.update();
   }
 
   public void updateBranches() {
     if (myCommit != null) {
-      myDataPanel
+      myBranchesPanel
         .setBranches(myLogData.getContainingBranchesGetter().getContainingBranchesFromCache(myCommit.getRoot(), myCommit.getId()));
     }
     else {
-      myDataPanel.setBranches(null);
+      myBranchesPanel.setBranches(null);
     }
-    myDataPanel.update();
+    myBranchesPanel.update();
   }
 
   @NotNull
-  private List<VcsRef> sortRefs(@NotNull Hash hash, @NotNull VirtualFile root) {
-    Collection<VcsRef> refs = myDataPack.getRefs().refsToCommit(hash, root);
-    return ContainerUtil.sorted(refs, myLogData.getLogProvider(root).getReferenceManager().getLabelsOrderComparator());
+  private List<VcsRef> sortRefs(@NotNull Collection<VcsRef> refs) {
+    VcsRef ref = ContainerUtil.getFirstItem(refs);
+    if (ref == null) return ContainerUtil.emptyList();
+    return ContainerUtil.sorted(refs, myLogData.getLogProvider(ref.getRoot()).getReferenceManager().getLabelsOrderComparator());
   }
 
-  private void updateBorder(@Nullable VcsFullCommitDetails data) {
-    if (data == null || !myColorManager.isMultipleRoots()) {
-      setBorder(JBUI.Borders.empty(VcsLogGraphTable.ROOT_INDICATOR_WHITE_WIDTH / 2,
-                                   VcsLogGraphTable.ROOT_INDICATOR_WHITE_WIDTH / 2, BOTTOM_BORDER, 0));
-    }
-    else {
-      Color color = VcsLogGraphTable.getRootBackgroundColor(data.getRoot(), myColorManager);
-      setBorder(new CompoundBorder(new MatteBorder(0, VcsLogGraphTable.ROOT_INDICATOR_COLORED_WIDTH, 0, 0, color),
-                                   new MatteBorder(VcsLogGraphTable.ROOT_INDICATOR_WHITE_WIDTH / 2,
-                                                   VcsLogGraphTable.ROOT_INDICATOR_WHITE_WIDTH - ReferencesPanel.H_GAP, BOTTOM_BORDER, 0,
-                                                   new JBColor(CommitPanel::getCommitDetailsBackground))));
-    }
+  @NotNull
+  public static JBEmptyBorder getDetailsBorder() {
+    return JBUI.Borders.empty();
   }
 
   @Override
@@ -157,7 +166,7 @@ class CommitPanel extends JBPanel {
   }
 
   public boolean isExpanded() {
-    return myDataPanel.isExpanded();
+    return myBranchesPanel.isExpanded();
   }
 
   @NotNull
@@ -170,39 +179,17 @@ class CommitPanel extends JBPanel {
     return " on " + DateFormatUtil.formatDate(time) + " at " + DateFormatUtil.formatTime(time);
   }
 
-  private static class DataPanel extends JEditorPane {
-    private static final int PER_ROW = 3;
-    private static final String LINK_HREF = "show-hide-branches";
-
+  private static class DataPanel extends HtmlPanel {
     @NotNull private final Project myProject;
-    private final boolean myMultiRoot;
-
     @Nullable private String myMainText;
-    @Nullable private List<String> myBranches;
-    private boolean myExpanded = false;
 
-    DataPanel(@NotNull Project project, boolean multiRoot) {
-      super(UIUtil.HTML_MIME, "");
+    DataPanel(@NotNull Project project) {
       myProject = project;
-      myMultiRoot = multiRoot;
-      setEditable(false);
-      setOpaque(false);
-      putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
 
       DefaultCaret caret = (DefaultCaret)getCaret();
       caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
 
-      setBorder(JBUI.Borders.empty(BOTTOM_BORDER, ReferencesPanel.H_GAP, 0, 0));
-
-      addHyperlinkListener(e -> {
-        if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && LINK_HREF.equals(e.getDescription())) {
-          myExpanded = !myExpanded;
-          update();
-        }
-        else {
-          BrowserHyperlinkListener.INSTANCE.hyperlinkUpdate(e);
-        }
-      });
+      setBorder(JBUI.Borders.empty(0, ReferencesPanel.H_GAP, BOTTOM_BORDER, 0));
     }
 
     @Override
@@ -216,10 +203,19 @@ class CommitPanel extends JBPanel {
         myMainText = null;
       }
       else {
-        String header = getHtmlWithFonts(commit.getId().toShortString() + " " + getAuthorText(commit) +
-                                         (myMultiRoot ? " [" + commit.getRoot().getName() + "]" : ""));
-        String body = getMessageText(commit);
-        myMainText = header + "<br/>" + body;
+        String hash = commit.getId().toShortString();
+        String hashAndAuthor = getHtmlWithFonts(hash + " " + getAuthorText(commit, hash.length() + 1));
+        String messageText = getMessageText(commit);
+        myMainText = messageText + "<br/><br/>" + hashAndAuthor;
+      }
+    }
+
+    private void customizeLinksStyle() {
+      Document document = getDocument();
+      if (document instanceof HTMLDocument) {
+        StyleSheet styleSheet = ((HTMLDocument)document).getStyleSheet();
+        String linkColor = "#" + ColorUtil.toHex(UI.getColor("link.foreground"));
+        styleSheet.addRule("a { color: " + linkColor + "; text-decoration: none;}");
       }
     }
 
@@ -233,6 +229,138 @@ class CommitPanel extends JBPanel {
       return FontUtil.getHtmlWithFonts(input, style, getCommitDetailsFont());
     }
 
+    void update() {
+      if (myMainText == null) {
+        setText("");
+      }
+      else {
+        setText("<html><head>" +
+                UIUtil.getCssFontDeclaration(getCommitDetailsFont()) +
+                "</head><body>" +
+                myMainText +
+                "</body></html>");
+      }
+      customizeLinksStyle();
+      revalidate();
+      repaint();
+    }
+
+    @NotNull
+    private String getMessageText(@NotNull VcsFullCommitDetails commit) {
+      String fullMessage = commit.getFullMessage();
+      int separator = fullMessage.indexOf("\n\n");
+      String subject = separator > 0 ? fullMessage.substring(0, separator) : fullMessage;
+      String description = fullMessage.substring(subject.length());
+      return "<b>" +
+             getHtmlWithFonts(escapeMultipleSpaces(IssueLinkHtmlRenderer.formatTextWithLinks(myProject, subject)), Font.BOLD) +
+             "</b>" +
+             getHtmlWithFonts(escapeMultipleSpaces(IssueLinkHtmlRenderer.formatTextWithLinks(myProject, description)));
+    }
+
+    @NotNull
+    private static String escapeMultipleSpaces(@NotNull String text) {
+      StringBuilder result = new StringBuilder();
+      for (int i = 0; i < text.length(); i++) {
+        if (text.charAt(i) == ' ') {
+          if (i == text.length() - 1 || text.charAt(i + 1) != ' ') {
+            result.append(' ');
+          }
+          else {
+            result.append("&nbsp;");
+          }
+        }
+        else {
+          result.append(text.charAt(i));
+        }
+      }
+      return result.toString();
+    }
+
+    @NotNull
+    private static String getAuthorText(@NotNull VcsFullCommitDetails commit, int offset) {
+      long authorTime = commit.getAuthorTime();
+      long commitTime = commit.getCommitTime();
+
+      String authorText = getAuthorName(commit.getAuthor()) + formatDateTime(authorTime);
+      if (!VcsUserUtil.isSamePerson(commit.getAuthor(), commit.getCommitter())) {
+        String commitTimeText;
+        if (authorTime != commitTime) {
+          commitTimeText = formatDateTime(commitTime);
+        }
+        else {
+          commitTimeText = "";
+        }
+        authorText += getCommitterText(commit.getCommitter(), commitTimeText, offset);
+      }
+      else if (authorTime != commitTime) {
+        authorText += getCommitterText(null, formatDateTime(commitTime), offset);
+      }
+      return authorText;
+    }
+
+    @NotNull
+    private static String getCommitterText(@Nullable VcsUser committer, @NotNull String commitTimeText, int offset) {
+      String alignment = "<br/>" + StringUtil.repeat("&nbsp;", offset);
+      String gray = ColorUtil.toHex(UIManager.getColor("Button.disabledText"));
+
+      String graySpan = "<span style='color:#" + gray + "'>";
+
+      String text = alignment + graySpan + "committed";
+      if (committer != null) {
+        text += " by " + VcsUserUtil.getShortPresentation(committer);
+        if (!committer.getEmail().isEmpty()) {
+          text += "</span>" + getEmailText(committer) + graySpan;
+        }
+      }
+      text += commitTimeText + "</span>";
+      return text;
+    }
+
+    @NotNull
+    private static String getAuthorName(@NotNull VcsUser user) {
+      String username = VcsUserUtil.getShortPresentation(user);
+      return user.getEmail().isEmpty() ? username : username + getEmailText(user);
+    }
+
+    @NotNull
+    private static String getEmailText(@NotNull VcsUser user) {
+      return " <a href='mailto:" + user.getEmail() + "'>&lt;" + user.getEmail() + "&gt;</a>";
+    }
+
+    @Override
+    public Color getBackground() {
+      return getCommitDetailsBackground();
+    }
+  }
+
+  private static class BranchesPanel extends HtmlPanel {
+    private static final int PER_ROW = 2;
+    private static final String LINK_HREF = "show-hide-branches";
+
+    @Nullable private List<String> myBranches;
+    private boolean myExpanded = false;
+
+    BranchesPanel() {
+      DefaultCaret caret = (DefaultCaret)getCaret();
+      caret.setUpdatePolicy(DefaultCaret.NEVER_UPDATE);
+
+      setBorder(JBUI.Borders.empty(REFERENCES_BORDER, ReferencesPanel.H_GAP, BOTTOM_BORDER, 0));
+    }
+
+    @Override
+    public void hyperlinkUpdate(HyperlinkEvent e) {
+      if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED && LINK_HREF.equals(e.getDescription())) {
+        myExpanded = !myExpanded;
+        update();
+      }
+    }
+
+    @Override
+    public void updateUI() {
+      super.updateUI();
+      update();
+    }
+
     void setBranches(@Nullable List<String> branches) {
       if (branches == null) {
         myBranches = null;
@@ -244,19 +372,11 @@ class CommitPanel extends JBPanel {
     }
 
     void update() {
-      if (myMainText == null) {
-        setText("");
-      }
-      else {
-        setText("<html><head>" +
-                UIUtil.getCssFontDeclaration(getCommitDetailsFont()) +
-                "</head><body>" +
-                myMainText +
-                "<br/>" +
-                "<br/>" +
-                getBranchesText() +
-                "</body></html>");
-      }
+      setText("<html><head>" +
+              UIUtil.getCssFontDeclaration(getCommitDetailsFont()) +
+              "</head><body>" +
+              getBranchesText() +
+              "</body></html>");
       revalidate();
       repaint();
     }
@@ -340,79 +460,6 @@ class CommitPanel extends JBPanel {
       }
     }
 
-    @NotNull
-    private String getMessageText(@NotNull VcsFullCommitDetails commit) {
-      String fullMessage = commit.getFullMessage();
-      int separator = fullMessage.indexOf("\n\n");
-      String subject = separator > 0 ? fullMessage.substring(0, separator) : fullMessage;
-      String description = fullMessage.substring(subject.length());
-      return "<b>" +
-             getHtmlWithFonts(escapeMultipleSpaces(IssueLinkHtmlRenderer.formatTextWithLinks(myProject, subject)), Font.BOLD) +
-             "</b>" +
-             getHtmlWithFonts(escapeMultipleSpaces(IssueLinkHtmlRenderer.formatTextWithLinks(myProject, description)));
-    }
-
-    @NotNull
-    private static String escapeMultipleSpaces(@NotNull String text) {
-      StringBuilder result = new StringBuilder();
-      for (int i = 0; i < text.length(); i++) {
-        if (text.charAt(i) == ' ') {
-          if (i == text.length() - 1 || text.charAt(i + 1) != ' ') {
-            result.append(' ');
-          }
-          else {
-            result.append("&nbsp;");
-          }
-        }
-        else {
-          result.append(text.charAt(i));
-        }
-      }
-      return result.toString();
-    }
-
-    @NotNull
-    private static String getAuthorText(@NotNull VcsFullCommitDetails commit) {
-      long authorTime = commit.getAuthorTime();
-      long commitTime = commit.getCommitTime();
-
-      String authorText = VcsUserUtil.getShortPresentation(commit.getAuthor()) + formatDateTime(authorTime);
-      if (!VcsUserUtil.isSamePerson(commit.getAuthor(), commit.getCommitter())) {
-        String commitTimeText;
-        if (authorTime != commitTime) {
-          commitTimeText = formatDateTime(commitTime);
-        }
-        else {
-          commitTimeText = "";
-        }
-        authorText += " (committed by " + VcsUserUtil.getShortPresentation(commit.getCommitter()) + commitTimeText + ")";
-      }
-      else if (authorTime != commitTime) {
-        authorText += " (committed " + formatDateTime(commitTime) + ")";
-      }
-      return authorText;
-    }
-
-    @Override
-    public String getSelectedText() {
-      Document doc = getDocument();
-      int start = getSelectionStart();
-      int end = getSelectionEnd();
-
-      try {
-        Position p0 = doc.createPosition(start);
-        Position p1 = doc.createPosition(end);
-        StringWriter sw = new StringWriter(p1.getOffset() - p0.getOffset());
-        getEditorKit().write(sw, doc, p0.getOffset(), p1.getOffset() - p0.getOffset());
-
-        return StringUtil.removeHtmlTags(sw.toString());
-      }
-      catch (BadLocationException | IOException e) {
-        LOG.warn(e);
-      }
-      return super.getSelectedText();
-    }
-
     @Override
     public Color getBackground() {
       return getCommitDetailsBackground();
@@ -425,22 +472,60 @@ class CommitPanel extends JBPanel {
 
   private static class ReferencesPanel extends JPanel {
     private static final int H_GAP = 4;
-    private static final int V_GAP = 3;
-    @NotNull private final VcsRefPainter myReferencePainter;
+    private static final int V_GAP = 0;
+    public static final int PADDING = 3;
     @NotNull private List<VcsRef> myReferences;
 
-    ReferencesPanel(@NotNull VcsLogColorManager colorManager) {
+    ReferencesPanel() {
       super(new WrappedFlowLayout(JBUI.scale(H_GAP), JBUI.scale(V_GAP)));
-      myReferencePainter = new VcsRefPainter(colorManager, false);
       myReferences = Collections.emptyList();
       setOpaque(false);
     }
 
     void setReferences(@NotNull List<VcsRef> references) {
-      removeAll();
       myReferences = references;
-      for (VcsRef reference : references) {
-        add(new SingleReferencePanel(myReferencePainter, reference));
+      update();
+    }
+
+    private void update() {
+      removeAll();
+      int height =
+        getFontMetrics(getCommitDetailsFont()).getHeight() + JBUI.scale(PADDING);
+      JBLabel firstLabel = null;
+      for (Map.Entry<VcsRefType, Collection<VcsRef>> typeAndRefs : ContainerUtil.groupBy(myReferences, VcsRef::getType).entrySet()) {
+        if (GraphCommitCellRenderer.isRedesignedLabels()) {
+          VcsRefType type = typeAndRefs.getKey();
+          int index = 0;
+          for (VcsRef reference : typeAndRefs.getValue()) {
+            Icon icon = null;
+            if (index == 0) {
+              Color color = type.getBackgroundColor();
+              icon = new LabelIcon(height, getBackground(),
+                                 typeAndRefs.getValue().size() > 1 ? new Color[]{color, color} : new Color[]{color});
+            }
+            JBLabel label =
+              new JBLabel(reference.getName() + (index != typeAndRefs.getValue().size() - 1 ? "," : ""),
+                          icon, SwingConstants.LEFT);
+            label.setFont(getCommitDetailsFont());
+            label.setIconTextGap(0);
+            label.setHorizontalAlignment(SwingConstants.LEFT);
+            if (firstLabel == null) {
+              firstLabel = label;
+              add(label);
+            }
+            else {
+              Wrapper wrapper = new Wrapper(label);
+              wrapper.setVerticalSizeReferent(firstLabel);
+              add(wrapper);
+            }
+            index++;
+          }
+        }
+        else {
+          for (VcsRef reference : typeAndRefs.getValue()) {
+            add(new ReferencePanel(reference));
+          }
+        }
       }
       setVisible(!myReferences.isEmpty());
       revalidate();
@@ -458,19 +543,92 @@ class CommitPanel extends JBPanel {
     }
   }
 
-  private static class SingleReferencePanel extends JPanel {
-    @NotNull private final VcsRefPainter myRefPainter;
-    @NotNull private VcsRef myReference;
+  private static class ReferencePanel extends JPanel {
+    @NotNull private final RectanglePainter myLabelPainter;
+    @NotNull private final VcsRef myReference;
 
-    SingleReferencePanel(@NotNull VcsRefPainter referencePainter, @NotNull VcsRef reference) {
-      myRefPainter = referencePainter;
+    private ReferencePanel(@NotNull VcsRef reference) {
       myReference = reference;
+      myLabelPainter = new RectanglePainter(false);
       setOpaque(false);
     }
 
     @Override
+    public void paint(Graphics g) {
+      myLabelPainter
+        .paint((Graphics2D)g, myReference.getName(), 0, 0,
+               RectangleReferencePainter.getLabelColor(myReference.getType().getBackgroundColor()));
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+      Dimension dimension = myLabelPainter.calculateSize(myReference.getName(), getFontMetrics(RectanglePainter.getFont()));
+      return new Dimension(dimension.width, dimension.height + JBUI.scale(ReferencesPanel.PADDING));
+    }
+
+    @Override
+    public Color getBackground() {
+      return getCommitDetailsBackground();
+    }
+  }
+
+  private static class RootPanel extends JPanel {
+    private static final int RIGHT_BORDER = 5;
+    @NotNull private final RectanglePainter myLabelPainter;
+    @NotNull private String myText = "";
+    @NotNull private Color myColor = getCommitDetailsBackground();
+
+    RootPanel() {
+      myLabelPainter = new RectanglePainter(true) {
+        @Override
+        protected Font getLabelFont() {
+          return RootPanel.getLabelFont();
+        }
+      };
+      setOpaque(false);
+    }
+
+    @NotNull
+    private static Font getLabelFont() {
+      Font font = getCommitDetailsFont();
+      return font.deriveFont(font.getSize() - 2f);
+    }
+
+    public void setRoot(@NotNull String text, @Nullable Color color) {
+      myText = text;
+      if (text.isEmpty() || color == null) {
+        myColor = getCommitDetailsBackground();
+      }
+      else {
+        myColor = color;
+      }
+    }
+
+    public void update() {
+      revalidate();
+      repaint();
+    }
+
+    @Override
     protected void paintComponent(Graphics g) {
-      myRefPainter.paint(myReference, g, 0, 0);
+      if (!myText.isEmpty()) {
+        Dimension painterSize = myLabelPainter.calculateSize(myText, getFontMetrics(getLabelFont()));
+        JBScrollPane scrollPane = UIUtil.getParentOfType(JBScrollPane.class, this);
+        int width;
+        if (scrollPane == null) {
+          width = getWidth();
+        }
+        else {
+          Rectangle rect = scrollPane.getViewport().getViewRect();
+          JScrollBar verticalScrollBar = scrollPane.getVerticalScrollBar();
+          width = rect.x + rect.width;
+          if (verticalScrollBar.isVisible()) {
+            width -= verticalScrollBar.getWidth();
+          }
+        }
+        getWidth();
+        myLabelPainter.paint((Graphics2D)g, myText, width - painterSize.width - JBUI.scale(RIGHT_BORDER), 0, myColor);
+      }
     }
 
     @Override
@@ -479,8 +637,20 @@ class CommitPanel extends JBPanel {
     }
 
     @Override
+    public Dimension getMinimumSize() {
+      return getPreferredSize();
+    }
+
+    @Override
     public Dimension getPreferredSize() {
-      return myRefPainter.getSize(myReference, this);
+      if (myText.isEmpty()) return new JBDimension(0, TOP_BORDER);
+      Dimension size = myLabelPainter.calculateSize(myText, getFontMetrics(getLabelFont()));
+      return new Dimension(size.width + JBUI.scale(RIGHT_BORDER), size.height);
+    }
+
+    @Override
+    public Dimension getMaximumSize() {
+      return getPreferredSize();
     }
   }
 }

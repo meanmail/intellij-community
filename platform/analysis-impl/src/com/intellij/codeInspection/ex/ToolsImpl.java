@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.profile.ProfileEx;
 import com.intellij.profile.ProfileManager;
@@ -90,7 +89,7 @@ public class ToolsImpl implements Tools {
   @NotNull
   private ScopeToolState insertTool(@NotNull final ScopeToolState scopeToolState, final int idx) {
     if (myTools == null) {
-      myTools = new ArrayList<ScopeToolState>();
+      myTools = new ArrayList<>();
       if (scopeToolState.isEnabled()) {
         setEnabled(true);
       }
@@ -101,7 +100,7 @@ public class ToolsImpl implements Tools {
 
   @NotNull
   @Override
-  public InspectionToolWrapper getInspectionTool(PsiElement element) {
+  public InspectionToolWrapper getInspectionTool(@Nullable PsiElement element) {
     if (myTools != null) {
       final PsiFile containingFile = element == null ? null : element.getContainingFile();
       final Project project = containingFile == null ? null : containingFile.getProject();
@@ -130,17 +129,13 @@ public class ToolsImpl implements Tools {
     return myShortName;
   }
 
-  @NotNull
-  public List<InspectionToolWrapper> getAllTools() {
-    List<InspectionToolWrapper> result = new ArrayList<InspectionToolWrapper>();
+  public void cleanupTools(@NotNull Project project) {
     for (ScopeToolState state : getTools()) {
-      InspectionToolWrapper toolWrapper = state.getTool();
-      result.add(toolWrapper);
+      state.getTool().cleanup(project);
     }
-    return result;
   }
 
-  public void writeExternal(@NotNull Element inspectionElement) throws WriteExternalException {
+  public void writeExternal(@NotNull Element inspectionElement) {
     if (myTools != null) {
       for (ScopeToolState state : myTools) {
         final Element scopeElement = new Element("scope");
@@ -179,10 +174,9 @@ public class ToolsImpl implements Tools {
     myDefaultState.setEnabled(enabledTool != null ? Boolean.parseBoolean(enabledTool) : isEnabled);
     final InspectionToolWrapper toolWrapper = myDefaultState.getTool();
 
-    final List scopeElements = toolElement.getChildren(ProfileEx.SCOPE);
-    final List<String> scopeNames = new ArrayList<String>();
-    for (Object sO : scopeElements) {
-      final Element scopeElement = (Element)sO;
+    final List<Element> scopeElements = toolElement.getChildren(ProfileEx.SCOPE);
+    final List<String> scopeNames = new ArrayList<>();
+    for (Element scopeElement : scopeElements) {
       final String scopeName = scopeElement.getAttributeValue(ProfileEx.NAME);
       if (scopeName == null) {
         continue;
@@ -218,7 +212,7 @@ public class ToolsImpl implements Tools {
       String scopeName = scopeNames.get(i);
       List<String> order = dependencies.get(scopeName);
       if (order == null) {
-        order = new ArrayList<String>();
+        order = new ArrayList<>();
         dependencies.put(scopeName, order);
       }
       for (int j = i + 1; j < scopeNames.size(); j++) {
@@ -244,10 +238,21 @@ public class ToolsImpl implements Tools {
   @Override
   @NotNull
   public List<ScopeToolState> getTools() {
-    if (myTools == null) return Collections.singletonList(myDefaultState);
-    List<ScopeToolState> result = new ArrayList<ScopeToolState>(myTools);
+    if (myTools == null) {
+      return Collections.singletonList(myDefaultState);
+    }
+
+    List<ScopeToolState> result = new ArrayList<>(myTools);
     result.add(myDefaultState);
     return result;
+  }
+
+  @Override
+  public void collectTools(@NotNull List<ScopeToolState> result) {
+    if (myTools != null) {
+      result.addAll(myTools);
+    }
+    result.add(myDefaultState);
   }
 
   @Override
@@ -256,10 +261,13 @@ public class ToolsImpl implements Tools {
     return myDefaultState;
   }
 
-  public void removeScope(int scopeIdx) {
-    if (myTools != null && scopeIdx >= 0 && myTools.size() > scopeIdx) {
-      myTools.remove(scopeIdx);
-      checkToolsIsEmpty();
+  public void setDefaultEnabled(boolean isEnabled) {
+    getDefaultState().setEnabled(isEnabled);
+    if (isEnabled) {
+      setEnabled(true);
+    }
+    else {
+      disableWholeToolIfCan();
     }
   }
 
@@ -295,14 +303,6 @@ public class ToolsImpl implements Tools {
     }
   }
 
-  public void moveScope(int idx, int dir) {
-    if (myTools != null && idx >= 0 && idx < myTools.size() && idx + dir >= 0 && idx + dir < myTools.size()) {
-      final ScopeToolState state = myTools.get(idx);
-      myTools.set(idx, myTools.get(idx + dir));
-      myTools.set(idx + dir, state);
-    }
-  }
-
   public boolean isEnabled(NamedScope namedScope, Project project) {
     if (!myEnabled) return false;
     if (namedScope != null && myTools != null) {
@@ -326,8 +326,6 @@ public class ToolsImpl implements Tools {
     }
     return myDefaultState.getLevel();
   }
-
-
 
   public HighlightDisplayLevel getLevel() {
     return myDefaultState.getLevel();
@@ -405,9 +403,9 @@ public class ToolsImpl implements Tools {
           state.setEnabled(false);
         }
       }
+      disableWholeToolIfCan();
     }
   }
-
 
   public void disableTool(@NotNull PsiElement element) {
     final Project project = element.getProject();
@@ -516,5 +514,19 @@ public class ToolsImpl implements Tools {
   @Nullable
   public List<ScopeToolState> getNonDefaultTools() {
     return myTools;
+  }
+
+  private void disableWholeToolIfCan() {
+    if (myDefaultState.isEnabled()) {
+      return;
+    }
+    if (myTools != null) {
+      for (ScopeToolState tool : myTools) {
+        if (tool.isEnabled()) {
+          return;
+        }
+      }
+    }
+    setEnabled(false);
   }
 }

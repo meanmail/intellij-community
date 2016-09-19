@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -169,23 +169,26 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
         }
         if (assignedValue != null) {
           if (assignedValue instanceof PyYieldExpression) {
-            return null;
+            PyYieldExpression assignedYield = (PyYieldExpression)assignedValue;
+            return assignedYield.isDelegating() ? context.getType(assignedValue) : null;
           }
           return context.getType(assignedValue);
         }
       }
       if (parent instanceof PyTupleExpression) {
         PsiElement nextParent = parent.getParent();
-        while (nextParent instanceof PyParenthesizedExpression) {
+        while (nextParent instanceof PyParenthesizedExpression || nextParent instanceof PyTupleExpression) {
           nextParent = nextParent.getParent();
         }
         if (nextParent instanceof PyAssignmentStatement) {
           final PyAssignmentStatement assignment = (PyAssignmentStatement)nextParent;
           final PyExpression value = assignment.getAssignedValue();
-          if (value != null) {
+          final PyExpression lhs = assignment.getLeftHandSideExpression();
+          final PyTupleExpression targetTuple = PsiTreeUtil.findChildOfType(lhs, PyTupleExpression.class, false);
+          if (value != null && targetTuple != null) {
             final PyType assignedType = PyTypeChecker.toNonWeakType(context.getType(value), context);
             if (assignedType instanceof PyTupleType) {
-              final PyType t = PyTypeChecker.getTargetTypeFromTupleAssignment(this, (PyTupleExpression)parent, (PyTupleType)assignedType);
+              final PyType t = PyTypeChecker.getTargetTypeFromTupleAssignment(this, targetTuple, (PyTupleType)assignedType);
               if (t != null) {
                 return t;
               }
@@ -209,6 +212,29 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
     finally {
       TypeEvalStack.evaluated(this);
     }
+  }
+
+  @Nullable
+  @Override
+  public PyAnnotation getAnnotation() {
+    PsiElement topTarget = this;
+    while (topTarget.getParent() instanceof PyParenthesizedExpression) {
+      topTarget = topTarget.getParent();
+    }
+    final PsiElement parent = topTarget.getParent();
+    if (parent != null) {
+      final PyAssignmentStatement assignment = as(parent, PyAssignmentStatement.class);
+      if (assignment != null) {
+        final PyExpression[] targets = assignment.getRawTargets();
+        if (targets.length == 1 && targets[0] == topTarget) {
+          return assignment.getAnnotation();
+        }
+      }
+      else if (parent instanceof PyTypeDeclarationStatement) {
+        return ((PyTypeDeclarationStatement)parent).getAnnotation();
+      }
+    }
+    return null;
   }
 
   @Nullable
@@ -320,7 +346,7 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
                                         @NotNull TypeEvalContext context) {
     if (iterableType instanceof PyTupleType) {
       final PyTupleType tupleType = (PyTupleType)iterableType;
-      final List<PyType> memberTypes = new ArrayList<PyType>();
+      final List<PyType> memberTypes = new ArrayList<>();
       for (int i = 0; i < (tupleType.isHomogeneous() ? 1 : tupleType.getElementCount()); i++) {
         memberTypes.add(tupleType.getElementType(i));
       }
@@ -328,7 +354,7 @@ public class PyTargetExpressionImpl extends PyBaseElementImpl<PyTargetExpression
     }
     else if (iterableType instanceof PyUnionType) {
       final Collection<PyType> members = ((PyUnionType)iterableType).getMembers();
-      final List<PyType> iterationTypes = new ArrayList<PyType>();
+      final List<PyType> iterationTypes = new ArrayList<>();
       for (PyType member : members) {
         iterationTypes.add(getIterationType(member, source, anchor, context));
       }

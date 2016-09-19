@@ -15,6 +15,7 @@
  */
 package com.intellij.ide.customize;
 
+import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.ide.startup.StartupActionScriptManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -43,7 +44,7 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
   private final JButton myNextButton = new JButton("Next");
 
   private final JBCardLayout myCardLayout = new JBCardLayout();
-  private final List<AbstractCustomizeWizardStep> mySteps = new ArrayList<AbstractCustomizeWizardStep>();
+  private final List<AbstractCustomizeWizardStep> mySteps = new ArrayList<>();
   private int myIndex = 0;
   private final JBLabel myNavigationLabel = new JBLabel();
   private final JBLabel myHeaderLabel = new JBLabel();
@@ -58,6 +59,12 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
     getPeer().setAppIcons();
 
     stepsProvider.initSteps(this, mySteps);
+
+    CloudConfigProvider configProvider = CloudConfigProvider.getProvider();
+    if (configProvider != null) {
+      myIndex = configProvider.initSteps(mySteps);
+    }
+
     if (mySteps.isEmpty()) {
       throw new IllegalArgumentException(stepsProvider + " provided no steps");
     }
@@ -69,7 +76,6 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
     AbstractCustomizeWizardStep.applyHeaderFooterStyle(myHeaderLabel);
     AbstractCustomizeWizardStep.applyHeaderFooterStyle(myFooterLabel);
     init();
-    skipFirstShowing();
     initCurrentStep(true);
     setSize(400, 300);
     System.setProperty(StartupActionScriptManager.STARTUP_WIZARD_MODE, "true");
@@ -174,16 +180,6 @@ public class CustomizeIDEWizardDialog extends DialogWrapper implements ActionLis
       }
     }
     super.doOKAction();
-  }
-
-  private void skipFirstShowing() {
-    myIndex = 0;
-    for (AbstractCustomizeWizardStep step : mySteps) {
-      if (!step.skipFirstShowing()) {
-        myIndex = mySteps.indexOf(step);
-        return;
-      }
-    }
   }
 
   private void initCurrentStep(boolean forward) {

@@ -30,6 +30,7 @@ public class ModuleParserTest extends JavaParsingTestCase {
   public void testName0() { doParserTest("module A. { }"); }
   public void testName1() { doParserTest("module A..B { }"); }
   public void testName2() { doParserTest("module A B { }"); }
+  public void testName3() { doParserTest("module .A { }"); }
 
   public void testIncomplete0() { doParserTest("module"); }
   public void testIncomplete1() { doParserTest("module X"); }
@@ -68,6 +69,7 @@ public class ModuleParserTest extends JavaParsingTestCase {
   public void testProvides4() { doParserTest("module M { provides Spi with ; }"); }
   public void testProvides5() { doParserTest("module M { provides Spi with Impl }"); }
   public void testProvides6() { doParserTest("module M { provides Spi with Impl; }"); }
+  public void testProvides7() { doParserTest("module M { provides Spi _ }"); }
 
   private void doParserTest(String text) {
     doParserTest(text, builder -> JavaParser.INSTANCE.getFileParser().parse(builder));

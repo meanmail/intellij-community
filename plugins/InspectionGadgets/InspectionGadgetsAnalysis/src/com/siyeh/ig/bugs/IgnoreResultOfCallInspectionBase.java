@@ -21,6 +21,7 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PropertyUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -29,6 +30,7 @@ import com.siyeh.ig.psiutils.LibraryUtil;
 import com.siyeh.ig.psiutils.MethodMatcher;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
 import java.util.Set;
@@ -66,6 +68,7 @@ public class IgnoreResultOfCallInspectionBase extends BaseInspection {
       .add("java.util.UUID",".*")
       .add("java.util.regex.Matcher","pattern|toMatchResult|start|end|group|groupCount|matches|find|lookingAt|quoteReplacement|replaceAll|replaceFirst|regionStart|regionEnd|hasTransparantBounds|hasAnchoringBounds|hitEnd|requireEnd")
       .add("java.util.regex.Pattern",".*")
+      .add("java.util.stream.BaseStream",".*")
       .finishDefault();
   }
 
@@ -136,6 +139,10 @@ public class IgnoreResultOfCallInspectionBase extends BaseInspection {
       if (PsiUtilCore.hasErrorElementChild(statement)) {
         return;
       }
+      if (PropertyUtil.isSimpleGetter(method)) {
+        registerMethodCallError(call, aClass);
+        return;
+      }
       if (m_reportAllNonLibraryCalls && !LibraryUtil.classIsInLibrary(aClass)) {
         registerMethodCallError(call, aClass);
         return;
@@ -149,15 +156,26 @@ public class IgnoreResultOfCallInspectionBase extends BaseInspection {
         registerMethodCallError(call, aClass);
         return;
       }
-      if (!myMethodMatcher.matches(method) &&
-          findAnnotationInTree(method, Collections.singleton("javax.annotation.CheckReturnValue")) == null) {
+      final PsiAnnotation annotation = findAnnotationInTree(method, null, Collections.singleton("javax.annotation.CheckReturnValue"));
+      if (annotation != null) {
+        final PsiElement owner = (PsiElement)annotation.getOwner();
+        if (findAnnotationInTree(method, owner, Collections.singleton("com.google.errorprone.annotations.CanIgnoreReturnValue")) != null) {
+          return;
+        }
+      }
+      if (!myMethodMatcher.matches(method) && annotation == null) {
         return;
       }
+
       registerMethodCallError(call, aClass);
     }
 
-    private PsiAnnotation findAnnotationInTree(PsiElement element, Set<String> fqAnnotationNames) {
+    @Nullable
+    private PsiAnnotation findAnnotationInTree(PsiElement element, @Nullable PsiElement stop, @NotNull Set<String> fqAnnotationNames) {
       while (element != null) {
+        if (element == stop) {
+          return null;
+        }
         if (element instanceof PsiModifierListOwner) {
           final PsiModifierListOwner modifierListOwner = (PsiModifierListOwner)element;
           final PsiAnnotation annotation =

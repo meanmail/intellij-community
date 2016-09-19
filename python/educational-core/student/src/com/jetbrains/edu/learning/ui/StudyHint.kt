@@ -1,33 +1,30 @@
 package com.jetbrains.edu.learning.ui
 
 import com.intellij.icons.AllIcons
-import com.intellij.ide.browsers.WebBrowserManager
-import com.intellij.openapi.Disposable
-import com.intellij.openapi.actionSystem.*
-import com.intellij.openapi.editor.Document
-import com.intellij.openapi.editor.EditorFactory
-import com.intellij.openapi.editor.ex.EditorEx
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
+import com.intellij.openapi.actionSystem.DefaultActionGroup
+import com.intellij.openapi.actionSystem.Separator
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Disposer
 import com.jetbrains.edu.learning.StudyTaskManager
 import com.jetbrains.edu.learning.StudyUtils
 import com.jetbrains.edu.learning.core.EduNames
 import com.jetbrains.edu.learning.courseFormat.AnswerPlaceholder
-import java.util.*
 
-class StudyHint(private val myPlaceholder: AnswerPlaceholder?, project: Project) {
+class StudyHint(private val myPlaceholder: AnswerPlaceholder?, 
+                project: Project) {
+  
+  companion object {
+    private val OUR_WARNING_MESSAGE = "Put the caret in the answer placeholder to get hint"
+    private val HINTS_NOT_AVAILABLE = "There is no hint for this answer placeholder"
+  }
+  
   val studyToolWindow: StudyToolWindow
-  private val myHints = LinkedList<String>()
   private var myShownHintNumber = 0
   private var isEditingMode = false
+  private val newHintDefaultText = "Edit this hint"
 
   init {
-    if (myPlaceholder == null) {
-      myHints.add(OUR_WARNING_MESSAGE)
-    }
-    else {
-      myHints.addAll(myPlaceholder.hints)
-    }
     val taskManager = StudyTaskManager.getInstance(project)
     if (StudyUtils.hasJavaFx() && taskManager.shouldUseJavaFx()) {
       studyToolWindow = StudyJavaFxToolWindow()
@@ -36,43 +33,58 @@ class StudyHint(private val myPlaceholder: AnswerPlaceholder?, project: Project)
       studyToolWindow = StudySwingToolWindow()
     }
     studyToolWindow.init(project, false)
+    
+    if (myPlaceholder == null) {
+      studyToolWindow.setText(OUR_WARNING_MESSAGE)
+      studyToolWindow.setActionToolbar(DefaultActionGroup())
+    }
+    
     val course = taskManager.course
     if (course != null) {
       val courseMode = course.courseMode
       val group = DefaultActionGroup()
-      if (courseMode == EduNames.STUDY) {
-        if (myHints.size > 1) {
-          group.addAll(GoBackward(), GoForward())
+      val hints = myPlaceholder?.hints
+      if (hints != null) {
+        if (courseMode == EduNames.STUDY) {
+          if (hints.size > 1) {
+            group.addAll(GoBackward(), GoForward())
+          }
         }
-      }
-      else {
-        group.addAll(GoBackward(), GoForward(), Separator.getInstance(), EditHint(), AddHint(), RemoveHint())
-      }
-      studyToolWindow.setActionToolbar(group)
-      if (!myHints.isEmpty()) {
-        studyToolWindow.setText(myHints[myShownHintNumber])
-      }
-      else {
-        studyToolWindow.setText("No hints are provided")
+        else {
+          group.addAll(GoBackward(), GoForward(), Separator.getInstance(), EditHint())
+        }
+        studyToolWindow.setActionToolbar(group)
+        setHintText(hints)
       }
     }
   }
 
-  private inner class GoForward : AnAction(AllIcons.Actions.Forward) {
+  private fun setHintText(hints: List<String>) {
+    if (!hints.isEmpty()) {
+      studyToolWindow.setText(hints[myShownHintNumber])
+    }
+    else {
+      myShownHintNumber = -1
+      studyToolWindow.setText(HINTS_NOT_AVAILABLE)
+    }
+  }
+
+  private inner class GoForward : AnAction("Next Hint", "Next Hint", AllIcons.Actions.Forward) {
+
 
     override fun actionPerformed(e: AnActionEvent) {
-      studyToolWindow.setText(myHints[++myShownHintNumber])
+      studyToolWindow.setText(myPlaceholder!!.hints[++myShownHintNumber])
     }
 
     override fun update(e: AnActionEvent) {
-      e.presentation.isEnabled = !isEditingMode && myShownHintNumber + 1 < myHints.size
+      e.presentation.isEnabled = !isEditingMode && myPlaceholder != null && myShownHintNumber + 1 < myPlaceholder.hints.size
     }
   }
 
-  private inner class GoBackward : AnAction(AllIcons.Actions.Back) {
+  private inner class GoBackward : AnAction("Previous Hint", "Previous Hint", AllIcons.Actions.Back) {
 
     override fun actionPerformed(e: AnActionEvent) {
-      studyToolWindow.setText(myHints[--myShownHintNumber])
+      studyToolWindow.setText(myPlaceholder!!.hints[--myShownHintNumber])
     }
 
     override fun update(e: AnActionEvent) {
@@ -80,90 +92,42 @@ class StudyHint(private val myPlaceholder: AnswerPlaceholder?, project: Project)
     }
   }
 
-  private inner class EditHint : ToggleAction("Edit Hint", "Edit Hint", AllIcons.Modules.Edit) {
-
-    private var currentDocument: Document? = null
-
-    override fun isSelected(e: AnActionEvent): Boolean {
-      e.project ?: return false
-      return isEditingMode
-    }
-
-    override fun setSelected(e: AnActionEvent, state: Boolean) {
-      val project = e.project ?: return
-
-      doOnSelection(state, project)
-    }
-
-    fun doOnSelection(state: Boolean, project: Project) {
-      if (state) {
-        isEditingMode = true
-        val factory = EditorFactory.getInstance()
-        currentDocument = factory.createDocument(myHints[myShownHintNumber])
-        WebBrowserManager.getInstance().isShowBrowserHover = false
-        if (currentDocument != null) {
-          val createdEditor = factory.createEditor(currentDocument as Document, project) as EditorEx
-          Disposer.register(project, Disposable { factory.releaseEditor(createdEditor) })
-          val editorComponent = createdEditor.component
-          studyToolWindow.setTopComponent(editorComponent)
-          studyToolWindow.repaint()
-        }
-      }
-      else {
-        isEditingMode = false
-        myHints[myShownHintNumber] = currentDocument!!.text
-        val hints = myPlaceholder!!.hints
-        hints[myShownHintNumber] = currentDocument!!.text
-        studyToolWindow.setText(myHints[myShownHintNumber])
-        studyToolWindow.setDefaultTopComponent()
-      }
+  private inner class EditHint : AnAction("Edit Hint", "Edit Hint", AllIcons.Modules.Edit) {
+    
+    override fun actionPerformed(e: AnActionEvent?) {
+      val dialog = CCCreateAnswerPlaceholderDialog(e!!.project!!, myPlaceholder!!)
+      dialog.show()
     }
 
     override fun update(e: AnActionEvent) {
-      e.presentation.isEnabled = !myHints.isEmpty() && myPlaceholder != null
+      e.presentation.isEnabled = myPlaceholder?.hints?.isEmpty() == false
     }
   }
 
-  private inner class AddHint : AnAction(AllIcons.General.Add) {
+  private inner class AddHint : AnAction("Add Hint", "Add Hint", AllIcons.General.Add) {
 
     override fun actionPerformed(e: AnActionEvent) {
-      val project = e.project ?: return
-      val newHint = "New hint"
-      myHints.add(newHint)
-      myPlaceholder!!.hints.add(newHint)
+      myPlaceholder!!.addHint(newHintDefaultText)
       myShownHintNumber++
-      studyToolWindow.setText(newHint)
-      val actions = studyToolWindow.getActions(true)
-      for (action in actions) {
-        if (action is EditHint) {
-          action.doOnSelection(true, project)
-          action.isSelected(e)
-          return
-        }
-      }
+      studyToolWindow.setText(newHintDefaultText)
     }
 
     override fun update(e: AnActionEvent?) {
-      e?.presentation?.isEnabled = !isEditingMode && !myHints.isEmpty()
+      e?.presentation?.isEnabled = !isEditingMode && myPlaceholder != null
     }
   }
 
-  private inner class RemoveHint : AnAction(AllIcons.Actions.Cancel) {
+  private inner class RemoveHint : AnAction("Remove Hint", "Remove Hint", AllIcons.General.Remove) {
 
     override fun actionPerformed(e: AnActionEvent) {
-      myHints.removeAt(myShownHintNumber)
-      myPlaceholder!!.hints.removeAt(myShownHintNumber)
-      myShownHintNumber = if (myHints.size == 1) 0 else if (myShownHintNumber + 1 < myHints.size) myShownHintNumber + 1 else myShownHintNumber - 1
-      studyToolWindow.setText(myHints[myShownHintNumber])
+      myPlaceholder!!.removeHint(myShownHintNumber)
+      myShownHintNumber += if (myShownHintNumber < myPlaceholder.hints.size) 0 else -1
+      
+      setHintText(myPlaceholder.hints)
     }
 
     override fun update(e: AnActionEvent) {
-      e.presentation.isEnabled = myHints.size > 1 && !isEditingMode
+      e.presentation.isEnabled = myPlaceholder != null && myPlaceholder.hints.size > 0 && !isEditingMode
     }
-  }
-
-  companion object {
-
-    private val OUR_WARNING_MESSAGE = "Put the caret in the answer placeholder to get hint"
   }
 }

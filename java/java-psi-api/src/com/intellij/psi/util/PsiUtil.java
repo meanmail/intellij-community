@@ -668,7 +668,6 @@ public final class PsiUtil extends PsiUtilCore {
   }
 
   /** @deprecated use more generic {@link #isCompileTimeConstant(PsiVariable)} instead */
-  @SuppressWarnings("unused")
   public static boolean isCompileTimeConstant(@NotNull final PsiField field) {
     return isCompileTimeConstant((PsiVariable)field);
   }
@@ -1137,20 +1136,9 @@ public final class PsiUtil extends PsiUtilCore {
     return name != null && IGNORED_NAMES.contains(name);
   }
 
-  @Nullable
-  public static PsiMethod getResourceCloserMethod(@NotNull PsiResourceListElement resource) {
-    PsiType resourceType = resource.getType();
-    return resourceType instanceof PsiClassType ? getResourceCloserMethodForType((PsiClassType)resourceType) : null;
-  }
-
-  /** @deprecated use {@link #getResourceCloserMethod(PsiResourceListElement)} (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
-  public static PsiMethod getResourceCloserMethod(@NotNull PsiResourceVariable resource) {
-    return getResourceCloserMethod((PsiResourceListElement)resource);
-  }
 
   @Nullable
-  public static PsiMethod getResourceCloserMethodForType(@NotNull final PsiClassType resourceType) {
+  public static PsiMethod[] getResourceCloserMethodsForType(@NotNull final PsiClassType resourceType) {
     final PsiClass resourceClass = resourceType.resolve();
     if (resourceClass == null) return null;
 
@@ -1162,7 +1150,10 @@ public final class PsiUtil extends PsiUtilCore {
     if (JavaClassSupers.getInstance().getSuperClassSubstitutor(autoCloseable, resourceClass, resourceType.getResolveScope(), PsiSubstitutor.EMPTY) == null) return null;
 
     final PsiMethod[] closes = autoCloseable.findMethodsByName("close", false);
-    return closes.length == 1 ? resourceClass.findMethodBySignature(closes[0], true) : null;
+    if (closes.length == 1) {
+      return resourceClass.findMethodsBySignature(closes[0], true);
+    }
+    return null;
   }
 
   @Nullable
@@ -1284,5 +1275,19 @@ public final class PsiUtil extends PsiUtilCore {
 
   public static boolean isModuleFile(@NotNull PsiFile file) {
     return file instanceof PsiJavaFile && ((PsiJavaFile)file).getModuleDeclaration() != null;
+  }
+
+  public static boolean isPackageEmpty(@NotNull PsiDirectory[] directories, @NotNull String packageName) {
+    for (PsiDirectory directory : directories) {
+      for (PsiFile file : directory.getFiles()) {
+        if (file instanceof PsiClassOwner &&
+            packageName.equals(((PsiClassOwner)file).getPackageName()) &&
+            ((PsiClassOwner)file).getClasses().length > 0) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 }

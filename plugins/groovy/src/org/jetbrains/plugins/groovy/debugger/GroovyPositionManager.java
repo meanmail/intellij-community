@@ -40,6 +40,7 @@ import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.sun.jdi.AbsentInformationException;
 import com.sun.jdi.Location;
@@ -178,7 +179,8 @@ public class GroovyPositionManager implements PositionManager {
       GroovyPsiElement sourceImage = findReferenceTypeSourceImage(position);
       if (sourceImage instanceof GrTypeDefinition) {
         return getClassNameForJvm((GrTypeDefinition)sourceImage);
-      } else if (sourceImage == null) {
+      }
+      else if (sourceImage == null) {
         return getScriptQualifiedName(position);
       }
       return null;
@@ -197,10 +199,13 @@ public class GroovyPositionManager implements PositionManager {
       return parent == null ? null : parent + "$" + typeDefinition.getName() + suffix;
     }
 
-    for (ScriptPositionManagerHelper helper : ScriptPositionManagerHelper.EP_NAME.getExtensions()) {
-      final String s = helper.customizeClassName(typeDefinition);
-      if (s != null) {
-        return s;
+    PsiFile file = typeDefinition.getContainingFile();
+    if (file instanceof GroovyFile && ((GroovyFile)file).isScript()) {
+      for (ScriptPositionManagerHelper helper : ScriptPositionManagerHelper.EP_NAME.getExtensions()) {
+        String s = helper.isAppropriateScriptFile((GroovyFile)file) ? helper.customizeClassName(typeDefinition) : null;
+        if (s != null) {
+          return s;
+        }
       }
     }
 
@@ -256,7 +261,7 @@ public class GroovyPositionManager implements PositionManager {
     String runtimeName = dollar >= 0 ? originalQName.substring(0, dollar) : originalQName;
     String qName = getOriginalQualifiedName(refType, runtimeName);
 
-    GlobalSearchScope searchScope = addModuleContent(myDebugProcess.getSearchScope());
+    GlobalSearchScope searchScope = myDebugProcess.getSearchScope();
     GroovyShortNamesCache cache = GroovyShortNamesCache.getGroovyShortNamesCache(project);
     try {
       List<PsiClass> classes = cache.getClassesByFQName(qName, searchScope, true);
@@ -266,7 +271,12 @@ public class GroovyPositionManager implements PositionManager {
       if (classes.isEmpty()) {
         classes = cache.getClassesByFQName(qName, GlobalSearchScope.projectScope(project), false);
       }
-      PsiClass clazz = classes.size() == 1 ? classes.get(0) : null;
+      if (classes.isEmpty()) {
+        classes = cache.getClassesByFQName(qName, addModuleContent(searchScope), false);
+      }
+      if (classes.isEmpty()) return null;
+      classes.sort(PsiClassUtil.createScopeComparator(searchScope));
+      PsiClass clazz = classes.get(0);
       if (clazz != null) return clazz.getContainingFile();
     }
     catch (ProcessCanceledException e) {
@@ -339,7 +349,7 @@ public class GroovyPositionManager implements PositionManager {
           if (enclosingName == null) return null;
 
           final List<ReferenceType> outers = myDebugProcess.getVirtualMachineProxy().classesByName(enclosingName);
-          final List<ReferenceType> result = new ArrayList<ReferenceType>(outers.size());
+          final List<ReferenceType> result = new ArrayList<>(outers.size());
           for (ReferenceType outer : outers) {
             final ReferenceType nested = findNested(outer, sourceImage, position);
             if (nested != null) {
@@ -402,8 +412,9 @@ public class GroovyPositionManager implements PositionManager {
         }
         //noinspection LoopStatementThatDoesntLoop
         for (Location location : fromClass.allLineLocations()) {
-          final SourcePosition candidateFirstPosition = SourcePosition.createFromLine(toFind.getContainingFile(), location.lineNumber() - 1)
-            ;
+          final SourcePosition candidateFirstPosition = SourcePosition.createFromLine(
+            toFind.getContainingFile(), location.lineNumber() - 1
+          );
           if (toFind.equals(findReferenceTypeSourceImage(candidateFirstPosition))) {
             return fromClass;
           }

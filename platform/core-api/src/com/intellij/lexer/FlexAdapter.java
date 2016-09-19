@@ -16,6 +16,7 @@
 package com.intellij.lexer;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
@@ -38,6 +39,8 @@ public class FlexAdapter extends LexerBase {
   private int myBufferEnd;
   private int myState;
 
+  private boolean myFailed;
+
   public FlexAdapter(@NotNull FlexLexer flex) {
     myFlex = flex;
   }
@@ -51,7 +54,7 @@ public class FlexAdapter extends LexerBase {
     myText = buffer;
     myTokenStart = myTokenEnd = startOffset;
     myBufferEnd = endOffset;
-    myFlex.reset(myText, startOffset, endOffset, initialState);    
+    myFlex.reset(myText, startOffset, endOffset, initialState);
     myTokenType = null;
   }
 
@@ -99,21 +102,22 @@ public class FlexAdapter extends LexerBase {
   protected void locateToken() {
     if (myTokenType != null) return;
 
+    myTokenStart = myTokenEnd;
+    if (myFailed) return;
+
     try {
-      myTokenStart = myFlex.getTokenEnd();
       myState = myFlex.yystate();
       myTokenType = myFlex.advance();
       myTokenEnd = myFlex.getTokenEnd();
     }
-    catch (Exception e) {
-      LOG.error(myFlex.getClass().getName(), e);
-      myTokenType = TokenType.WHITE_SPACE;
-      myTokenEnd = myBufferEnd;
+    catch (ProcessCanceledException e) {
+      throw e;
     }
-    catch (Error e) {
-      LOG.error(myFlex.getClass().getName(), e);
-      myTokenType = TokenType.WHITE_SPACE;
+    catch (Throwable e) {
+      myFailed = true;
+      myTokenType = TokenType.BAD_CHARACTER;
       myTokenEnd = myBufferEnd;
+      LOG.warn(myFlex.getClass().getName(), e);
     }
   }
 }

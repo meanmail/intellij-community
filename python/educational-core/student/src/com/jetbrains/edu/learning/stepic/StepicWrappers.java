@@ -4,6 +4,7 @@ import com.google.gson.annotations.Expose;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.jetbrains.edu.learning.core.EduNames;
@@ -17,10 +18,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.io.InputStream;
+import java.util.*;
 
 public class StepicWrappers {
   private static final Logger LOG = Logger.getInstance(StepOptions.class);
@@ -56,38 +55,45 @@ public class StepicWrappers {
     public static StepOptions fromTask(final Project project, @NotNull final Task task) {
       final StepOptions source = new StepOptions();
       setTests(task, source, project);
-      source.files = new ArrayList<TaskFile>();
+      source.files = new ArrayList<>();
       source.title = task.getName();
       for (final Map.Entry<String, TaskFile> entry : task.getTaskFiles().entrySet()) {
-        final TaskFile taskFile = new TaskFile();
-        TaskFile.copy(entry.getValue(), taskFile);
         ApplicationManager.getApplication().runWriteAction(() -> {
           final VirtualFile taskDir = task.getTaskDir(project);
           assert taskDir != null;
           VirtualFile ideaDir = project.getBaseDir().findChild(".idea");
           assert ideaDir != null;
-          EduUtils.createStudentFileFromAnswer(project, ideaDir, taskDir, entry.getKey(), taskFile);
-        });
-        taskFile.name = entry.getKey();
-
-        VirtualFile ideaDir = project.getBaseDir().findChild(".idea");
-        if (ideaDir == null) return null;
-        final VirtualFile file = ideaDir.findChild(taskFile.name);
-        try {
-          if (file != null) {
-            if (EduUtils.isImage(taskFile.name)) {
-              taskFile.text = Base64.encodeBase64URLSafeString(FileUtil.loadBytes(file.getInputStream()));
+          String stepic = "stepic";
+          VirtualFile stepicDir = ideaDir.findChild(stepic);
+          if (stepicDir == null) {
+            try {
+              stepicDir = ideaDir.createChildDirectory(StepicWrappers.class, stepic);
             }
-            else {
-              taskFile.text = FileUtil.loadTextAndClose(file.getInputStream());
+            catch (IOException e) {
+              LOG.info("Failed to create idea/stepic directory", e);
             }
           }
-        }
-        catch (IOException e) {
-          LOG.error("Can't find file " + file.getPath());
-        }
-
-        source.files.add(taskFile);
+          if (stepicDir == null) {
+            return;
+          }
+          String name = entry.getKey();
+          VirtualFile answerFile = taskDir.findChild(name);
+          Pair<VirtualFile, TaskFile> pair = EduUtils.createStudentFile(StepicWrappers.class, project, answerFile, stepicDir, null);
+          if (pair == null) {
+            return;
+          }
+          VirtualFile virtualFile = pair.getFirst();
+          TaskFile taskFile = pair.getSecond();
+          try {
+            InputStream stream = virtualFile.getInputStream();
+            taskFile.text =
+              EduUtils.isImage(name) ? Base64.encodeBase64URLSafeString(FileUtil.loadBytes(stream)) : FileUtil.loadTextAndClose(stream);
+          }
+          catch (IOException e) {
+            LOG.error("Can't find file " + virtualFile.getPath());
+          }
+          source.files.add(taskFile);
+        });
       }
       return source;
     }
@@ -100,7 +106,7 @@ public class StepicWrappers {
         });
       }
       else {
-        source.test = new ArrayList<TestFileWrapper>();
+        source.test = new ArrayList<>();
         for (Map.Entry<String, String> entry : testsText.entrySet()) {
           source.test.add(new TestFileWrapper(entry.getKey(), entry.getValue()));
         }
@@ -113,12 +119,12 @@ public class StepicWrappers {
     String python27;
 
     @Nullable
-    public String getTemplateForLanguage(@NotNull final String langauge) {
-      if (langauge.equals(EduAdaptiveStepicConnector.PYTHON27)) {
+    public String getTemplateForLanguage(@NotNull final String language) {
+      if (language.equals(EduAdaptiveStepicConnector.PYTHON2)) {
         return python27;
       }
 
-      if (langauge.equals(EduAdaptiveStepicConnector.PYTHON3)) {
+      if (language.equals(EduAdaptiveStepicConnector.PYTHON3)) {
         return python3;
       }
 
@@ -158,7 +164,7 @@ public class StepicWrappers {
       this.lesson = new Lesson();
       this.lesson.setName(lesson.getName());
       this.lesson.setId(lesson.getId());
-      this.lesson.steps = new ArrayList<Integer>();
+      this.lesson.steps = new ArrayList<>();
     }
   }
 
@@ -170,6 +176,7 @@ public class StepicWrappers {
     @Expose Step block;
     @Expose int position = 0;
     @Expose int lesson = 0;
+    Date update_date;
 
     public StepSource(Project project, Task task, int lesson) {
       this.lesson = lesson;
@@ -389,12 +396,12 @@ public class StepicWrappers {
   static class AssignmentsWrapper {
     List<Assignment> assignments;
   }
-  
+
   static class Assignment {
     int id;
     int step;
   }
-  
+
   static class ViewsWrapper {
     View view;
 
@@ -402,7 +409,7 @@ public class StepicWrappers {
       this.view = new View(assignment, step);
     }
   }
-  
+
   static class View {
     int assignment;
     int step;
@@ -412,7 +419,7 @@ public class StepicWrappers {
       this.step = step;
     }
   }
-  
+
   static class Enrollment {
     String course;
 
@@ -420,11 +427,33 @@ public class StepicWrappers {
       course = courseId;
     }
   }
+
   static class EnrollmentWrapper {
     Enrollment enrollment;
 
     public EnrollmentWrapper(@NotNull final String courseId) {
       enrollment = new Enrollment(courseId);
+    }
+  }
+
+  static class TokenInfo {
+    @Expose String accessToken;
+    @Expose String refreshToken;
+    @Expose String tokenType;
+    @Expose String scope;
+    @Expose int expiresIn;
+
+    public TokenInfo() {
+      accessToken = "";
+      refreshToken = "";
+    }
+
+    public String getAccessToken() {
+      return accessToken;
+    }
+
+    public String getRefreshToken() {
+      return refreshToken;
     }
   }
 }

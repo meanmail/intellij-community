@@ -123,9 +123,9 @@ if PYVERSION > [1, 4, 0]:
           location, lineno, domain = rep.location
 
         messages.testSuiteStarted(name, location=fspath_to_url(location))
-        messages.testStarted("<noname>", location=fspath_to_url(location))
+        messages.testStarted("ERROR", location=fspath_to_url(location))
         TerminalReporter.summary_errors(self)
-        messages.testError("<noname>")
+        messages.testError("ERROR")
         messages.testSuiteFinished(name)
 
 else:
@@ -166,3 +166,13 @@ else:
     else:
       path = fspath_to_url(item.fspath)
     messages.testStarted(name, location=path)
+
+
+try:
+  @pytest.hookimpl(trylast=True)
+  def pytest_configure(config):
+    reporter = PycharmTestReporter(config, sys.stdout)
+    config.pluginmanager.unregister(name="terminalreporter")
+    config.pluginmanager.register(reporter, 'terminalreporter')
+except AttributeError as e:
+  sys.stderr.write("Unable to set hookimpl. Some errors may be ignored. Make sure you use PyTest 2.8.0+. Error was {0}".format(e))

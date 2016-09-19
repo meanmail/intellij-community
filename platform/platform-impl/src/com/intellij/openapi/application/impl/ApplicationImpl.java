@@ -34,7 +34,6 @@ import com.intellij.openapi.application.*;
 import com.intellij.openapi.application.ex.ApplicationEx;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.components.ServiceKt;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.impl.PlatformComponentManagerImpl;
 import com.intellij.openapi.components.impl.ServiceManagerImpl;
 import com.intellij.openapi.components.impl.stores.StoreUtil;
@@ -114,6 +113,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   @Nullable
   private Splash mySplash;
   private boolean myDoNotSave;
+  private volatile boolean myExitInProgress;
   private volatile boolean myDisposeInProgress;
 
   private final Disposable myLastDisposable = Disposer.newDisposable(); // will be disposed last
@@ -210,7 +210,6 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
       new IdeaApplication(args);
     }
     gatherStatistics = LOG.isDebugEnabled() || isUnitTestMode() || isInternal();
-    writePauses = gatherStatistics ? new PausesStat("Write action") : null;
 
     Thread edt = UIUtil.invokeAndWaitIfNeeded(() -> {
       AppExecutorUtil.getAppScheduledExecutorService(); // instantiate AppDelayQueue which marks "Periodic task thread" busy to prevent this EDT to die
@@ -382,7 +381,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   @Override
-  public void load() throws IOException {
+  public void load() {
     load(null);
   }
 
@@ -402,7 +401,8 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
         getPicoContainer().getComponentInstance(ServiceManagerImpl.class);
 
         String effectiveConfigPath = FileUtilRt.toSystemIndependentName(configPath == null ? PathManager.getConfigPath() : configPath);
-        for (ApplicationLoadListener listener : ApplicationLoadListener.EP_NAME.getExtensions()) {
+        ApplicationLoadListener[] applicationLoadListeners = ApplicationLoadListener.EP_NAME.getExtensions();
+        for (ApplicationLoadListener listener : applicationLoadListeners) {
           try {
             listener.beforeApplicationLoaded(this, effectiveConfigPath);
           }
@@ -413,6 +413,15 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
         // we set it after beforeApplicationLoaded call, because app store can depends on stream provider state
         ServiceKt.getStateStore(this).setPath(effectiveConfigPath);
+
+        for (ApplicationLoadListener listener : applicationLoadListeners) {
+          try {
+            listener.beforeComponentsCreated();
+          }
+          catch (Throwable e) {
+            LOG.error(e);
+          }
+        }
       });
       LOG.info(getComponentConfigCount() + " application components initialized in " + (System.currentTimeMillis() - start) + "ms");
     }
@@ -435,14 +444,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
       task.run();
     }
     else {
-      ProgressManager progressManager = ServiceManager.getService(ProgressManager.class);
-      if (progressManager == null) {
-        // https://youtrack.jetbrains.com/issue/IDEA-134164
-        task.run();
-      }
-      else {
-        progressManager.runProcess(task, indicator);
-      }
+      ProgressManager.getInstance().runProcess(task, indicator);
     }
   }
 
@@ -488,7 +490,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
     if (gatherStatistics) {
       //noinspection TestOnlyProblems
       LOG.info(writeActionStatistics());
-      LOG.info(ActionUtil.ACTION_UPDATE_PAUSES.statistics());
+      LOG.info(ActionUtil.ActionPauses.STAT.statistics());
       //noinspection TestOnlyProblems
       LOG.info(((AppScheduledExecutorService)AppExecutorUtil.getAppScheduledExecutorService()).statistics()
                + "; ProcessIOExecutorService threads: "+((ProcessIOExecutorService)ProcessIOExecutorService.INSTANCE).getThreadCounter()
@@ -497,8 +499,9 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   @TestOnly
+  @NotNull
   public String writeActionStatistics() {
-    return writePauses.statistics();
+    return ActionPauses.WRITE.statistics();
   }
 
   @Override
@@ -646,6 +649,11 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   @Override
+  public void invokeAndWait(@NotNull Runnable runnable) throws ProcessCanceledException {
+    invokeAndWait(runnable, ModalityState.defaultModalityState());
+  }
+
+  @Override
   @NotNull
   public ModalityState getCurrentModalityState() {
     return LaterInvocator.getCurrentModalityState();
@@ -699,7 +707,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
 
   @Override
   public void exit(boolean force, final boolean exitConfirmed) {
-    exit(false, exitConfirmed, true, false);
+    exit(false, exitConfirmed, false);
   }
 
   @Override
@@ -708,8 +716,8 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   @Override
-  public void restart(final boolean exitConfirmed) {
-    exit(false, exitConfirmed, true, true);
+  public void restart(boolean exitConfirmed) {
+    exit(false, exitConfirmed, true);
   }
 
   /**
@@ -721,66 +729,62 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
    *  Note: there are possible scenarios when we get a quit notification at a moment when another
    *  quit message is shown. In that case, showing multiple messages sounds contra-intuitive as well
    */
-  private static volatile boolean exiting;
+  public void exit(boolean force, boolean exitConfirmed, boolean restart) {
+    exit(force, exitConfirmed, restart, ArrayUtil.EMPTY_STRING_ARRAY);
+  }
 
-  public void exit(final boolean force, final boolean exitConfirmed, final boolean allowListenersToCancel, final boolean restart) {
-    if (!force && exiting) {
-      return;
+  public void exit(boolean force, boolean exitConfirmed, boolean restart, @NotNull String[] beforeRestart) {
+    if (!force) {
+      if (myExitInProgress) return;
+      if (!exitConfirmed && getDefaultModalityState() != ModalityState.NON_MODAL) return;
     }
 
-    exiting = true;
-    try {
-      if (!force && !exitConfirmed && getDefaultModalityState() != ModalityState.NON_MODAL) {
-        return;
-      }
-
-      Runnable runnable = () -> {
-        if (!force && !confirmExitIfNeeded(exitConfirmed)) {
-          saveAll();
-          return;
-        }
-
-        getMessageBus().syncPublisher(AppLifecycleListener.TOPIC).appClosing();
-        myDisposeInProgress = true;
-        doExit(allowListenersToCancel, restart);
-        myDisposeInProgress = false;
-      };
-
-      if (isDispatchThread()) {
-        runnable.run();
-      }
-      else {
-        invokeLater(runnable, ModalityState.NON_MODAL);
-      }
+    myExitInProgress = true;
+    if (isDispatchThread()) {
+      doExit(force, exitConfirmed, restart, beforeRestart);
     }
-    finally {
-      exiting = false;
+    else {
+      invokeLater(() -> doExit(force, exitConfirmed, restart, beforeRestart), ModalityState.NON_MODAL);
     }
   }
 
-  private boolean doExit(boolean allowListenersToCancel, boolean restart) {
-    saveSettings();
-
-    if (allowListenersToCancel && !canExit()) {
-      return false;
-    }
-
-    final boolean success = disposeSelf(allowListenersToCancel);
-    if (!success || isUnitTestMode()) {
-      return false;
-    }
-
-    int exitCode = 0;
-    if (restart && Restarter.isSupported()) {
-      try {
-        exitCode = Restarter.scheduleRestart();
+  private void doExit(boolean force, boolean exitConfirmed, boolean restart, String[] beforeRestart) {
+    try {
+      if (!force && !confirmExitIfNeeded(exitConfirmed)) {
+        saveAll();
+        return;
       }
-      catch (IOException e) {
-        LOG.warn("Cannot restart", e);
+
+      getMessageBus().syncPublisher(AppLifecycleListener.TOPIC).appClosing();
+
+      myDisposeInProgress = true;
+
+      saveSettings();
+
+      if (!force && !canExit()) {
+        return;
       }
+
+      boolean success = disposeSelf(!force);
+      if (!success || isUnitTestMode()) {
+        return;
+      }
+
+      int exitCode = 0;
+      if (restart && Restarter.isSupported()) {
+        try {
+          exitCode = Restarter.scheduleRestart(beforeRestart);
+        }
+        catch (IOException e) {
+          LOG.error("Cannot restart", e);
+        }
+      }
+      System.exit(exitCode);
     }
-    System.exit(exitCode);
-    return true;
+    finally {
+      myDisposeInProgress = false;
+      myExitInProgress = false;
+    }
   }
 
   private static boolean confirmExitIfNeeded(boolean exitConfirmed) {
@@ -1026,18 +1030,16 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   @Override
   public boolean tryRunReadAction(@NotNull Runnable action) {
     //if we are inside read action, do not try to acquire read lock again since it will deadlock if there is a pending writeAction
-    boolean mustAcquire = !isReadAccessAllowed();
-
-    if (mustAcquire) {
-      assertNoPsiLock();
-      if (!myLock.tryReadLock()) return false;
-    }
-
-    try {
+    if (isReadAccessAllowed()) {
       action.run();
     }
-    finally {
-      if (mustAcquire) {
+    else {
+      assertNoPsiLock();
+      if (!myLock.tryReadLock()) return false;
+      try {
+        action.run();
+      }
+      finally {
         endRead();
       }
     }
@@ -1073,14 +1075,16 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   }
 
   private final boolean gatherStatistics;
-  private final PausesStat writePauses;
+  private static class ActionPauses {
+    private static final PausesStat WRITE = new PausesStat("Write action");
+  }
 
   private void startWrite(@NotNull Class clazz) {
     assertIsDispatchThread("Write access is allowed from event dispatch thread only");
     HeavyProcessLatch.INSTANCE.stopThreadPrioritizing(); // let non-cancellable read actions complete faster, if present
     boolean writeActionPending = myWriteActionPending;
     if (gatherStatistics && myWriteActionsStack.isEmpty() && !writeActionPending) {
-      writePauses.started();
+      ActionPauses.WRITE.started();
     }
     myWriteActionPending = true;
     try {
@@ -1119,7 +1123,7 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
     finally {
       myWriteActionsStack.pop();
       if (gatherStatistics && myWriteActionsStack.isEmpty() && !myWriteActionPending) {
-        writePauses.finished("write action ("+clazz+")");
+        ActionPauses.WRITE.finished("write action ("+clazz+")");
       }
       if (myWriteActionsStack.isEmpty()) {
         myLock.writeUnlock();
@@ -1223,6 +1227,29 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
   @Override
   public boolean isWriteActionInProgress() {
     return myLock.isWriteLocked();
+  }
+
+  public void executeSuspendingWriteAction(Runnable runnable) {
+    assertIsDispatchThread();
+    if (!myLock.isWriteLocked()) {
+      runnable.run();
+      return;
+    }
+
+    TransactionGuard.getInstance().submitTransactionAndWait(() -> {
+      List<Class> savedStack = new ArrayList<>(myWriteActionsStack);
+      myWriteActionsStack.clear();
+      myLock.writeUnlock();
+      try {
+        runnable.run();
+      } finally {
+        boolean stackWasEmpty = myWriteActionsStack.isEmpty();
+        myWriteActionsStack.clear();
+        myWriteActionsStack.addAll(savedStack);
+        myLock.writeLock();
+        LOG.assertTrue(stackWasEmpty);
+      }
+    });
   }
 
   public void editorPaintStart() {
@@ -1355,4 +1382,11 @@ public class ApplicationImpl extends PlatformComponentManagerImpl implements App
     myDispatcher.getListeners().removeAll(listeners);
     Disposer.register(disposable, () -> myDispatcher.getListeners().addAll(listeners));
   }
+
+  //<editor-fold desc="Deprecated stuff.">
+  /** @deprecated duplicate parameters; use {@link #exit(boolean, boolean, boolean)} instead (to be removed in IDEA 17) */
+  public void exit(boolean force, boolean exitConfirmed, boolean allowListenersToCancel, boolean restart) {
+    exit(force, exitConfirmed, restart);
+  }
+  //</editor-fold>
 }

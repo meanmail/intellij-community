@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -58,6 +58,7 @@ import com.jetbrains.python.inspections.PyPep8Inspection;
 import com.jetbrains.python.inspections.quickfix.ReformatFix;
 import com.jetbrains.python.inspections.quickfix.RemoveTrailingBlankLinesFix;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyFileImpl;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.sdk.PreferredSdkComparator;
 import com.jetbrains.python.sdk.PySdkUtil;
@@ -68,6 +69,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -88,11 +90,29 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
     private final String myCode;
     private final String myDescription;
 
-    public Problem(int line, int column, String code, String description) {
+    public Problem(int line, int column, @NotNull String code, @NotNull String description) {
       myLine = line;
       myColumn = column;
       myCode = code;
       myDescription = description;
+    }
+
+    public int getLine() {
+      return myLine;
+    }
+
+    public int getColumn() {
+      return myColumn;
+    }
+
+    @NotNull
+    public String getCode() {
+      return myCode;
+    }
+
+    @NotNull
+    public String getDescription() {
+      return myDescription;
     }
   }
 
@@ -114,7 +134,7 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
   }
 
   public static class Results {
-    public final List<Problem> problems = new ArrayList<Problem>();
+    public final List<Problem> problems = new ArrayList<>();
     private final HighlightDisplayLevel level;
 
     public Results(HighlightDisplayLevel level) {
@@ -147,9 +167,12 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
       }
       return null;
     }
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(file.getProject()).getInspectionProfile();
+    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(file.getProject()).getCurrentProfile();
     final HighlightDisplayKey key = HighlightDisplayKey.find(PyPep8Inspection.INSPECTION_SHORT_NAME);
-    if (!profile.isToolEnabled(key)) {
+    if (!profile.isToolEnabled(key, file)) {
+      return null;
+    }
+    if (file instanceof PyFileImpl && !((PyFileImpl)file).isAcceptedFor(PyPep8Inspection.class)) {
       return null;
     }
     final PyPep8Inspection inspection = (PyPep8Inspection)profile.getUnwrappedTool(PyPep8Inspection.KEY.toString(), file);
@@ -218,8 +241,7 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
 
   @Override
   public void apply(@NotNull PsiFile file, Results annotationResult, @NotNull AnnotationHolder holder) {
-    if (annotationResult == null) return;
-    PyPsiUtils.assertValid(file);
+    if (annotationResult == null || !file.isValid()) return;
     final String text = file.getText();
     Project project = file.getProject();
     final Document document = PsiDocumentManager.getInstance(project).getDocument(file);
@@ -247,7 +269,7 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
         problemElement = file.findElementAt(Math.max(0, offset - 1));
       }
 
-      if (ignoreDueToSettings(project, problem, problemElement)) {
+      if (ignoreDueToSettings(project, problem, problemElement) || ignoredDueToProblemSuppressors(project, problem, file, problemElement)) {
         continue;
       }
 
@@ -295,6 +317,14 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
                                                                            () -> "Edit inspection profile setting"));
       }
     }
+  }
+
+  private static boolean ignoredDueToProblemSuppressors(@NotNull Project project,
+                                                        @NotNull Problem problem,
+                                                        @NotNull PsiFile file,
+                                                        @Nullable PsiElement element) {
+    final Pep8ProblemSuppressor[] suppressors = Pep8ProblemSuppressor.EP_NAME.getExtensions();
+    return Arrays.stream(suppressors).anyMatch(p -> p.isProblemSuppressed(problem, file, element));
   }
 
   private static boolean crossesLineBoundary(@Nullable Document document, String text, TextRange problemRange) {
@@ -403,7 +433,7 @@ public class Pep8ExternalAnnotator extends ExternalAnnotator<Pep8ExternalAnnotat
 
     @Override
     public void invoke(@NotNull Project project, Editor editor, final PsiFile file) throws IncorrectOperationException {
-      InspectionProjectProfileManager.getInstance(project).getInspectionProfile(file).modifyProfile(model -> {
+      InspectionProjectProfileManager.getInstance(project).getCurrentProfile().modifyProfile(model -> {
         PyPep8Inspection tool = (PyPep8Inspection)model.getUnwrappedTool(PyPep8Inspection.INSPECTION_SHORT_NAME, file);
         if (!tool.ignoredErrors.contains(myCode)) {
           tool.ignoredErrors.add(myCode);

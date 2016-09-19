@@ -84,7 +84,7 @@ public class TemplateState implements Disposable {
   private Map<String, String> myPredefinedVariableValues;
 
   private RangeMarker myTemplateRange = null;
-  private final List<RangeHighlighter> myTabStopHighlighters = new ArrayList<RangeHighlighter>();
+  private final List<RangeHighlighter> myTabStopHighlighters = new ArrayList<>();
   private int myCurrentVariableNumber = -1;
   private int myCurrentSegmentNumber = -1;
   private boolean ourLookupShown = false;
@@ -123,7 +123,12 @@ public class TemplateState implements Disposable {
       @Override
       public void itemSelected(LookupEvent event) {
         if (isCaretOutsideCurrentSegment()) {
-          gotoEnd(true);
+          if (isCaretInsideNextVariable()) {
+            nextTab();
+          }
+          else {
+            gotoEnd(true);
+          }
         }
       }
     };
@@ -183,6 +188,15 @@ public class TemplateState implements Disposable {
     }
     myDocument.addDocumentListener(myEditorDocumentListener, this);
     CommandProcessor.getInstance().addCommandListener(myCommandListener, this);
+  }
+
+  private boolean isCaretInsideNextVariable() {
+    if (myEditor != null && myCurrentVariableNumber >= 0) {
+      int nextVar = getNextVariableNumber(myCurrentVariableNumber);
+      TextRange range = nextVar < 0 ? null : getVariableRange(myTemplate.getVariableNameAt(nextVar));
+      return range != null && range.containsOffset(myEditor.getCaretModel().getOffset());
+    }
+    return false;
   }
 
   private boolean isCaretOutsideCurrentSegment() {
@@ -535,13 +549,14 @@ public class TemplateState implements Disposable {
   }
 
   private int getCurrentSegmentNumber() {
-    if (myCurrentVariableNumber == -1) {
+    int varNumber = myCurrentVariableNumber;
+    if (varNumber == -1) {
       return -1;
     }
-    String variableName = myTemplate.getVariableNameAt(myCurrentVariableNumber);
+    String variableName = myTemplate.getVariableNameAt(varNumber);
     int segmentNumber = myTemplate.getVariableSegmentNumber(variableName);
     if (segmentNumber < 0) {
-      LOG.error("No segment for variable: var=" + myCurrentVariableNumber + "; name=" + variableName + "; " + presentTemplate(myTemplate) +
+      LOG.error("No segment for variable: var=" + varNumber + "; name=" + variableName + "; " + presentTemplate(myTemplate) +
                 "; offset: " + myEditor.getCaretModel().getOffset(), AttachmentFactory.createAttachment(myDocument));
     }
     return segmentNumber;
@@ -935,7 +950,7 @@ public class TemplateState implements Disposable {
     TextRange range = getCurrentVariableRange();
     if (range != null && range.getLength() > 0) {
       int caret = myEditor.getCaretModel().getOffset();
-      if (caret == range.getEndOffset()) {
+      if (caret == range.getEndOffset() || isCaretInsideNextVariable()) {
         nextTab();
       }
       else if (caret > range.getEndOffset()) {
@@ -1181,7 +1196,7 @@ public class TemplateState implements Disposable {
   }
 
   private void initTabStopHighlighters() {
-    final Set<String> vars = new HashSet<String>();
+    final Set<String> vars = new HashSet<>();
     for (int i = 0; i < myTemplate.getVariableCount(); i++) {
       String variableName = myTemplate.getVariableNameAt(i);
       if (!vars.add(variableName)) continue;

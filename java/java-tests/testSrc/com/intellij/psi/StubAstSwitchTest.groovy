@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,11 +21,15 @@ import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.psi.impl.source.PsiFileImpl
 import com.intellij.psi.search.GlobalSearchScope
+import com.intellij.psi.search.searches.DirectClassInheritorsSearch
 import com.intellij.psi.search.searches.OverridingMethodsSearch
+import com.intellij.psi.stubs.StubElement
+import com.intellij.psi.stubs.StubTree
 import com.intellij.psi.util.PsiTreeUtil
 import com.intellij.reference.SoftReference
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
 import com.intellij.util.GCUtil
+import com.intellij.util.TimeoutUtil
 
 import java.util.concurrent.CountDownLatch
 /**
@@ -33,7 +37,7 @@ import java.util.concurrent.CountDownLatch
  */
 class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
 
-  public void "test modifying file with stubs via VFS"() {
+  void "test modifying file with stubs via VFS"() {
     PsiFileImpl file = (PsiFileImpl)myFixture.addFileToProject('Foo.java', 'class Foo {}')
     assert file.stub
     def cls = ((PsiJavaFile)file).classes[0]
@@ -51,7 +55,7 @@ class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
     assert !file.stub
   }
 
-  public void "test reachable psi classes remain valid when nothing changes"() {
+  void "test reachable psi classes remain valid when nothing changes"() {
     int count = 1000
     List<SoftReference<PsiClass>> classList = (0..<count).collect { new SoftReference(myFixture.addClass("class Foo$it {}")) }
     System.gc()
@@ -65,7 +69,7 @@ class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
     }
   }
 
-  public void "test traversing PSI and switching concurrently"() {
+  void "test traversing PSI and switching concurrently"() {
     int count = 100
     List<PsiClass> classList = (0..<count).collect {
       myFixture.addClass("class Foo$it { " +
@@ -77,9 +81,9 @@ class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
     CountDownLatch latch = new CountDownLatch(count)
     for (c in classList) {
       ApplicationManager.application.executeOnPooledThread {
-        Thread.yield();
+        Thread.yield()
         ApplicationManager.application.runReadAction {
-          c.text;
+          c.text
         }
         latch.countDown()
       }
@@ -93,7 +97,7 @@ class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
     latch.await()
   }
 
-  public void "test external modification of a stubbed file with smart pointer switches the file to AST"() {
+  void "test external modification of a stubbed file with smart pointer switches the file to AST"() {
     PsiFile file = myFixture.addFileToProject("A.java", "class A {}")
     def oldClass = JavaPsiFacade.getInstance(project).findClass("A", GlobalSearchScope.allScope(project))
     def pointer = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(oldClass)
@@ -110,7 +114,7 @@ class StubAstSwitchTest extends LightCodeInsightFixtureTestCase {
     assert ((PsiFileImpl)file).treeElement
   }
 
-  public void "test do not parse when resolving references inside an anonymous class"() {
+  void "test do not parse when resolving references inside an anonymous class"() {
     PsiFileImpl file = (PsiFileImpl) myFixture.addFileToProject("A.java", """
 class A {
     Object field = new B() {
@@ -119,6 +123,7 @@ class A {
 
       class MyInner extends Inner {}
     };
+    Runnable r = () -> { new B() {}; };
 }
 
 class B {
@@ -128,6 +133,7 @@ class B {
 """)
     assert !file.contentsLoaded
     PsiClass bClass = ((PsiJavaFile) file).classes[1]
+    assert DirectClassInheritorsSearch.search(bClass).findAll().size() == 2
     assert !file.contentsLoaded
 
     def fooMethod = bClass.methods[0]
@@ -145,7 +151,7 @@ class B {
     assert !file.contentsLoaded
   }
 
-  public void "test AST can be gc-ed and recreated"() {
+  void "test AST can be gc-ed and recreated"() {
     def psiClass = myFixture.addClass("class Foo {}")
     def file = psiClass.containingFile as PsiFileImpl
     assert file.stub
@@ -163,7 +169,7 @@ class B {
     assert file.treeElement
   }
 
-  public void "test no AST loading on file rename"() {
+  void "test no AST loading on file rename"() {
     PsiJavaFile file = (PsiJavaFile) myFixture.addFileToProject('a.java', 'class Foo {}')
     assert file.classes.length == 1
     assert ((PsiFileImpl)file).stub
@@ -175,4 +181,41 @@ class B {
     assert file.classes[0].nameIdentifier.text == 'Foo'
     assert ((PsiFileImpl)file).contentsLoaded
   }
+
+  void "test use green stub after AST loaded and gc-ed"() {
+    PsiJavaFile file = (PsiJavaFile)myFixture.addFileToProject("a.java", "class A{public static void foo() { }}")
+    //noinspection GroovyUnusedAssignment
+    StubTree stubHardRef = ((PsiFileImpl)file).stubTree
+
+    assert file.classes[0].nameIdentifier
+    GCUtil.tryGcSoftlyReachableObjects()
+
+    assert !((PsiFileImpl)file).getTreeElement()
+    assert !((PsiFileImpl)file).getStub()
+
+    assert file.classes[0].methods[0].modifierList.hasExplicitModifier(PsiModifier.STATIC)
+    assert !((PsiFileImpl)file).getTreeElement()
+  }
+
+  void "test use green stub after building it from AST"() {
+    PsiFileImpl file = (PsiFileImpl)myFixture.addFileToProject("a.java", "class A<T>{}")
+    PsiClass psiClass = ((PsiJavaFile)file).classes[0]
+    assert psiClass.nameIdentifier
+    GCUtil.tryGcSoftlyReachableObjects()
+
+    assert !file.treeElement
+    assert !file.greenStub
+
+    assert PsiAnchor.create(psiClass) instanceof PsiAnchor.StubIndexReference
+    StubElement hardRefToStub = file.greenStub
+    assert hardRefToStub
+
+    GCUtil.tryGcSoftlyReachableObjects()
+    assert !file.treeElement
+    assert hardRefToStub.is(file.greenStub)
+
+    assert psiClass.typeParameters.length == 1
+    assert !file.treeElement
+  }
+
 }

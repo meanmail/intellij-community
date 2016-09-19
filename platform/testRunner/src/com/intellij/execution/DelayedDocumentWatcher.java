@@ -54,7 +54,7 @@ public class DelayedDocumentWatcher implements AutoTestWatcher {
   private final MyDocumentAdapter myListener;
   private final Runnable myAlarmRunnable;
 
-  private final Set<VirtualFile> myChangedFiles = new THashSet<VirtualFile>();
+  private final Set<VirtualFile> myChangedFiles = new THashSet<>();
   private boolean myDocumentSavingInProgress = false;
   private MessageBusConnection myConnection;
   private int myModificationStamp = 0;
@@ -65,7 +65,7 @@ public class DelayedDocumentWatcher implements AutoTestWatcher {
                                 @NotNull Consumer<Integer> modificationStampConsumer,
                                 @Nullable Condition<VirtualFile> changedFileFilter) {
     myProject = project;
-    myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, myProject);
+    myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, project);
     myDelayMillis = delayMillis;
     myModificationStampConsumer = modificationStampConsumer;
     myChangedFileFilter = changedFileFilter;

@@ -90,13 +90,20 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable {
   }
 
   /** @deprecated use {@link #annotate(TypeAnnotationProvider)} (to be removed in IDEA 18) */
-  @SuppressWarnings("unused")
   public PsiArrayType createArrayType(@NotNull PsiAnnotation... annotations) {
     return new PsiArrayType(this, annotations);
   }
 
   /**
    * Returns text of the type that can be presented to a user (references normally non-qualified).
+   */
+  @NotNull
+  public String getPresentableText(boolean annotated) {
+    return getPresentableText();
+  }
+
+  /**
+   * Same as {@code getPresentableText(false)}.
    */
   @NotNull
   public abstract String getPresentableText();
@@ -120,7 +127,9 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable {
    * todo[r.sh] merge with getPresentableText()
    */
   @NotNull
-  public abstract String getInternalCanonicalText();
+  public String getInternalCanonicalText() {
+    return getCanonicalText();
+  }
 
   /**
    * Checks if the type is currently valid.
@@ -336,9 +345,6 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable {
     return "PsiType:" + getPresentableText();
   }
 
-  /**
-   * Temporary class to facilitate transition to {@link #getCanonicalText(boolean)}.
-   */
   protected static abstract class Stub extends PsiType {
     protected Stub(@NotNull PsiAnnotation[] annotations) {
       super(annotations);
@@ -347,6 +353,16 @@ public abstract class PsiType implements PsiAnnotationOwner, Cloneable {
     protected Stub(@NotNull TypeAnnotationProvider annotations) {
       super(annotations);
     }
+
+    @NotNull
+    @Override
+    public final String getPresentableText() {
+      return getPresentableText(false);
+    }
+
+    @NotNull
+    @Override
+    public abstract String getPresentableText(boolean annotated);
 
     @NotNull
     @Override

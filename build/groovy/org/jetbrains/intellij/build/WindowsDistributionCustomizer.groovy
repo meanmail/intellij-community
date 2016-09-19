@@ -14,9 +14,13 @@
  * limitations under the License.
  */
 package org.jetbrains.intellij.build
+
+import groovy.transform.CompileStatic
+
 /**
  * @author nik
  */
+@CompileStatic
 abstract class WindowsDistributionCustomizer {
   /**
    * Path to 256x256 *.ico file for Windows distribution
@@ -32,7 +36,16 @@ abstract class WindowsDistributionCustomizer {
    * Specify bitness of bundled JRE. If {@code null} no JRE will be bundled
    */
   JvmArchitecture bundledJreArchitecture = JvmArchitecture.x32
+
+  /**
+   * If {@code true} a Zip archive containing the installation with bundled Oracle JRE will be produced
+   */
   boolean buildZipWithBundledOracleJre = false
+
+  /**
+   * If {@code true} a Zip archive containing the installation with bundled JetBrains RE will be produced
+   */
+  boolean buildZipArchive = true
 
   /**
    * If {@code true} Windows Installer will associate *.ipr files with the IDE in Registry
@@ -50,9 +63,14 @@ abstract class WindowsDistributionCustomizer {
   List<String> fileAssociations = []
 
   /**
+   * Paths to files which will be used to overwrite the standard *.nsi files
+   */
+  List<String> customNsiConfigurationFiles = []
+
+  /**
    * Name of the root directory in Windows .zip archive
    */
-  abstract String rootDirectoryName(String buildNumber)
+  String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) { "" }
 
   /**
    * Override this method to copy additional files to Windows distribution of the product.
@@ -60,6 +78,16 @@ abstract class WindowsDistributionCustomizer {
    * it'll be placed under its root directory.
    */
   void copyAdditionalFiles(BuildContext context, String targetDirectory) {}
+
+  /**
+   * The returned name will be shown in Windows Installer and used in Registry keys
+   */
+  String fullNameIncludingEdition(ApplicationInfoProperties applicationInfo) { applicationInfo.productName }
+
+  /**
+   * The returned name will be used to create links on Desktop
+   */
+  String fullNameIncludingEditionAndVendor(ApplicationInfoProperties applicationInfo) { applicationInfo.shortCompanyName + " " + fullNameIncludingEdition(applicationInfo) }
 
   String uninstallFeedbackPageUrl(ApplicationInfoProperties applicationInfo) {
     return null

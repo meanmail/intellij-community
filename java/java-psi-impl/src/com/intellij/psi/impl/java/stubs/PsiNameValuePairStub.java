@@ -25,9 +25,8 @@ import org.jetbrains.annotations.Nullable;
  */
 public interface PsiNameValuePairStub extends StubElement<PsiNameValuePair> {
 
-  String getName();
+  @Nullable String getName();
 
   @Nullable
-  @Deprecated
   String getValue();
 }

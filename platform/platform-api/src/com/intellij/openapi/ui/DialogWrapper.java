@@ -152,7 +152,7 @@ public abstract class DialogWrapper {
   protected Action myOKAction;
   protected Action myCancelAction;
   protected Action myHelpAction;
-  private final Map<Action, JButton> myButtonMap = new LinkedHashMap<Action, JButton>();
+  private final Map<Action, JButton> myButtonMap = new LinkedHashMap<>();
 
   private boolean myClosed = false;
 
@@ -180,7 +180,7 @@ public abstract class DialogWrapper {
       DialogWrapper.this.dispose();
     }
   };
-  private final List<JBOptionButton> myOptionsButtons = new ArrayList<JBOptionButton>();
+  private final List<JBOptionButton> myOptionsButtons = new ArrayList<>();
   private int myCurrentOptionsButtonIndex = -1;
   private boolean myResizeInProgress = false;
   private ComponentAdapter myResizeListener;
@@ -213,7 +213,11 @@ public abstract class DialogWrapper {
   }
 
   protected DialogWrapper(@Nullable Project project, boolean canBeParent, @NotNull IdeModalityType ideModalityType) {
-    myPeer = createPeer(project, canBeParent, ideModalityType);
+    this(project, null, canBeParent, ideModalityType);
+  }
+
+  protected DialogWrapper(@Nullable Project project, @Nullable Component parentComponent, boolean canBeParent, @NotNull IdeModalityType ideModalityType) {
+    myPeer = parentComponent == null ? createPeer(project, canBeParent, project == null ? IdeModalityType.IDE : ideModalityType) : createPeer(parentComponent, canBeParent);
     final Window window = myPeer.getWindow();
     if (window != null) {
       myResizeListener = new ComponentAdapter() {
@@ -445,11 +449,10 @@ public abstract class DialogWrapper {
    *
    * @return south panel
    */
-  @Nullable
   protected JComponent createSouthPanel() {
     Action[] actions = filter(createActions());
     Action[] leftSideActions = createLeftSideActions();
-    Map<Action, JButton> buttonMap = new LinkedHashMap<Action, JButton>();
+    Map<Action, JButton> buttonMap = new LinkedHashMap<>();
 
     boolean hasHelpToMoveToLeftSide = false;
     if (isMoveHelpButtonLeft() && Arrays.asList(actions).contains(getHelpAction())) {
@@ -544,8 +547,10 @@ public abstract class DialogWrapper {
     }
 
     if (hasHelpToMoveToLeftSide) {
-      JButton helpButton = createHelpButton(insets);
-      panel.add(helpButton, BorderLayout.WEST);
+      if (!(SystemInfo.isWindows && UIUtil.isUnderIntelliJLaF() && Registry.is("ide.intellij.laf.win10.ui"))) {
+        JButton helpButton = createHelpButton(insets);
+        panel.add(helpButton, BorderLayout.WEST);
+      }
     }
 
 
@@ -614,7 +619,7 @@ public abstract class DialogWrapper {
 
   @NotNull
   private Action[] filter(@NotNull Action[] actions) {
-    ArrayList<Action> answer = new ArrayList<Action>();
+    ArrayList<Action> answer = new ArrayList<>();
     for (Action action : actions) {
       if (action != null && (ApplicationInfo.contextHelpAvailable() || action != getHelpAction())) {
         answer.add(action);
@@ -670,7 +675,7 @@ public abstract class DialogWrapper {
   @NotNull
   private JPanel createButtons(@NotNull Action[] actions, @NotNull Map<Action, JButton> buttons) {
     if (!UISettings.getShadowInstance().ALLOW_MERGE_BUTTONS) {
-      final List<Action> actionList = new ArrayList<Action>();
+      final List<Action> actionList = new ArrayList<>();
       for (Action action : actions) {
         actionList.add(action);
         if (action instanceof OptionAction) {
@@ -745,7 +750,7 @@ public abstract class DialogWrapper {
           final char mnemonic = (char)eachInfo.getMnemonic();
           JRootPane rootPane = getPeer().getRootPane();
           if (rootPane != null) {
-            new NoTransactionAction() {
+            new DumbAwareAction() {
               @Override
               public void actionPerformed(AnActionEvent e) {
                 final JBOptionButton buttonToActivate = eachInfo.getButton();
@@ -1273,7 +1278,7 @@ public abstract class DialogWrapper {
     myPeer.setContentPane(root);
 
     final CustomShortcutSet sc = new CustomShortcutSet(SHOW_OPTION_KEYSTROKE);
-    final AnAction toggleShowOptions = new NoTransactionAction() {
+    final AnAction toggleShowOptions = new DumbAwareAction() {
       @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
         expandNextOptionButton();
@@ -1333,7 +1338,7 @@ public abstract class DialogWrapper {
   }
 
   private static void installEnterHook(JComponent root, Disposable disposable) {
-    new NoTransactionAction() {
+    new DumbAwareAction() {
       @Override
       public void actionPerformed(AnActionEvent e) {
         final Component owner = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
@@ -1479,7 +1484,11 @@ public abstract class DialogWrapper {
     return myPeer.isModal();
   }
 
-  protected void setOKActionEnabled(boolean isEnabled) {
+  public boolean isOKActionEnabled() {
+    return myOKAction.isEnabled();
+  }
+
+  public void setOKActionEnabled(boolean isEnabled) {
     myOKAction.setEnabled(isEnabled);
   }
 
@@ -1535,10 +1544,6 @@ public abstract class DialogWrapper {
 
   public boolean isOK() {
     return getExitCode() == OK_EXIT_CODE;
-  }
-
-  public boolean isOKActionEnabled() {
-    return myOKAction.isEnabled();
   }
 
   /**
@@ -1668,7 +1673,7 @@ public abstract class DialogWrapper {
       }
     }
 
-    final AsyncResult<Boolean> result = new AsyncResult<Boolean>();
+    final AsyncResult<Boolean> result = new AsyncResult<>();
 
     ensureEventDispatchThread();
     registerKeyboardShortcuts();
@@ -1762,7 +1767,7 @@ public abstract class DialogWrapper {
   }
 
   private void focusPreviousButton() {
-    JButton[] myButtons = new ArrayList<JButton>(myButtonMap.values()).toArray(new JButton[0]);
+    JButton[] myButtons = new ArrayList<>(myButtonMap.values()).toArray(new JButton[0]);
     for (int i = 0; i < myButtons.length; i++) {
       if (myButtons[i].hasFocus()) {
         if (i == 0) {
@@ -1776,7 +1781,7 @@ public abstract class DialogWrapper {
   }
 
   private void focusNextButton() {
-    JButton[] myButtons = new ArrayList<JButton>(myButtonMap.values()).toArray(new JButton[0]);
+    JButton[] myButtons = new ArrayList<>(myButtonMap.values()).toArray(new JButton[0]);
     for (int i = 0; i < myButtons.length; i++) {
       if (myButtons[i].hasFocus()) {
         if (i == myButtons.length - 1) {
@@ -1859,7 +1864,7 @@ public abstract class DialogWrapper {
         if (info.component != null && info.component.isVisible()) {
           IdeFocusManager.getInstance(null).requestFocus(info.component, true);
         }
-        DialogEarthquakeShaker.shake((JDialog)getPeer().getWindow());
+        DialogEarthquakeShaker.shake(getPeer().getWindow());
         startTrackingValidation();
         return;
       }
@@ -2169,10 +2174,4 @@ public abstract class DialogWrapper {
 
   public enum DialogStyle {NO_STYLE, COMPACT}
 
-  private static abstract class NoTransactionAction extends DumbAwareAction {
-    @Override
-    public boolean startInTransaction() {
-      return false;
-    }
-  }
 }

@@ -23,6 +23,7 @@ import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FontInfo;
@@ -36,6 +37,7 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
 import java.awt.font.FontRenderContext;
+import java.text.Bidi;
 
 /**
  * A facade for components responsible for drawing editor contents, managing editor size 
@@ -59,6 +61,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   private String myPrefixText; // accessed only in EDT
   private LineLayout myPrefixLayout; // guarded by myLock
   private TextAttributes myPrefixAttributes; // accessed only in EDT
+  private int myBidiFlags; // accessed only in EDT
   
   private int myPlainSpaceWidth; // guarded by myLock
   private int myLineHeight; // guarded by myLock
@@ -272,7 +275,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   int getMaxWidthInLineRange(int startVisualLine, int endVisualLine) {
     myEditor.getSoftWrapModel().prepareToMapping();
     int maxWidth = 0;
-    VisualLinesIterator iterator = new VisualLinesIterator(this, startVisualLine);
+    VisualLinesIterator iterator = new VisualLinesIterator(myEditor, startVisualLine);
     while (!iterator.atEnd() && iterator.getVisualLine() <= endVisualLine) {
       int width = mySizeManager.getVisualLineWidth(iterator, null);
       maxWidth = Math.max(maxWidth, width);
@@ -286,6 +289,16 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     synchronized (myLock) {
       myPlainSpaceWidth = -1;
       myTabSize = -1;
+    }
+    switch (EditorSettingsExternalizable.getInstance().getBidiTextDirection()) {
+      case LTR:
+        myBidiFlags = Bidi.DIRECTION_LEFT_TO_RIGHT;
+        break;
+      case RTL:
+        myBidiFlags = Bidi.DIRECTION_RIGHT_TO_LEFT;
+        break;
+      default:
+        myBidiFlags = Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT;
     }
     setFontRenderContext();
     myLogicalPositionCache.reset(false);
@@ -363,7 +376,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     return relativeOffset < 0 ? -1 : lineStartOffset + relativeOffset;
   }
 
-  int getPlainSpaceWidth() {
+  public int getPlainSpaceWidth() {
     synchronized (myLock) {
       initMetricsIfNeeded();
       return myPlainSpaceWidth;
@@ -488,6 +501,10 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   
   Insets getInsets() {
     return myEditor.getContentComponent().getInsets();
+  }
+
+  int getBidiFlags() {
+    return myBidiFlags;
   }
   
   private static void assertIsDispatchThread() {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,6 +50,38 @@ public class Py3TypeTest extends PyTestCase {
            "\n" +
            "for expr in gen():\n" +
            "    pass\n"));
+  }
+
+  // PY-12944
+  public void testYieldFromReturnType() {
+    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("None",
+           "def a():\n" +
+           "    yield 1\n" +
+           "    return 'a'\n" +
+           "\n" +
+           "y = [1, 2, 3]\n" +
+           "\n" +
+           "def b():\n" +
+           "    expr = yield from y\n" +
+           "    return expr\n"));
+    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("str",
+           "def a():\n" +
+           "    yield 1\n" +
+           "    return 'a'\n" +
+           "\n" +
+           "def b():\n" +
+           "    expr = yield from a()\n" +
+           "    return expr\n"));
+    runWithLanguageLevel(LanguageLevel.PYTHON33, () -> doTest("int",
+           "def g():\n" +
+           "    yield 1\n" +
+           "    return 'abc'\n" +
+           "\n" +
+           "def f()\n" +
+           "    x = yield from g()\n" +
+           "\n" +
+           "for expr in f():\n" +
+           "    pass"));
   }
 
   public void testAwaitAwaitable() {
@@ -158,6 +190,11 @@ public class Py3TypeTest extends PyTestCase {
   public void testOpenBinary() {
     doTest("FileIO[bytes]",
            "expr = open('foo', 'rb')\n");
+  }
+
+  // PY-1427
+  public void testBytesLiteral() {
+    runWithLanguageLevel(LanguageLevel.PYTHON30, () -> doTest("bytes", "expr = b'foo'"));
   }
 
   private void doTest(final String expectedType, final String text) {

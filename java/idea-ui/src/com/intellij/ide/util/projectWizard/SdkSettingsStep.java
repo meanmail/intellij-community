@@ -85,7 +85,7 @@ public class SdkSettingsStep extends ModuleWizardStep {
       sdkFilter = JdkComboBox.getSdkFilter(sdkTypeIdFilter);
     }
 
-    myJdkComboBox = new JdkComboBox(myModel, sdkFilter, sdkTypeIdFilter, true);
+    myJdkComboBox = new JdkComboBox(myModel, sdkTypeIdFilter, sdkFilter, sdkTypeIdFilter, true);
     myJdkPanel = new JPanel(new GridBagLayout());
 
     final PropertiesComponent component = project == null ? PropertiesComponent.getInstance() : PropertiesComponent.getInstance(project);
@@ -190,10 +190,10 @@ public class SdkSettingsStep extends ModuleWizardStep {
     }
     try {
       if (item instanceof JdkComboBox.SuggestedJdkItem) {
-        SdkType type = item.getSdkType();
+        SdkType type = ((JdkComboBox.SuggestedJdkItem)item).getSdkType();
         String path = ((JdkComboBox.SuggestedJdkItem)item).getPath();
         myModel.addSdk(type, path, sdk -> {
-          myJdkComboBox.reloadModel(new JdkComboBox.JdkComboBoxItem(sdk), myWizardContext.getProject());
+          myJdkComboBox.reloadModel(new JdkComboBox.ActualJdkComboBoxItem(sdk), myWizardContext.getProject());
           myJdkComboBox.setSelectedJdk(sdk);
         });
       }

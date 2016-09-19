@@ -15,29 +15,50 @@
  */
 package org.jetbrains.intellij.build
 
+import groovy.transform.CompileDynamic
+import groovy.transform.CompileStatic
+import org.jetbrains.intellij.build.impl.PlatformLayout
+
+import java.util.function.Consumer
+
 /**
  * @author nik
  */
-class IdeaCommunityProperties extends ProductProperties {
+@CompileStatic
+class IdeaCommunityProperties extends BaseIdeaProperties {
   IdeaCommunityProperties(String home) {
     baseFileName = "idea"
     platformPrefix = "Idea"
     productCode = "IC"
     applicationInfoModule = "community-resources"
-    additionalIDEPropertiesFilePaths = ["$home/build/conf/ideaCE.properties"]
+    additionalIDEPropertiesFilePaths = ["$home/build/conf/ideaCE.properties".toString()]
     toolsJarRequired = true
+    buildCrossPlatformDistribution = true
+
+    productLayout.platformApiModules = CommunityRepositoryModules.PLATFORM_API_MODULES + JAVA_API_MODULES
+    productLayout.platformImplementationModules = CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES + JAVA_IMPLEMENTATION_MODULES +
+                                                  ["duplicates-analysis", "structuralsearch", "structuralsearch-java", "typeMigration", "platform-main"] -
+                                                  ["jps-model-impl", "jps-model-serialization"]
+    productLayout.additionalPlatformJars.put("resources.jar", "community-resources")
+    productLayout.bundledPluginModules = BUNDLED_PLUGIN_MODULES
+    productLayout.mainModule = "community-main"
+    productLayout.allNonTrivialPlugins = CommunityRepositoryModules.COMMUNITY_REPOSITORY_PLUGINS + [
+      CommunityRepositoryModules.androidPlugin([:]),
+      CommunityRepositoryModules.groovyPlugin([])
+    ]
+    productLayout.classesLoadingOrderFilePath = "$home/build/order.txt"
   }
 
   @Override
-  String fullNameIncludingEdition(ApplicationInfoProperties applicationInfo) {
-    "IntelliJ IDEA Community Edition"
-  }
-
-  @Override
+  @CompileDynamic
   void copyAdditionalFiles(BuildContext buildContext, String targetDirectory) {
+    super.copyAdditionalFiles(buildContext, targetDirectory)
     buildContext.ant.copy(todir: targetDirectory) {
       fileset(file: "$buildContext.paths.communityHome/LICENSE.txt")
       fileset(file: "$buildContext.paths.communityHome/NOTICE.txt")
+    }
+    buildContext.ant.copy(todir: "$targetDirectory/bin") {
+      fileset(dir: "$buildContext.paths.communityHome/build/conf/ideaCE/common/bin")
     }
   }
 
@@ -51,7 +72,10 @@ class IdeaCommunityProperties extends ProductProperties {
       }
 
       @Override
-      String rootDirectoryName(String buildNumber) { "" }
+      String fullNameIncludingEdition(ApplicationInfoProperties applicationInfo) { "IntelliJ IDEA Community Edition" }
+
+      @Override
+      String fullNameIncludingEditionAndVendor(ApplicationInfoProperties applicationInfo) { "IntelliJ IDEA Community Edition" }
 
       @Override
       String uninstallFeedbackPageUrl(ApplicationInfoProperties applicationInfo) {
@@ -68,7 +92,7 @@ class IdeaCommunityProperties extends ProductProperties {
       }
 
       @Override
-      String rootDirectoryName(String buildNumber) { "idea-IC-$buildNumber" }
+      String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) { "idea-IC-$buildNumber" }
     }
   }
 
@@ -78,6 +102,7 @@ class IdeaCommunityProperties extends ProductProperties {
       {
         helpId = "IJ"
         urlSchemes = ["idea"]
+        associateIpr = true
         enableYourkitAgentInEAP = false
         bundleIdentifier = "com.jetbrains.intellij.ce"
         dmgImagePath = "$projectHome/build/conf/mac/communitydmg.png"
@@ -85,8 +110,8 @@ class IdeaCommunityProperties extends ProductProperties {
 
       @Override
       String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
-        applicationInfo.isEAP ? "IntelliJ IDEA ${applicationInfo.majorVersion}.${applicationInfo.minorVersion} CE EAP.app/Contents"
-                              : "IntelliJ IDEA CE.app/Contents"
+        applicationInfo.isEAP ? "IntelliJ IDEA ${applicationInfo.majorVersion}.${applicationInfo.minorVersion} CE EAP.app"
+                              : "IntelliJ IDEA CE.app"
       }
     }
   }
@@ -96,4 +121,7 @@ class IdeaCommunityProperties extends ProductProperties {
 
   @Override
   String baseArtifactName(ApplicationInfoProperties applicationInfo, String buildNumber) { "ideaIC-$buildNumber" }
+
+  @Override
+  String outputDirectoryName(ApplicationInfoProperties applicationInfo) { "idea-ce" }
 }

@@ -46,20 +46,20 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.reference.SoftReference;
 import com.intellij.ui.ColorUtil;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.RetrievableIcon;
-import com.intellij.util.NotNullProducer;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.lang.ref.Reference;
+import java.lang.ref.WeakReference;
 
 public class Bookmark implements Navigatable, Comparable<Bookmark> {
   public static final Icon DEFAULT_ICON = new MyCheckedIcon();
@@ -67,6 +67,7 @@ public class Bookmark implements Navigatable, Comparable<Bookmark> {
   private final VirtualFile myFile;
   @NotNull private OpenFileDescriptor myTarget;
   private final Project myProject;
+  private Reference<RangeHighlighterEx> myHighlighterRef;
 
   private String myDescription;
   private char myMnemonic = 0;
@@ -106,33 +107,34 @@ public class Bookmark implements Navigatable, Comparable<Bookmark> {
   }
 
   public RangeHighlighter createHighlighter(@NotNull MarkupModelEx markup) {
-    final RangeHighlighterEx myHighlighter;
+    final RangeHighlighterEx highlighter;
     int line = getLine();
     if (line >= 0) {
-      myHighlighter = markup.addPersistentLineHighlighter(line, HighlighterLayer.ERROR + 1, null);
-      if (myHighlighter != null) {
-        myHighlighter.setGutterIconRenderer(new MyGutterIconRenderer(this));
+      highlighter = markup.addPersistentLineHighlighter(line, HighlighterLayer.ERROR + 1, null);
+      if (highlighter != null) {
+        highlighter.setGutterIconRenderer(new MyGutterIconRenderer(this));
 
         TextAttributes textAttributes =
           EditorColorsManager.getInstance().getGlobalScheme().getAttributes(CodeInsightColors.BOOKMARKS_ATTRIBUTES);
 
         Color stripeColor = textAttributes.getErrorStripeColor();
-        myHighlighter.setErrorStripeMarkColor(stripeColor != null ? stripeColor : Color.black);
-        myHighlighter.setErrorStripeTooltip(getBookmarkTooltip());
+        highlighter.setErrorStripeMarkColor(stripeColor != null ? stripeColor : Color.black);
+        highlighter.setErrorStripeTooltip(getBookmarkTooltip());
 
-        TextAttributes attributes = myHighlighter.getTextAttributes();
+        TextAttributes attributes = highlighter.getTextAttributes();
         if (attributes == null) {
           attributes = new TextAttributes();
         }
         attributes.setBackgroundColor(textAttributes.getBackgroundColor());
         attributes.setForegroundColor(textAttributes.getForegroundColor());
-        myHighlighter.setTextAttributes(attributes);
+        highlighter.setTextAttributes(attributes);
       }
     }
     else {
-      myHighlighter = null;
+      highlighter = null;
     }
-    return myHighlighter;
+    myHighlighterRef = highlighter == null ? null : new WeakReference<>(highlighter);
+    return highlighter;
   }
 
   @Nullable
@@ -141,39 +143,46 @@ public class Bookmark implements Navigatable, Comparable<Bookmark> {
   }
 
   public void release() {
-    int line = getLine();
-    if (line < 0) {
-      return;
-    }
-    final Document document = getDocument();
-    if (document == null) return;
-    MarkupModelEx markup = (MarkupModelEx)DocumentMarkupModel.forDocument(document, myProject, true);
-    final Document markupDocument = markup.getDocument();
-    if (markupDocument.getLineCount() <= line) return;
-    RangeHighlighterEx highlighter = findMyHighlighter();
-    if (highlighter != null) {
-      highlighter.dispose();
-    }
+      int line = getLine();
+      if (line < 0) {
+        return;
+      }
+      final Document document = getDocument();
+      if (document == null) return;
+      MarkupModelEx markup = (MarkupModelEx)DocumentMarkupModel.forDocument(document, myProject, true);
+      final Document markupDocument = markup.getDocument();
+      if (markupDocument.getLineCount() <= line) return;
+      RangeHighlighterEx highlighter = findMyHighlighter();
+      if (highlighter != null) {
+        myHighlighterRef = null;
+        highlighter.dispose();
+      }
   }
 
   private RangeHighlighterEx findMyHighlighter() {
     final Document document = getDocument();
     if (document == null) return null;
+    RangeHighlighterEx result = SoftReference.dereference(myHighlighterRef);
+    if (result != null) {
+      return result;
+    }
     MarkupModelEx markup = (MarkupModelEx)DocumentMarkupModel.forDocument(document, myProject, true);
     final Document markupDocument = markup.getDocument();
     final int startOffset = 0;
     final int endOffset = markupDocument.getTextLength();
 
-    final Ref<RangeHighlighterEx> found = new Ref<RangeHighlighterEx>();
+    final Ref<RangeHighlighterEx> found = new Ref<>();
     markup.processRangeHighlightersOverlappingWith(startOffset, endOffset, highlighter -> {
       GutterMark renderer = highlighter.getGutterIconRenderer();
-      if (renderer instanceof MyGutterIconRenderer && ((MyGutterIconRenderer)renderer).myBookmark == Bookmark.this) {
+      if (renderer instanceof MyGutterIconRenderer && ((MyGutterIconRenderer)renderer).myBookmark == this) {
         found.set(highlighter);
         return false;
       }
       return true;
     });
-    return found.get();
+    result = found.get();
+    myHighlighterRef = result == null ? null : new WeakReference<>(result);
+    return result;
   }
 
   public Icon getIcon() {
@@ -273,7 +282,6 @@ public class Bookmark implements Navigatable, Comparable<Bookmark> {
     String presentableUrl = myFile.getPresentableUrl();
     if (myFile.isDirectory()) return presentableUrl;
 
-    PsiDocumentManager.getInstance(myProject).commitAllDocuments();
     final PsiFile psiFile = PsiManager.getInstance(myProject).findFile(myFile);
 
     if (psiFile == null) return presentableUrl;

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -1194,7 +1194,6 @@ public class FileUtil extends FileUtilRt {
   }
 
   /** @deprecated use {@link #sanitizeFileName(String, boolean)} (to be removed in IDEA 17) */
-  @SuppressWarnings("unused")
   public static String sanitizeName(@NotNull String name) {
     return sanitizeFileName(name, false);
   }
@@ -1209,7 +1208,9 @@ public class FileUtil extends FileUtilRt {
       char c = name.charAt(i);
       boolean appendReplacement = true;
       if (c > 0 && c < 255) {
-        if (strict ? Character.isLetterOrDigit(c) || c == '_' : Character.isJavaIdentifierPart(c) || c == ' ' || c == '@' || c == '-') {
+        if (strict
+            ? (Character.isLetterOrDigit(c) || (c == '_'))
+            : (Character.isJavaIdentifierPart(c) || (c == ' ') || (c == '@') || (c == '-'))) {
           continue;
         }
       }
@@ -1672,10 +1673,6 @@ public class FileUtil extends FileUtilRt {
     }.load(reader);
 
     return map;
-  }
-
-  public static boolean isRootPath(@NotNull File file) {
-    return isRootPath(file.getPath());
   }
 
   public static boolean isRootPath(@NotNull String path) {

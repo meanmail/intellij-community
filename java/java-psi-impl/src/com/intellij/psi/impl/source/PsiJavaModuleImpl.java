@@ -16,14 +16,16 @@
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.psi.JavaElementVisitor;
-import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.PsiJavaModule;
-import com.intellij.psi.PsiJavaModuleReference;
+import com.intellij.navigation.ItemPresentation;
+import com.intellij.navigation.ItemPresentationProviders;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiJavaModuleStub;
+import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class PsiJavaModuleImpl extends JavaStubPsiElement<PsiJavaModuleStub> implements PsiJavaModule {
   public PsiJavaModuleImpl(@NotNull PsiJavaModuleStub stub) {
@@ -36,19 +38,49 @@ public class PsiJavaModuleImpl extends JavaStubPsiElement<PsiJavaModuleStub> imp
 
   @NotNull
   @Override
-  public PsiJavaModuleReference getNameElement() {
-    return PsiTreeUtil.getRequiredChildOfType(this, PsiJavaModuleReference.class);
+  public PsiJavaModuleReferenceElement getNameElement() {
+    return PsiTreeUtil.getRequiredChildOfType(this, PsiJavaModuleReferenceElement.class);
   }
 
   @NotNull
   @Override
   public String getModuleName() {
-    PsiJavaModuleStub stub = getStub();
+    PsiJavaModuleStub stub = getGreenStub();
     if (stub != null) {
       return stub.getName();
     }
 
     return getNameElement().getReferenceText();
+  }
+
+  @Override
+  public String getName() {
+    return getModuleName();
+  }
+
+  @Override
+  public PsiElement setName(@NotNull String name) throws IncorrectOperationException {
+    PsiElementFactory factory = PsiElementFactory.SERVICE.getInstance(getProject());
+    PsiJavaModuleReferenceElement newName = factory.createModuleFromText("module " + name + " {}").getNameElement();
+    getNameElement().replace(newName);
+    return this;
+  }
+
+  @Nullable
+  @Override
+  public PsiDocComment getDocComment() {
+    return PsiTreeUtil.getChildOfType(this, PsiDocComment.class);
+  }
+
+  @Override
+  public ItemPresentation getPresentation() {
+    return ItemPresentationProviders.getItemPresentation(this);
+  }
+
+  @NotNull
+  @Override
+  public PsiElement getNavigationElement() {
+    return getNameElement();
   }
 
   @Override

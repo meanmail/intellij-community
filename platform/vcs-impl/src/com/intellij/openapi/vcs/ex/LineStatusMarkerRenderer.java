@@ -24,9 +24,9 @@ import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.editor.markup.*;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.util.Function;
 import com.intellij.util.PairConsumer;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,8 +57,6 @@ public abstract class LineStatusMarkerRenderer implements ActiveGutterRenderer {
     highlighter.setThinErrorStripeMark(true);
     highlighter.setGreedyToLeft(true);
     highlighter.setGreedyToRight(true);
-
-    highlighter.setErrorStripeTooltip(getTooltipText(range));
 
     return highlighter;
   }
@@ -124,24 +122,6 @@ public abstract class LineStatusMarkerRenderer implements ActiveGutterRenderer {
     };
   }
 
-  @NotNull
-  private static String getTooltipText(@NotNull Range range) {
-    if (range.getLine1() == range.getLine2()) {
-      if (range.getVcsLine1() + 1 == range.getVcsLine2()) {
-        return VcsBundle.message("tooltip.text.line.before.deleted", range.getLine1() + 1);
-      }
-      else {
-        return VcsBundle.message("tooltip.text.lines.before.deleted", range.getLine1() + 1, range.getVcsLine2() - range.getVcsLine1());
-      }
-    }
-    else if (range.getLine1() + 1 == range.getLine2()) {
-      return VcsBundle.message("tooltip.text.line.changed", range.getLine1() + 1);
-    }
-    else {
-      return VcsBundle.message("tooltip.text.lines.changed", range.getLine1() + 1, range.getLine2());
-    }
-  }
-
   //
   // Gutter painting
   //
@@ -180,30 +160,15 @@ public abstract class LineStatusMarkerRenderer implements ActiveGutterRenderer {
           paintRect(g, getGutterColor(innerRange, editor), null, x, start, endX, end);
         }
 
-        for (int i = 0; i < innerRanges.size(); i++) {
-          Range.InnerRange innerRange = innerRanges.get(i);
+        paintRect(g, null, borderColor, x, y, endX, endY);
+
+        for (Range.InnerRange innerRange : innerRanges) {
           if (innerRange.getType() != Range.DELETED) continue;
 
-          int start;
-          int end;
+          int start = lineToY(editor, innerRange.getLine1());
 
-          if (i == 0) {
-            start = lineToY(editor, innerRange.getLine1());
-            end = lineToY(editor, innerRange.getLine2()) + 5;
-          }
-          else if (i == innerRanges.size() - 1) {
-            start = lineToY(editor, innerRange.getLine1()) - 5;
-            end = lineToY(editor, innerRange.getLine2());
-          }
-          else {
-            start = lineToY(editor, innerRange.getLine1()) - 3;
-            end = lineToY(editor, innerRange.getLine2()) + 3;
-          }
-
-          paintRect(g, getGutterColor(innerRange, editor), null, x, start, endX, end);
+          paintTriangle(g, getGutterColor(innerRange, editor), borderColor, x, endX, start);
         }
-
-        paintRect(g, null, borderColor, x, y, endX, endY);
       }
     }
   }
@@ -237,7 +202,7 @@ public abstract class LineStatusMarkerRenderer implements ActiveGutterRenderer {
   }
 
   private static void paintTriangle(@NotNull Graphics g, @Nullable Color color, @Nullable Color borderColor, int x1, int x2, int y) {
-    int size = 4;
+    int size = JBUI.scale(4);
 
     final int[] xPoints = new int[]{x1, x1, x2};
     final int[] yPoints = new int[]{y - size, y + size, y};

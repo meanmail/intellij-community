@@ -37,17 +37,13 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.EditorNotificationPanel;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.diff.FilesTooBigForDiffException;
-import org.jetbrains.annotations.CalledInAwt;
-import org.jetbrains.annotations.CalledWithWriteLock;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.*;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -67,7 +63,7 @@ public class LineStatusTracker {
 
   public static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.ex.LineStatusTracker");
   private static final Key<CanNotCalculateDiffPanel> PANEL_KEY =
-    new Key<CanNotCalculateDiffPanel>("LineStatusTracker.CanNotCalculateDiffPanel");
+    new Key<>("LineStatusTracker.CanNotCalculateDiffPanel");
 
   // all variables should be modified in EDT and under LOCK
   // read access allowed from EDT or while holding LOCK
@@ -116,7 +112,7 @@ public class LineStatusTracker {
     myApplicationListener = new MyApplicationListener();
     ApplicationManager.getApplication().addApplicationListener(myApplicationListener);
 
-    myRanges = new ArrayList<Range>();
+    myRanges = new ArrayList<>();
 
     myVcsDocument = new DocumentImpl("", true);
     myVcsDocument.putUserData(UndoConstants.DONT_RECORD_UNDO, Boolean.TRUE);
@@ -350,6 +346,12 @@ public class LineStatusTracker {
     }
   }
 
+  @NotNull
+  @TestOnly
+  public List<Range> getRangesInner() {
+    return myRanges;
+  }
+
   @CalledInAwt
   public void startBulkUpdate() {
     if (myReleased) return;
@@ -398,19 +400,9 @@ public class LineStatusTracker {
   }
 
   private class MyApplicationListener extends ApplicationAdapter {
-    private int myWriteActionDepth = 0;
-
     @Override
-    public void writeActionStarted(@NotNull Object action) {
-      myWriteActionDepth++;
-    }
-
-    @Override
-    public void writeActionFinished(@NotNull Object action) {
-      myWriteActionDepth = Math.max(myWriteActionDepth - 1, 0);
-      if (myWriteActionDepth == 0) {
-        updateRanges();
-      }
+    public void afterWriteActionFinished(@NotNull Object action) {
+      updateRanges();
     }
   }
 
@@ -528,9 +520,9 @@ public class LineStatusTracker {
                               int beforeTotalLines) {
     LOG.assertTrue(!myReleased);
 
-    List<Range> rangesBeforeChange = new ArrayList<Range>();
-    List<Range> rangesAfterChange = new ArrayList<Range>();
-    List<Range> changedRanges = new ArrayList<Range>();
+    List<Range> rangesBeforeChange = new ArrayList<>();
+    List<Range> rangesAfterChange = new ArrayList<>();
+    List<Range> changedRanges = new ArrayList<>();
 
     sortRanges(beforeChangedLine1, beforeChangedLine2, linesShift, rangesBeforeChange, changedRanges, rangesAfterChange);
 
@@ -573,7 +565,7 @@ public class LineStatusTracker {
       shiftRanges(rangesAfter, linesShift);
 
       if (!changedRanges.equals(newChangedRanges)) {
-        myRanges = new ArrayList<Range>(rangesBefore.size() + newChangedRanges.size() + rangesAfter.size());
+        myRanges = new ArrayList<>(rangesBefore.size() + newChangedRanges.size() + rangesAfter.size());
 
         myRanges.addAll(rangesBefore);
         myRanges.addAll(newChangedRanges);
@@ -652,36 +644,34 @@ public class LineStatusTracker {
       }
     }
 
-    if (Registry.is("diff.status.tracker.skip.spaces")) {
-      // Expand on ranges, that are separated from changed lines only by whitespaces
+    // Expand on ranges, that are separated from changed lines only by whitespaces
 
-      while (lastBefore != -1) {
-        int firstChangedLine = beforeChangedLine1;
-        if (lastBefore + 1 < myRanges.size()) {
-          Range firstChanged = myRanges.get(lastBefore + 1);
-          firstChangedLine = Math.min(firstChangedLine, firstChanged.getLine1());
-        }
-
-        if (!isLineRangeEmpty(myDocument, myRanges.get(lastBefore).getLine2(), firstChangedLine)) {
-          break;
-        }
-
-        lastBefore--;
+    while (lastBefore != -1) {
+      int firstChangedLine = beforeChangedLine1;
+      if (lastBefore + 1 < myRanges.size()) {
+        Range firstChanged = myRanges.get(lastBefore + 1);
+        firstChangedLine = Math.min(firstChangedLine, firstChanged.getLine1());
       }
 
-      while (firstAfter != myRanges.size()) {
-        int firstUnchangedLineAfter = beforeChangedLine2 + linesShift;
-        if (firstAfter > 0) {
-          Range lastChanged = myRanges.get(firstAfter - 1);
-          firstUnchangedLineAfter = Math.max(firstUnchangedLineAfter, lastChanged.getLine2() + linesShift);
-        }
-
-        if (!isLineRangeEmpty(myDocument, firstUnchangedLineAfter, myRanges.get(firstAfter).getLine1() + linesShift)) {
-          break;
-        }
-
-        firstAfter++;
+      if (!isLineRangeEmpty(myDocument, myRanges.get(lastBefore).getLine2(), firstChangedLine)) {
+        break;
       }
+
+      lastBefore--;
+    }
+
+    while (firstAfter != myRanges.size()) {
+      int firstUnchangedLineAfter = beforeChangedLine2 + linesShift;
+      if (firstAfter > 0) {
+        Range lastChanged = myRanges.get(firstAfter - 1);
+        firstUnchangedLineAfter = Math.max(firstUnchangedLineAfter, lastChanged.getLine2() + linesShift);
+      }
+
+      if (!isLineRangeEmpty(myDocument, firstUnchangedLineAfter, myRanges.get(firstAfter).getLine1() + linesShift)) {
+        break;
+      }
+
+      firstAfter++;
     }
 
     for (int i = 0; i < myRanges.size(); i++) {
@@ -784,7 +774,7 @@ public class LineStatusTracker {
 
   @CalledWithWriteLock
   public void rollbackChanges(@NotNull final BitSet lines) {
-    List<Range> toRollback = new ArrayList<Range>();
+    List<Range> toRollback = new ArrayList<>();
     for (Range range : myRanges) {
       boolean check = DiffUtil.isSelectedByLine(lines, range.getLine1(), range.getLine2());
       if (check) {

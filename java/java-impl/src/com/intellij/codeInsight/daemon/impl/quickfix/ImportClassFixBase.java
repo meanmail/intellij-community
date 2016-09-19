@@ -36,6 +36,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.packageDependencies.DependencyRule;
 import com.intellij.packageDependencies.DependencyValidationManager;
@@ -127,7 +128,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     final Project project = myElement.getProject();
     PsiClass[] classes = PsiShortNamesCache.getInstance(project).getClassesByName(name, scope);
     if (classes.length == 0) return Collections.emptyList();
-    List<PsiClass> classList = new ArrayList<PsiClass>(classes.length);
+    List<PsiClass> classList = new ArrayList<>(classes.length);
     boolean isAnnotationReference = myElement.getParent() instanceof PsiAnnotation;
     final PsiFile file = myElement.getContainingFile();
     for (PsiClass aClass : classes) {
@@ -219,7 +220,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     PsiJavaFile javaFile = (PsiJavaFile)containingFile;
     PsiImportList importList = javaFile.getImportList();
     PsiImportStatementBase[] importStatements = importList == null ? PsiImportStatementBase.EMPTY_ARRAY : importList.getAllImportStatements();
-    Set<String> importedNames = new THashSet<String>(importStatements.length);
+    Set<String> importedNames = new THashSet<>(importStatements.length);
     for (PsiImportStatementBase statement : importStatements) {
       PsiJavaCodeReferenceElement ref = statement.getImportReference();
       String name = ref == null ? null : ref.getReferenceName();
@@ -265,7 +266,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
         final PsiMethod method = (PsiMethod)granny;
         if (method.getModifierList().findAnnotation(CommonClassNames.JAVA_LANG_OVERRIDE) != null) {
           PsiClass aClass = method.getContainingClass();
-          final Set<PsiClass> probableTypes = new HashSet<PsiClass>();
+          final Set<PsiClass> probableTypes = new HashSet<>();
           InheritanceUtil.processSupers(aClass, false, psiClass -> {
             for (PsiMethod psiMethod : psiClass.findMethodsByName(method.getName(), false)) {
               for (PsiParameter psiParameter : psiMethod.getParameterList().getParameters()) {
@@ -319,13 +320,17 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
     boolean canImportHere = true;
 
+    boolean isInModlessContext =  Registry.is("ide.perProjectModality") ?
+                                  !LaterInvocator.isInModalContextForProject(editor.getProject()) :
+                                  !LaterInvocator.isInModalContext();
+
     if (classes.length == 1 &&
         (canImportHere = canImportHere(allowCaretNearRef, editor, psiFile, classes[0].getName())) &&
         (FileTypeUtils.isInServerPageFile(psiFile) ?
          CodeInsightSettings.getInstance().JSP_ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY :
          CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY) &&
         (ApplicationManager.getApplication().isUnitTestMode() || DaemonListeners.canChangeFileSilently(psiFile)) &&
-        !LaterInvocator.isInModalContext() &&
+        isInModlessContext &&
         !autoImportWillInsertUnexpectedCharacters(classes[0])
       ) {
       CommandProcessor.getInstance().runUndoTransparentAction(() -> action.execute());

@@ -31,6 +31,9 @@ public interface JpsJavaCompilerConfiguration extends JpsElement {
   boolean isAddNotNullAssertions();
   void setAddNotNullAssertions(boolean addNotNullAssertions);
 
+  List<String> getNotNullAnnotations();
+  void setNotNullAnnotations(List<String> notNullAnnotations);
+
   boolean isClearOutputDirectoryOnRebuild();
   void setClearOutputDirectoryOnRebuild(boolean clearOutputDirectoryOnRebuild);
 

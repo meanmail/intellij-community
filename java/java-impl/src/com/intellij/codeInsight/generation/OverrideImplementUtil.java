@@ -61,7 +61,6 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
@@ -127,7 +126,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
                                                           boolean insertOverrideIfPossible) throws IncorrectOperationException {
     if (!method.isValid() || !substitutor.isValid()) return Collections.emptyList();
 
-    List<PsiMethod> results = new ArrayList<PsiMethod>();
+    List<PsiMethod> results = new ArrayList<>();
     for (final MethodImplementor implementor : getImplementors()) {
       final PsiMethod[] prototypes = implementor.createImplementationPrototypes(aClass, method);
       for (PsiMethod prototype : prototypes) {
@@ -291,7 +290,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
                                                                     Collection<CandidateInfo> candidates,
                                                                     boolean toCopyJavaDoc,
                                                                     boolean insertOverrideWherePossible) throws IncorrectOperationException {
-    List<PsiMethod> result = new ArrayList<PsiMethod>();
+    List<PsiMethod> result = new ArrayList<>();
     for (CandidateInfo candidateInfo : candidates) {
       result.addAll(overrideOrImplementMethod(aClass, (PsiMethod)candidateInfo.getElement(), candidateInfo.getSubstitutor(),
                                               toCopyJavaDoc, insertOverrideWherePossible));
@@ -315,7 +314,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
         return psiGenerationInfo;
       }
     }
-    return new PsiGenerationInfo<PsiMethod>(s);
+    return new PsiGenerationInfo<>(s);
   }
 
   @NotNull
@@ -533,7 +532,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
       int lbraceOffset = brace.getTextOffset();
       List<PsiGenerationInfo<PsiMethod>> resultMembers;
       if (offset <= lbraceOffset || aClass.isEnum()) {
-        resultMembers = new ArrayList<PsiGenerationInfo<PsiMethod>>();
+        resultMembers = new ArrayList<>();
         for (PsiMethodMember candidate : candidates) {
           Collection<PsiMethod> prototypes =
             overrideOrImplementMethod(aClass, candidate.getElement(), candidate.getSubstitutor(), copyJavadoc, insertOverrideWherePossible);
@@ -593,7 +592,7 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
 
   public static List<PsiGenerationInfo<PsiMethod>> overrideOrImplement(PsiClass psiClass, @NotNull PsiMethod baseMethod) throws IncorrectOperationException {
     FileEditorManager fileEditorManager = FileEditorManager.getInstance(baseMethod.getProject());
-    List<PsiGenerationInfo<PsiMethod>> results = new ArrayList<PsiGenerationInfo<PsiMethod>>();
+    List<PsiGenerationInfo<PsiMethod>> results = new ArrayList<>();
     try {
 
       List<PsiGenerationInfo<PsiMethod>> prototypes = convert2GenerationInfos(overrideOrImplementMethod(psiClass, baseMethod, false));
@@ -618,8 +617,6 @@ public class OverrideImplementUtil extends OverrideImplementExploreUtil {
 
   @Nullable
   public static PsiClass getContextClass(Project project, Editor editor, PsiFile file, boolean allowInterface) {
-    PsiDocumentManager.getInstance(project).commitAllDocuments();
-
     int offset = editor.getCaretModel().getOffset();
     PsiElement element = file.findElementAt(offset);
     do {

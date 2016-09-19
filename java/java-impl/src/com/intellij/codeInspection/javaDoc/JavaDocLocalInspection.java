@@ -10,7 +10,6 @@ import com.intellij.codeInspection.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.pom.Navigatable;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
@@ -336,7 +335,7 @@ public class JavaDocLocalInspection extends JavaDocLocalInspectionBase {
       PsiElement parent = element == null ? null : element.getParent();
       if (!(parent instanceof PsiDocComment)) return null;
       final PsiDocComment docComment = (PsiDocComment)parent;
-      final PsiDocCommentOwner owner = docComment.getOwner();
+      final PsiJavaDocumentedElement owner = docComment.getOwner();
       if (!(owner instanceof PsiMethod)) return null;
       PsiParameter[] parameters = ((PsiMethod)owner).getParameterList().getParameters();
       PsiParameter myParam = ContainerUtil.find(parameters, psiParameter -> myName.equals(psiParameter.getName()));
@@ -398,7 +397,7 @@ public class JavaDocLocalInspection extends JavaDocLocalInspectionBase {
     @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
       myInspection.registerAdditionalTag(myTag);
-      InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getInspectionProfile();
+      InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
       InspectionProfileManager.getInstance().fireProfileChanged(profile);
     }
 

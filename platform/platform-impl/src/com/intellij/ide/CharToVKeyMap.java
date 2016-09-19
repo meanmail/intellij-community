@@ -26,10 +26,10 @@ class CharToVKeyMap {
   private CharToVKeyMap() {}
 
   private static HashMap<Character, Integer> charToVKeyMap =
-    new HashMap<Character, Integer>();
+    new HashMap<>();
 
   public static Integer get (Character ch) {
-    return charToVKeyMap.get(ch);
+    return charToVKeyMap.containsKey(ch) ? charToVKeyMap.get(ch) : KeyEvent.VK_UNDEFINED;
   }
 
   static {

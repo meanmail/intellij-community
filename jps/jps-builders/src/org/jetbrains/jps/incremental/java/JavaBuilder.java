@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.io.PersistentEnumeratorBase;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
@@ -49,6 +50,7 @@ import org.jetbrains.jps.incremental.messages.ProgressMessage;
 import org.jetbrains.jps.javac.*;
 import org.jetbrains.jps.model.JpsDummyElement;
 import org.jetbrains.jps.model.JpsProject;
+import org.jetbrains.jps.model.java.JavaModuleIndex;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 import org.jetbrains.jps.model.java.JpsJavaSdkType;
 import org.jetbrains.jps.model.java.LanguageLevel;
@@ -82,10 +84,10 @@ public class JavaBuilder extends ModuleLevelBuilder {
   private static final Key<JavaCompilingTool> COMPILING_TOOL = Key.create("_java_compiling_tool_");
   private static final Key<AtomicReference<String>> COMPILER_VERSION_INFO = Key.create("_java_compiler_version_info_");
 
-  private static final Set<String> FILTERED_OPTIONS = new HashSet<String>(Collections.<String>singletonList(
+  private static final Set<String> FILTERED_OPTIONS = new HashSet<String>(Collections.singletonList(
     "-target"
   ));
-  private static final Set<String> FILTERED_SINGLE_OPTIONS = new HashSet<String>(Arrays.<String>asList(
+  private static final Set<String> FILTERED_SINGLE_OPTIONS = new HashSet<String>(Arrays.asList(
     "-g", "-deprecation", "-nowarn", "-verbose", "-proc:none", "-proc:only", "-proceedOnError"
   ));
 
@@ -113,7 +115,7 @@ public class JavaBuilder extends ModuleLevelBuilder {
     }
     ourDefaultRtJar = rtJar;
   }
-  
+
   private static boolean isRtJarPath(String path) {
     if (StringUtil.endsWithIgnoreCase(path, RT_JAR_PATH_SUFFIX)) {
       return true;
@@ -127,7 +129,7 @@ public class JavaBuilder extends ModuleLevelBuilder {
 
   public JavaBuilder(Executor tasksExecutor) {
     super(BuilderCategory.TRANSLATOR);
-    myTaskRunner = new SequentialTaskExecutor(tasksExecutor);
+    myTaskRunner = new SequentialTaskExecutor("JavaBuilder pool", tasksExecutor);
     //add here class processors in the sequence they should be executed
   }
 
@@ -171,7 +173,8 @@ public class JavaBuilder extends ModuleLevelBuilder {
   public ExitCode doBuild(@NotNull CompileContext context,
                           @NotNull ModuleChunk chunk,
                           @NotNull DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder,
-                          @NotNull OutputConsumer outputConsumer, JavaCompilingTool compilingTool) throws ProjectBuildException, IOException {
+                          @NotNull OutputConsumer outputConsumer,
+                          @NotNull JavaCompilingTool compilingTool) throws ProjectBuildException, IOException {
     try {
       final Set<File> filesToCompile = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
 
@@ -184,6 +187,14 @@ public class JavaBuilder extends ModuleLevelBuilder {
           return true;
         }
       });
+
+      if (!filesToCompile.isEmpty() || dirtyFilesHolder.hasRemovedFiles()) {
+        // at the moment, there is no incremental compilation for module-info files, so they should be rebuilt on every change
+        JavaModuleIndex index = getJavaModuleIndex(context);
+        for (JpsModule module : chunk.getModules()) {
+          ContainerUtil.addIfNotNull(filesToCompile, index.getModuleInfoFile(module));
+        }
+      }
 
       if (JavaBuilderUtil.isCompileJavaIncrementally(context)) {
         final ProjectBuilderLogger logger = context.getLoggingManager().getProjectBuilderLogger();
@@ -224,11 +235,12 @@ public class JavaBuilder extends ModuleLevelBuilder {
     }
   }
 
-  private ExitCode compile(final CompileContext context,
+  private ExitCode compile(CompileContext context,
                            ModuleChunk chunk,
                            DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder,
                            Collection<File> files,
-                           OutputConsumer outputConsumer, @NotNull JavaCompilingTool compilingTool)
+                           OutputConsumer outputConsumer,
+                           JavaCompilingTool compilingTool)
     throws Exception {
     ExitCode exitCode = ExitCode.NOTHING_DONE;
 
@@ -417,11 +429,21 @@ public class JavaBuilder extends ModuleLevelBuilder {
         }
       }
 
+      Collection<File> modulePath = Collections.emptyList();
+      if (targetLanguageLevel >= 9) {
+        JavaModuleIndex index = getJavaModuleIndex(context);
+        if (index.hasJavaModules(chunk.getModules())) {
+          // in Java 9, named modules are not allowed to read classes from the classpath
+          modulePath = ContainerUtil.newArrayList(classpath);
+          classpath = Collections.emptyList();
+        }
+      }
+
       final ClassProcessingConsumer classesConsumer = new ClassProcessingConsumer(context, outputSink);
       final boolean rc;
       if (!shouldForkJavac) {
         rc = JavacMain.compile(
-          options, files, classpath, _platformCp, sourcePath, outs, diagnosticSink, classesConsumer, context.getCancelStatus(), compilingTool
+          options, files, classpath, _platformCp, modulePath, sourcePath, outs, diagnosticSink, classesConsumer, context.getCancelStatus(), compilingTool
         );
       }
       else {
@@ -431,7 +453,7 @@ public class JavaBuilder extends ModuleLevelBuilder {
         rc = server.forkJavac(
           forkSdk.getFirst(), 
           getExternalJavacHeapSize(context), 
-          vmOptions, options, _platformCp, classpath, sourcePath, 
+          vmOptions, options, _platformCp, classpath, modulePath, sourcePath,
           files, outs, diagnosticSink, classesConsumer, compilingTool, context.getCancelStatus()
         );
       }
@@ -735,7 +757,7 @@ public class JavaBuilder extends ModuleLevelBuilder {
 
     final int targetLanguageLevel = JpsJavaSdkType.parseVersion(langLevel);
     if (shouldUseReleaseOption(context, compilerSdkVersion, chunkSdkVersion, targetLanguageLevel)) {
-      options.add("-release");
+      options.add(getReleaseOptionName());
       options.add(String.valueOf(targetLanguageLevel));
       return;
     }
@@ -799,6 +821,26 @@ public class JavaBuilder extends ModuleLevelBuilder {
     }
   }
 
+  // todo: after java9 release the method can be deleted
+  @NotNull
+  private static String getReleaseOptionName() {
+    final String versionString = System.getProperty("java.runtime.version", null); // should look kind of "9-ea+136"
+    if (versionString != null) {
+      final int start = versionString.indexOf("+");
+      if (start > 0) {
+        try {
+          final int minorVersion = Integer.parseInt(versionString.substring(start + 1));
+          if (minorVersion < 135) {
+            return "-release";
+          }
+        }
+        catch (Throwable ignored) {
+        }
+      }
+    }
+    return "--release";
+  }
+  
   private static String getLanguageLevel(JpsModule module) {
     final LanguageLevel level = JpsJavaExtensionService.getInstance().getLanguageLevel(module);
     return level != null ? level.getComplianceOption() : null;
@@ -948,6 +990,11 @@ public class JavaBuilder extends ModuleLevelBuilder {
       map.put(outputDir, roots);
     }
     return map;
+  }
+
+  private static JavaModuleIndex getJavaModuleIndex(CompileContext context) {
+    File storageRoot = context.getProjectDescriptor().dataManager.getDataPaths().getDataStorageRoot();
+    return JpsJavaExtensionService.getInstance().getJavaModuleIndex(storageRoot);
   }
 
   private static class DiagnosticSink implements DiagnosticOutputConsumer {

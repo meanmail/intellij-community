@@ -148,6 +148,11 @@ public class AppUIUtil {
       registerFont("/fonts/SourceCodePro-Bold.ttf");
       registerFont("/fonts/SourceCodePro-It.ttf");
       registerFont("/fonts/SourceCodePro-BoldIt.ttf");
+      registerFont("/fonts/FiraCode-Regular.ttf");
+      registerFont("/fonts/FiraCode-Bold.ttf");
+      registerFont("/fonts/FiraCode-Light.ttf");
+      registerFont("/fonts/FiraCode-Medium.ttf");
+      registerFont("/fonts/FiraCode-Retina.ttf");
     }
   }
 
@@ -214,14 +219,16 @@ public class AppUIUtil {
   }
 
   public static void showPrivacyPolicy() {
-    Pair<PrivacyPolicy.Version, String> policy = PrivacyPolicy.getContent();
-    if (!PrivacyPolicy.isVersionAccepted(policy.getFirst())) {
-      try {
-        SwingUtilities.invokeAndWait(() -> showPrivacyPolicyAgreement(policy.getSecond()));
-        PrivacyPolicy.setVersionAccepted(policy.getFirst());
-      }
-      catch (Exception e) {
-        Logger.getInstance(AppUIUtil.class).warn(e);
+    if (ApplicationInfoImpl.getShadowInstance().isVendorJetBrains()) {
+      Pair<PrivacyPolicy.Version, String> policy = PrivacyPolicy.getContent();
+      if (!PrivacyPolicy.isVersionAccepted(policy.getFirst())) {
+        try {
+          SwingUtilities.invokeAndWait(() -> showPrivacyPolicyAgreement(policy.getSecond()));
+          PrivacyPolicy.setVersionAccepted(policy.getFirst());
+        }
+        catch (Exception e) {
+          Logger.getInstance(AppUIUtil.class).warn(e);
+        }
       }
     }
   }
@@ -284,7 +291,7 @@ public class AppUIUtil {
           System.exit(Main.PRIVACY_POLICY_REJECTION);
         }
         else {
-          ((ApplicationImpl)application).exit(true, true, false, false);
+          ((ApplicationImpl)application).exit(true, true, false);
         }
       }
     };

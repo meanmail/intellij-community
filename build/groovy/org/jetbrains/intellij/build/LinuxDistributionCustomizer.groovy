@@ -15,9 +15,12 @@
  */
 package org.jetbrains.intellij.build
 
+import groovy.transform.CompileStatic
+
 /**
  * @author nik
  */
+@CompileStatic
 abstract class LinuxDistributionCustomizer {
   /**
    * Path to a 128x128 png product icon for Linux distribution
@@ -30,13 +33,20 @@ abstract class LinuxDistributionCustomizer {
   List<String> extraExecutables = []
 
   /**
+   * If {@code true} a separate *-no-jdk.tar.gz artifact without JRE will be produced
+   */
+  boolean buildTarGzWithoutBundledJre = true
+
+  /**
    * Name of the root directory inside linux .tar.gz archive
    */
-  abstract String rootDirectoryName(String buildNumber)
+  String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
+    "${applicationInfo.productName}-${applicationInfo.isEAP ? buildNumber : applicationInfo.fullVersion}"
+  }
 
   /**
    * Override this method to copy additional files to Linux distribution of the product.
-   * @param targetDirectory contents of this directory will be packed into .tar.gz archive under {@link #rootDirectoryName(java.lang.String)}
+   * @param targetDirectory contents of this directory will be packed into .tar.gz archive under {@link #rootDirectoryName(ApplicationInfoProperties, String)}
    */
   void copyAdditionalFiles(BuildContext context, String targetDirectory) {}
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,6 +35,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.HyperlinkLabel;
 import com.intellij.ui.TextFieldWithHistory;
 import com.intellij.ui.TextFieldWithHistoryWithBrowseButton;
+import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.util.Consumer;
 import com.intellij.util.NotNullProducer;
 import com.intellij.util.ObjectUtils;
@@ -429,7 +430,7 @@ public class SwingHelper {
     fileChooserDescriptor = fileChooserDescriptor.withShowHiddenFiles(SystemInfo.isUnix);
     componentWithBrowseButton.addBrowseFolderListener(
       project,
-      new ComponentWithBrowseButton.BrowseFolderActionListener<T>(
+      new ComponentWithBrowseButton.BrowseFolderActionListener<>(
         browseDialogTitle,
         null,
         componentWithBrowseButton,
@@ -476,7 +477,7 @@ public class SwingHelper {
     List<String> toCheck = Arrays.asList("a", "h1", "h2", "h3", "h4");
     Document document = view.getDocument();
     if (document instanceof HTMLDocument) {
-      List<Element> list = new ArrayList<Element>();
+      List<Element> list = new ArrayList<>();
       for (Element root : document.getRootElements()) {
         getAllElements(root, list, toCheck);
       }
@@ -630,7 +631,7 @@ public class SwingHelper {
       textPane.setBackground(background);
     }
     else {
-      textPane.setOpaque(false);
+      NonOpaquePanel.setTransparent(textPane);
     }
     textPane.setForeground(foreground != null ? foreground : UIUtil.getLabelForeground());
     textPane.setFocusable(false);
@@ -673,7 +674,7 @@ public class SwingHelper {
   public static <C extends JComponent> ComponentWithBrowseButton<C> wrapWithInfoButton(@NotNull final C component,
                                                                                        @NotNull String infoButtonTooltip,
                                                                                        @NotNull ActionListener listener) {
-    ComponentWithBrowseButton<C> comp = new ComponentWithBrowseButton<C>(component, listener);
+    ComponentWithBrowseButton<C> comp = new ComponentWithBrowseButton<>(component, listener);
     FixedSizeButton uiHelpButton = comp.getButton();
     uiHelpButton.setToolTipText(infoButtonTooltip);
     uiHelpButton.setIcon(UIUtil.getBalloonInformationIcon());
