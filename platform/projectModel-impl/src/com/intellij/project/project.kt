@@ -16,13 +16,23 @@
 package com.intellij.project
 
 import com.intellij.openapi.components.StorageScheme
+import com.intellij.openapi.components.impl.stores.IComponentStore
 import com.intellij.openapi.components.impl.stores.IProjectStore
 import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 
 val Project.isDirectoryBased: Boolean
   get() {
-  val store = stateStore
-  return store is IProjectStore && StorageScheme.DIRECTORY_BASED == store.storageScheme
-}
+    val store = stateStore
+    return store is IProjectStore && StorageScheme.DIRECTORY_BASED == store.storageScheme
+  }
 
+val Project.stateStore: IProjectStore
+  get() {
+    return picoContainer.getComponentInstance(IComponentStore::class.java) as IProjectStore
+  }
+
+fun getProjectStoreDirectory(file: VirtualFile): VirtualFile? {
+  return if (file.isDirectory) file.findChild(Project.DIRECTORY_STORE_FOLDER) else null
+}

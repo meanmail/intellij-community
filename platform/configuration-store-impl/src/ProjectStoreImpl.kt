@@ -47,6 +47,7 @@ import com.intellij.util.containers.forEachGuaranteed
 import com.intellij.util.containers.isNullOrEmpty
 import com.intellij.util.io.*
 import com.intellij.util.lang.CompoundRuntimeException
+import com.intellij.util.text.nullize
 import org.jdom.Element
 import java.io.File
 import java.io.IOException
@@ -217,6 +218,22 @@ abstract class ProjectStoreBase(override final val project: ProjectImpl) : Compo
       }
     }
   }
+
+  override fun isProjectFile(file: VirtualFile): Boolean {
+    if (!file.isInLocalFileSystem) {
+      return false
+    }
+
+    val filePath = file.path
+    if (!isDirectoryBased) {
+      return filePath == projectFilePath || filePath == workspaceFilePath
+    }
+    return FileUtil.isAncestor(PathUtilRt.getParentPath(projectFilePath), filePath, false)
+  }
+
+  override fun getDirectoryStorePath(ignoreProjectStorageScheme: Boolean) = if (!ignoreProjectStorageScheme && !isDirectoryBased) null else PathUtilRt.getParentPath(projectFilePath).nullize()
+
+  override fun getDirectoryStoreFile() = directoryStorePath?.let { LocalFileSystem.getInstance().findFileByPath(it) }
 }
 
 private open class ProjectStoreImpl(project: ProjectImpl, private val pathMacroManager: PathMacroManager) : ProjectStoreBase(project) {

@@ -17,6 +17,7 @@ package com.intellij.openapi.components.impl.stores;
 
 import com.intellij.openapi.components.StorageScheme;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,4 +53,19 @@ public interface IProjectStore extends IComponentStore {
   boolean isOptimiseTestLoadSpeed();
 
   void setOptimiseTestLoadSpeed(boolean optimiseTestLoadSpeed);
+
+  boolean isProjectFile(@NotNull VirtualFile file);
+
+  @Nullable
+  VirtualFile getDirectoryStoreFile();
+
+  @Nullable
+  String getDirectoryStorePath(boolean ignoreProjectStorageScheme);
+
+  /**
+   * Return null for not directory-based project
+   */
+  default String getDirectoryStorePath() {
+    return getDirectoryStorePath(false);
+  }
 }
