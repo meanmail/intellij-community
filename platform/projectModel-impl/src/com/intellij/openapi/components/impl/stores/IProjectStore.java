@@ -56,6 +56,9 @@ public interface IProjectStore extends IComponentStore {
 
   boolean isProjectFile(@NotNull VirtualFile file);
 
+  /**
+   * Directory of project configuration files for directory-based project. Or null.
+   */
   @Nullable
   VirtualFile getDirectoryStoreFile();
 
@@ -63,9 +66,12 @@ public interface IProjectStore extends IComponentStore {
   String getDirectoryStorePath(boolean ignoreProjectStorageScheme);
 
   /**
-   * Return null for not directory-based project
+   * Directory of project configuration files for directory-based project. Or null.
    */
   default String getDirectoryStorePath() {
     return getDirectoryStorePath(false);
   }
+
+  @NotNull
+  String getDirectoryStorePathOrBase();
 }

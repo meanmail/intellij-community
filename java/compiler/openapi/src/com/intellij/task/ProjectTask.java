@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,14 +13,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.intellij.ide.util.gotoByName;
+package com.intellij.task;
 
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Set;
-import java.util.SortedSet;
-
-public interface EdtSortingModel {
+/**
+ * An {@link ProjectTask} represents a single atomic piece of work for IDE workflow, such as 'Make Project' or run configurations.
+ *
+ * @author Vladislav.Soroka
+ * @since 7/13/2016
+ */
+public interface ProjectTask {
   @NotNull
-  SortedSet<Object> sort(@NotNull Set<Object> elements);
+  String getPresentableName();
 }
