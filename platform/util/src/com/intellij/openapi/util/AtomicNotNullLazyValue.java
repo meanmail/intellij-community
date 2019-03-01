@@ -29,26 +29,30 @@ public abstract class AtomicNotNullLazyValue<T> extends NotNullLazyValue<T> {
   @NotNull
   public final T getValue() {
     T value = myValue;
-    if (value != null) {
-      return value;
-    }
-    //noinspection SynchronizeOnThis
-    synchronized (this) {
-      value = myValue;
-      if (value == null) {
-        RecursionGuard.StackStamp stamp = ourGuard.markStack();
-        value = compute();
-        if (stamp.mayCacheNow()) {
-          myValue = value;
+    if (value == null) {
+      //noinspection SynchronizeOnThis
+      synchronized (this) {
+        value = myValue;
+        if (value == null) {
+          RecursionGuard.StackStamp stamp = ourGuard.markStack();
+          value = compute();
+          if (stamp.mayCacheNow()) {
+            myValue = value;
+          }
         }
       }
     }
     return value;
   }
 
+  @Override
+  public boolean isComputed() {
+    return myValue != null;
+  }
+
   @SuppressWarnings("MethodOverridesStaticMethodOfSuperclass")
   @NotNull
-  public static <T> AtomicNotNullLazyValue<T> createValue(@NotNull final NotNullFactory<T> value) {
+  public static <T> AtomicNotNullLazyValue<T> createValue(@NotNull final NotNullFactory<? extends T> value) {
     return new AtomicNotNullLazyValue<T>() {
       @NotNull
       @Override

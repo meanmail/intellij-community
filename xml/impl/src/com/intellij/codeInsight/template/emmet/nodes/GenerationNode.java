@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.codeInsight.template.emmet.nodes;
 
 import com.google.common.base.Strings;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.application.options.emmet.EmmetOptions;
 import com.intellij.codeInsight.template.CustomTemplateCallback;
 import com.intellij.codeInsight.template.LiveTemplateBuilder;
@@ -28,30 +29,24 @@ import com.intellij.codeInsight.template.emmet.generators.XmlZenCodingGeneratorI
 import com.intellij.codeInsight.template.emmet.generators.ZenCodingGenerator;
 import com.intellij.codeInsight.template.emmet.tokens.TemplateToken;
 import com.intellij.codeInsight.template.impl.TemplateImpl;
-import com.intellij.injected.editor.DocumentWindowImpl;
-import com.intellij.lang.html.HTMLLanguage;
+import com.intellij.injected.editor.DocumentWindow;
 import com.intellij.lang.xml.XMLLanguage;
-import com.intellij.openapi.command.undo.UndoConstants;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.XmlElementFactory;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.LocalTimeCounter;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
-import com.intellij.util.containers.HashSet;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NotNull;
@@ -117,7 +112,7 @@ public class GenerationNode extends UserDataHolderBase {
     myChildren.add(child);
   }
 
-  public void addChildren(Collection<GenerationNode> children) {
+  public void addChildren(Collection<? extends GenerationNode> children) {
     for (GenerationNode child : children) {
       addChild(child);
     }
@@ -129,13 +124,9 @@ public class GenerationNode extends UserDataHolderBase {
 
   private boolean isBlockTag() {
     if (myTemplateToken != null) {
-      XmlFile xmlFile = myTemplateToken.getFile();
-      XmlDocument document = xmlFile.getDocument();
-      if (document != null) {
-        XmlTag tag = document.getRootTag();
-        if (tag != null) {
-          return HtmlUtil.isHtmlBlockTagL(tag.getName());
-        }
+      XmlTag tag = myTemplateToken.getXmlTag();
+      if (tag != null) {
+        return HtmlUtil.isHtmlBlockTagL(tag.getName());
       }
     }
     return false;
@@ -163,12 +154,12 @@ public class GenerationNode extends UserDataHolderBase {
       }
     }
 
-    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(callback.getProject());
+    CodeStyleSettings settings = CodeStyle.getSettings(callback.getFile());
     String indentStr;
     if (callback.isInInjectedFragment()) {
       Editor editor = callback.getEditor();
       Document document = editor.getDocument();
-      if (document instanceof DocumentWindowImpl && ((DocumentWindowImpl)document).isOneLine()) {
+      if (document instanceof DocumentWindow && ((DocumentWindow)document).isOneLine()) {
         /* 
          * If document is one-line that in the moment of inserting text,
          * new line chars will be filtered (see DocumentWindowImpl#insertString).
@@ -273,21 +264,16 @@ public class GenerationNode extends UserDataHolderBase {
                                          CustomTemplateCallback callback,
                                          @Nullable ZenCodingGenerator generator,
                                          final boolean hasChildren) {
-    /*assert generator == null || generator instanceof XmlZenCodingGenerator :
-      "The generator cannot process TemplateToken because it doesn't inherit XmlZenCodingGenerator";*/
-
     ZenCodingGenerator zenCodingGenerator = ObjectUtils.notNull(generator, XmlZenCodingGeneratorImpl.INSTANCE);
     
     Map<String, String> attributes = token.getAttributes();
     TemplateImpl template = token.getTemplate();
     assert template != null;
-
-    final XmlFile xmlFile = token.getFile();
-    PsiFileFactory fileFactory = PsiFileFactory.getInstance(xmlFile.getProject());
-    XmlFile dummyFile = (XmlFile)fileFactory.createFileFromText("dummy.html", HTMLLanguage.INSTANCE, xmlFile.getText(), false, true);
-    final XmlTag tag = dummyFile.getRootTag();
+    
+    PsiFileFactory fileFactory = PsiFileFactory.getInstance(callback.getProject());
+    PsiFile dummyFile = fileFactory.createFileFromText("dummy.html", callback.getFile().getLanguage(), token.getTemplateText(), false, true);
+    XmlTag tag = PsiTreeUtil.findChildOfType(dummyFile, XmlTag.class);
     if (tag != null) {
-
       // autodetect href
       if (EmmetOptions.getInstance().isHrefAutoDetectEnabled() && StringUtil.isNotEmpty(mySurroundedText)) {
         final boolean isEmptyLinkTag = "a".equalsIgnoreCase(tag.getName()) && isEmptyValue(tag.getAttributeValue("href"));
@@ -310,12 +296,7 @@ public class GenerationNode extends UserDataHolderBase {
       }
       XmlTag tag1 = hasChildren ? expandEmptyTagIfNecessary(tag) : tag;
       setAttributeValues(tag1, attributes, callback, zenCodingGenerator.isHtml(callback));
-      XmlFile physicalFile = (XmlFile)fileFactory.createFileFromText(HTMLLanguage.INSTANCE, tag1.getContainingFile().getText());
-      VirtualFile vFile = physicalFile.getVirtualFile();
-      if (vFile != null) {
-        vFile.putUserData(UndoConstants.DONT_RECORD_UNDO, Boolean.TRUE);
-      }
-      token.setFile(physicalFile);
+      token.setTemplateText(tag1.getContainingFile().getText(), callback);
     }
     template = zenCodingGenerator.generateTemplate(token, hasChildren, callback.getContext());
     removeVariablesWhichHasNoSegment(template);
@@ -458,18 +439,15 @@ public class GenerationNode extends UserDataHolderBase {
       // exclude user defined attributes
       final List<XmlAttribute> xmlAttributes = ContainerUtil.filter(tag.getAttributes(),
                                                                     attribute -> !attributes.containsKey(attribute.getLocalName()));
-      XmlAttribute defaultAttribute = findDefaultAttribute(xmlAttributes);
-      if (defaultAttribute == null) {
-        defaultAttribute = findImpliedAttribute(xmlAttributes);
-      }
+      XmlAttribute defaultAttribute = findImpliedAttribute(xmlAttributes);
       if (defaultAttribute == null) {
         defaultAttribute = findEmptyAttribute(xmlAttributes);
       }
       if (defaultAttribute != null) {
         String attributeName = defaultAttribute.getName();
         if (attributeName.length() > 1) {
-          if (isImpliedAttribute(attributeName) || isDefaultAttribute(attributeName)) {
-            defaultAttribute.setName(attributeName.substring(1));
+          if (isImpliedAttribute(attributeName)) {
+            defaultAttribute = (XmlAttribute)defaultAttribute.setName(attributeName.substring(1));
           }
           final String oldValue = defaultAttribute.getValue();
           if (oldValue != null && StringUtil.containsChar(oldValue, '|')) {
@@ -524,7 +502,7 @@ public class GenerationNode extends UserDataHolderBase {
     // remove all implicit and default attributes
     for (XmlAttribute xmlAttribute : tag.getAttributes()) {
       final String xmlAttributeLocalName = xmlAttribute.getLocalName();
-      if (xmlAttribute.getValue() != null && (isImpliedAttribute(xmlAttributeLocalName) || isDefaultAttribute(xmlAttributeLocalName))) {
+      if (xmlAttribute.getValue() != null && isImpliedAttribute(xmlAttributeLocalName)) {
         xmlAttribute.delete();
       }
     }
@@ -543,10 +521,6 @@ public class GenerationNode extends UserDataHolderBase {
     return false;
   }
 
-  private static boolean isDefaultAttribute(String xmlAttributeLocalName) {
-    return StringUtil.startsWithChar(xmlAttributeLocalName, '@');
-  }
-
   private static boolean isImpliedAttribute(String xmlAttributeLocalName) {
     return StringUtil.startsWithChar(xmlAttributeLocalName, '!');
   }
@@ -556,17 +530,7 @@ public class GenerationNode extends UserDataHolderBase {
   }
 
   @Nullable
-  private static XmlAttribute findDefaultAttribute(@NotNull List<XmlAttribute> attributes) {
-    for (XmlAttribute attribute : attributes) {
-      if (attribute.getValueElement() != null && isDefaultAttribute(attribute.getLocalName())) {
-        return attribute;
-      }
-    }
-    return null;
-  }
-
-  @Nullable
-  private static XmlAttribute findImpliedAttribute(@NotNull List<XmlAttribute> attributes) {
+  private static XmlAttribute findImpliedAttribute(@NotNull List<? extends XmlAttribute> attributes) {
     for (XmlAttribute attribute : attributes) {
       if (attribute.getValueElement() != null && isImpliedAttribute(attribute.getLocalName())) {
         return attribute;
@@ -576,7 +540,7 @@ public class GenerationNode extends UserDataHolderBase {
   }
 
   @Nullable
-  private static XmlAttribute findEmptyAttribute(@NotNull List<XmlAttribute> attributes) {
+  private static XmlAttribute findEmptyAttribute(@NotNull List<? extends XmlAttribute> attributes) {
     for (XmlAttribute attribute : attributes) {
       final String attributeValue = attribute.getValue();
       if (isEmptyValue(attributeValue)) {

@@ -29,7 +29,6 @@ import java.util.Vector;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 7/20/12
  */
 @SuppressWarnings("UseOfObsoleteCollectionType")
 public class XMLCatalogManagerTest extends LightPlatformCodeInsightFixtureTestCase {
@@ -44,13 +43,13 @@ public class XMLCatalogManagerTest extends LightPlatformCodeInsightFixtureTestCa
     assertTrue(filePath, new File(new URI(filePath)).exists());
   }
 
-  public void testResolvePublic() throws Exception {
+  public void testResolvePublic() {
     String resolve = getManager().resolve("-//W3C//DTD XHTML 1.0 Strict//EN");
     assertNotNull(resolve);
     assertTrue(resolve, resolve.endsWith("/catalog/xhtml1-strict.dtd"));
   }
 
-  public void testResolveSystem() throws Exception {
+  public void testResolveSystem() {
     String resolve = getManager().resolve("http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd");
     assertNotNull(resolve);
     assertTrue(resolve, resolve.endsWith("/catalog/xhtml1-strict.dtd"));
@@ -59,10 +58,18 @@ public class XMLCatalogManagerTest extends LightPlatformCodeInsightFixtureTestCa
   public void testHighlighting() {
     myFixture.configureByFile("policy.xml");
     List<HighlightInfo> infos = myFixture.doHighlighting();
-    assertEquals("urn:oasis:names:tc:xacml:1.0:policy", infos.get(0).getText());
+    assertSize(27, infos);
+    String expectedUrn = "urn:oasis:names:tc:xacml:1.0:policy";
+    boolean hasUrn = false;
+    for (HighlightInfo info : infos) {
+      String text = info.getText();
+      assertOneOf(text, "x", expectedUrn);
+      hasUrn |= expectedUrn.equals(text);
+    }
+    assertTrue(hasUrn);
   }
 
-  public void testFixedHighlighting() throws Exception {
+  public void testFixedHighlighting() {
     myFixture.configureByFile("policy.xml");
     try {
       ExternalResourceManagerEx.getInstanceEx().setCatalogPropertiesFile(getTestDataPath() + "catalog.properties");
@@ -73,7 +80,7 @@ public class XMLCatalogManagerTest extends LightPlatformCodeInsightFixtureTestCa
     }
   }
 
-  public void testConfigurable() throws Exception {
+  public void testConfigurable() {
     assertFalse(new XMLCatalogConfigurable().isModified());
   }
 

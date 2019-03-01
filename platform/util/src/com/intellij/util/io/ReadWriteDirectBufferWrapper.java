@@ -58,14 +58,22 @@ public class ReadWriteDirectBufferWrapper extends DirectBufferWrapper {
 
     FileContext(final File file) throws IOException {
       myFile = FileUtilRt.doIOOperation(new FileUtilRt.RepeatableIOOperation<RandomAccessFile, IOException>() {
+        boolean parentWasCreated;
         @Nullable
         @Override
         public RandomAccessFile execute(boolean finalAttempt) throws IOException {
           try {
             return new RandomAccessFile(file, RW);
           } catch (FileNotFoundException ex) {
-            if (!file.getParentFile().exists()) {
-              throw new IOException("Parent file doesn't exist:" + file);
+            final File parentFile = file.getParentFile();
+            
+            if (!parentFile.exists()) {
+              if (!parentWasCreated) {
+                parentFile.mkdirs();
+                parentWasCreated = true;
+              } else {
+                throw new IOException("Parent file still doesn't exist:" + file);
+              }
             }
             if (!finalAttempt) return null;
             throw ex;

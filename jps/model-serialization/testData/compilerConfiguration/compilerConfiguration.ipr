@@ -39,6 +39,10 @@
     <option name="DEPRECATION" value="false" />
     <option name="ADDITIONAL_OPTIONS_STRING" value="-Xlint" />
     <option name="MAXIMUM_HEAP_SIZE" value="512" />
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="mod_1" options="-param_1" />
+      <module name="mod_2" options="-param_2" />
+    </option>
   </component>
   <component name="ProjectModuleManager">
     <modules>
@@ -50,6 +54,15 @@
   </component>
   <component name="ProjectRootManager" version="2" languageLevel="JDK_1_6" assert-keyword="true" jdk-15="true" project-jdk-name="1.6" project-jdk-type="JavaSDK">
     <output url="file://$PROJECT_DIR$/out" />
+  </component>
+  <component name="ValidationConfiguration">
+    <option name="VALIDATE_ON_BUILD" value="true" />
+    <option name="VALIDATORS">
+      <map>
+        <entry key="Hibernate Validator" value="false" />
+        <entry key="Jasper Validator" value="true" />
+      </map>
+    </option>
   </component>
 </project>
 

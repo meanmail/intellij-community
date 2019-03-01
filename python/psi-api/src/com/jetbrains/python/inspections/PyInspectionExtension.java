@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
@@ -31,7 +17,22 @@ import java.util.List;
 public abstract class PyInspectionExtension {
   public static final ExtensionPointName<PyInspectionExtension> EP_NAME = ExtensionPointName.create("Pythonid.inspectionExtension");
 
+  public boolean ignoreUnused(PsiElement local, @NotNull TypeEvalContext evalContext) {
+    @SuppressWarnings("deprecation")
+    final boolean result = ignoreUnused(local);
+    return result;
+  }
+
+  /**
+   * @deprecated  use {@link #ignoreUnused(PsiElement, TypeEvalContext)} instead.
+   * Will be removed in 2019.2
+   */
+  @Deprecated
   public boolean ignoreUnused(PsiElement local) {
+    return false;
+  }
+
+  public boolean ignoreShadowed(@NotNull final PsiElement element) {
     return false;
   }
 
@@ -43,19 +44,48 @@ public abstract class PyInspectionExtension {
     return null;
   }
 
+  /**
+   * @deprecated Use {@link PyInspectionExtension#ignoreMethodParameters(PyFunction, TypeEvalContext)} instead.
+   * This method will be removed in 2019.2.
+   */
+  @Deprecated
   public boolean ignoreMethodParameters(@NotNull PyFunction function) {
     return false;
+  }
+
+  /**
+   * @param function function that is inspecting in {@link com.jetbrains.python.inspections.PyMethodParametersInspection}
+   * @param context  type evaluation context
+   * @return true if the passed function could be ignored
+   */
+  public boolean ignoreMethodParameters(@NotNull PyFunction function, @NotNull TypeEvalContext context) {
+    return ignoreMethodParameters(function);
   }
 
   public boolean ignorePackageNameInRequirements(@NotNull PyQualifiedExpression importedExpression) {
     return false;
   }
 
-  public boolean ignoreUnresolvedReference(@NotNull PyElement node, @NotNull PsiReference reference) {
+  /**
+   * Checks if unresolved reference could be ignored.
+   *
+   * @param node      element containing reference
+   * @param reference unresolved reference
+   * @return true if the unresolved reference could be ignored
+   */
+  public boolean ignoreUnresolvedReference(@NotNull PyElement node, @NotNull PsiReference reference, @NotNull TypeEvalContext context) {
     return false;
   }
 
-  public boolean ignoreUnresolvedMember(@NotNull PyType type, @NotNull String name) {
+  /**
+   * Checks if unresolved member could be ignored.
+   *
+   * @param type    type whose member will be checked
+   * @param name    member name
+   * @param context type evaluation context
+   * @return true if the unresolved member with the specified name could be ignored
+   */
+  public boolean ignoreUnresolvedMember(@NotNull PyType type, @NotNull String name, @NotNull TypeEvalContext context) {
     return false;
   }
 
@@ -67,6 +97,30 @@ public abstract class PyInspectionExtension {
    * @return true if ignore
    */
   public boolean ignoreProtectedSymbol(@NotNull final PyReferenceExpression expression, @NotNull final TypeEvalContext context) {
+    return false;
+  }
+
+  public boolean ignoreInitNewSignatures(@NotNull PyFunction original, @NotNull PyFunction complementary) {
+    return false;
+  }
+
+  /**
+   * Checks whether statement that probably has no effect should not be treated as violation.
+   *
+   * @param expressionStatement statement being analyzed
+   * @return true if no effect statement should be ignored
+   */
+  public boolean ignoreNoEffectStatement(@NotNull PyExpressionStatement expressionStatement) {
+    return false;
+  }
+
+  /**
+   * Checks whether statement with trailing semicolon should not be treated as violation.
+   *
+   * @param statement statement being analyzed
+   * @return true if trailing semicolon should be ignored
+   */
+  public boolean ignoreTrailingSemicolon(@NotNull PyStatement statement) {
     return false;
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.debugger.engine.evaluation.expression;
 
@@ -22,6 +8,7 @@ import com.intellij.debugger.engine.DebuggerUtils;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
+import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.sun.jdi.*;
 
@@ -31,18 +18,19 @@ import java.util.Arrays;
 class NewArrayInstanceEvaluator implements Evaluator {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.evaluation.expression.NewArrayInstanceEvaluator");
   private final Evaluator myArrayTypeEvaluator;
-  private Evaluator myDimensionEvaluator = null;
-  private Evaluator myInitializerEvaluator = null;
+  private final Evaluator myDimensionEvaluator;
+  private final Evaluator myInitializerEvaluator;
 
   /**
    * either dimensionEvaluator or initializerEvaluators must be null!
    */
-  public NewArrayInstanceEvaluator(Evaluator arrayTypeEvaluator, Evaluator dimensionEvaluator, Evaluator initializerEvaluator) {
+  NewArrayInstanceEvaluator(Evaluator arrayTypeEvaluator, Evaluator dimensionEvaluator, Evaluator initializerEvaluator) {
     myArrayTypeEvaluator = arrayTypeEvaluator;
     myDimensionEvaluator = dimensionEvaluator;
     myInitializerEvaluator = initializerEvaluator;
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
 //    throw new EvaluateException("Creating new array instances is not supported yet", true);
     DebugProcessImpl debugProcess = context.getDebugProcess();
@@ -71,7 +59,7 @@ class NewArrayInstanceEvaluator implements Evaluator {
       initialValues = (Object[])o;
       dimension = initialValues.length;
     }
-    ArrayReference arrayReference = debugProcess.newInstance(arrayType, dimension);
+    ArrayReference arrayReference = DebuggerUtilsEx.mirrorOfArray(arrayType, dimension, context);
     if (initialValues != null && initialValues.length > 0) {
       if (LOG.isDebugEnabled()) {
         LOG.debug("Setting initial values: dimension = "+dimension + "; array size is "+initialValues.length);
@@ -89,15 +77,15 @@ class NewArrayInstanceEvaluator implements Evaluator {
         ArrayType componentType = (ArrayType)type.componentType();
         int length = arrayReference.length();
         for (int idx = 0; idx < length; idx++) {
-          ArrayReference componentArray = (ArrayReference)arrayReference.getValue(idx);
           Object value = values[idx];
           if (value instanceof Value) {
             arrayReference.setValue(idx, (Value)value);
           }
           else {
+            ArrayReference componentArray = (ArrayReference)arrayReference.getValue(idx);
             Object[] componentArrayValues = (Object[])value;
             if (componentArray == null) {
-              componentArray = debugProcess.newInstance(componentType, componentArrayValues.length);
+              componentArray = DebuggerUtilsEx.mirrorOfArray(componentType, componentArrayValues.length, context);
               arrayReference.setValue(idx, componentArray);
             }
             setInitialValues(componentArray, componentArrayValues, context);
@@ -115,16 +103,7 @@ class NewArrayInstanceEvaluator implements Evaluator {
       try {
         referenceType = context.isAutoLoadClasses()? debugProcess.loadClass(context, ex.className(), type.classLoader()) : null;
       }
-      catch (InvocationException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (ClassNotLoadedException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (IncompatibleThreadStateException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (InvalidTypeException e) {
+      catch (InvocationException | InvalidTypeException | IncompatibleThreadStateException | ClassNotLoadedException e) {
         throw EvaluateExceptionUtil.createEvaluateException(e);
       }
       if (referenceType != null) {

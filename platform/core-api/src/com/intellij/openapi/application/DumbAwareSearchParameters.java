@@ -16,15 +16,17 @@
 package com.intellij.openapi.application;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.util.QueryParameters;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * A marker interface for {@link QueryExecutorBase} parameters which indicates that searches should only be executed when indexing is complete.
  * The query executors that are not {@link com.intellij.openapi.project.DumbAware} are delayed in processing until index is ready.
- * 
+ *
  * @author peter
  */
-public interface DumbAwareSearchParameters {
+public interface DumbAwareSearchParameters extends QueryParameters {
+  @Override
   @NotNull
   Project getProject();
 }

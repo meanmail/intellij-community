@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,8 +45,9 @@ public class CodeBlockBlock extends AbstractJavaBlock {
                         Alignment alignment,
                         Indent indent,
                         CommonCodeStyleSettings settings,
-                        JavaCodeStyleSettings javaSettings) {
-    super(node, wrap, getAlignmentStrategy(alignment, node, settings), indent, settings, javaSettings);
+                        JavaCodeStyleSettings javaSettings,
+                        @NotNull FormattingMode formattingMode) {
+    super(node, wrap, getAlignmentStrategy(alignment, node, settings), indent, settings, javaSettings, formattingMode);
     if (isSwitchCodeBlock() && !settings.INDENT_CASE_FROM_SWITCH) {
       myChildrenIndent = 0;
     }
@@ -140,7 +141,7 @@ public class CodeBlockBlock extends AbstractJavaBlock {
   }
 
   @Nullable
-  private ASTNode processCaseAndStatementAfter(final List<Block> result,
+  private ASTNode processCaseAndStatementAfter(final List<? super Block> result,
                                                ASTNode child,
                                                final Alignment childAlignment,
                                                final Wrap childWrap,
@@ -239,21 +240,26 @@ public class CodeBlockBlock extends AbstractJavaBlock {
 
   private Indent calcCurrentIndent(final ASTNode child, final int state) {
     IElementType elementType = child.getElementType();
+
     if (isRBrace(child) || elementType == JavaTokenType.AT) {
       return Indent.getNoneIndent();
     }
 
-    if (state == BEFORE_FIRST) return Indent.getNoneIndent();
+    if (state == BEFORE_FIRST) {
+      return Indent.getNoneIndent();
+    }
 
     if (elementType == JavaElementType.SWITCH_LABEL_STATEMENT) {
       return getCodeBlockInternalIndent(myChildrenIndent);
     }
+
     if (state == BEFORE_LBRACE) {
       if (elementType == JavaTokenType.LBRACE
           || elementType == JavaTokenType.CLASS_KEYWORD
           || elementType == JavaTokenType.INTERFACE_KEYWORD
           || elementType == JavaTokenType.IDENTIFIER
           || elementType == JavaTokenType.ENUM_KEYWORD
+          || elementType == JavaTokenType.MODULE_KEYWORD
           || elementType == JavaElementType.MODULE_REFERENCE) {
         return Indent.getNoneIndent();
       }
@@ -262,12 +268,7 @@ public class CodeBlockBlock extends AbstractJavaBlock {
       }
     }
     else {
-      if (isRBrace(child)) {
-        return Indent.getNoneIndent();
-      }
-      else {
-        return getCodeBlockInternalIndent(myChildrenIndent);
-      }
+      return getCodeBlockInternalIndent(myChildrenIndent);
     }
   }
 

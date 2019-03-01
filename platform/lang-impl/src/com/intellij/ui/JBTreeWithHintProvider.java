@@ -27,17 +27,13 @@ import javax.swing.tree.TreeNode;
 
 /**
  * @author Konstantin Bulenkov
- * @deprecated
+ * @deprecated use HintUpdateSupply directly
  * @see HintUpdateSupply
  */
+@Deprecated
 public class JBTreeWithHintProvider extends DnDAwareTree {
   {
-    new HintUpdateSupply(this) {
-      @Override
-      protected PsiElement getPsiElementForHint(Object selectedValue) {
-        return JBTreeWithHintProvider.this.getPsiElementForHint(selectedValue);
-      }
-    };
+    HintUpdateSupply.installHintUpdateSupply(this, o -> getPsiElementForHint(o));
   }
 
   public JBTreeWithHintProvider() {

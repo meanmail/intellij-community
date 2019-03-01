@@ -1,29 +1,18 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.serialization;
 
+import com.intellij.application.options.PathMacrosImpl;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.testFramework.PlatformTestUtil;
 import org.jdom.Element;
 import org.jetbrains.jps.model.JpsEncodingConfigurationService;
 import org.jetbrains.jps.model.library.JpsLibrary;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
+
+import static com.intellij.testFramework.assertions.Assertions.assertThat;
 
 /**
  * @author nik
@@ -44,17 +33,17 @@ public class JpsGlobalSerializationTest extends JpsSerializationTestCase {
 
   public void testSaveSdksAndGlobalLibraries() {
     loadGlobalSettings(OPTIONS_DIR);
-    File targetOptionsDir = saveGlobalSettings();
-    File originalOptionsDir = new File(getTestDataFileAbsolutePath(OPTIONS_DIR));
+    Path targetOptionsDir = saveGlobalSettings();
+    Path originalOptionsDir = getTestDataAbsoluteFile(OPTIONS_DIR);
     assertOptionsFilesEqual(originalOptionsDir, targetOptionsDir, "jdk.table.xml");
     assertOptionsFilesEqual(originalOptionsDir, targetOptionsDir, "applicationLibraries.xml");
   }
 
-  private File saveGlobalSettings() {
+  private Path saveGlobalSettings() {
     try {
       File targetOptionsDir = FileUtil.createTempDirectory("options", null);
       JpsSerializationManager.getInstance().saveGlobalSettings(myModel.getGlobal(), targetOptionsDir.getAbsolutePath());
-      return targetOptionsDir;
+      return targetOptionsDir.toPath();
     }
     catch (IOException e) {
       throw new RuntimeException(e);
@@ -65,8 +54,8 @@ public class JpsGlobalSerializationTest extends JpsSerializationTestCase {
     loadGlobalSettings(OPTIONS_DIR);
     JpsPathVariablesConfiguration configuration = JpsModelSerializationDataService.getPathVariablesConfiguration(myModel.getGlobal());
     assertNotNull(configuration);
-    assertEquals("/home/nik/.m2/repository", configuration.getUserVariableValue("MAVEN_REPOSITORY"));
-    assertEquals(1, configuration.getAllUserVariables().size());
+    assertEquals("/home/nik/.m2/repository", configuration.getUserVariableValue(PathMacrosImpl.MAVEN_REPOSITORY));
+    assertThat(configuration.getAllUserVariables()).hasSize(1);
   }
 
   public void testSavePathVariables() {
@@ -74,21 +63,15 @@ public class JpsGlobalSerializationTest extends JpsSerializationTestCase {
     JpsPathVariablesConfiguration configuration = JpsModelSerializationDataService.getOrCreatePathVariablesConfiguration(myModel.getGlobal());
     configuration.addPathVariable("TOMCAT_HOME", "/home/nik/applications/tomcat");
 
-    File targetOptionsDir = saveGlobalSettings();
-    File originalOptionsDir = new File(getTestDataFileAbsolutePath(OPTIONS_DIR + "AfterChange"));
+    Path targetOptionsDir = saveGlobalSettings();
+    Path originalOptionsDir = getTestDataAbsoluteFile(OPTIONS_DIR + "AfterChange");
     assertOptionsFilesEqual(originalOptionsDir, targetOptionsDir, "path.macros.xml");
   }
 
-  private void assertOptionsFilesEqual(File originalOptionsDir, File targetOptionsDir, final String fileName) {
-    try {
-      JpsMacroExpander expander = new JpsMacroExpander(getPathVariables());
-      Element expected = JpsLoaderBase.loadRootElement(new File(originalOptionsDir, fileName), expander);
-      Element actual = JpsLoaderBase.loadRootElement(new File(targetOptionsDir, fileName), expander);
-      PlatformTestUtil.assertElementsEqual(expected, actual);
-    }
-    catch (IOException e) {
-      throw new RuntimeException(e);
-    }
+  private void assertOptionsFilesEqual(Path originalOptionsDir, Path targetOptionsDir, final String fileName) {
+    JpsMacroExpander expander = new JpsMacroExpander(getPathVariables());
+    Element actual = JpsLoaderBase.loadRootElement(targetOptionsDir.resolve(fileName), expander);
+    assertThat(actual).isEqualTo(JpsLoaderBase.loadRootElement(originalOptionsDir.resolve(fileName), expander));
   }
 
   public void testLoadEncoding() {

@@ -1,58 +1,72 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
 import com.intellij.AppTopics;
 import com.intellij.ProjectTopics;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.fileEditor.*;
+import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
+import com.intellij.openapi.fileEditor.FileDocumentManagerListener;
+import com.intellij.openapi.fileEditor.FileEditorManager;
+import com.intellij.openapi.fileEditor.FileEditorManagerListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.GeneratedSourcesFilter;
-import com.intellij.openapi.roots.ModuleRootAdapter;
 import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.util.Alarm;
+import com.intellij.util.SingleAlarm;
 import com.intellij.util.messages.MessageBusConnection;
-import com.intellij.util.ui.update.MergingUpdateQueue;
-import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 
 import java.util.*;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author nik
  */
-public class GeneratedSourceFileChangeTrackerImpl extends GeneratedSourceFileChangeTracker {
+public class GeneratedSourceFileChangeTrackerImpl extends GeneratedSourceFileChangeTracker implements ProjectComponent, Disposable {
+  private final Project myProject;
   private final FileDocumentManager myDocumentManager;
   private final EditorNotifications myEditorNotifications;
-  private final MergingUpdateQueue myCheckingQueue;
-  private final Set<VirtualFile> myFilesToCheck = Collections.synchronizedSet(new HashSet<VirtualFile>());
-  private final Set<VirtualFile> myEditedGeneratedFiles = Collections.synchronizedSet(new HashSet<VirtualFile>());
+  private final SingleAlarm myCheckingQueue;
+  private final Set<VirtualFile> myFilesToCheck = Collections.synchronizedSet(new HashSet<>());
+  private final Set<VirtualFile> myEditedGeneratedFiles = Collections.synchronizedSet(new HashSet<>());
+  public static boolean IN_TRACKER_TEST;
 
   public GeneratedSourceFileChangeTrackerImpl(Project project, FileDocumentManager documentManager, EditorNotifications editorNotifications) {
-    super(project);
+    myProject = project;
     myDocumentManager = documentManager;
     myEditorNotifications = editorNotifications;
-    myCheckingQueue = new MergingUpdateQueue("Checking for changes in generated sources", 500, false, null, project, null, Alarm.ThreadToUse.POOLED_THREAD);
+    myCheckingQueue = new SingleAlarm(this::checkFiles, 500, Alarm.ThreadToUse.POOLED_THREAD, this);
+  }
+
+  @Override
+  public void dispose() {
+  }
+
+  @TestOnly
+  void waitForAlarm(long timeout, @NotNull TimeUnit timeUnit) throws Exception {
+    if (ApplicationManager.getApplication().isWriteAccessAllowed()) {
+      throw new IllegalStateException("Must not wait for the alarm under write action");
+    }
+    myCheckingQueue.waitForAllExecuted(timeout, timeUnit);
+  }
+
+  @TestOnly
+  public void cancelAllAndWait(long timeout, @NotNull TimeUnit timeUnit) throws Exception {
+    myFilesToCheck.clear();
+    myCheckingQueue.cancelAllRequests();
+    waitForAlarm(timeout, timeUnit);
   }
 
   @Override
@@ -62,24 +76,21 @@ public class GeneratedSourceFileChangeTrackerImpl extends GeneratedSourceFileCha
 
   @Override
   public void projectOpened() {
-    final Update check = new Update("check for changes in generated files") {
+    if (ApplicationManager.getApplication().isUnitTestMode() && !IN_TRACKER_TEST) return; // too many useless listeners which slow down tests and leak threads
+    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(new DocumentListener() {
       @Override
-      public void run() {
-        checkFiles();
-      }
-    };
-    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(new DocumentAdapter() {
-      @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
+        if (myProject.isDisposed()) return;
         VirtualFile file = myDocumentManager.getFile(e.getDocument());
-        if (file != null) {
+        ProjectFileIndex fileIndex = ProjectFileIndex.getInstance(myProject);
+        if (file != null && (fileIndex.isInContent(file) || fileIndex.isInLibrary(file))) {
           myFilesToCheck.add(file);
-          myCheckingQueue.queue(check);
+          myCheckingQueue.cancelAndRequest();
         }
       }
     }, myProject);
     MessageBusConnection connection = myProject.getMessageBus().connect();
-    connection.subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerAdapter() {
+    connection.subscribe(AppTopics.FILE_DOCUMENT_SYNC, new FileDocumentManagerListener() {
       @Override
       public void fileContentReloaded(@NotNull VirtualFile file, @NotNull Document document) {
         myFilesToCheck.remove(file);
@@ -88,45 +99,38 @@ public class GeneratedSourceFileChangeTrackerImpl extends GeneratedSourceFileCha
         }
       }
     });
-    connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerAdapter() {
+    connection.subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, new FileEditorManagerListener() {
       @Override
       public void fileClosed(@NotNull FileEditorManager source, @NotNull VirtualFile file) {
         myEditedGeneratedFiles.remove(file);
       }
     });
-    connection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    connection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         myFilesToCheck.addAll(myEditedGeneratedFiles);
         myEditedGeneratedFiles.clear();
-        myCheckingQueue.queue(check);
+        myCheckingQueue.cancelAndRequest();
       }
     });
-    myCheckingQueue.activate();
-  }
-
-  @Override
-  public void projectClosed() {
-    myCheckingQueue.deactivate();
   }
 
   private void checkFiles() {
     final VirtualFile[] files;
     synchronized (myFilesToCheck) {
-      files = myFilesToCheck.toArray(new VirtualFile[myFilesToCheck.size()]);
+      files = myFilesToCheck.toArray(VirtualFile.EMPTY_ARRAY);
       myFilesToCheck.clear();
     }
+    if (files.length == 0) return;
     final List<VirtualFile> newEditedGeneratedFiles = new ArrayList<>();
-    new ReadAction() {
-      protected void run(final @NotNull Result result) {
-        if (myProject.isDisposed()) return;
-        for (VirtualFile file : files) {
-          if (GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(file, myProject)) {
-            newEditedGeneratedFiles.add(file);
-          }
+    ReadAction.run(() -> {
+      if (myProject.isDisposed()) return;
+      for (VirtualFile file : files) {
+        if (GeneratedSourcesFilter.isGeneratedSourceByAnyFilter(file, myProject)) {
+          newEditedGeneratedFiles.add(file);
         }
       }
-    }.execute();
+    });
 
     if (!newEditedGeneratedFiles.isEmpty()) {
       myEditedGeneratedFiles.addAll(newEditedGeneratedFiles);

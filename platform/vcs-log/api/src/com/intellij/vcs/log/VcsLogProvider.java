@@ -1,11 +1,16 @@
 package com.intellij.vcs.log;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBus;
+import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -17,6 +22,7 @@ import java.util.Set;
  * Provides the information needed to build the VCS log, such as the list of most recent commits with their parents.
  */
 public interface VcsLogProvider {
+  ExtensionPointName<VcsLogProvider> LOG_PROVIDER_EP = ExtensionPointName.create("com.intellij.logProvider");
 
   /**
    * Reads the most recent commits from the log together with all repository references.<br/>
@@ -38,26 +44,68 @@ public interface VcsLogProvider {
    * @return all references and all authors in the repository.
    */
   @NotNull
-  LogData readAllHashes(@NotNull VirtualFile root, @NotNull Consumer<TimedVcsCommit> commitConsumer) throws VcsException;
+  LogData readAllHashes(@NotNull VirtualFile root, @NotNull Consumer<? super TimedVcsCommit> commitConsumer) throws VcsException;
 
   /**
    * Reads full details of all commits in the repository.
    * <p/>
    * Reports commits to the consumer to avoid creation & even temporary storage of a too large commits collection.
    */
-  void readAllFullDetails(@NotNull VirtualFile root, @NotNull Consumer<VcsFullCommitDetails> commitConsumer) throws VcsException;
+  void readAllFullDetails(@NotNull VirtualFile root, @NotNull Consumer<? super VcsFullCommitDetails> commitConsumer) throws VcsException;
+
+  /**
+   * Reads full details for specified commits in the repository.
+   * <p/>
+   * Reports commits to the consumer to avoid creation & even temporary storage of a too large commits collection.
+   */
+  default void readFullDetails(@NotNull VirtualFile root,
+                               @NotNull List<String> hashes,
+                               @NotNull Consumer<? super VcsFullCommitDetails> commitConsumer)
+    throws VcsException {
+    readFullDetails(root, hashes, commitConsumer, false);
+  }
+
+  /**
+   * Reads full details for specified commits in the repository.
+   * Reports commits to the consumer to avoid creation & even temporary storage of a too large commits collection.
+   * Allows to skip full rename detection to make things faster. For git, for example, this would be adding diff.renameLimit=x to the command.
+   */
+  void readFullDetails(@NotNull VirtualFile root,
+                       @NotNull List<String> hashes,
+                       @NotNull Consumer<? super VcsFullCommitDetails> commitConsumer,
+                       boolean isForIndexing)
+    throws VcsException;
 
   /**
    * Reads those details of the given commits, which are necessary to be shown in the log table.
    */
   @NotNull
-  List<? extends VcsShortCommitDetails> readShortDetails(@NotNull VirtualFile root, @NotNull List<String> hashes) throws VcsException;
+  @Deprecated
+  default List<? extends VcsShortCommitDetails> readShortDetails(@NotNull VirtualFile root, @NotNull List<String> hashes)
+    throws VcsException {
+    return readMetadata(root, hashes);
+  }
+
+  /**
+   * Reads those details of the given commits, which are necessary to be shown in the log table and commit details.
+   */
+  List<? extends VcsCommitMetadata> readMetadata(@NotNull VirtualFile root, @NotNull List<String> hashes) throws VcsException;
 
   /**
    * Read full details of the given commits from the VCS.
+   * <p>
+   * Replaced with readFullDetails(VirtualFile root, List<String>, Consumer<VcsFullCommitDetails>) method.
+   * <p>
+   * To be removed after 2017.1 release.
    */
   @NotNull
-  List<? extends VcsFullCommitDetails> readFullDetails(@NotNull VirtualFile root, @NotNull List<String> hashes) throws VcsException;
+  @Deprecated
+  default List<? extends VcsFullCommitDetails> readFullDetails(@NotNull VirtualFile root, @NotNull List<String> hashes)
+    throws VcsException {
+    List<VcsFullCommitDetails> result = ContainerUtil.newArrayList();
+    readFullDetails(root, hashes, result::add);
+    return result;
+  }
 
   /**
    * <p>Returns the VCS which is supported by this provider.</p>
@@ -83,7 +131,7 @@ public interface VcsLogProvider {
    * @return Disposable that unsubscribes from events on dispose.
    */
   @NotNull
-  Disposable subscribeToRootRefreshEvents(@NotNull Collection<VirtualFile> roots, @NotNull VcsLogRefresher refresher);
+  Disposable subscribeToRootRefreshEvents(@NotNull Collection<? extends VirtualFile> roots, @NotNull VcsLogRefresher refresher);
 
   /**
    * <p>Return commits, which correspond to the given filters.</p>
@@ -108,7 +156,7 @@ public interface VcsLogProvider {
   Collection<String> getContainingBranches(@NotNull VirtualFile root, @NotNull Hash commitHash) throws VcsException;
 
   /**
-   * In order to tune log for it's VCS, provider may set value to one of the properties specified in {@link com.intellij.vcs.log.VcsLogProperties}.
+   * In order to tune log for it's VCS, provider may set value to one of the properties specified in {@link VcsLogProperties}.
    *
    * @param property Property instance to return value for.
    * @param <T>      Type of property value.
@@ -125,6 +173,22 @@ public interface VcsLogProvider {
    */
   @Nullable
   String getCurrentBranch(@NotNull VirtualFile root);
+
+  /**
+   * Returns {@link VcsLogDiffHandler} for this provider in order to support comparing commits and with local version from log-based file history.
+   *
+   * @return diff handler or null if unsupported.
+   */
+  @Nullable
+  VcsLogDiffHandler getDiffHandler();
+
+  /**
+   * Returns the VCS root which should be used by the file history instead of the root found by standard mechanism (through mappings).
+   */
+  @Nullable
+  default VirtualFile getVcsRoot(@NotNull Project project, @NotNull FilePath filePath) {
+    return VcsUtil.getVcsRootFor(project, filePath);
+  }
 
   interface Requirements {
 

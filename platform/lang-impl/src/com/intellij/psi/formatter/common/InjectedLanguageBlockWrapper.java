@@ -18,7 +18,6 @@ package com.intellij.psi.formatter.common;
 import com.intellij.formatting.*;
 import com.intellij.lang.Language;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -26,7 +25,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class InjectedLanguageBlockWrapper implements BlockEx {
+public class InjectedLanguageBlockWrapper implements BlockEx {
   private final           Block       myOriginal;
   private final           int         myOffset;
   private final           TextRange   myRange;
@@ -35,17 +34,17 @@ public final class InjectedLanguageBlockWrapper implements BlockEx {
   private                 List<Block> myBlocks;
 
   /**
-   *  main code                  prefix    injected code        suffix
-   *     |                         |            |                 |
-   *     |                       xxx!!!!!!!!!!!!!!!!!!!!!!!!!!!!xxx
-   * ...............................!!!!!!!!!!!!!!!!!!!!!!!!!!!!....................
-   *                                ^
-   *                              offset
-   *
+   * <pre>
+   *  main code     prefix    injected code        suffix
+   *     |            |            |                 |
+   *     |          xxx!!!!!!!!!!!!!!!!!!!!!!!!!!!!xxx
+   * ..................!!!!!!!!!!!!!!!!!!!!!!!!!!!!..........
+   *                   ^
+   *                 offset
+   * </pre>
    * @param original block inside injected code
    * @param offset start offset of injected code inside the main document
    * @param range range of code inside injected document which is really placed in the main document
-   * @param indent
    */
   public InjectedLanguageBlockWrapper(@NotNull final Block original, final int offset, @Nullable TextRange range, @Nullable Indent indent) {
     this(original, offset, range, indent, null);
@@ -55,8 +54,7 @@ public final class InjectedLanguageBlockWrapper implements BlockEx {
                                       final int offset,
                                       @Nullable TextRange range,
                                       @Nullable Indent indent,
-                                      @Nullable Language language)
-  {
+                                      @Nullable Language language) {
     myOriginal = original;
     myOffset = offset;
     myRange = range;
@@ -110,7 +108,7 @@ public final class InjectedLanguageBlockWrapper implements BlockEx {
     final ArrayList<Block> result = new ArrayList<>(list.size());
     if (myRange == null) {
       for (Block block : list) {
-        result.add(new InjectedLanguageBlockWrapper(block, myOffset, myRange, null, myLanguage));
+        result.add(new InjectedLanguageBlockWrapper(block, myOffset, null, null, myLanguage));
       }
     }
     else {
@@ -183,4 +181,22 @@ public final class InjectedLanguageBlockWrapper implements BlockEx {
   public String toString() {
     return myOriginal.toString();
   }
+
+  public Block getOriginal() {
+    return myOriginal;
+  }
+
+  @Nullable
+  @Override
+  public String getDebugName() {
+    if (myOriginal != null) {
+      String originalDebugName = myOriginal.getDebugName();
+      if (originalDebugName == null) originalDebugName = myOriginal.getClass().getSimpleName();
+      return "wrapped " + originalDebugName; 
+    }
+    else {
+      return null;
+    }
+  }
+  
 }

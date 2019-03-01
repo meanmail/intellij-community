@@ -15,9 +15,9 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
@@ -28,10 +28,6 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: 2/10/12
- */
 public class ConvertDoubleToFloatFix implements IntentionAction {
   private final PsiExpression myExpression;
 
@@ -65,7 +61,6 @@ public class ConvertDoubleToFloatFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     myExpression.replace(createFloatingPointExpression(project));
   }
 
@@ -101,7 +96,7 @@ public class ConvertDoubleToFloatFix implements IntentionAction {
                                         @NotNull PsiElement context) {
     if (!candidate.isStaticsScopeCorrect()) return;
     PsiMethod method = (PsiMethod)candidate.getElement();
-    if (method != null && context.getManager().isInProject(method)) {
+    if (method != null && BaseIntentionAction.canModify(method)) {
       final PsiParameter[] parameters = method.getParameterList().getParameters();
       if (parameters.length == expressions.length) {
         for (int i = 0, length = parameters.length; i < length; i++) {

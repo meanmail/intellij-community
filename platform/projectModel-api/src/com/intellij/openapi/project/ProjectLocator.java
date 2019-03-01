@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,14 @@
 package com.intellij.openapi.project;
 
 import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 
 public abstract class ProjectLocator {
 
@@ -40,7 +43,7 @@ public abstract class ProjectLocator {
    * @return project which probably contains the file, or null if couldn't guess (for example, there are no open projects).
    */
   @Nullable
-  public abstract Project guessProjectForFile(VirtualFile file);
+  public abstract Project guessProjectForFile(@Nullable VirtualFile file);
 
   /**
   * Gets all open projects containing the given file.
@@ -50,4 +53,24 @@ public abstract class ProjectLocator {
   */
   @NotNull
   public abstract Collection<Project> getProjectsForFile(VirtualFile file);
+
+  public static <T, E extends Throwable> T computeWithPreferredProject(@NotNull VirtualFile file,
+                                                                       @NotNull Project preferredProject,
+                                                                       @NotNull ThrowableComputable<T, E> action) throws E {
+    Map<VirtualFile, Project> local = ourPreferredProjects.get();
+    local.put(file, preferredProject);
+    try {
+      return action.compute();
+    }
+    finally {
+      local.remove(file);
+    }
+  }
+
+  @Nullable
+  static Project getPreferredProject(@NotNull VirtualFile file) {
+    return ourPreferredProjects.get().get(file);
+  }
+
+  private static final ThreadLocal<Map<VirtualFile, Project>> ourPreferredProjects = ThreadLocal.withInitial(() -> new HashMap<>());
 }

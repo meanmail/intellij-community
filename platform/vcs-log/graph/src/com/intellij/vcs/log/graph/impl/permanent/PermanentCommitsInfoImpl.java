@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.vcs.log.graph.impl.permanent;
 
@@ -44,12 +30,7 @@ public class PermanentCommitsInfoImpl<CommitId> implements PermanentCommitsInfo<
       commitIdIndex = (List<CommitId>)createCompressedIntList((List<? extends GraphCommit<Integer>>)graphCommits);
     }
     else {
-      commitIdIndex = ContainerUtil.map(graphCommits, new Function<GraphCommit<CommitId>, CommitId>() {
-        @Override
-        public CommitId fun(GraphCommit<CommitId> graphCommit) {
-          return graphCommit.getId();
-        }
-      });
+      commitIdIndex = ContainerUtil.map(graphCommits, (Function<GraphCommit<CommitId>, CommitId>)GraphCommit::getId);
     }
     return new PermanentCommitsInfoImpl<>(timestampGetter, commitIdIndex, notLoadedCommits);
   }
@@ -98,12 +79,12 @@ public class PermanentCommitsInfoImpl<CommitId> implements PermanentCommitsInfo<
 
   @NotNull private final TimestampGetter myTimestampGetter;
 
-  @NotNull private final List<CommitId> myCommitIdIndexes;
+  @NotNull private final List<? extends CommitId> myCommitIdIndexes;
 
   @NotNull private final Map<Integer, CommitId> myNotLoadCommits;
 
   public PermanentCommitsInfoImpl(@NotNull TimestampGetter timestampGetter,
-                                  @NotNull List<CommitId> commitIdIndex,
+                                  @NotNull List<? extends CommitId> commitIdIndex,
                                   @NotNull Map<Integer, CommitId> notLoadCommits) {
     myTimestampGetter = timestampGetter;
     myCommitIdIndexes = commitIdIndex;
@@ -146,31 +127,22 @@ public class PermanentCommitsInfoImpl<CommitId> implements PermanentCommitsInfo<
 
   @NotNull
   public List<CommitId> convertToCommitIdList(@NotNull Collection<Integer> commitIndexes) {
-    return ContainerUtil.map(commitIndexes, new Function<Integer, CommitId>() {
-      @Override
-      public CommitId fun(Integer integer) {
-        return getCommitId(integer);
-      }
-    });
+    return ContainerUtil.map(commitIndexes, this::getCommitId);
   }
 
   @NotNull
   public Set<CommitId> convertToCommitIdSet(@NotNull Collection<Integer> commitIndexes) {
-    return ContainerUtil.map2Set(commitIndexes, new Function<Integer, CommitId>() {
-      @Override
-      public CommitId fun(Integer integer) {
-        return getCommitId(integer);
-      }
-    });
+    return ContainerUtil.map2Set(commitIndexes, this::getCommitId);
   }
 
+  @Override
   @NotNull
-  public Set<Integer> convertToNodeIds(@NotNull Collection<CommitId> commitIds) {
+  public Set<Integer> convertToNodeIds(@NotNull Collection<? extends CommitId> commitIds) {
     return convertToNodeIds(commitIds, false);
   }
 
   @NotNull
-  public Set<Integer> convertToNodeIds(@NotNull Collection<CommitId> commitIds, boolean reportNotFound) {
+  public Set<Integer> convertToNodeIds(@NotNull Collection<? extends CommitId> commitIds, boolean reportNotFound) {
     Set<Integer> result = ContainerUtil.newHashSet();
     Set<CommitId> matchedIds = ContainerUtil.newHashSet();
     for (int i = 0; i < myCommitIdIndexes.size(); i++) {

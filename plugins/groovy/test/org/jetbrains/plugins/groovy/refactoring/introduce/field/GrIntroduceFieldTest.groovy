@@ -15,7 +15,6 @@
  */
 package org.jetbrains.plugins.groovy.refactoring.introduce.field
 
-import com.intellij.openapi.application.WriteAction
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiType
 import com.intellij.psi.impl.source.PostprocessReformattingAspect
@@ -30,7 +29,6 @@ import org.jetbrains.plugins.groovy.util.TestUtils
 
 import static com.intellij.refactoring.introduce.inplace.OccurrencesChooser.ReplaceChoice.ALL
 import static org.jetbrains.plugins.groovy.refactoring.introduce.field.GrIntroduceFieldSettings.Init.*
-
 /**
  * @author Maxim.Medvedev
  */
@@ -202,7 +200,7 @@ class MyTest extends GroovyTestCase {
     void setUp() {
         super.setUp()
         def x = 'abc'
-    f = 'ac'
+        f = 'ac'
     }
 
     void foo() {
@@ -642,6 +640,26 @@ println(<selection>a + b</selection>)
 ''', EnumSet.of(CUR_METHOD), ReplaceChoice.NO
   }
 
+  void 'test introduce field from this'() {
+    doTest '''\
+class A {
+    def bar 
+    def foo() {
+        th<caret>is.bar
+    }
+}
+''', '''\
+class A {
+    def bar
+    def f = this
+
+    def foo() {
+        f.bar
+    }
+}
+''', false, false, false, FIELD_DECLARATION
+  }
+
   private void doTest(final boolean isStatic,
                       final boolean removeLocal,
                       final boolean declareFinal,
@@ -668,15 +686,9 @@ println(<selection>a + b</selection>)
 
   private void performRefactoring(String selectedType, boolean isStatic, boolean removeLocal, boolean declareFinal, GrIntroduceFieldSettings.Init initIn, boolean replaceAll) {
     final PsiType type = selectedType == null ? null : JavaPsiFacade.getElementFactory(project).createTypeFromText(selectedType, myFixture.file)
-    def accessToken = WriteAction.start()
-    try {
-      final IntroduceFieldTestHandler handler = new IntroduceFieldTestHandler(isStatic, removeLocal, declareFinal, initIn, replaceAll, type)
-      handler.invoke(project, myFixture.editor, myFixture.file, null)
-      PostprocessReformattingAspect.getInstance(project).doPostponedFormatting()
-    }
-    finally {
-      accessToken.finish()
-    }
+    final IntroduceFieldTestHandler handler = new IntroduceFieldTestHandler(isStatic, removeLocal, declareFinal, initIn, replaceAll, type)
+    handler.invoke(project, myFixture.editor, myFixture.file, null)
+    PostprocessReformattingAspect.getInstance(project).doPostponedFormatting()
   }
 
   private void doTestInitInTarget(String text, EnumSet<Init> expected = EnumSet.noneOf(Init), ReplaceChoice replaceChoice = ALL) {

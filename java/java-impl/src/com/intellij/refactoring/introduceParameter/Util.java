@@ -14,17 +14,10 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 06.05.2002
- * Time: 14:38:40
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.introduceParameter;
 
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -45,9 +38,9 @@ import java.util.List;
 public class Util {
 
   public static void analyzeExpression(PsiExpression expr,
-                                       List<UsageInfo> localVars,
-                                       List<UsageInfo> classMemberRefs,
-                                       List<UsageInfo> params) {
+                                       List<? super UsageInfo> localVars,
+                                       List<? super UsageInfo> classMemberRefs,
+                                       List<? super UsageInfo> params) {
 
     if (expr instanceof PsiThisExpression || expr instanceof PsiSuperExpression) {
       classMemberRefs.add(new ClassMemberInExprUsageInfo(expr));
@@ -89,10 +82,14 @@ public class Util {
     return PsiTreeUtil.getParentOfType(getPhysical(expr), PsiMethod.class);
   }
   public static boolean isAncestor(PsiElement ancestor, PsiElement element, boolean strict) {
+    final TextRange exprRange = ancestor.getUserData(ElementToWorkOn.EXPR_RANGE);
+    if (exprRange != null) {
+      return exprRange.contains(element.getTextRange());
+    }
     return PsiTreeUtil.isAncestor(getPhysical(ancestor), getPhysical(element), strict);
   }
 
-  public static boolean anyFieldsWithGettersPresent(List<UsageInfo> classMemberRefs) {
+  public static boolean anyFieldsWithGettersPresent(List<? extends UsageInfo> classMemberRefs) {
     for (UsageInfo usageInfo : classMemberRefs) {
 
       if (usageInfo.getElement() instanceof PsiReferenceExpression) {

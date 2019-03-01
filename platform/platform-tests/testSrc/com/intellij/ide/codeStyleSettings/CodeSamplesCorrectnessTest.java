@@ -23,7 +23,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Assert;
@@ -45,10 +44,24 @@ public class CodeSamplesCorrectnessTest extends LightPlatformCodeInsightFixtureT
     mySettingValues = SettingsType.values();
   }
 
+  public void testNonPhysicalFiles() {
+    LanguageCodeStyleSettingsProvider[] providers = LanguageCodeStyleSettingsProvider.EP_NAME.getExtensions();
+    for (LanguageCodeStyleSettingsProvider provider : providers) {
+      if (isSql(provider.getLanguage())) continue; // SQL a is special case, has its own tests
+      List<CodeSampleInfo> samplesToTest = getSamplesToTest(provider);
+      for (CodeSampleInfo sampleInfo : samplesToTest) {
+        PsiFile file = provider.createFileFromText(getProject(), sampleInfo.codeSample);
+        if (file != null) {
+          assertFalse(provider.getClass() + " must not create a physical file with psi events enabled", file.isPhysical());
+        }
+      }
+    }
+  }
+
   public void testAllCodeStylePreviewSamplesValid() {
     LanguageCodeStyleSettingsProvider[] providers = LanguageCodeStyleSettingsProvider.EP_NAME.getExtensions();
-
     for (LanguageCodeStyleSettingsProvider provider : providers) {
+      if (isSql(provider.getLanguage())) continue; // SQL a is special case, has its own tests
       List<CodeSampleInfo> samplesToTest = getSamplesToTest(provider);
       processCodeSamples(provider, samplesToTest);
     }
@@ -101,13 +114,18 @@ public class CodeSamplesCorrectnessTest extends LightPlatformCodeInsightFixtureT
   private static String formReport(@NotNull List<CodeErrorReport> errorReports) {
     return StringUtil.join(errorReports, report -> report.createReport(), "\n");
   }
+
+
+  private static boolean isSql(@NotNull Language lang) {
+    return "SQL".equals(lang.getID());
+  }
 }
 
 class CodeSampleInfo {
   public final SettingsType correspondingSetting;
   public final String codeSample;
 
-  public CodeSampleInfo(SettingsType setting, String code) {
+  CodeSampleInfo(SettingsType setting, String code) {
     correspondingSetting = setting;
     codeSample = code;
   }
@@ -119,7 +137,7 @@ class CodeErrorReport {
   private final SettingsType mySettingsType;
   private final Collection<PsiErrorElement> myErrors;
 
-  public CodeErrorReport(@NotNull CodeSampleInfo codeSampleInfo,
+  CodeErrorReport(@NotNull CodeSampleInfo codeSampleInfo,
                          @NotNull Language lang,
                          @NotNull Collection<PsiErrorElement> errors) {
     myLang = lang;

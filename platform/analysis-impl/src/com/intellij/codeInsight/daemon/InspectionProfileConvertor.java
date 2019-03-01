@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,32 +16,26 @@
 package com.intellij.codeInsight.daemon;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
-import com.intellij.codeInspection.InspectionProfile;
-import com.intellij.codeInspection.ModifiableModel;
-import com.intellij.codeInspection.ex.InspectionToolWrapper;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.profile.codeInspection.InspectionProfileManager;
-import com.intellij.profile.codeInspection.SeverityProvider;
-import org.jdom.Document;
+import com.intellij.util.JdomKt;
+import com.intellij.util.io.PathKt;
 import org.jdom.Element;
 import org.jdom.JDOMException;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * User: anna
- * Date: Dec 20, 2004
- */
 public class InspectionProfileConvertor {
   private final Map<String, HighlightDisplayLevel> myDisplayLevelMap = new HashMap<>();
   @NonNls public static final String OLD_HIGHTLIGHTING_SETTINGS_PROFILE = "EditorHighlightingSettings";
@@ -49,21 +43,17 @@ public class InspectionProfileConvertor {
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettingsConvertor");
 
-  @NonNls private static final String INSPECTIONS_TAG = "inspections";
   @NonNls private static final String NAME_ATT = "name";
-  @NonNls private static final String INSP_TOOL_TAG = "inspection_tool";
-  @NonNls private static final String CLASS_ATT = "class";
   @NonNls private static final String VERSION_ATT = "version";
-  @NonNls private static final String PROFILE_NAME_ATT = "profile_name";
   @NonNls private static final String OPTION_TAG = "option";
   @NonNls private static final String DISPLAY_LEVEL_MAP_OPTION = "DISPLAY_LEVEL_MAP";
   @NonNls protected static final String VALUE_ATT = "value";
   @NonNls private static final String DEFAULT_XML = "Default.xml";
   @NonNls private static final String XML_EXTENSION = ".xml";
   @NonNls public static final String LEVEL_ATT = "level";
-  private final SeverityProvider myManager;
+  private final InspectionProfileManager myManager;
 
-  public InspectionProfileConvertor(@NotNull SeverityProvider manager) {
+  public InspectionProfileConvertor(@NotNull InspectionProfileManager manager) {
     myManager = manager;
     renameOldDefaultsProfile();
   }
@@ -94,62 +84,37 @@ public class InspectionProfileConvertor {
     return false;
   }
 
-  public void storeEditorHighlightingProfile(@NotNull Element element, @NotNull InspectionProfile editorProfile) {
+  public void storeEditorHighlightingProfile(@NotNull Element element, @NotNull InspectionProfileImpl editorProfile) {
     if (retrieveOldSettings(element)) {
-      ModifiableModel editorProfileModel = editorProfile.getModifiableModel();
-      fillErrorLevels(editorProfileModel);
-      editorProfileModel.commit();
+      editorProfile.modifyProfile(it -> fillErrorLevels(it));
     }
-  }
-
-  public static Element convertToNewFormat(Element profileFile, InspectionProfile profile) {
-    Element rootElement = new Element(INSPECTIONS_TAG);
-    rootElement.setAttribute(NAME_ATT, profile.getName());
-    final InspectionToolWrapper[] tools = profile.getInspectionTools(null);
-    for (final Object o : profileFile.getChildren(INSP_TOOL_TAG)) {
-      Element toolElement = ((Element)o).clone();
-      String toolClassName = toolElement.getAttributeValue(CLASS_ATT);
-      final String shortName = convertToShortName(toolClassName, tools);
-      if (shortName == null) {
-        continue;
-      }
-      toolElement.setAttribute(CLASS_ATT, shortName);
-      rootElement.addContent(toolElement);
-    }
-    return rootElement;
   }
 
   private static void renameOldDefaultsProfile() {
-    String directoryPath = PathManager.getConfigPath() + File.separator + InspectionProfileManager.INSPECTION_DIR;
-    File profileDirectory = new File(directoryPath);
-    if (!profileDirectory.exists()) {
+    Path directoryPath = Paths.get(PathManager.getConfigPath(), InspectionProfileManager.INSPECTION_DIR);
+    if (!PathKt.exists(directoryPath)) {
       return;
     }
 
-    File[] files = profileDirectory.listFiles(pathname -> pathname.getPath().endsWith(File.separator + DEFAULT_XML));
-    if (files == null || files.length != 1 || !files[0].isFile()) {
+    File[] files = directoryPath.toFile().listFiles(pathname -> pathname.getPath().endsWith(File.separator + DEFAULT_XML));
+    if (files == null || files.length != 1 || !files[0].isFile() || files[0].length() == 0) {
       return;
     }
     try {
-      Document doc = JDOMUtil.loadDocument(files[0]);
-      Element root = doc.getRootElement();
+      Element root = JdomKt.loadElement(files[0].toPath());
       if (root.getAttributeValue(VERSION_ATT) == null){
-        root.setAttribute(PROFILE_NAME_ATT, OLD_DEFAUL_PROFILE);
-        JDOMUtil.writeDocument(doc, new File(profileDirectory, OLD_DEFAUL_PROFILE + XML_EXTENSION), "\n");
+        JdomKt.write(root, directoryPath.resolve(OLD_DEFAUL_PROFILE + XML_EXTENSION));
         FileUtil.delete(files[0]);
       }
     }
-    catch (IOException e) {
-      LOG.error(e);
-    }
-    catch (JDOMException e) {
+    catch (IOException | JDOMException e) {
       LOG.error(e);
     }
   }
 
-  protected void fillErrorLevels(final ModifiableModel profile) {
-    InspectionToolWrapper[] toolWrappers = profile.getInspectionTools(null);
-    LOG.assertTrue(toolWrappers != null, "Profile was not correctly init");
+  protected void fillErrorLevels(final InspectionProfileImpl profile) {
+    //noinspection ConstantConditions
+    LOG.assertTrue(profile.getInspectionTools(null) != null, "Profile was not correctly init");
     //fill error levels
     for (final String shortName : myDisplayLevelMap.keySet()) {
       //key <-> short name
@@ -161,7 +126,7 @@ public class InspectionProfileConvertor {
 
       //set up tools for default profile
       if (level != HighlightDisplayLevel.DO_NOT_SHOW) {
-        profile.enableTool(shortName, null, null);
+        profile.enableTool(shortName, null);
       }
 
       if (level == null || level == HighlightDisplayLevel.DO_NOT_SHOW) {
@@ -169,16 +134,5 @@ public class InspectionProfileConvertor {
       }
       profile.setErrorLevel(key, level, null);
     }
-  }
-
-  @Nullable
-  private static String convertToShortName(String displayName, InspectionToolWrapper[] tools) {
-    if (displayName == null) return null;
-    for (InspectionToolWrapper tool : tools) {
-      if (displayName.equals(tool.getDisplayName())) {
-        return tool.getShortName();
-      }
-    }
-    return null;
   }
 }

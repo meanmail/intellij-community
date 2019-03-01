@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiPolyVariantReference;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -24,6 +11,7 @@ import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.IncorrectOperationException;
 import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
@@ -31,7 +19,12 @@ import com.jetbrains.python.psi.types.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+
+import static com.jetbrains.python.psi.PyUtil.as;
 
 /**
  * @author yole
@@ -47,21 +40,26 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
     pyVisitor.visitPyBinaryExpression(this);
   }
 
+  @Override
   @Nullable
   public PyExpression getLeftExpression() {
     return PsiTreeUtil.getChildOfType(this, PyExpression.class);
   }
 
+  @Override
+  @Nullable
   public PyExpression getRightExpression() {
     return PsiTreeUtil.getNextSiblingOfType(getLeftExpression(), PyExpression.class);
   }
 
+  @Override
   @Nullable
   public PyElementType getOperator() {
     final PsiElement psiOperator = getPsiOperator();
     return psiOperator != null ? (PyElementType)psiOperator.getNode().getElementType() : null;
   }
 
+  @Override
   @Nullable
   public PsiElement getPsiOperator() {
     ASTNode node = getNode();
@@ -70,6 +68,7 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
     return null;
   }
 
+  @Override
   public boolean isOperator(String chars) {
     ASTNode child = getNode().getFirstChildNode();
     StringBuilder buf = new StringBuilder();
@@ -83,6 +82,7 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
     return buf.toString().equals(chars);
   }
 
+  @Override
   @Nullable
   public PyExpression getOppositeExpression(PyExpression expression) throws IllegalArgumentException {
     PyExpression right = getRightExpression();
@@ -119,10 +119,12 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
 
   @NotNull
   @Override
-  public PsiPolyVariantReference getReference(PyResolveContext context) {
+  public PsiPolyVariantReference getReference(@NotNull PyResolveContext context) {
     return new PyOperatorReference(this, context);
   }
 
+  @Override
+  @Nullable
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
     if (isOperator("and") || isOperator("or")) {
       final PyExpression left = getLeftExpression();
@@ -134,38 +136,37 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
       }
       return PyUnionType.union(leftType, rightType);
     }
-    final List<PyTypeChecker.AnalyzeCallResults> results = PyTypeChecker.analyzeCallSite(this, context);
+
+    if (PyNames.CONTAINS.equals(getReferencedName())) return PyBuiltinCache.getInstance(this).getBoolType();
+
+    final List<PyCallExpression.PyArgumentsMapping> results =
+      PyCallExpressionHelper.mapArguments(this, PyResolveContext.noImplicits().withTypeEvalContext(context));
     if (!results.isEmpty()) {
       final List<PyType> types = new ArrayList<>();
       final List<PyType> matchedTypes = new ArrayList<>();
-      for (PyTypeChecker.AnalyzeCallResults result : results) {
+      for (PyCallExpression.PyArgumentsMapping result : results) {
+        final PyCallExpression.PyMarkedCallee markedCallee = result.getMarkedCallee();
+        if (markedCallee == null) continue;
+
         boolean matched = true;
-        for (Map.Entry<PyExpression, PyNamedParameter> entry : result.getArguments().entrySet()) {
-          final PyExpression argument = entry.getKey();
-          final PyNamedParameter parameter = entry.getValue();
-          if (parameter.isPositionalContainer() || parameter.isKeywordContainer()) {
-            continue;
-          }
-          final Map<PyGenericType, PyType> substitutions = new HashMap<>();
-          final PyType parameterType = context.getType(parameter);
-          final PyType argumentType = context.getType(argument);
-          if (!PyTypeChecker.match(parameterType, argumentType, context, substitutions)) {
+        for (Map.Entry<PyExpression, PyCallableParameter> entry : result.getMappedParameters().entrySet()) {
+          final PyType parameterType = entry.getValue().getArgumentType(context);
+          final PyType argumentType = context.getType(entry.getKey());
+          if (!PyTypeChecker.match(parameterType, argumentType, context)) {
             matched = false;
           }
         }
-        final PyType type = result.getCallable().getCallType(context, this);
-        if (!PyTypeChecker.isUnknown(type) && !(type instanceof PyNoneType)) {
-          types.add(type);
-          if (matched) {
-            matchedTypes.add(type);
-          }
+        final PyType type = markedCallee.getCallableType().getCallType(context, this);
+        types.add(type);
+        if (matched) {
+          matchedTypes.add(type);
         }
       }
-      if (!matchedTypes.isEmpty()) {
-        return PyUnionType.union(matchedTypes);
-      }
-      if (!types.isEmpty()) {
-        return PyUnionType.union(types);
+      final boolean bothOperandsAreKnown = operandIsKnown(getLeftExpression(), context) && operandIsKnown(getRightExpression(), context);
+      final List<PyType> resultTypes = !matchedTypes.isEmpty() ? matchedTypes : types;
+      if (!resultTypes.isEmpty()) {
+        final PyType result = PyUnionType.union(resultTypes);
+        return bothOperandsAreKnown ? result : PyUnionType.createWeakType(result);
       }
     }
     if (PyNames.COMPARISON_OPERATORS.contains(getReferencedName())) {
@@ -193,6 +194,9 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
   @Override
   public String getReferencedName() {
     final PyElementType t = getOperator();
+    if (t == PyTokenTypes.DIV && isTrueDivEnabled(this)) {
+      return PyNames.TRUEDIV;
+    }
     return t != null ? t.getSpecialMethodName() : null;
   }
 
@@ -200,5 +204,52 @@ public class PyBinaryExpressionImpl extends PyElementImpl implements PyBinaryExp
   public ASTNode getNameElement() {
     final PsiElement op = getPsiOperator();
     return op != null ? op.getNode() : null;
+  }
+
+  @Nullable
+  @Override
+  public PyExpression getReceiver(@Nullable PyCallable resolvedCallee) {
+    return isRightOperator(resolvedCallee) ? getRightExpression() : getChainedComparisonAwareLeftExpression();
+  }
+
+  @NotNull
+  @Override
+  public List<PyExpression> getArguments(@Nullable PyCallable resolvedCallee) {
+    return Collections.singletonList(isRightOperator(resolvedCallee) ? getChainedComparisonAwareLeftExpression() : getRightExpression());
+  }
+
+  @Override
+  public boolean isRightOperator(@Nullable PyCallable resolvedCallee) {
+    return resolvedCallee != null && PyNames.isRightOperatorName(getReferencedName(), resolvedCallee.getName());
+  }
+
+  @Nullable
+  private PyExpression getChainedComparisonAwareLeftExpression() {
+    final PyExpression leftOperand = getLeftExpression();
+    if (PyTokenTypes.COMPARISON_OPERATIONS.contains(getOperator())) {
+      final PyBinaryExpression leftBinaryExpr = as(leftOperand, PyBinaryExpression.class);
+      if (leftBinaryExpr != null && PyTokenTypes.COMPARISON_OPERATIONS.contains(leftBinaryExpr.getOperator())) {
+        return leftBinaryExpr.getRightExpression();
+      }
+    }
+    return leftOperand;
+  }
+
+  private static boolean operandIsKnown(@Nullable PyExpression operand, @NotNull TypeEvalContext context) {
+    if (operand == null) return false;
+
+    final PyType operandType = context.getType(operand);
+    if (operandType instanceof PyStructuralType || PyTypeChecker.isUnknown(operandType, context)) return false;
+
+    return true;
+  }
+
+  private static boolean isTrueDivEnabled(@NotNull PyElement anchor) {
+    final PsiFile file = anchor.getContainingFile();
+    if (file instanceof PyFile) {
+      final PyFile pyFile = (PyFile)file;
+      return FutureFeature.DIVISION.requiredAt(pyFile.getLanguageLevel()) || pyFile.hasImportFromFuture(FutureFeature.DIVISION);
+    }
+    return false;
   }
 }

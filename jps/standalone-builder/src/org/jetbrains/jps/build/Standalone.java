@@ -15,6 +15,8 @@
  */
 package org.jetbrains.jps.build;
 
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.LowMemoryWatcherManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ParameterizedRunnable;
@@ -31,6 +33,7 @@ import org.jetbrains.jps.incremental.fs.BuildFSState;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.model.JpsModel;
+import org.jetbrains.jps.service.SharedThreadPool;
 
 import java.io.File;
 import java.util.*;
@@ -127,8 +130,8 @@ public class Standalone {
       return 1;
     }
 
-    JpsModelLoaderImpl loader = new JpsModelLoaderImpl(projectPath, globalOptionsPath, initializer);
-    Set<String> modulesSet = new HashSet<String>(Arrays.asList(modules));
+    JpsModelLoaderImpl loader = new JpsModelLoaderImpl(projectPath, globalOptionsPath, false, initializer);
+    Set<String> modulesSet = new HashSet<>(Arrays.asList(modules));
     List<String> artifactsList = Arrays.asList(artifacts);
     File dataStorageRoot;
     if (cacheDirPath != null) {
@@ -171,7 +174,7 @@ public class Standalone {
   public static void runBuild(JpsModelLoader loader, final File dataStorageRoot, boolean forceBuild, Set<String> modulesSet,
                               final boolean allModules, List<String> artifactsList, boolean allArtifacts, final boolean includeTests,
                               final MessageHandler messageHandler) throws Exception {
-    List<TargetTypeBuildScope> scopes = new ArrayList<TargetTypeBuildScope>();
+    List<TargetTypeBuildScope> scopes = new ArrayList<>();
     for (JavaModuleBuildTargetType type : JavaModuleBuildTargetType.ALL_TYPES) {
       if (includeTests || !type.isTests()) {
         TargetTypeBuildScope.Builder builder = TargetTypeBuildScope.newBuilder().setTypeId(type.getTypeId()).setForceBuild(forceBuild);
@@ -200,6 +203,7 @@ public class Standalone {
 
   public static void runBuild(JpsModelLoader loader, File dataStorageRoot, MessageHandler messageHandler, List<TargetTypeBuildScope> scopes,
                               boolean includeDependenciesToScope) throws Exception {
+    final LowMemoryWatcherManager memWatcher = new LowMemoryWatcherManager(SharedThreadPool.getInstance());
     final BuildRunner buildRunner = new BuildRunner(loader);
     ProjectDescriptor descriptor = buildRunner.load(messageHandler, dataStorageRoot, new BuildFSState(true));
     try {
@@ -207,6 +211,7 @@ public class Standalone {
     }
     finally {
       descriptor.release();
+      Disposer.dispose(memWatcher);
     }
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler;
 
 import org.jetbrains.java.decompiler.code.CodeConstants;
@@ -20,7 +6,7 @@ import org.jetbrains.java.decompiler.code.Instruction;
 import org.jetbrains.java.decompiler.code.InstructionSequence;
 import org.jetbrains.java.decompiler.code.cfg.BasicBlock;
 import org.jetbrains.java.decompiler.main.DecompilerContext;
-import org.jetbrains.java.decompiler.main.TextBuffer;
+import org.jetbrains.java.decompiler.util.TextBuffer;
 import org.jetbrains.java.decompiler.main.collectors.BytecodeMappingTracer;
 import org.jetbrains.java.decompiler.modules.decompiler.exps.*;
 import org.jetbrains.java.decompiler.modules.decompiler.sforms.DirectGraph;
@@ -38,6 +24,7 @@ import org.jetbrains.java.decompiler.struct.consts.PooledConstant;
 import org.jetbrains.java.decompiler.struct.consts.PrimitiveConstant;
 import org.jetbrains.java.decompiler.struct.gen.MethodDescriptor;
 import org.jetbrains.java.decompiler.struct.gen.VarType;
+import org.jetbrains.java.decompiler.util.TextUtil;
 
 import java.util.*;
 
@@ -184,12 +171,7 @@ public class ExprProcessor implements CodeConstants {
         }
 
         if (isSuccessor) {
-
-          Map<String, PrimitiveExprsList> mapSucc = mapData.get(nd);
-          if (mapSucc == null) {
-            mapData.put(nd, mapSucc = new HashMap<>());
-          }
-
+          Map<String, PrimitiveExprsList> mapSucc = mapData.computeIfAbsent(nd, k -> new HashMap<>());
           LinkedList<String> ndentrypoints = new LinkedList<>(entrypoints);
 
           if (setFinallyLongRangeEntryPaths.contains(node.id + "##" + nd.id)) {
@@ -287,8 +269,7 @@ public class ExprProcessor implements CodeConstants {
   public void processBlock(BasicBlockStatement stat, PrimitiveExprsList data, StructClass cl) {
 
     ConstantPool pool = cl.getPool();
-    StructBootstrapMethodsAttribute bootstrap =
-      (StructBootstrapMethodsAttribute)cl.getAttributes().getWithKey(StructGeneralAttribute.ATTRIBUTE_BOOTSTRAP_METHODS);
+    StructBootstrapMethodsAttribute bootstrap = cl.getAttribute(StructGeneralAttribute.ATTRIBUTE_BOOTSTRAP_METHODS);
 
     BasicBlock block = stat.getBlock();
 
@@ -309,25 +290,25 @@ public class ExprProcessor implements CodeConstants {
           break;
         case opc_bipush:
         case opc_sipush:
-          pushEx(stack, exprlist, new ConstExprent(instr.getOperand(0), true, bytecode_offsets));
+          pushEx(stack, exprlist, new ConstExprent(instr.operand(0), true, bytecode_offsets));
           break;
         case opc_lconst_0:
         case opc_lconst_1:
-          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_LONG, new Long(instr.opcode - opc_lconst_0), bytecode_offsets));
+          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_LONG, (long)(instr.opcode - opc_lconst_0), bytecode_offsets));
           break;
         case opc_fconst_0:
         case opc_fconst_1:
         case opc_fconst_2:
-          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_FLOAT, new Float(instr.opcode - opc_fconst_0), bytecode_offsets));
+          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_FLOAT, (float)(instr.opcode - opc_fconst_0), bytecode_offsets));
           break;
         case opc_dconst_0:
         case opc_dconst_1:
-          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_DOUBLE, new Double(instr.opcode - opc_dconst_0), bytecode_offsets));
+          pushEx(stack, exprlist, new ConstExprent(VarType.VARTYPE_DOUBLE, (double)(instr.opcode - opc_dconst_0), bytecode_offsets));
           break;
         case opc_ldc:
         case opc_ldc_w:
         case opc_ldc2_w:
-          PooledConstant cn = pool.getConstant(instr.getOperand(0));
+          PooledConstant cn = pool.getConstant(instr.operand(0));
           if (cn instanceof PrimitiveConstant) {
             pushEx(stack, exprlist, new ConstExprent(consts[cn.type - CONSTANT_Integer], ((PrimitiveConstant)cn).value, bytecode_offsets));
           }
@@ -341,7 +322,7 @@ public class ExprProcessor implements CodeConstants {
         case opc_fload:
         case opc_dload:
         case opc_aload:
-          pushEx(stack, exprlist, new VarExprent(instr.getOperand(0), varTypes[instr.opcode - opc_iload], varProcessor));
+          pushEx(stack, exprlist, new VarExprent(instr.operand(0), varTypes[instr.opcode - opc_iload], varProcessor, bytecode_offset));
           break;
         case opc_iaload:
         case opc_laload:
@@ -369,10 +350,10 @@ public class ExprProcessor implements CodeConstants {
         case opc_fstore:
         case opc_dstore:
         case opc_astore:
-          Exprent top = stack.pop();
-          int varindex = instr.getOperand(0);
-          AssignmentExprent assign =
-            new AssignmentExprent(new VarExprent(varindex, varTypes[instr.opcode - opc_istore], varProcessor), top, bytecode_offsets);
+          Exprent expr = stack.pop();
+          int varindex = instr.operand(0);
+          AssignmentExprent assign = new AssignmentExprent(
+            new VarExprent(varindex, varTypes[instr.opcode - opc_istore], varProcessor, nextMeaningfulOffset(block, i)), expr, bytecode_offsets);
           exprlist.add(assign);
           break;
         case opc_iastore:
@@ -434,10 +415,10 @@ public class ExprProcessor implements CodeConstants {
           pushEx(stack, exprlist, new FunctionExprent(FunctionExprent.FUNCTION_NEG, stack, bytecode_offsets));
           break;
         case opc_iinc:
-          VarExprent vevar = new VarExprent(instr.getOperand(0), VarType.VARTYPE_INT, varProcessor);
+          VarExprent vevar = new VarExprent(instr.operand(0), VarType.VARTYPE_INT, varProcessor);
           exprlist.add(new AssignmentExprent(vevar, new FunctionExprent(
-            instr.getOperand(1) < 0 ? FunctionExprent.FUNCTION_SUB : FunctionExprent.FUNCTION_ADD, Arrays
-            .asList(vevar.copy(), new ConstExprent(VarType.VARTYPE_INT, Math.abs(instr.getOperand(1)), null)),
+            instr.operand(1) < 0 ? FunctionExprent.FUNCTION_SUB : FunctionExprent.FUNCTION_ADD, Arrays
+            .asList(vevar.copy(), new ConstExprent(VarType.VARTYPE_INT, Math.abs(instr.operand(1)), null)),
             bytecode_offsets), bytecode_offsets));
           break;
         case opc_i2l:
@@ -508,21 +489,21 @@ public class ExprProcessor implements CodeConstants {
           break;
         case opc_checkcast:
         case opc_instanceof:
-          stack.push(new ConstExprent(new VarType(pool.getPrimitiveConstant(instr.getOperand(0)).getString(), true), null, null));
+          stack.push(new ConstExprent(new VarType(pool.getPrimitiveConstant(instr.operand(0)).getString(), true), null, null));
         case opc_arraylength:
-          pushEx(stack, exprlist, new FunctionExprent(mapConsts.get(instr.opcode).intValue(), stack, bytecode_offsets));
+          pushEx(stack, exprlist, new FunctionExprent(mapConsts.get(instr.opcode), stack, bytecode_offsets));
           break;
         case opc_getstatic:
         case opc_getfield:
           pushEx(stack, exprlist,
-                 new FieldExprent(pool.getLinkConstant(instr.getOperand(0)), instr.opcode == opc_getstatic ? null : stack.pop(),
+                 new FieldExprent(pool.getLinkConstant(instr.operand(0)), instr.opcode == opc_getstatic ? null : stack.pop(),
                                   bytecode_offsets));
           break;
         case opc_putstatic:
         case opc_putfield:
           Exprent valfield = stack.pop();
           Exprent exprfield =
-            new FieldExprent(pool.getLinkConstant(instr.getOperand(0)), instr.opcode == opc_putstatic ? null : stack.pop(),
+            new FieldExprent(pool.getLinkConstant(instr.operand(0)), instr.opcode == opc_putstatic ? null : stack.pop(),
                              bytecode_offsets);
           exprlist.add(new AssignmentExprent(exprfield, valfield, bytecode_offsets));
           break;
@@ -531,8 +512,8 @@ public class ExprProcessor implements CodeConstants {
         case opc_invokestatic:
         case opc_invokeinterface:
         case opc_invokedynamic:
-          if (instr.opcode != opc_invokedynamic || instr.bytecode_version >= CodeConstants.BYTECODE_JAVA_7) {
-            LinkConstant invoke_constant = pool.getLinkConstant(instr.getOperand(0));
+          if (instr.opcode != opc_invokedynamic || instr.bytecodeVersion >= CodeConstants.BYTECODE_JAVA_7) {
+            LinkConstant invoke_constant = pool.getLinkConstant(instr.operand(0));
 
             List<PooledConstant> bootstrap_arguments = null;
             if (instr.opcode == opc_invokedynamic && bootstrap != null) {
@@ -551,15 +532,15 @@ public class ExprProcessor implements CodeConstants {
         case opc_new:
         case opc_anewarray:
         case opc_multianewarray:
-          int dimensions = (instr.opcode == opc_new) ? 0 : (instr.opcode == opc_anewarray) ? 1 : instr.getOperand(1);
-          VarType arrType = new VarType(pool.getPrimitiveConstant(instr.getOperand(0)).getString(), true);
+          int dimensions = (instr.opcode == opc_new) ? 0 : (instr.opcode == opc_anewarray) ? 1 : instr.operand(1);
+          VarType arrType = new VarType(pool.getPrimitiveConstant(instr.operand(0)).getString(), true);
           if (instr.opcode != opc_multianewarray) {
             arrType = arrType.resizeArrayDim(arrType.arrayDim + dimensions);
           }
           pushEx(stack, exprlist, new NewExprent(arrType, stack, dimensions, bytecode_offsets));
           break;
         case opc_newarray:
-          pushEx(stack, exprlist, new NewExprent(new VarType(arrTypeIds[instr.getOperand(0) - 4], 1), stack, 1, bytecode_offsets));
+          pushEx(stack, exprlist, new NewExprent(new VarType(arrTypeIds[instr.operand(0) - 4], 1), stack, 1, bytecode_offsets));
           break;
         case opc_dup:
           pushEx(stack, exprlist, stack.getByOffset(-1).copy());
@@ -618,10 +599,36 @@ public class ExprProcessor implements CodeConstants {
           stack.pop();
           break;
         case opc_pop:
-        case opc_pop2:
           stack.pop();
+          break;
+        case opc_pop2:
+          if (stack.getByOffset(-1).getExprType().stackSize == 1) {
+            // Since value at the top of the stack is a value of category 1 (JVMS9 2.11.1)
+            // we should remove one more item from the stack.
+            // See JVMS9 pop2 chapter.
+            stack.pop();
+          }
+          stack.pop();
+          break;
       }
     }
+  }
+
+  private static int nextMeaningfulOffset(BasicBlock block, int index) {
+    InstructionSequence seq = block.getSeq();
+    while (++index < seq.length()) {
+      switch (seq.getInstr(index).opcode) {
+        case opc_nop:
+        case opc_istore:
+        case opc_lstore:
+        case opc_fstore:
+        case opc_dstore:
+        case opc_astore:
+          continue;
+      }
+      return block.getOldOffset(index);
+    }
+    return -1;
   }
 
   private void pushEx(ExprentStack stack, List<Exprent> exprlist, Exprent exprent) {
@@ -667,7 +674,6 @@ public class ExprProcessor implements CodeConstants {
   }
 
   public static String getTypeName(VarType type, boolean getShort) {
-
     int tp = type.type;
     if (tp <= CodeConstants.TYPE_BOOLEAN) {
       return typeNames[tp];
@@ -702,12 +708,9 @@ public class ExprProcessor implements CodeConstants {
   }
 
   public static String getCastTypeName(VarType type, boolean getShort) {
-    String s = getTypeName(type, getShort);
-    int dim = type.arrayDim;
-    while (dim-- > 0) {
-      s += "[]";
-    }
-    return s;
+    StringBuilder s = new StringBuilder(getTypeName(type, getShort));
+    TextUtil.append(s, "[]", type.arrayDim);
+    return s.toString();
   }
 
   public static PrimitiveExprsList getExpressionData(VarExprent var) {
@@ -725,8 +728,7 @@ public class ExprProcessor implements CodeConstants {
     return !(type == Exprent.EXPRENT_SWITCH ||
              type == Exprent.EXPRENT_MONITOR ||
              type == Exprent.EXPRENT_IF ||
-             (type == Exprent.EXPRENT_VAR && ((VarExprent)expr)
-               .isClassDef()));
+             (type == Exprent.EXPRENT_VAR && ((VarExprent)expr).isClassDef()));
   }
 
   private static void addDeletedGotoInstructionMapping(Statement stat, BytecodeMappingTracer tracer) {
@@ -789,7 +791,7 @@ public class ExprProcessor implements CodeConstants {
     return res;
   }
 
-  public static TextBuffer listToJava(List<Exprent> lst, int indent, BytecodeMappingTracer tracer) {
+  public static TextBuffer listToJava(List<? extends Exprent> lst, int indent, BytecodeMappingTracer tracer) {
     if (lst == null || lst.isEmpty()) {
       return new TextBuffer();
     }
@@ -797,7 +799,14 @@ public class ExprProcessor implements CodeConstants {
     TextBuffer buf = new TextBuffer();
 
     for (Exprent expr : lst) {
+      if (buf.length() > 0 && expr.type == Exprent.EXPRENT_VAR && ((VarExprent)expr).isClassDef()) {
+        // separates local class definition from previous statements
+        buf.appendLineSeparator();
+        tracer.incrementCurrentSourceLine();
+      }
+
       TextBuffer content = expr.toJava(indent, tracer);
+
       if (content.length() > 0) {
         if (expr.type != Exprent.EXPRENT_VAR || !((VarExprent)expr).isClassDef()) {
           buf.appendIndent(indent);
@@ -823,13 +832,13 @@ public class ExprProcessor implements CodeConstants {
       defaultVal = new ConstExprent(VarType.VARTYPE_NULL, null, null);
     }
     else if (arrType.type == CodeConstants.TYPE_FLOAT) {
-      defaultVal = new ConstExprent(VarType.VARTYPE_FLOAT, new Float(0), null);
+      defaultVal = new ConstExprent(VarType.VARTYPE_FLOAT, 0f, null);
     }
     else if (arrType.type == CodeConstants.TYPE_LONG) {
-      defaultVal = new ConstExprent(VarType.VARTYPE_LONG, new Long(0), null);
+      defaultVal = new ConstExprent(VarType.VARTYPE_LONG, 0L, null);
     }
     else if (arrType.type == CodeConstants.TYPE_DOUBLE) {
-      defaultVal = new ConstExprent(VarType.VARTYPE_DOUBLE, new Double(0), null);
+      defaultVal = new ConstExprent(VarType.VARTYPE_DOUBLE, 0d, null);
     }
     else { // integer types
       defaultVal = new ConstExprent(0, true, null);
@@ -843,7 +852,7 @@ public class ExprProcessor implements CodeConstants {
                                          int indent,
                                          boolean castNull,
                                          BytecodeMappingTracer tracer) {
-    return getCastedExprent(exprent, leftType, buffer, indent, castNull, false, tracer);
+    return getCastedExprent(exprent, leftType, buffer, indent, castNull, false, false, false, tracer);
   }
 
   public static boolean getCastedExprent(Exprent exprent,
@@ -852,20 +861,49 @@ public class ExprProcessor implements CodeConstants {
                                          int indent,
                                          boolean castNull,
                                          boolean castAlways,
+                                         boolean castNarrowing,
+                                         boolean unbox,
                                          BytecodeMappingTracer tracer) {
+
+    if (unbox) {
+      // "unbox" invocation parameters, e.g. 'byteSet.add((byte)123)' or 'new ShortContainer((short)813)'
+      if (exprent.type == Exprent.EXPRENT_INVOCATION && ((InvocationExprent)exprent).isBoxingCall()) {
+        InvocationExprent invocationExprent = (InvocationExprent)exprent;
+        exprent = invocationExprent.getLstParameters().get(0);
+        int paramType = invocationExprent.getDescriptor().params[0].type;
+        if (exprent.type == Exprent.EXPRENT_CONST && ((ConstExprent)exprent).getConstType().type != paramType) {
+          leftType = new VarType(paramType);
+        }
+      }
+    }
+
     VarType rightType = exprent.getExprType();
 
     boolean cast =
       castAlways ||
       (!leftType.isSuperset(rightType) && (rightType.equals(VarType.VARTYPE_OBJECT) || leftType.type != CodeConstants.TYPE_OBJECT)) ||
       (castNull && rightType.type == CodeConstants.TYPE_NULL && !UNDEFINED_TYPE_STRING.equals(getTypeName(leftType))) ||
-      (isIntConstant(exprent) && rightType.isStrictSuperset(leftType));
+      (castNarrowing && isIntConstant(exprent) && isNarrowedIntType(leftType));
 
     boolean quote = cast && exprent.getPrecedence() >= FunctionExprent.getPrecedence(FunctionExprent.FUNCTION_CAST);
+
+    // cast instead to 'byte' / 'short' when int constant is used as a value for 'Byte' / 'Short'
+    if (castNarrowing && exprent.type == Exprent.EXPRENT_CONST && !((ConstExprent) exprent).isNull()) {
+      if (leftType.equals(VarType.VARTYPE_BYTE_OBJ)) {
+        leftType = VarType.VARTYPE_BYTE;
+      }
+      else if (leftType.equals(VarType.VARTYPE_SHORT_OBJ)) {
+        leftType = VarType.VARTYPE_SHORT;
+      }
+    }
 
     if (cast) buffer.append('(').append(getCastTypeName(leftType)).append(')');
 
     if (quote) buffer.append('(');
+
+    if (exprent.type == Exprent.EXPRENT_CONST) {
+      ((ConstExprent) exprent).adjustConstType(leftType);
+    }
 
     buffer.append(exprent.toJava(indent, tracer));
 
@@ -887,5 +925,10 @@ public class ExprProcessor implements CodeConstants {
     }
 
     return false;
+  }
+
+  private static boolean isNarrowedIntType(VarType type) {
+    return VarType.VARTYPE_INT.isStrictSuperset(type) ||
+           type.equals(VarType.VARTYPE_BYTE_OBJ) || type.equals(VarType.VARTYPE_SHORT_OBJ);
   }
 }

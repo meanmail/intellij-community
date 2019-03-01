@@ -35,7 +35,6 @@ import java.util.List;
  *
  * @see ModuleLevelBuilder.OutputConsumer#registerCompiledClass(BuildTarget, CompiledClass)
  * @author Eugene Zhuravlev
- *         Date: 11/18/12
  */
 public class CompiledClass extends UserDataHolderBase{
   private final static Logger LOG = Logger.getInstance(CompiledClass.class);
@@ -86,12 +85,7 @@ public class CompiledClass extends UserDataHolderBase{
 
   @NotNull
   public List<String> getSourceFilesPaths() {
-    return ContainerUtil.map(mySourceFiles, new Function<File, String>() {
-      @Override
-      public String fun(File file) {
-        return file.getPath();
-      }
-    });
+    return ContainerUtil.map(mySourceFiles, file -> file.getPath());
   }
 
   /**

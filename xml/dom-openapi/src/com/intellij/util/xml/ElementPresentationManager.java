@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml;
 
 import com.intellij.ide.IconProvider;
@@ -20,7 +6,6 @@ import com.intellij.ide.TypePresentationService;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -37,15 +22,13 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * @author peter
  */
 public abstract class ElementPresentationManager {
-  private static final ConcurrentFactoryMap<Class,Method> ourNameValueMethods = new ConcurrentFactoryMap<Class, Method>() {
-    @Override
-    @Nullable
-    protected Method create(final Class key) {
+  private static final ConcurrentMap<Class,Method> ourNameValueMethods = ConcurrentFactoryMap.createMap(key-> {
       for (final Method method : ReflectionUtil.getClassPublicMethods(key)) {
       if (JavaMethod.getMethod(key, method).getAnnotation(NameValue.class) != null) {
         return method;
@@ -53,7 +36,7 @@ public abstract class ElementPresentationManager {
     }
     return null;
     }
-  };
+  );
 
   private final static Function<Object, String> DEFAULT_NAMER = element -> getElementName(element);
 
@@ -63,16 +46,16 @@ public abstract class ElementPresentationManager {
 
   @NotNull
   public <T> Object[] createVariants(Collection<T> elements) {
-    return createVariants(elements, (Function<T, String>)DEFAULT_NAMER);
+    return createVariants(elements, DEFAULT_NAMER);
   }
 
   @NotNull
   public <T> Object[] createVariants(Collection<T> elements, int iconFlags) {
-    return createVariants(elements, (Function<T, String>)DEFAULT_NAMER, iconFlags);
+    return createVariants(elements, DEFAULT_NAMER, iconFlags);
   }
 
   @NotNull
-  public <T> Object[] createVariants(Collection<T> elements, Function<T, String> namer) {
+  public <T> Object[] createVariants(Collection<? extends T> elements, Function<? super T, String> namer) {
     return createVariants(elements, namer, 0);
   }
 
@@ -83,7 +66,7 @@ public abstract class ElementPresentationManager {
   public abstract Object createVariant(final Object variant, final String name, final PsiElement psiElement);
 
   @NotNull
-  public abstract <T> Object[] createVariants(Collection<T> elements, Function<T, String> namer, int iconFlags);
+  public abstract <T> Object[] createVariants(Collection<? extends T> elements, Function<? super T, String> namer, int iconFlags);
 
 
   private static final List<Function<Object, String>> ourNameProviders = new ArrayList<>();
@@ -99,12 +82,14 @@ public abstract class ElementPresentationManager {
    * @deprecated
    * @see com.intellij.ide.presentation.Presentation#provider()
    */
+  @Deprecated
   public static void registerNameProvider(Function<Object, String> function) { ourNameProviders.add(function); }
 
   /**
    * @deprecated
    * @see Documentation
    */
+  @Deprecated
   public static void registerDocumentationProvider(Function<Object, String> function) { ourDocumentationProviders.add(function); }
 
 
@@ -186,7 +171,7 @@ public abstract class ElementPresentationManager {
       final DomElement domElement = (DomElement)o;
       final boolean dumb = DumbService.getInstance(domElement.getManager().getProject()).isDumb();
 
-      for (final IconProvider provider : IconProvider.EXTENSION_POINT_NAME.getExtensions()) {
+      for (final IconProvider provider : IconProvider.EXTENSION_POINT_NAME.getPoint(null).getExtensions()) {
         if (provider instanceof DomIconProvider) {
           if (dumb && !DumbService.isDumbAware(provider)) {
             continue;

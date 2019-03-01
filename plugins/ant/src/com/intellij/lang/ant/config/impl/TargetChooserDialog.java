@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Anna.Kozlova
- * Date: 21-Jul-2006
- * Time: 11:31:06
- */
 package com.intellij.lang.ant.config.impl;
 
 import com.intellij.lang.ant.AntBundle;
@@ -31,7 +25,6 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.ui.*;
 import com.intellij.ui.treeStructure.Tree;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.tree.TreeUtil;
 import icons.AntIcons;
@@ -60,10 +53,12 @@ public class TargetChooserDialog extends DialogWrapper {
     init();
   }
 
+  @Override
   @Nullable
   protected JComponent createCenterPanel() {
     myTree = initTree();
     myTree.addKeyListener(new KeyAdapter() {
+      @Override
       public void keyPressed(KeyEvent e) {
         if (KeyEvent.VK_ENTER == e.getKeyCode()) {
           doOKAction();
@@ -89,6 +84,7 @@ public class TargetChooserDialog extends DialogWrapper {
     @NonNls final DefaultMutableTreeNode root = new DefaultMutableTreeNode("Root");
     final Tree tree = new Tree(root);
     tree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(TreeSelectionEvent e) {
         final TreePath selectionPath = tree.getSelectionPath();
         if (selectionPath != null) {
@@ -109,15 +105,13 @@ public class TargetChooserDialog extends DialogWrapper {
     tree.setShowsRootHandles(true);
     tree.setLineStyleAngled();
     TreeUtil.installActions(tree);
-    new TreeSpeedSearch(tree, new Convertor<TreePath, String>() {
-      public String convert(final TreePath path) {
-        final Object userObject = ((DefaultMutableTreeNode)path.getLastPathComponent()).getUserObject();
-        if (userObject instanceof AntTargetNodeDescriptor) {
-          final AntBuildTarget target = ((AntTargetNodeDescriptor)userObject).getAntTarget();
-          return target.getDisplayName();
-        }
-        return null;
+    new TreeSpeedSearch(tree, path -> {
+      final Object userObject = ((DefaultMutableTreeNode)path.getLastPathComponent()).getUserObject();
+      if (userObject instanceof AntTargetNodeDescriptor) {
+        final AntBuildTarget target = ((AntTargetNodeDescriptor)userObject).getAntTarget();
+        return target.getDisplayName();
       }
+      return null;
     });
 
     DefaultMutableTreeNode selectedNode = null;
@@ -139,6 +133,7 @@ public class TargetChooserDialog extends DialogWrapper {
     return tree;
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myTree;
   }
@@ -172,7 +167,7 @@ public class TargetChooserDialog extends DialogWrapper {
     private final AntBuildFile myBuildFile;
 
 
-    public AntTargetNodeDescriptor(final AntBuildTarget antTarget, final AntBuildFile buildFile) {
+    AntTargetNodeDescriptor(final AntBuildTarget antTarget, final AntBuildFile buildFile) {
       myAntTarget = antTarget;
       myBuildFile = buildFile;
     }
@@ -187,6 +182,7 @@ public class TargetChooserDialog extends DialogWrapper {
   }
 
   private static class MyTreeCellRenderer extends ColoredTreeCellRenderer {
+    @Override
     public void customizeCellRenderer(JTree tree,
                                       Object value,
                                       boolean selected,

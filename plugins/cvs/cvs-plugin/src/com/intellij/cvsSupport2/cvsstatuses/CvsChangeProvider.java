@@ -41,7 +41,7 @@ import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -592,7 +592,7 @@ public class CvsChangeProvider implements ChangeProvider {
   }
 
   private class CvsUpToDateBinaryRevision extends CvsUpToDateRevision implements BinaryContentRevision {
-    public CvsUpToDateBinaryRevision(final FilePath path, final VcsRevisionNumber revisionNumber) {
+    CvsUpToDateBinaryRevision(final FilePath path, final VcsRevisionNumber revisionNumber) {
       super(path, revisionNumber);
     }
 

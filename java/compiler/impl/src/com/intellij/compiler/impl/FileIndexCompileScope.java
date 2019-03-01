@@ -28,12 +28,12 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Dec 18, 2003
  */
 public abstract class FileIndexCompileScope extends ExportableUserDataHolderBase implements CompileScope {
 
   protected abstract FileIndex[] getFileIndices();
 
+  @Override
   @NotNull
   public VirtualFile[] getFiles(final FileType fileType, final boolean inSourceOnly) {
     final List<VirtualFile> files = new ArrayList<>();

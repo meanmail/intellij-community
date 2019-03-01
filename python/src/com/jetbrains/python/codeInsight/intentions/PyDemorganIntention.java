@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.codeInsight.intentions;
 
-import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -31,7 +30,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author yole
  */
-public class PyDemorganIntention extends BaseIntentionAction {
+public class PyDemorganIntention extends PyBaseIntentionAction {
   @NotNull
   @Override
   public String getText() {
@@ -62,11 +61,12 @@ public class PyDemorganIntention extends BaseIntentionAction {
   }
 
   @Override
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     final PyBinaryExpression expression = PsiTreeUtil.getParentOfType(file.findElementAt(editor.getCaretModel().getOffset()),
                                                                       PyBinaryExpression.class);
     assert expression != null;
     final PyElementType op = expression.getOperator();
+    assert op != null;
     final String converted = convertConjunctionExpression(expression, op);
     replaceExpression(converted, expression);
   }
@@ -86,7 +86,8 @@ public class PyDemorganIntention extends BaseIntentionAction {
     // TODO codeStyleManager.reformat(insertedElement)
   }
 
-  private static String convertConjunctionExpression(PyBinaryExpression exp, PyElementType tokenType) {
+  @NotNull
+  private static String convertConjunctionExpression(@NotNull PyBinaryExpression exp, @NotNull PyElementType tokenType) {
     final PyExpression lhs = exp.getLeftExpression();
     final String lhsText;
     final String rhsText;
@@ -109,8 +110,12 @@ public class PyDemorganIntention extends BaseIntentionAction {
     return lhsText + flippedConjunction + rhsText;
   }
 
-  private static String convertLeafExpression(PyExpression condition) {
-    if (isNegation(condition)) {
+  @NotNull
+  private static String convertLeafExpression(@Nullable PyExpression condition) {
+    if (condition == null) {
+      return "";
+    }
+    else if (isNegation(condition)) {
       final PyExpression negated = getNegated(condition);
       if (negated == null) {
         return "";
@@ -126,11 +131,11 @@ public class PyDemorganIntention extends BaseIntentionAction {
   }
 
   @Nullable
-  private static PyExpression getNegated(PyExpression expression) {
+  private static PyExpression getNegated(@NotNull PyExpression expression) {
     return ((PyPrefixExpression)expression).getOperand();  // TODO strip ()
   }
 
-  private static boolean isConjunctionExpression(PyExpression expression, PyElementType tokenType) {
+  private static boolean isConjunctionExpression(@Nullable PyExpression expression, @NotNull PyElementType tokenType) {
     if (expression instanceof PyBinaryExpression) {
       final PyElementType operator = ((PyBinaryExpression)expression).getOperator();
       return operator == tokenType;
@@ -138,7 +143,7 @@ public class PyDemorganIntention extends BaseIntentionAction {
     return false;
   }
 
-  private static boolean isNegation(PsiElement expression) {
+  private static boolean isNegation(@Nullable PsiElement expression) {
     if (!(expression instanceof PyPrefixExpression)) {
       return false;
     }

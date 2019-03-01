@@ -16,6 +16,7 @@
 package com.intellij.xdebugger.impl.ui;
 
 import com.intellij.codeInsight.lookup.LookupManager;
+import com.intellij.codeInsight.template.TemplateManager;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.keymap.KeymapUtil;
@@ -26,6 +27,7 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -54,6 +56,7 @@ public class BreakpointEditor {
 
   public interface Delegate {
     void done();
+
     void more();
   }
 
@@ -74,22 +77,25 @@ public class BreakpointEditor {
 
     final AnAction doneAction = new DumbAwareAction() {
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         super.update(e);
         Project project = getEventProject(e);
-        boolean lookup = project != null && LookupManager.getInstance(project).getActiveLookup() != null;
         Editor editor = e.getData(CommonDataKeys.EDITOR);
+        boolean disabled = project != null &&
+                         (LookupManager.getInstance(project).getActiveLookup() != null ||
+                          (editor != null && TemplateManager.getInstance(project).getActiveTemplate(editor) != null));
         final Component owner = IdeFocusManager.findInstance().getFocusOwner();
         if (owner != null) {
           final JComboBox comboBox = UIUtil.getParentOfType(JComboBox.class, owner);
           if (comboBox != null && comboBox.isPopupVisible()) {
-            lookup = true;
+            disabled = true;
           }
         }
-        e.getPresentation().setEnabled(!lookup && (editor == null || StringUtil.isEmpty(editor.getSelectionModel().getSelectedText())) );
+        e.getPresentation().setEnabled(!disabled && (editor == null || StringUtil.isEmpty(editor.getSelectionModel().getSelectedText())) );
       }
 
-      public void actionPerformed(AnActionEvent e) {
+      @Override
+      public void actionPerformed(@NotNull AnActionEvent e) {
         done();
       }
     };

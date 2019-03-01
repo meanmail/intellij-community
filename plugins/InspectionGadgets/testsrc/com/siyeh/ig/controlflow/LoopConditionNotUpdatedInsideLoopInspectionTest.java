@@ -16,65 +16,32 @@
 package com.siyeh.ig.controlflow;
 
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.siyeh.ig.LightInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Bas Leijdekkers
  */
 public class LoopConditionNotUpdatedInsideLoopInspectionTest extends LightInspectionTestCase {
 
-  public void testPolyadicExpression() {
-    doMemberTest("void m(boolean b1, boolean b2, boolean b3) {" +
-                 "    while(/*Variable 'b1' is not updated inside loop*/b1/**/ && " +
-                 "          /*Variable 'b2' is not updated inside loop*/b2/**/ && " +
-                 "          /*Variable 'b3' is not updated inside loop*/b3/**/) {}" +
-                 "}");
-  }
-
-  public void testFinalLocal() {
-    doMemberTest("void foo(java.io.InputStream in) throws java.io.IOException {" +
-                 "    final int i = in.read();" +
-                 "    while (/*Condition 'i != -1' is not updated inside loop*/i != -1/**/) {}" +
-                 "}");
-  }
-
-  public void testNull() {
-    doMemberTest("void arg(Object o) {\n" +
-                 "    while (/*Variable 'o' is not updated inside loop*/o/**/ != null) {}" +
-                 "}");
-  }
-
-  public void testIterator() {
-    doMemberTest("void iterate(java.util.Iterator iterator) {" +
-                 "    while (/*Variable 'iterator' is not updated inside loop*/iterator/**/.hasNext()) {}" +
-                 "}");
-  }
-
-  public void testArrayVariable1() {
-    doMemberTest("void test() {" +
-                 "        int[] sockets = new int[1];" +
-                 "        while (sockets[0] == 0)" +
-                 "            sockets = new int[1];" +
-                 "    }");
-  }
-
-  public void testArrayVariable2() {
-    doMemberTest("void test() {" +
-                 "        int[] sockets = new int[1];" +
-                 "        while (sockets[0] == 0)" +
-                 "            sockets[0] = 1;" +
-                 "    }");
-  }
-
-  public void testArrayVariable3() {
-    doMemberTest("void test() {" +
-                 "        int[] sockets = new int[1];" +
-                 "        while (/*Variable 'sockets' is not updated inside loop*/sockets/**/[0] == 0) {}" +
-                 "    }");
+  public void testLoopConditionNotUpdatedInsideLoop() {
+    doTest();
   }
 
   @Override
   protected LocalInspectionTool getInspection() {
     return new LoopConditionNotUpdatedInsideLoopInspection();
+  }
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_9_ANNOTATED;
+  }
+
+  @Override
+  protected String getBasePath() {
+    return "/plugins/InspectionGadgets/test/com/siyeh/igtest/controlflow/loop_condition_not_updated";
   }
 }

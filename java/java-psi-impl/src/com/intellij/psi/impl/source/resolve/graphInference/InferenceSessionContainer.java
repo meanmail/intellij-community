@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve.graphInference;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.source.resolve.DefaultParameterTypeInferencePolicy;
 import com.intellij.psi.impl.source.resolve.ParameterTypeInferencePolicy;
 import com.intellij.psi.impl.source.resolve.graphInference.constraints.ExpressionCompatibilityConstraint;
 import com.intellij.psi.infos.MethodCandidateInfo;
@@ -29,10 +15,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public class InferenceSessionContainer {
-  private static final Logger LOG = Logger.getInstance("#" + InferenceSessionContainer.class.getName());
-  private final Map<PsiElement, InferenceSession> myNestedSessions = new HashMap<PsiElement, InferenceSession>();
+  private static final Logger LOG = Logger.getInstance(InferenceSessionContainer.class);
+  private final Map<PsiElement, InferenceSession> myNestedSessions = new HashMap<>();
 
-  public InferenceSessionContainer() {
+  InferenceSessionContainer() {
   }
 
   public void registerNestedSession(InferenceSession session) {
@@ -52,10 +38,10 @@ public class InferenceSessionContainer {
     final PsiSubstitutor callSession = findNestedSubstitutor(((PsiCallExpression)returnExpression).getArgumentList(), null);
     if (callSession == null) {
       final InferenceSession inferenceSession =
-        ExpressionCompatibilityConstraint.reduceExpressionCompatibilityConstraint(session, returnExpression, returnType);
+        ExpressionCompatibilityConstraint.reduceExpressionCompatibilityConstraint(session, returnExpression, returnType, false);
       if (inferenceSession != null && inferenceSession != session) {
         registerNestedSession(inferenceSession);
-        session.propagateVariables(inferenceSession.getInferenceVariables(), inferenceSession.getRestoreNameSubstitution());
+        session.propagateVariables(inferenceSession);
       }
     }
   }
@@ -76,29 +62,24 @@ public class InferenceSessionContainer {
           //traversing down would stop at lambda level and won't take into account overloaded method
           !MethodCandidateInfo.ourOverloadGuard.currentStack().contains(argumentList)) {
         final PsiCall topLevelCall = PsiResolveHelper.ourGraphGuard.doPreventingRecursion(parent, false,
-                                                                                          new Computable<PsiCall>() {
-                                                                                            @Override
-                                                                                            public PsiCall compute() {
-                                                                                              if (parent instanceof PsiExpression && !PsiPolyExpressionUtil.isPolyExpression((PsiExpression)parent)) {
-                                                                                                return null;
-                                                                                              }
-                                                                                              return LambdaUtil.treeWalkUp(parent);
+                                                                                          () -> {
+                                                                                            if (parent instanceof PsiExpression && !PsiPolyExpressionUtil.isPolyExpression((PsiExpression)parent)) {
+                                                                                              return null;
                                                                                             }
+                                                                                            return LambdaUtil.treeWalkUp(parent);
                                                                                           });
         if (topLevelCall != null) {
 
           InferenceSession session;
-          if (MethodCandidateInfo.isOverloadCheck() || !PsiDiamondType.ourDiamondGuard.currentStack().isEmpty() || LambdaUtil.isLambdaParameterCheck()) {
+          if (MethodCandidateInfo.isOverloadCheck() || !PsiDiamondType.ourDiamondGuard.currentStack().isEmpty() ||
+              LambdaUtil.isLambdaParameterCheck() || !policy.equals(DefaultParameterTypeInferencePolicy.INSTANCE)) {
             session = startTopLevelInference(topLevelCall, policy);
           }
           else {
-            session = CachedValuesManager.getCachedValue(topLevelCall, new CachedValueProvider<InferenceSession>() {
-              @Nullable
-              @Override
-              public Result<InferenceSession> compute() {
-                return new Result<InferenceSession>(startTopLevelInference(topLevelCall, policy), PsiModificationTracker.MODIFICATION_COUNT);
-              }
-            });
+            session = CachedValuesManager.getCachedValue(topLevelCall,
+                                                         () -> new CachedValueProvider.Result<>(
+                                                           startTopLevelInference(topLevelCall, DefaultParameterTypeInferencePolicy.INSTANCE),
+                                                           PsiModificationTracker.MODIFICATION_COUNT));
 
             if (session != null) {
               //reject cached top level session if it was based on wrong candidate: check nested session if candidate (it's type parameters) are the same
@@ -118,17 +99,8 @@ public class InferenceSessionContainer {
           }
 
           if (session != null) {
-            final CompoundInitialState compoundInitialState = createState(session);
-            final InitialInferenceState initialInferenceState = compoundInitialState.getInitialState(PsiTreeUtil.getParentOfType(argumentList, PsiCall.class));
-            if (initialInferenceState != null) {
-              InferenceSession childSession = new InferenceSession(initialInferenceState);
-              final List<String> errorMessages = session.getIncompatibleErrorMessages();
-              if (errorMessages != null) {
-                return childSession.prepareSubstitution();
-              }
-              return childSession
-                .collectAdditionalAndInfer(parameters, arguments, properties, compoundInitialState.getInitialSubstitutor());
-            }
+            final PsiSubstitutor childSubstitutor = inferNested(parameters, arguments, (PsiCall)parent, properties, session);
+            if (childSubstitutor != null) return childSubstitutor;
           }
           else if (topLevelCall instanceof PsiMethodCallExpression) {
             return new InferenceSession(typeParameters, partialSubstitutor, parent.getManager(), parent, policy).prepareSubstitution();
@@ -138,13 +110,89 @@ public class InferenceSessionContainer {
     }
 
     final InferenceSession inferenceSession = new InferenceSession(typeParameters, partialSubstitutor, parent.getManager(), parent, policy);
-    inferenceSession.initExpressionConstraints(parameters, arguments, parent, null);
+    inferenceSession.initExpressionConstraints(parameters, arguments, parent);
     return inferenceSession.infer(parameters, arguments, parent);
   }
-  
+
+  private static PsiSubstitutor inferNested(@NotNull final PsiParameter[] parameters,
+                                            @NotNull final PsiExpression[] arguments,
+                                            @NotNull final PsiCall parent,
+                                            @NotNull final MethodCandidateInfo.CurrentCandidateProperties properties,
+                                            @NotNull final InferenceSession parentSession) {
+    final CompoundInitialState compoundInitialState = createState(parentSession);
+    InitialInferenceState initialInferenceState = compoundInitialState.getInitialState(parent);
+    if (initialInferenceState != null) {
+      final InferenceSession childSession = new InferenceSession(initialInferenceState);
+      final List<String> errorMessages = parentSession.getIncompatibleErrorMessages();
+      if (errorMessages != null) {
+        PsiElement context = parentSession.getContext();
+        if (context instanceof PsiCallExpression) {
+          PsiMethod outerCallerMethod = ((PsiCallExpression)context).resolveMethod();
+          //caller on the upper level would provide better error:
+          //given foo(lambda) and failed checked exception compatibility constraint
+          //starting inference from lambda body, if accept self substitution,
+          //lambda body would have errors with completely failed inference, e.g. unhandled exception with non-inferred type or similar
+          if (outerCallerMethod != null && outerCallerMethod.hasTypeParameters()) {
+            return properties.getInfo().getSubstitutor(false);
+          }
+        }
+        return null;
+      }
+      return childSession.collectAdditionalAndInfer(parameters, arguments, properties, compoundInitialState.getInitialSubstitutor());
+    }
+
+    //we do not investigate lambda return expressions when lambda's return type is already inferred (proper)
+    //this way all calls from lambda's return expressions won't appear in nested sessions
+
+    PsiElement gParent = PsiUtil.skipParenthesizedExprUp(parent.getParent());
+    //find the nearest parent which appears in the map and start inference with a provided target type for a nested lambda
+    while (true) {
+      if (gParent instanceof PsiReturnStatement) { //process code block lambda
+        final PsiElement returnContainer = gParent.getParent();
+        if (returnContainer instanceof PsiCodeBlock) {
+          gParent = returnContainer.getParent();
+        }
+      }
+      if (gParent instanceof PsiConditionalExpression) {
+        gParent = PsiUtil.skipParenthesizedExprUp(gParent.getParent());
+      }
+      if (gParent instanceof PsiLambdaExpression) {
+        final PsiCall call = PsiTreeUtil.getParentOfType(gParent, PsiCall.class);
+        if (call != null) {
+          initialInferenceState = compoundInitialState.getInitialState(call);
+          if (initialInferenceState != null) {
+            final PsiExpressionList argumentList = call.getArgumentList();
+            final int idx = LambdaUtil.getLambdaIdx(argumentList, gParent);
+            final JavaResolveResult result = PsiDiamondType.getDiamondsAwareResolveResult(call);
+            final PsiElement method = result.getElement();
+            if (method instanceof PsiMethod && idx > -1) {
+              LOG.assertTrue(argumentList != null);
+              final PsiParameter[] methodParameters = ((PsiMethod)method).getParameterList().getParameters();
+              if (methodParameters.length == 0) {
+                break;
+              }
+
+              //one of the grand parents were found in the top inference session
+              //start from it as it is the top level call
+              final InferenceSession sessionInsideLambda = new InferenceSession(initialInferenceState);
+              sessionInsideLambda.collectAdditionalAndInfer(methodParameters, argumentList.getExpressions(), ((MethodCandidateInfo)result).createProperties(), compoundInitialState.getInitialSubstitutor());
+              return inferNested(parameters, arguments, parent, properties, sessionInsideLambda);
+            }
+          }
+          else {
+            gParent = PsiUtil.skipParenthesizedExprUp(call.getParent());
+            continue;
+          }
+        }
+      }
+      break;
+    }
+    return null;
+  }
+
   private static CompoundInitialState createState(InferenceSession topLevelSession) {
     final PsiSubstitutor topInferenceSubstitutor = replaceVariables(topLevelSession.getInferenceVariables());
-    final Map<PsiElement, InitialInferenceState> nestedStates = new LinkedHashMap<PsiElement, InitialInferenceState>();
+    final Map<PsiElement, InitialInferenceState> nestedStates = new LinkedHashMap<>();
 
     final InferenceSessionContainer copy = new InferenceSessionContainer() {
       @Override
@@ -186,22 +234,19 @@ public class InferenceSessionContainer {
 
   @Nullable
   private static InferenceSession startTopLevelInference(final PsiCall topLevelCall, final ParameterTypeInferencePolicy policy) {
-    final JavaResolveResult result = topLevelCall.resolveMethodGenerics();
+    final JavaResolveResult result = PsiDiamondType.getDiamondsAwareResolveResult(topLevelCall);
     if (result instanceof MethodCandidateInfo) {
       final PsiMethod method = ((MethodCandidateInfo)result).getElement();
       final PsiParameter[] topLevelParameters = method.getParameterList().getParameters();
       final PsiExpressionList topLevelCallArgumentList = topLevelCall.getArgumentList();
       LOG.assertTrue(topLevelCallArgumentList != null, topLevelCall);
       final PsiExpression[] topLevelArguments = topLevelCallArgumentList.getExpressions();
-      return PsiResolveHelper.ourGraphGuard.doPreventingRecursion(topLevelCall, true, new Computable<InferenceSession>() {
-        @Override
-        public InferenceSession compute() {
-          final InferenceSession topLevelSession =
-            new InferenceSession(method.getTypeParameters(), ((MethodCandidateInfo)result).getSiteSubstitutor(), topLevelCall.getManager(), topLevelCall, policy);
-          topLevelSession.initExpressionConstraints(topLevelParameters, topLevelArguments, topLevelCall, method, ((MethodCandidateInfo)result).isVarargs());
-          topLevelSession.infer(topLevelParameters, topLevelArguments, topLevelCall, ((MethodCandidateInfo)result).createProperties());
-          return topLevelSession;
-        }
+      return PsiResolveHelper.ourGraphGuard.doPreventingRecursion(topLevelCall, true, () -> {
+        final InferenceSession topLevelSession =
+          new InferenceSession(method.getTypeParameters(), ((MethodCandidateInfo)result).getSiteSubstitutor(), topLevelCall.getManager(), topLevelCall, policy);
+        topLevelSession.initExpressionConstraints(topLevelParameters, topLevelArguments, topLevelCall, method, ((MethodCandidateInfo)result).isVarargs());
+        topLevelSession.infer(topLevelParameters, topLevelArguments, topLevelCall, ((MethodCandidateInfo)result).createProperties());
+        return topLevelSession;
       });
     }
     return null;
@@ -209,9 +254,9 @@ public class InferenceSessionContainer {
 
   @NotNull
   private static PsiSubstitutor replaceVariables(Collection<InferenceVariable> inferenceVariables) {
-    final List<InferenceVariable> targetVars = new ArrayList<InferenceVariable>();
+    final List<InferenceVariable> targetVars = new ArrayList<>();
     PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
-    final InferenceVariable[] oldVars = inferenceVariables.toArray(new InferenceVariable[inferenceVariables.size()]);
+    final InferenceVariable[] oldVars = inferenceVariables.toArray(new InferenceVariable[0]);
     for (InferenceVariable variable : oldVars) {
       final InferenceVariable newVariable = new InferenceVariable(variable.getCallContext(), variable.getParameter(), variable.getName());
       substitutor = substitutor.put(variable, JavaPsiFacade.getElementFactory(variable.getProject()).createType(newVariable));
@@ -219,6 +264,7 @@ public class InferenceSessionContainer {
       if (variable.isThrownBound()) {
         newVariable.setThrownBound();
       }
+      newVariable.putUserData(InferenceSession.ORIGINAL_CAPTURE, variable.getUserData(InferenceSession.ORIGINAL_CAPTURE));
     }
 
     for (int i = 0; i < targetVars.size(); i++) {

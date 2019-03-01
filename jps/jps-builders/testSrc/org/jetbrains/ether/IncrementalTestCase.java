@@ -16,17 +16,17 @@
 package org.jetbrains.ether;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
-import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Processor;
 import org.jetbrains.jps.builders.BuildResult;
 import org.jetbrains.jps.builders.CompileScopeTestBuilder;
 import org.jetbrains.jps.builders.JpsBuildTestCase;
 import org.jetbrains.jps.builders.impl.logging.ProjectBuilderLoggerBase;
 import org.jetbrains.jps.builders.logging.BuildLoggingManager;
 import org.jetbrains.jps.cmdline.ProjectDescriptor;
+import org.jetbrains.jps.incremental.FSOperations;
 import org.jetbrains.jps.model.JpsDummyElement;
+import org.jetbrains.jps.model.JpsModuleRootModificationUtil;
 import org.jetbrains.jps.model.java.JavaSourceRootType;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 import org.jetbrains.jps.model.java.JpsJavaLibraryType;
@@ -38,14 +38,15 @@ import org.jetbrains.jps.model.serialization.PathMacroUtil;
 import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.io.IOException;
+import java.util.*;
 
 /**
  * @author db
- * @since 26.07.11
  */
 public abstract class IncrementalTestCase extends JpsBuildTestCase {
+
+  private static final String MODULE_DIR_PREFIX = "module";
   private final String groupName;
   private File baseDir;
   private File workDir;
@@ -64,12 +65,9 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
     baseDir = new File(PathManagerEx.getTestDataPath(getClass()) + File.separator + "compileServer" + File.separator + "incremental" + File.separator + groupName + File.separator + getProjectName());
     workDir = FileUtil.createTempDirectory("jps-build", null);
 
-    FileUtil.copyDir(baseDir, workDir, new FileFilter() {
-      @Override
-      public boolean accept(File file) {
-        String name = file.getName();
-        return !name.endsWith(".new") && !name.endsWith(".delete");
-      }
+    FileUtil.copyDir(baseDir, workDir, file -> {
+      String name = file.getName();
+      return !name.endsWith(".new") && !name.endsWith(".delete");
     });
 
     String outputPath = getAbsolutePath("out");
@@ -77,7 +75,7 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
   }
 
   @Override
-  protected File doGetProjectDir() throws IOException {
+  protected File doGetProjectDir() {
     return workDir;
   }
 
@@ -100,35 +98,29 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
     }
   }
 
-  private void modify(int stage) {
+  protected void modify(int stage) {
     final String removedSuffix = stage == 0? ".remove" : ".remove" + stage;
     final String newSuffix = stage == 0? ".new" : ".new" + stage;
 
-    FileUtil.processFilesRecursively(baseDir, new Processor<File>() {
-      @Override
-      public boolean process(File file) {
-        if (file.getName().endsWith(removedSuffix)) {
-          FileUtil.delete(getTargetFile(file, removedSuffix));
-        }
-        return true;
+    FileUtil.processFilesRecursively(baseDir, file -> {
+      if (file.getName().endsWith(removedSuffix)) {
+        FileUtil.delete(getTargetFile(file, removedSuffix));
       }
+      return true;
     });
     final long[] timestamp = {0};
-    FileUtil.processFilesRecursively(baseDir, new Processor<File>() {
-      @Override
-      public boolean process(File file) {
-        try {
-          if (file.getName().endsWith(newSuffix)) {
-            File targetFile = getTargetFile(file, newSuffix);
-            FileUtil.copyContent(file, targetFile);
-            timestamp[0] = Math.max(timestamp[0], FileSystemUtil.lastModified(targetFile));
-          }
+    FileUtil.processFilesRecursively(baseDir, file -> {
+      try {
+        if (file.getName().endsWith(newSuffix)) {
+          File targetFile = getTargetFile(file, newSuffix);
+          FileUtil.copyContent(file, targetFile);
+          timestamp[0] = Math.max(timestamp[0], FSOperations.lastModified(targetFile));
         }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-        return true;
       }
+      catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+      return true;
     });
     sleepUntil(timestamp[0]);
   }
@@ -167,17 +159,35 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
     return addModule(moduleName, new String[]{srcPath}, null, null, getOrCreateJdk());
   }
 
+  /**
+   * If the test changes project model between makes (e.g. module renamed), the descriptor should be re-created before each build session
+   * in order to ensure the project is loaded correctly. If project model is unchanged, teh project descriptor can be reused from the previous build session
+   * @return true if project descriptor from previous session can be reused, false otherwise
+   */
+  protected boolean useCachedProjectDescriptorOnEachMake() {
+    return true;
+  }
+
   protected BuildResult doTestBuild(int makesCount) {
     StringBuilder log = new StringBuilder();
     String rootPath = FileUtil.toSystemIndependentName(workDir.getAbsolutePath()) + "/";
-    final ProjectDescriptor pd = createProjectDescriptor(new BuildLoggingManager(new StringProjectBuilderLogger(rootPath, log)));
+    ProjectDescriptor pd = createProjectDescriptor(new BuildLoggingManager(new StringProjectBuilderLogger(rootPath, log)));
     BuildResult result = null;
     try {
+      final boolean reuseProjectId = useCachedProjectDescriptorOnEachMake();
+
       doBuild(pd, CompileScopeTestBuilder.rebuild().allModules()).assertSuccessful();
 
       for (int idx = 0; idx < makesCount; idx++) {
+        // this will save the current build data state before any changes were done to the project model
+        if (!reuseProjectId) {
+          pd.release();
+        }
         modify(idx);
-        result = doBuild(pd, CompileScopeTestBuilder.make().allModules());
+        if (!reuseProjectId) {
+          pd = createProjectDescriptor(new BuildLoggingManager(new StringProjectBuilderLogger(rootPath, log)));
+        }
+        result = doBuild(pd, createCompileScope(idx));
       }
 
       File logFile = new File(baseDir.getAbsolutePath() + ".log");
@@ -197,6 +207,10 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
     return result;
   }
 
+  protected CompileScopeTestBuilder createCompileScope(int stage) {
+    return CompileScopeTestBuilder.make().allModules();
+  }
+
   protected JpsSdk<JpsDummyElement> getOrCreateJdk() {
     if (myJdk == null) {
       myJdk = addJdk("IDEA jdk");
@@ -214,9 +228,37 @@ public abstract class IncrementalTestCase extends JpsBuildTestCase {
     module.addSourceRoot(getUrl(testRootRelativePath), JavaSourceRootType.TEST_SOURCE);
   }
 
+  protected Map<String, JpsModule> setupModules() {
+    final File projectDir = getOrCreateProjectDir();
+    final File[] moduleDirs = projectDir.listFiles((dir, name) -> name.startsWith(MODULE_DIR_PREFIX));
+
+    if (moduleDirs != null && moduleDirs.length > 0) {
+      final Map<String, JpsModule> modules = new HashMap<>();
+      final List<String> moduleNames = new ArrayList<>();
+      for (File moduleDir : moduleDirs) {
+        final String name = moduleDir.getName().substring(MODULE_DIR_PREFIX.length());
+        final JpsModule m = addModule(name, moduleDir.getName() + "/src");
+        modules.put(name, m);
+        moduleNames.add(name);
+      }
+      Collections.sort(moduleNames, Collections.reverseOrder());
+      // set dependencies in alphabet reverse order
+      JpsModule from = null;
+      for (String name : moduleNames) {
+        final JpsModule mod = modules.get(name);
+        if (from != null) {
+          JpsModuleRootModificationUtil.addDependency(from, mod);
+        }
+        from = mod;
+      }
+      return modules;
+    }
+    return Collections.emptyMap();
+  }
+
   private static class StringProjectBuilderLogger extends ProjectBuilderLoggerBase {
     private final String myRoot;
-    private StringBuilder myLog;
+    private final StringBuilder myLog;
 
     private StringProjectBuilderLogger(String root, StringBuilder log) {
       myRoot = root;

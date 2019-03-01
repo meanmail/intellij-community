@@ -23,22 +23,17 @@ import com.intellij.psi.impl.cache.RecordUtil;
 import com.intellij.psi.impl.java.stubs.impl.PsiModifierListStubImpl;
 import com.intellij.psi.impl.source.PsiModifierListImpl;
 import com.intellij.psi.impl.source.tree.java.ModifierListElement;
-import com.intellij.psi.stubs.IndexSink;
-import com.intellij.psi.stubs.StubElement;
-import com.intellij.psi.stubs.StubInputStream;
-import com.intellij.psi.stubs.StubOutputStream;
+import com.intellij.psi.stubs.*;
 import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 
-import static com.intellij.psi.impl.source.tree.JavaElementType.*;
-
 /**
  * @author max
  */
-public class JavaModifierListElementType extends JavaStubElementType<PsiModifierListStub, PsiModifierList> {
-  public JavaModifierListElementType() {
+class JavaModifierListElementType extends JavaStubElementType<PsiModifierListStub, PsiModifierList> {
+  JavaModifierListElementType() {
     super("MODIFIER_LIST");
   }
 
@@ -58,8 +53,9 @@ public class JavaModifierListElementType extends JavaStubElementType<PsiModifier
     return new PsiModifierListImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiModifierListStub createStub(final LighterAST tree, final LighterASTNode node, final StubElement parentStub) {
+  public PsiModifierListStub createStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, @NotNull final StubElement parentStub) {
     return new PsiModifierListStubImpl(parentStub, RecordUtil.packModifierList(tree, node));
   }
 
@@ -75,14 +71,14 @@ public class JavaModifierListElementType extends JavaStubElementType<PsiModifier
   }
 
   @Override
-  public boolean shouldCreateStub(final LighterAST tree, final LighterASTNode node, final StubElement parentStub) {
+  public boolean shouldCreateStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, @NotNull final StubElement parentStub) {
     final LighterASTNode parent = tree.getParent(node);
     final IElementType parentType = parent != null ? parent.getTokenType() : null;
     return shouldCreateStub(parentType);
   }
 
   private static boolean shouldCreateStub(IElementType parentType) {
-    return parentType != null && parentType != LOCAL_VARIABLE && parentType != RESOURCE_VARIABLE && parentType != RESOURCE_LIST;
+    return parentType instanceof IStubElementType;
   }
 
   @NotNull

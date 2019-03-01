@@ -17,7 +17,6 @@ package com.intellij.jarFinder;
 
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -28,7 +27,10 @@ import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.ui.configuration.LibrarySourceRootDetectorUtil;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.JarFileSystem;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
@@ -191,22 +193,25 @@ public class InternetAttachSourceProvider extends AbstractAttachSourceProvider {
   }
 
   public static void attachSourceJar(@NotNull File sourceJar, @NotNull Collection<Library> libraries) {
-    AccessToken accessToken = WriteAction.start();
-    try {
-      VirtualFile srcFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(sourceJar);
-      if (srcFile == null) return;
+    VirtualFile srcFile = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(sourceJar);
+    if (srcFile == null) return;
 
-      VirtualFile jarRoot = JarFileSystem.getInstance().getJarRootForLocalFile(srcFile);
-      if (jarRoot == null) return;
+    VirtualFile jarRoot = JarFileSystem.getInstance().getJarRootForLocalFile(srcFile);
+    if (jarRoot == null) return;
 
-      VirtualFile[] roots = LibrarySourceRootDetectorUtil.scanAndSelectDetectedJavaSourceRoots(null, new VirtualFile[]{jarRoot});
-      if (roots.length == 0) {
-        roots = new VirtualFile[]{jarRoot};
-      }
+    VirtualFile[] roots = LibrarySourceRootDetectorUtil.scanAndSelectDetectedJavaSourceRoots(null, new VirtualFile[]{jarRoot});
+    if (roots.length == 0) {
+      roots = new VirtualFile[]{jarRoot};
+    }
 
+    doAttachSourceJars(libraries, roots);
+  }
+
+  private static void doAttachSourceJars(@NotNull Collection<Library> libraries, VirtualFile[] roots) {
+    WriteAction.run(() -> {
       for (Library library : libraries) {
         Library.ModifiableModel model = library.getModifiableModel();
-        List<VirtualFile> alreadyExistingFiles = Arrays.asList(model.getFiles(OrderRootType.SOURCES));
+        Set<VirtualFile> alreadyExistingFiles = ContainerUtil.newHashSet(model.getFiles(OrderRootType.SOURCES));
 
         for (VirtualFile root : roots) {
           if (!alreadyExistingFiles.contains(root)) {
@@ -215,10 +220,7 @@ public class InternetAttachSourceProvider extends AbstractAttachSourceProvider {
         }
         model.commit();
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   public static File getLibrarySourceDir() {

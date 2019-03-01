@@ -16,10 +16,12 @@
 package com.intellij.psi.stubs;
 
 import com.intellij.openapi.util.Key;
+import com.intellij.util.ArrayUtil;
 import gnu.trove.THashMap;
 import gnu.trove.TObjectObjectProcedure;
 import gnu.trove.TObjectProcedure;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,18 +29,16 @@ import java.util.Map;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 8/3/12
  */
 public class ObjectStubTree<T extends Stub> {
-  protected static final Key<ObjectStubTree> STUB_TO_TREE_REFERENCE = Key.create("stub to tree reference");
-  public static final Key<Integer> LAST_STUB_TREE_HASH = Key.create("LAST_STUB_TREE_HASH");
+  private static final Key<ObjectStubTree> STUB_TO_TREE_REFERENCE = Key.create("stub to tree reference");
   protected final ObjectStubBase myRoot;
   private String myDebugInfo;
-  protected final List<T> myPlainList = new ArrayList<T>();
+  private final List<T> myPlainList;
 
   public ObjectStubTree(@NotNull final ObjectStubBase root, final boolean withBackReference) {
     myRoot = root;
-    enumerateStubs(root, (List<Stub>)myPlainList);
+    myPlainList = enumerateStubs(root);
     if (withBackReference) {
       myRoot.putUserData(STUB_TO_TREE_REFERENCE, this); // This will prevent soft references to stub tree to be collected before all of the stubs are collected.
     }
@@ -55,7 +55,7 @@ public class ObjectStubTree<T extends Stub> {
   }
 
   @NotNull
-  public List<T> getPlainListFromAllRoots() {
+  List<T> getPlainListFromAllRoots() {
     return getPlainList();
   }
 
@@ -72,18 +72,26 @@ public class ObjectStubTree<T extends Stub> {
     return sink.getResult();
   }
 
-  private static void enumerateStubs(@NotNull Stub root, @NotNull List<Stub> result) {
+  @NotNull
+  protected List<T> enumerateStubs(@NotNull Stub root) {
+    List<T> result = new ArrayList<>();
+    //noinspection unchecked
+    enumerateStubsInto(root, (List)result);
+    return result;
+  }
+
+  private static void enumerateStubsInto(@NotNull Stub root, @NotNull List<? super Stub> result) {
     ((ObjectStubBase)root).id = result.size();
     result.add(root);
     List<? extends Stub> childrenStubs = root.getChildrenStubs();
     //noinspection ForLoopReplaceableByForEach
     for (int i = 0; i < childrenStubs.size(); i++) {
       Stub child = childrenStubs.get(i);
-      enumerateStubs(child, result);
+      enumerateStubsInto(child, result);
     }
   }
 
-  public void setDebugInfo(String info) {
+  public void setDebugInfo(@NotNull String info) {
     ObjectStubTree ref = getStubTree(myRoot);
     if (ref != null) {
       assert ref == this;
@@ -92,7 +100,8 @@ public class ObjectStubTree<T extends Stub> {
     myDebugInfo = info;
   }
 
-  static ObjectStubTree getStubTree(ObjectStubBase root) {
+  @Nullable
+  public static ObjectStubTree getStubTree(@NotNull ObjectStubBase root) {
     return root.getUserData(STUB_TO_TREE_REFERENCE);
   }
 
@@ -106,7 +115,7 @@ public class ObjectStubTree<T extends Stub> {
   }
 
   private static class StubIndexSink implements IndexSink, TObjectProcedure<Map<Object, int[]>>, TObjectObjectProcedure<Object,int[]> {
-    private final THashMap<StubIndexKey, Map<Object, int[]>> myResult = new THashMap<StubIndexKey, Map<Object, int[]>>();
+    private final THashMap<StubIndexKey, Map<Object, int[]>> myResult = new THashMap<>();
     private int myStubIdx;
     private Map<Object, int[]> myProcessingMap;
 
@@ -114,32 +123,31 @@ public class ObjectStubTree<T extends Stub> {
     public void occurrence(@NotNull final StubIndexKey indexKey, @NotNull final Object value) {
       Map<Object, int[]> map = myResult.get(indexKey);
       if (map == null) {
-        map = new THashMap<Object, int[]>();
+        map = new THashMap<>();
         myResult.put(indexKey, map);
       }
 
       int[] list = map.get(value);
       if (list == null) {
         map.put(value, new int[] {myStubIdx});
-      } else {
-        int lastZero;
-        for(lastZero = list.length - 1; lastZero >=0 && list[lastZero] == 0; --lastZero);
-        if (lastZero >= 0 && list[lastZero] == myStubIdx) {
+      }
+      else {
+        int lastNonZero = ArrayUtil.lastIndexOfNot(list, 0);
+        if (lastNonZero >= 0 && list[lastNonZero] == myStubIdx) {
           // second and subsequent occurrence calls for the same value are no op
           return;
         }
-        ++lastZero;
+        int lastZero = lastNonZero + 1;
 
         if (lastZero == list.length) {
-          int[] newlist = new int[Math.max(4, list.length << 1)];
-          System.arraycopy(list, 0, newlist, 0, list.length);
-          lastZero = list.length;
-          map.put(value, list = newlist);
+          list = ArrayUtil.realloc(list, Math.max(4, list.length << 1));
+          map.put(value, list);
         }
         list[lastZero] = myStubIdx;
       }
     }
 
+    @NotNull
     public Map<StubIndexKey, Map<Object, int[]>> getResult() {
       myResult.forEachValue(this);
       return myResult;
@@ -155,11 +163,9 @@ public class ObjectStubTree<T extends Stub> {
     @Override
     public boolean execute(Object a, int[] b) {
       if (b.length == 1) return true;
-      int firstZero;
-      for(firstZero = 0; firstZero < b.length && b[firstZero] != 0; ++firstZero);
-      if (firstZero != b.length) {
-        int[] shorterList = new int[firstZero];
-        System.arraycopy(b, 0, shorterList, 0, shorterList.length);
+      int firstZero = ArrayUtil.indexOf(b, 0);
+      if (firstZero != -1) {
+        int[] shorterList = ArrayUtil.realloc(b, firstZero);
         myProcessingMap.put(a, shorterList);
       }
       return true;

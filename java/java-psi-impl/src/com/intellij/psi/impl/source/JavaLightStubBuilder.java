@@ -67,12 +67,11 @@ public class JavaLightStubBuilder extends LightStubBuilder {
 
   @Override
   protected boolean skipChildProcessingWhenBuildingStubs(@NotNull LighterAST tree, @NotNull LighterASTNode parent, @NotNull LighterASTNode node) {
-    IElementType parentType = parent.getTokenType();
-    IElementType nodeType = node.getTokenType();
+    return checkByTypes(parent.getTokenType(), node.getTokenType()) || isCodeBlockWithoutStubs(node);
+  }
 
-    if (checkByTypes(parentType, nodeType)) return true;
-
-    if (nodeType == JavaElementType.CODE_BLOCK) {
+  public static boolean isCodeBlockWithoutStubs(@NotNull LighterASTNode node) {
+    if (node.getTokenType() == JavaElementType.CODE_BLOCK && node instanceof LighterLazyParseableNode) {
       CodeBlockVisitor visitor = new CodeBlockVisitor();
       ((LighterLazyParseableNode)node).accept(visitor);
       return visitor.result;
@@ -103,8 +102,8 @@ public class JavaLightStubBuilder extends LightStubBuilder {
 
   private static class CodeBlockVisitor extends RecursiveTreeElementWalkingVisitor implements LighterLazyParseableNode.Visitor {
     private static final TokenSet BLOCK_ELEMENTS = TokenSet.create(
-      JavaElementType.ANNOTATION, JavaElementType.CLASS, JavaElementType.ANONYMOUS_CLASS,
-      JavaElementType.LAMBDA_EXPRESSION, JavaElementType.METHOD_REF_EXPRESSION);
+      JavaElementType.CLASS, JavaElementType.ANONYMOUS_CLASS,
+      JavaTokenType.ARROW, JavaTokenType.DOUBLE_COLON, JavaTokenType.AT);
 
     private boolean result = true;
 
@@ -118,11 +117,13 @@ public class JavaLightStubBuilder extends LightStubBuilder {
       super.visitNode(element);
     }
 
+    private IElementType preLast;
     private IElementType last;
     private boolean seenNew;
+    private boolean seenLParen;
+    private boolean seenModifier;
 
     @Override
-    @SuppressWarnings("IfStatementWithIdenticalBranches")
     public boolean visit(IElementType type) {
       if (ElementType.JAVA_COMMENT_OR_WHITESPACE_BIT_SET.contains(type)) {
         return true;
@@ -138,15 +139,25 @@ public class JavaLightStubBuilder extends LightStubBuilder {
       }
       else if (seenNew && type == JavaTokenType.SEMICOLON) {
         seenNew = false;
+        seenLParen = false;
       }
-      else if (seenNew && type == JavaTokenType.LBRACE && last != JavaTokenType.RBRACKET) {
+      else if (seenNew && type == JavaTokenType.LBRACE && seenLParen) {
         return (result = false);
       }
+      else if (seenNew && type == JavaTokenType.LPARENTH) {
+        seenLParen = true;
+      }
+      else if (ElementType.MODIFIER_BIT_SET.contains(type)) {
+        seenModifier = true;
+      }
       // local classes
-      else if (type == JavaTokenType.CLASS_KEYWORD && last != JavaTokenType.DOT) {
+      else if (type == JavaTokenType.CLASS_KEYWORD && (last != JavaTokenType.DOT || preLast != JavaTokenType.IDENTIFIER || seenModifier)
+               || type == JavaTokenType.ENUM_KEYWORD 
+               || type == JavaTokenType.INTERFACE_KEYWORD) {
         return (result = false);
       }
 
+      preLast = last;
       last = type;
       return true;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
@@ -30,15 +31,17 @@ import java.io.File;
  */
 public class UniqueNameEditorTabTitleProvider implements EditorTabTitleProvider {
   @Override
-  public String getEditorTabTitle(Project project, VirtualFile file) {
-    if (!UISettings.getInstance().SHOW_DIRECTORY_FOR_NON_UNIQUE_FILENAMES || DumbService.isDumb(project)) {
+  public String getEditorTabTitle(@NotNull Project project, @NotNull VirtualFile file) {
+    UISettings uiSettings = UISettings.getInstanceOrNull();
+    if (uiSettings == null || !uiSettings.getShowDirectoryForNonUniqueFilenames() || DumbService.isDumb(project)) {
       return null;
     }
+
     // Even though this is a 'tab title provider' it is used also when tabs are not shown, namely for building IDE frame title.
-    String uniqueName = UISettings.getInstance().EDITOR_TAB_PLACEMENT == UISettings.TABS_NONE ?
+    String uniqueName = uiSettings.getEditorTabPlacement() == UISettings.TABS_NONE ?
                         UniqueVFilePathBuilder.getInstance().getUniqueVirtualFilePath(project, file) :
                         UniqueVFilePathBuilder.getInstance().getUniqueVirtualFilePathWithinOpenedFileEditors(project, file);
-    uniqueName = getEditorTabText(uniqueName, File.separator, UISettings.getInstance().HIDE_KNOWN_EXTENSION_IN_TABS);
+    uniqueName = getEditorTabText(uniqueName, File.separator, uiSettings.getHideKnownExtensionInTabs());
     return uniqueName.equals(file.getName()) ? null : uniqueName;
   }
 

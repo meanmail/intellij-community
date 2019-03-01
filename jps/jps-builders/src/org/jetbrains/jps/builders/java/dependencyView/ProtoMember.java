@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.util.io.DataInputOutputUtil;
@@ -30,7 +16,6 @@ import java.util.Set;
 
 /**
  * @author: db
- * Date: 07.03.11
  */
 abstract class ProtoMember extends Proto {
 
@@ -236,6 +221,7 @@ abstract class ProtoMember extends Proto {
     }
   }
 
+  @Override
   public void save(final DataOutput out) {
     super.save(out);
     myType.save(out);
@@ -272,6 +258,7 @@ abstract class ProtoMember extends Proto {
     }
   }
 
+  @Override
   public Difference difference(final Proto past) {
     final ProtoMember m = (ProtoMember)past;
     final Difference diff = super.difference(past);
@@ -302,12 +289,7 @@ abstract class ProtoMember extends Proto {
 
     final int newBase = base;
 
-    return new Difference() {
-      @Override
-      public Specifier<TypeRepr.ClassType, Difference> annotations() {
-        return diff.annotations();
-      }
-
+    return new DifferenceImpl(diff) {
       @Override
       public int base() {
         return newBase;
@@ -315,36 +297,17 @@ abstract class ProtoMember extends Proto {
 
       @Override
       public boolean no() {
-        return newBase == NONE && diff.no();
-      }
-
-      @Override
-      public int addedModifiers() {
-        return diff.addedModifiers();
-      }
-
-      @Override
-      public int removedModifiers() {
-        return diff.removedModifiers();
-      }
-
-      @Override
-      public boolean packageLocalOn() {
-        return diff.packageLocalOn();
+        return newBase == NONE && super.no();
       }
 
       @Override
       public boolean hadValue() {
         return ((ProtoMember)past).hasValue();
       }
-
-      @Override
-      public boolean weakedAccess() {
-        return diff.weakedAccess();
-      }
     };
   }
 
+  @Override
   public void toStream(final DependencyContext context, final PrintStream stream) {
     super.toStream(context, stream);
     stream.print("          Type       : ");

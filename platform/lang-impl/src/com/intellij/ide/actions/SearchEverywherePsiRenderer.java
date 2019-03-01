@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,35 +17,33 @@ package com.intellij.ide.actions;
 
 import com.intellij.ide.util.PlatformModuleRendererFactory;
 import com.intellij.ide.util.PsiElementListCellRenderer;
-import com.intellij.navigation.ItemPresentation;
-import com.intellij.navigation.NavigationItem;
-import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.ide.util.gotoByName.GotoFileCellRenderer;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.util.Iconable;
+import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDirectory;
+import com.intellij.openapi.vfs.newvfs.VfsPresentationUtil;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.presentation.java.SymbolPresentationUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.util.ui.FilePathSplittingPolicy;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.util.ObjectUtils;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.util.LinkedList;
+import java.util.Optional;
 
 /**
 * @author Konstantin Bulenkov
 */
-class SearchEverywherePsiRenderer extends PsiElementListCellRenderer<PsiElement> {
+public class SearchEverywherePsiRenderer extends PsiElementListCellRenderer<PsiElement> {
 
   private final JList myList;
 
@@ -71,24 +69,17 @@ class SearchEverywherePsiRenderer extends PsiElementListCellRenderer<PsiElement>
 
   @Override
   public String getElementText(PsiElement element) {
-    final String name = element instanceof PsiNamedElement ? ((PsiNamedElement)element).getName() : null;
+    VirtualFile file = element instanceof PsiFile ? PsiUtilCore.getVirtualFile(element) :
+                       element instanceof VirtualFile ? (VirtualFile)element : null;
+    if (file != null) {
+      return VfsPresentationUtil.getPresentableNameForUI(element.getProject(), file);
+    }
+    String name = element instanceof PsiNamedElement ? ((PsiNamedElement)element).getName() : null;
     return StringUtil.notNullize(name, "<unnamed>");
   }
 
   @Override
   protected String getContainerText(PsiElement element, String name) {
-    if (element instanceof PsiFileSystemItem) {
-      PsiFileSystemItem parent = ((PsiFileSystemItem)element).getParent();
-      final PsiDirectory psiDirectory = parent instanceof PsiDirectory ? (PsiDirectory)parent : null;
-      VirtualFile virtualFile = psiDirectory == null ? null : psiDirectory.getVirtualFile();
-      if (virtualFile == null) return null;
-      final String relativePath = getRelativePath(virtualFile, element.getProject());
-      if (relativePath == null) return "( " + File.separator + " )";
-      int width = myList.getWidth();
-      if (width == 0) width += 800;
-      String path = FilePathSplittingPolicy.SPLIT_BY_SEPARATOR.getOptimalTextForComponent(name, new File(relativePath), this, width - myRightComponentWidth - 16 - 10);
-      return "(" + path + ")";
-    }
     return getSymbolContainerText(name, element);
   }
 
@@ -99,54 +90,61 @@ class SearchEverywherePsiRenderer extends PsiElementListCellRenderer<PsiElement>
     if (text == null) return null;
 
     if (text.startsWith("(") && text.endsWith(")")) {
-      text = text.substring(1, text.length()-1);
+      text = text.substring(1, text.length() - 1);
     }
+
+    if ((text.contains("/") || text.contains(File.separator)) && element instanceof PsiFileSystemItem) {
+      Project project = element.getProject();
+      String basePath = Optional.ofNullable(project.getBasePath())
+        .map(FileUtil::toSystemDependentName)
+        .orElse(null);
+      VirtualFile file = ((PsiFileSystemItem)element).getVirtualFile();
+      if (file != null) {
+        text = FileUtil.toSystemDependentName(text);
+        String filePath = FileUtil.toSystemDependentName(file.getPath());
+        if (basePath != null && FileUtil.isAncestor(basePath, filePath, true)) {
+          text = ObjectUtils.notNull(FileUtil.getRelativePath(basePath, text, File.separatorChar), text);
+        }
+        else {
+          String rootPath = Optional.ofNullable(GotoFileCellRenderer.getAnyRoot(file, project))
+            .map(root -> FileUtil.toSystemDependentName(root.getPath()))
+            .filter(root -> basePath != null && FileUtil.isAncestor(basePath, root, true))
+            .orElse(null);
+          text = rootPath != null
+                 ? ObjectUtils.notNull(FileUtil.getRelativePath(rootPath, text, File.separatorChar), text)
+                 : FileUtil.getLocationRelativeToUserHome(text);
+        }
+      }
+    }
+
     boolean in = text.startsWith("in ");
     if (in) text = text.substring(3);
-    final FontMetrics fm = myList.getFontMetrics(myList.getFont());
-    final int maxWidth = myList.getWidth() - fm.stringWidth(name) - 16 - myRightComponentWidth - 20;
+    FontMetrics fm = myList.getFontMetrics(myList.getFont());
+    int maxWidth = myList.getWidth() - fm.stringWidth(name) - 16 - myRightComponentWidth - 20;
     String left = in ? "(in " : "(";
     String right = ")";
+    String adjustedText = left + text + right;
 
-    if (fm.stringWidth(left + text + right) < maxWidth) return left + text + right;
-    final LinkedList<String> parts = new LinkedList<>(StringUtil.split(text, "."));
+    int fullWidth = fm.stringWidth(adjustedText);
+    if (fullWidth < maxWidth) return adjustedText;
+    String separator = text.contains("/") ? "/" :
+                       SystemInfo.isWindows && text.contains("\\") ? "\\" :
+                       text.contains(".") ? "." :
+                       text.contains("-") ? "-" : " ";
+    LinkedList<String> parts = new LinkedList<>(StringUtil.split(text, separator));
     int index;
     while (parts.size() > 1) {
       index = parts.size() / 2 - 1;
       parts.remove(index);
-      if (fm.stringWidth(StringUtil.join(parts, ".") + "...") < maxWidth) {
-        parts.add(index, index == 0 ? "..." : ".");
-        return left + StringUtil.join(parts, ".") + right;
+      if (fm.stringWidth(StringUtil.join(parts, separator) + "...") < maxWidth) {
+        parts.add(index, "...");
+        return left + StringUtil.join(parts, separator) + right;
       }
     }
-    //todo
-    return left + "..." + right;
+    int adjustedWidth = Math.max(adjustedText.length() * maxWidth / fullWidth - 1, left.length() + right.length() + 3);
+    return StringUtil.trimMiddle(adjustedText, adjustedWidth);
   }
 
-
-  @Nullable
-  String getRelativePath(final VirtualFile virtualFile, final Project project) {
-    String url = virtualFile.getPresentableUrl();
-    if (project == null) {
-      return url;
-    }
-    VirtualFile root = ProjectFileIndex.SERVICE.getInstance(project).getContentRootForFile(virtualFile);
-    if (root != null) {
-      return root.getName() + File.separatorChar + VfsUtilCore.getRelativePath(virtualFile, root, File.separatorChar);
-    }
-
-    final VirtualFile baseDir = project.getBaseDir();
-    if (baseDir != null) {
-      //noinspection ConstantConditions
-      final String projectHomeUrl = baseDir.getPresentableUrl();
-      if (url.startsWith(projectHomeUrl)) {
-        final String cont = url.substring(projectHomeUrl.length());
-        if (cont.isEmpty()) return null;
-        url = "..." + cont;
-      }
-    }
-    return url;
-  }
 
   @Override
   protected boolean customizeNonPsiElementLeftRenderer(ColoredListCellRenderer renderer,
@@ -155,27 +153,8 @@ class SearchEverywherePsiRenderer extends PsiElementListCellRenderer<PsiElement>
                                                        int index,
                                                        boolean selected,
                                                        boolean hasFocus) {
-    if (!(value instanceof NavigationItem)) return false;
-
-    NavigationItem item = (NavigationItem)value;
-
-    TextAttributes attributes = getNavigationItemAttributes(item);
-
-    SimpleTextAttributes nameAttributes = attributes != null ? SimpleTextAttributes.fromTextAttributes(attributes) : null;
-
-    Color color = list.getForeground();
-    if (nameAttributes == null) nameAttributes = new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, color);
-
-    renderer.append(item + " ", nameAttributes);
-    ItemPresentation itemPresentation = item.getPresentation();
-    assert itemPresentation != null;
-    renderer.setIcon(itemPresentation.getIcon(true));
-
-    String locationString = itemPresentation.getLocationString();
-    if (!StringUtil.isEmpty(locationString)) {
-      renderer.append(locationString, new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.GRAY));
-    }
-    return true;
+    return GotoFileCellRenderer.doCustomizeNonPsiElementLeftRenderer(
+      renderer, list, value, getNavigationItemAttributes(value));
   }
 
   @Override

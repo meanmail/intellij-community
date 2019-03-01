@@ -27,8 +27,6 @@ import com.intellij.psi.codeStyle.arrangement.model.ArrangementAtomMatchConditio
 import com.intellij.psi.codeStyle.arrangement.std.ArrangementStandardSettingsManager;
 import com.intellij.psi.codeStyle.arrangement.std.ArrangementUiComponent;
 import com.intellij.psi.codeStyle.arrangement.std.StdArrangementTokens;
-import com.intellij.ui.IdeBorderFactory;
-import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import gnu.trove.TIntArrayList;
@@ -47,7 +45,6 @@ import java.awt.event.MouseEvent;
 
 /**
  * @author Denis Zhdanov
- * @since 10/31/12 1:23 PM
  */
 public class ArrangementMatchingRulesControl extends JBTable {
   @NotNull private static final JLabel EMPTY_RENDERER = new JLabel(ApplicationBundle.message("arrangement.text.empty.rule"));
@@ -80,7 +77,6 @@ public class ArrangementMatchingRulesControl extends JBTable {
     setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     setShowColumns(false);
     setShowGrid(false);
-    setBorder(IdeBorderFactory.createBorder());
     setSurrendersFocusOnKeystroke(true);
     putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
 
@@ -375,12 +371,7 @@ public class ArrangementMatchingRulesControl extends JBTable {
     }
     myEditorRow = rowToEdit + 1;
     ArrangementEditorComponent editorComponent = new ArrangementEditorComponent(this, myEditorRow, editor);
-    int width = getBounds().width;
-    JScrollPane scrollPane = JBScrollPane.findScrollPane(getParent());
-    if (scrollPane != null) {
-      width -= scrollPane.getVerticalScrollBar().getWidth();
-    }
-    editorComponent.applyAvailableWidth(width);
+    editorComponent.applyAvailableWidth(getWidth());
     editor.reset(rowToEdit);
     mySkipSelectionChange = true;
     try {
@@ -509,7 +500,6 @@ public class ArrangementMatchingRulesControl extends JBTable {
     }
   }
 
-  @SuppressWarnings("ConstantConditions")
   private class MyEditor extends AbstractTableCellEditor {
 
     private int myRow;

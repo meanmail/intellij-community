@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
  */
 package com.siyeh.ig.fixes.equality;
 
-import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
-import com.siyeh.ig.equality.EqualityOperatorComparesObjectsInspection;
+import com.siyeh.ig.bugs.ObjectEqualityInspection;
+import com.siyeh.ig.fixes.EqualityToEqualsFix;
 
 /**
- * @see EqualityOperatorComparesObjectsInspection
  * @author Bas Leijdekkers
  */
 public abstract class EqualityOperatorComparesObjectsInspectionTestBase extends IGQuickFixesTestCase {
@@ -28,21 +27,18 @@ public abstract class EqualityOperatorComparesObjectsInspectionTestBase extends 
   public void testEnumComparison() { assertQuickfixNotAvailable(); }
   public void testNullComparison() { assertQuickfixNotAvailable(); }
   public void testPrimitiveComparison() { assertQuickfixNotAvailable(); }
-  public void testSimpleObjectComparison() { doTest(true, false); }
-  public void testNegatedObjectComparison() { doTest(false, false); }
+  public void testSimpleObjectComparison() { doTest(EqualityToEqualsFix.getFixName(false)); }
+  public void testNegatedObjectComparison() { doTest(EqualityToEqualsFix.getFixName(true)); }
+  public void testCompareThisInEqualsMethod() { assertQuickfixNotAvailable(); }
+  public void testCompareSameQualifiedThisInEqualsMethod() { assertQuickfixNotAvailable(); }
+  public void testCompareOtherQualifiedThisInEqualsMethod() { doTest(EqualityToEqualsFix.getFixName(false)); }
+  public void testCompareFieldInEqualsMethod() { doTest(EqualityToEqualsFix.getFixName(false)); }
 
   @Override
   protected void setUp() throws Exception {
     super.setUp();
-    myFixture.enableInspections(new EqualityOperatorComparesObjectsInspection());
+    myFixture.enableInspections(new ObjectEqualityInspection());
     myDefaultHint = "Replace";
     myRelativePath = "equality/replace_equality_with_equals";
-  }
-
-  protected void doTest(boolean isEqual, boolean isSafe) {
-    doTest(InspectionGadgetsBundle.message(
-      isSafe ? "equality.operator.compares.objects.safe.quickfix" : "equality.operator.compares.objects.quickfix",
-      isEqual ? "==" : "!=",
-      isEqual ? "" : "!"));
   }
 }

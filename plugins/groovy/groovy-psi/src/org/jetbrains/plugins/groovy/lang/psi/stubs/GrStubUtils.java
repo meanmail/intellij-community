@@ -1,22 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.stubs;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.stubs.StubElement;
@@ -26,9 +10,10 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.DataInputOutputUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
@@ -37,59 +22,34 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrAnonymousC
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeElement;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GrReferenceElementImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers.GrModifierListImpl;
 
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 02.06.2009
- */
-public class GrStubUtils {
-  private static final Logger LOG = Logger.getInstance(GrStubUtils.class);
-  public static final int TOO_LONG = -1;
+import static com.intellij.openapi.util.io.DataInputOutputUtilRt.readSeq;
+import static com.intellij.openapi.util.io.DataInputOutputUtilRt.writeSeq;
+import static org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers.GrModifierListUtil.hasMaskModifier;
 
-  public static void writeStringArray(StubOutputStream dataStream, String[] array) throws IOException {
-    if (array.length > Byte.MAX_VALUE) {
-      dataStream.writeByte(TOO_LONG);
-      dataStream.writeInt(array.length);
-    }
-    else {
-      dataStream.writeByte(array.length);
-    }
-    for (String s : array) {
-      LOG.assertTrue(s != null);
-      dataStream.writeName(s);
-    }
+public class GrStubUtils {
+
+  public static void writeStringArray(@NotNull StubOutputStream dataStream, @NotNull String[] array) throws IOException {
+    writeSeq(dataStream, ContainerUtil.newArrayList(array), dataStream::writeName);
   }
 
-  public static String[] readStringArray(StubInputStream dataStream) throws IOException {
-    int length = dataStream.readByte();
-    if (length == TOO_LONG) {
-      length = dataStream.readInt();
-    }
-    final String[] annNames = new String[length];
-    for (int i = 0; i < length; i++) {
-      annNames[i] = dataStream.readName().toString();
-    }
-    return annNames;
+  @NotNull
+  public static String[] readStringArray(@NotNull StubInputStream dataStream) throws IOException {
+    return ArrayUtil.toStringArray(readSeq(dataStream, dataStream::readNameString));
   }
 
   public static void writeNullableString(StubOutputStream dataStream, @Nullable String typeText) throws IOException {
-    dataStream.writeBoolean(typeText != null);
-    if (typeText != null) {
-      dataStream.writeUTFFast(typeText);
-    }
+    DataInputOutputUtil.writeNullable(dataStream, typeText, dataStream::writeUTFFast);
   }
 
   @Nullable
   public static String readNullableString(StubInputStream dataStream) throws IOException {
-    final boolean hasTypeText = dataStream.readBoolean();
-    return hasTypeText ? dataStream.readUTFFast() : null;
+    return DataInputOutputUtil.readNullable(dataStream, dataStream::readUTFFast);
   }
 
   @Nullable
@@ -103,11 +63,11 @@ public class GrStubUtils {
     return CachedValuesManager.getCachedValue(file, () -> {
       Map<String, String> mapping = ContainerUtil.newHashMap();
       for (GrImportStatement importStatement : ((GroovyFile)file).getImportStatements()) {
-        if (importStatement.getImportReference() != null && !importStatement.isStatic() && importStatement.isAliasedImport()) {
-          String importName = importStatement.getImportReference().getClassNameText();
+        String fqn = importStatement.getImportFqn();
+        if (fqn != null && !importStatement.isStatic() && importStatement.isAliasedImport()) {
           String importedName = importStatement.getImportedName();
           if (importedName != null) {
-            mapping.put(importedName, importName);
+            mapping.put(importedName, fqn);
           }
         }
       }
@@ -152,15 +112,15 @@ public class GrStubUtils {
 
   public static boolean isGroovyStaticMemberStub(StubElement<?> stub) {
     StubElement<?> modifierOwner = stub instanceof GrMethodStub ? stub : stub.getParentStub();
-    StubElement<GrModifierList> type = modifierOwner.findChildStubByType(GroovyElementTypes.MODIFIERS);
-    if (!(type instanceof GrModifierListStub)) {
+    GrModifierListStub type = modifierOwner.findChildStubByType(GroovyStubElementTypes.MODIFIER_LIST);
+    if (type == null) {
       return false;
     }
-    int mask = ((GrModifierListStub)type).getModifiersFlags();
-    if (GrModifierListImpl.hasMaskExplicitModifier(PsiModifier.PRIVATE, mask)) {
+    int mask = type.getModifiersFlags();
+    if (hasMaskModifier(mask, PsiModifier.PRIVATE)) {
       return false;
     }
-    if (GrModifierListImpl.hasMaskExplicitModifier(PsiModifier.STATIC, mask)) {
+    if (hasMaskModifier(mask, PsiModifier.STATIC)) {
       return true;
     }
 

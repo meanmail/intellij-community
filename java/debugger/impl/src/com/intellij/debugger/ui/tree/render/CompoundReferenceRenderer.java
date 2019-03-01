@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,10 +27,16 @@ public class CompoundReferenceRenderer extends CompoundTypeRenderer {
     super(rendererSettings, name, labelRenderer, childrenRenderer);
   }
 
+  @Override
   public boolean isApplicable(Type type) {
     if (type instanceof ReferenceType) {
       return super.isApplicable(type);
     }
+    return false;
+  }
+
+  @Override
+  public boolean hasOverhead() {
     return false;
   }
 }

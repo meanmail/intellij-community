@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,28 +18,26 @@ package com.intellij.debugger.engine;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.sun.jdi.TypeComponent;
 import com.sun.jdi.VirtualMachine;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Nikolay.Tropin
  */
 public class DefaultSyntheticProvider implements SyntheticTypeComponentProvider {
+
   @Override
-  public boolean isSynthetic(TypeComponent typeComponent) {
+  public boolean isSynthetic(@NotNull TypeComponent typeComponent) {
+    if (DebuggerUtilsEx.isLambdaClassName(typeComponent.declaringType().name())) {
+      return true;
+    }
+
+    VirtualMachine vm = typeComponent.virtualMachine();
+    return vm != null && vm.canGetSyntheticAttribute() ? typeComponent.isSynthetic() : typeComponent.name().contains("$");
+  }
+
+  @Override
+  public boolean isNotSynthetic(TypeComponent typeComponent) {
     String name = typeComponent.name();
-    if (LambdaMethodFilter.isLambdaName(name)) {
-      return false;
-    }
-    else {
-      if (DebuggerUtilsEx.isLambdaClassName(typeComponent.declaringType().name())) {
-        return true;
-      }
-    }
-    VirtualMachine machine = typeComponent.virtualMachine();
-    if (machine != null && machine.canGetSyntheticAttribute()) {
-      return typeComponent.isSynthetic();
-    }
-    else {
-      return name.contains("$");
-    }
+    return DebuggerUtilsEx.isLambdaName(name);
   }
 }

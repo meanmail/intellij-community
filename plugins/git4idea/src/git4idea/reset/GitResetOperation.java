@@ -18,7 +18,6 @@ package git4idea.reset;
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
@@ -27,15 +26,14 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
-import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcs.log.Hash;
 import git4idea.GitUtil;
 import git4idea.branch.GitBranchUiHandlerImpl;
 import git4idea.branch.GitSmartOperationDialog;
+import git4idea.changes.GitChangeUtils;
 import git4idea.commands.Git;
 import git4idea.commands.GitCommandResult;
 import git4idea.commands.GitLocalChangesWouldBeOverwrittenDetector;
@@ -49,9 +47,11 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
+import static git4idea.GitUtil.updateAndRefreshVfs;
 import static git4idea.commands.GitLocalChangesWouldBeOverwrittenDetector.Operation.RESET;
 
 public class GitResetOperation {
+
 
   @NotNull private final Project myProject;
   @NotNull private final Map<GitRepository, Hash> myCommits;
@@ -69,21 +69,22 @@ public class GitResetOperation {
     myCommits = targetCommits;
     myMode = mode;
     myIndicator = indicator;
-    myGit = ServiceManager.getService(Git.class);
+    myGit = Git.getInstance();
     myNotifier = VcsNotifier.getInstance(project);
     myUiHandler = new GitBranchUiHandlerImpl(myProject, myGit, indicator);
   }
 
   public void execute() {
     saveAllDocuments();
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(myProject);
     Map<GitRepository, GitCommandResult> results = ContainerUtil.newHashMap();
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, "Git Reset")) {
       for (Map.Entry<GitRepository, Hash> entry : myCommits.entrySet()) {
         GitRepository repository = entry.getKey();
         VirtualFile root = repository.getRoot();
         String target = entry.getValue().asString();
         GitLocalChangesWouldBeOverwrittenDetector detector = new GitLocalChangesWouldBeOverwrittenDetector(root, RESET);
+
+        Collection<Change> changes = GitChangeUtils.getDiffWithWorkingTree(repository, target, false);
 
         GitCommandResult result = myGit.reset(repository, myMode, target, detector);
         if (!result.success() && detector.wasMessageDetected()) {
@@ -93,13 +94,10 @@ public class GitResetOperation {
           }
         }
         results.put(repository, result);
-        repository.update();
-        VfsUtil.markDirtyAndRefresh(false, true, false, root);
+
+        updateAndRefreshVfs(repository, changes);
         VcsDirtyScopeManager.getInstance(myProject).dirDirtyRecursively(root);
       }
-    }
-    finally {
-      DvcsUtil.workingTreeChangeFinished(myProject, token);
     }
     notifyResult(results);
   }
@@ -108,20 +106,16 @@ public class GitResetOperation {
                                              @NotNull final GitRepository repository, @NotNull final String target) {
     Collection<String> absolutePaths = GitUtil.toAbsolute(repository.getRoot(), detector.getRelativeFilePaths());
     List<Change> affectedChanges = GitUtil.findLocalChangesForPaths(myProject, repository.getRoot(), absolutePaths, false);
-    int choice = myUiHandler.showSmartOperationDialog(myProject, affectedChanges, absolutePaths, "reset", "&Hard Reset");
-    if (choice == GitSmartOperationDialog.SMART_EXIT_CODE) {
+    GitSmartOperationDialog.Choice choice = myUiHandler.showSmartOperationDialog(myProject, affectedChanges, absolutePaths,
+                                                                                 "reset", "&Hard Reset");
+    if (choice == GitSmartOperationDialog.Choice.SMART) {
       final Ref<GitCommandResult> result = Ref.create();
       new GitPreservingProcess(myProject, myGit, Collections.singleton(repository.getRoot()), "reset", target,
                                GitVcsSettings.UpdateChangesPolicy.STASH, myIndicator,
-                               new Runnable() {
-        @Override
-        public void run() {
-          result.set(myGit.reset(repository, myMode, target));
-        }
-      }).execute();
+                               () -> result.set(myGit.reset(repository, myMode, target))).execute();
       return result.get();
     }
-    if (choice == GitSmartOperationDialog.FORCE_EXIT_CODE) {
+    if (choice == GitSmartOperationDialog.Choice.FORCE) {
       return myGit.reset(repository, GitResetMode.HARD, target);
     }
     return null;
@@ -160,13 +154,7 @@ public class GitResetOperation {
     if (grouped.size() == 1) {
       return "<code>" + grouped.keySet().iterator().next() + "</code>";
     }
-    return StringUtil.join(grouped.entrySet(), new Function<Map.Entry<String, Collection<GitRepository>>, String>() {
-      @NotNull
-      @Override
-      public String fun(@NotNull Map.Entry<String, Collection<GitRepository>> entry) {
-        return joinRepos(entry.getValue()) + ":<br/><code>" + entry.getKey() + "</code>";
-      }
-    }, "<br/>");
+    return StringUtil.join(grouped.entrySet(), entry -> joinRepos(entry.getValue()) + ":<br/><code>" + entry.getKey() + "</code>", "<br/>");
   }
 
   // to avoid duplicate error reports if they are the same for different repositories

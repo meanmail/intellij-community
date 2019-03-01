@@ -35,8 +35,6 @@ import com.intellij.psi.presentation.java.ClassPresentationUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.ui.popup.list.PopupListElementRenderer;
-import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -45,15 +43,15 @@ import java.awt.*;
 import java.util.List;
 
 public class StaticImportMethodQuestionAction<T extends PsiMember> implements QuestionAction {
-  private static final Logger LOG = Logger.getInstance("#" + StaticImportMethodQuestionAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(StaticImportMethodQuestionAction.class);
   private final Project myProject;
   private final Editor myEditor;
-  private List<T> myCandidates;
+  private final List<? extends T> myCandidates;
   private final SmartPsiElementPointer<? extends PsiElement> myRef;
 
   public StaticImportMethodQuestionAction(Project project,
                                           Editor editor,
-                                          List<T> candidates,
+                                          List<? extends T> candidates,
                                           SmartPsiElementPointer<? extends PsiElement> ref) {
     myProject = project;
     myEditor = editor;
@@ -90,20 +88,13 @@ public class StaticImportMethodQuestionAction<T extends PsiMember> implements Qu
     return true;
   }
 
-  private void doImport(final T toImport) {
+  protected void doImport(final T toImport) {
     final Project project = toImport.getProject();
     final PsiElement element = myRef.getElement();
     if (element == null) return;
-    if (!FileModificationService.getInstance().prepareFileForWrite(element.getContainingFile())) return;
-    WriteCommandAction.runWriteCommandAction(project, QuickFixBundle.message("add.import"), null, () -> {
-      try {
-        AddSingleMemberStaticImportAction
-          .bindAllClassRefs(element.getContainingFile(), toImport, toImport.getName(), toImport.getContainingClass());
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-      }
-    });
+    if (!FileModificationService.getInstance().preparePsiElementForWrite(element)) return;
+    WriteCommandAction.runWriteCommandAction(project, QuickFixBundle.message("add.import"), null, () ->
+      AddSingleMemberStaticImportAction.bindAllClassRefs(element.getContainingFile(), toImport, toImport.getName(), toImport.getContainingClass()));
   }
 
   private void chooseAndImport(final Editor editor, final Project project) {
@@ -113,7 +104,7 @@ public class StaticImportMethodQuestionAction<T extends PsiMember> implements Qu
     }
     final BaseListPopupStep<T> step =
       new BaseListPopupStep<T>(getPopupTitle(), myCandidates) {
-        
+
         @Override
         public boolean isAutoSelectionEnabled() {
           return false;
@@ -123,7 +114,7 @@ public class StaticImportMethodQuestionAction<T extends PsiMember> implements Qu
         public boolean isSpeedSearchEnabled() {
           return true;
         }
-        
+
         @Override
         public PopupStep onChosen(T selectedValue, boolean finalChoice) {
           if (selectedValue == null) {
@@ -133,8 +124,9 @@ public class StaticImportMethodQuestionAction<T extends PsiMember> implements Qu
           if (finalChoice) {
             return doFinalStep(() -> {
               PsiDocumentManager.getInstance(project).commitAllDocuments();
-              LOG.assertTrue(selectedValue.isValid());
-              doImport(selectedValue);
+              if (selectedValue.isValid()) {
+                doImport(selectedValue);
+              }
             });
           }
 
@@ -163,14 +155,17 @@ public class StaticImportMethodQuestionAction<T extends PsiMember> implements Qu
       @Override
       protected ListCellRenderer getListElementRenderer() {
         return new PsiElementListCellRenderer<T>() {
+          @Override
           public String getElementText(T element) {
             return getElementPresentableName(element);
           }
 
+          @Override
           public String getContainerText(final T element, final String name) {
             return PsiClassListCellRenderer.getContainerTextStatic(element);
           }
 
+          @Override
           public int getIconFlags() {
             return 0;
           }

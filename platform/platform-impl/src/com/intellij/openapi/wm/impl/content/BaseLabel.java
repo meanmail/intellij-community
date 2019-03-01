@@ -1,33 +1,22 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl.content;
 
 import com.intellij.ide.ui.AntialiasingType;
-import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.ui.EngravedTextGraphics;
-import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.OffsetIcon;
 import com.intellij.ui.content.Content;
+import com.intellij.ui.tabs.TabsUtil;
+import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.WatermarkIcon;
-import sun.swing.SwingUtilities2;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 
 public class BaseLabel extends JLabel {
   protected ToolWindowContentUi myUi;
@@ -40,29 +29,37 @@ public class BaseLabel extends JLabel {
     myUi = ui;
     setOpaque(false);
     myBold = bold;
+    addFocusListener(new FocusListener() {
+      @Override
+      public void focusGained(FocusEvent e) {
+        repaint();
+      }
+      @Override
+      public void focusLost(FocusEvent e) {
+        repaint();
+      }
+    });
   }
 
   @Override
   public void updateUI() {
     setActiveFg(JBColor.foreground());
-    setPassiveFg(new JBColor(Gray._75, UIUtil.getLabelDisabledForeground()));
+    setPassiveFg(JBColor.foreground());
     super.updateUI();
   }
 
   @Override
   public Font getFont() {
-    Font f = UIUtil.getLabelFont();
-    f = f.deriveFont(f.getStyle(), Math.max(11, f.getSize() - 2));
+    Font font = getLabelFont();
     if (myBold) {
-      f = f.deriveFont(Font.BOLD);
+      font = font.deriveFont(Font.BOLD);
     }
 
-    return f;
+    return font;
   }
 
   public static Font getLabelFont() {
-    Font f = UIUtil.getLabelFont();
-    return f.deriveFont(f.getStyle(), Math.max(11, f.getSize() - 2));
+    return TabsUtil.getLabelFont();
   }
 
   public void setActiveFg(final Color fg) {
@@ -73,11 +70,16 @@ public class BaseLabel extends JLabel {
     myPassiveFg = passiveFg;
   }
 
+  @Override
   protected void paintComponent(final Graphics g) {
     final Color fore = myUi.myWindow.isActive() ? myActiveFg : myPassiveFg;
     setForeground(fore);
-    putClientProperty(SwingUtilities2.AA_TEXT_PROPERTY_KEY, AntialiasingType.getAAHintForSwingComponent());
+    GraphicsUtil.setAntialiasingType(this, AntialiasingType.getAAHintForSwingComponent());
     super.paintComponent(_getGraphics((Graphics2D)g));
+
+    if (isFocusOwner()) {
+      UIUtil.drawLabelDottedRectangle(this, g);
+    }
   }
 
   protected Graphics _getGraphics(Graphics2D g) {
@@ -114,13 +116,16 @@ public class BaseLabel extends JLabel {
 
       setToolTipText(content.getDescription());
 
-      final boolean show = Boolean.TRUE.equals(content.getUserData(ToolWindow.SHOW_CONTENT_ICON)) 
-                           || content.getComponent() instanceof Iconable;
-      Icon icon = content.getIcon();
-      if (content.getComponent() instanceof Iconable) { // handling tabbed content after 'split group' action
-        icon = ((Iconable)content.getComponent()).getIcon(Iconable.ICON_FLAG_VISIBILITY);
-      }
+      final boolean show = Boolean.TRUE.equals(content.getUserData(ToolWindow.SHOW_CONTENT_ICON));
       if (show) {
+        ComponentOrientation componentOrientation = content.getUserData(Content.TAB_LABEL_ORIENTATION_KEY);
+        if(componentOrientation != null) {
+          setComponentOrientation(componentOrientation);
+        }
+        Icon icon = content.getIcon();
+        if (icon instanceof OffsetIcon) {
+          icon = ((OffsetIcon)icon).getIcon();
+        }
         if (isSelected) {
           setIcon(icon);
         }
@@ -138,5 +143,16 @@ public class BaseLabel extends JLabel {
 
   public Content getContent() {
     return null;
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleBaseLabel();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleBaseLabel extends AccessibleJLabel {
   }
 }

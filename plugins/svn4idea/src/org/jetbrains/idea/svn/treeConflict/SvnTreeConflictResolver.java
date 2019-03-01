@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.treeConflict;
 
 import com.intellij.history.LocalHistory;
@@ -27,24 +13,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.status.Status;
 import org.jetbrains.idea.svn.status.StatusClient;
-import org.jetbrains.idea.svn.status.StatusConsumer;
 import org.jetbrains.idea.svn.status.StatusType;
-import org.tmatesoft.svn.core.SVNException;
-import org.tmatesoft.svn.core.wc.SVNRevision;
 
 import java.io.File;
 import java.util.Collections;
 import java.util.Set;
 
-/**
-* Created with IntelliJ IDEA.
-* User: Irina.Chernushina
-* Date: 5/2/12
-* Time: 1:03 PM
-*/
 public class SvnTreeConflictResolver {
 
   @NotNull private final SvnVcs myVcs;
@@ -94,7 +72,7 @@ public class SvnTreeConflictResolver {
       final Status status = myVcs.getFactory(ioFile).createStatusClient().doStatus(ioFile, false);
 
       revert(ioFile);
-      if (StatusType.STATUS_ADDED.equals(status.getNodeStatus())) {
+      if (status.is(StatusType.STATUS_ADDED)) {
         FileUtil.delete(ioFile);
       }
       pathDirty(myRevertPath);
@@ -112,21 +90,22 @@ public class SvnTreeConflictResolver {
     final File ioFile = myPath.getIOFile();
     Status status = myVcs.getFactory(ioFile).createStatusClient().doStatus(ioFile, false);
 
-    if (status == null || StatusType.STATUS_UNVERSIONED.equals(status.getNodeStatus())) {
+    if (status == null || status.is(StatusType.STATUS_UNVERSIONED)) {
       revert(ioFile);
-      updateFile(ioFile, SVNRevision.HEAD);
-    } else if (StatusType.STATUS_ADDED.equals(status.getNodeStatus())) {
+      updateFile(ioFile, Revision.HEAD);
+    }
+    else if (status.is(StatusType.STATUS_ADDED)) {
       revert(ioFile);
-      updateFile(ioFile, SVNRevision.HEAD);
+      updateFile(ioFile, Revision.HEAD);
       FileUtil.delete(ioFile);
     } else {
-      Set<File> usedToBeAdded = myPath.isDirectory() ? getDescendantsWithAddedStatus(ioFile) : ContainerUtil.<File>newHashSet();
+      Set<File> usedToBeAdded = myPath.isDirectory() ? getDescendantsWithAddedStatus(ioFile) : ContainerUtil.newHashSet();
 
       revert(ioFile);
       for (File wasAdded : usedToBeAdded) {
         FileUtil.delete(wasAdded);
       }
-      updateFile(ioFile, SVNRevision.HEAD);
+      updateFile(ioFile, Revision.HEAD);
     }
   }
 
@@ -135,15 +114,11 @@ public class SvnTreeConflictResolver {
     final Set<File> result = ContainerUtil.newHashSet();
     StatusClient statusClient = myVcs.getFactory(ioFile).createStatusClient();
 
-    statusClient.doStatus(ioFile, SVNRevision.UNDEFINED, Depth.INFINITY, false, false, false, false,
-                          new StatusConsumer() {
-                            @Override
-                            public void consume(Status status) throws SVNException {
-                              if (status != null && StatusType.STATUS_ADDED.equals(status.getNodeStatus())) {
-                                result.add(status.getFile());
-                              }
-                            }
-                          }, null);
+    statusClient.doStatus(ioFile, Depth.INFINITY, false, false, false, false, status -> {
+      if (status != null && status.is(StatusType.STATUS_ADDED)) {
+        result.add(status.getFile());
+      }
+    });
 
     return result;
   }
@@ -152,7 +127,7 @@ public class SvnTreeConflictResolver {
     myVcs.getFactory(file).createRevertClient().revert(Collections.singletonList(file), Depth.INFINITY, null);
   }
 
-  private void updateFile(@NotNull File file, @NotNull SVNRevision revision) throws SvnBindException {
+  private void updateFile(@NotNull File file, @NotNull Revision revision) throws SvnBindException {
     boolean useParentAsTarget = !file.exists();
     File target = useParentAsTarget ? file.getParentFile() : file;
 

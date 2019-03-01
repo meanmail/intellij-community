@@ -45,7 +45,7 @@ public interface Notifications {
      * Registration is OPTIONAL: BALLOON display type will be used by default.
      * @deprecated use {@link NotificationGroup}
      */
-    @SuppressWarnings("JavaDoc")
+    @Deprecated
     public static void register(@NotNull final String group_id, @NotNull final NotificationDisplayType defaultDisplayType) {
       if (ApplicationManager.getApplication().isUnitTestMode()) return;
       //noinspection SSBasedInspection
@@ -62,6 +62,7 @@ public interface Notifications {
     }
 
     public static void notify(@NotNull final Notification notification, @Nullable final Project project) {
+      notification.assertHasTitleOrContent();
       if (ApplicationManager.getApplication().isUnitTestMode()) {
         doNotify(notification, project);
       }

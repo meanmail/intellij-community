@@ -17,12 +17,14 @@ package com.intellij.slicer;
 
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.ui.DuplicateNodeRenderer;
 import com.intellij.usageView.UsageViewBundle;
@@ -44,17 +46,17 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
   protected List<SliceNode> myCachedChildren;
   boolean dupNodeCalculated;
   protected SliceNode duplicate;
-  final DuplicateMap targetEqualUsages;
+  public final DuplicateMap targetEqualUsages;
   protected boolean changed;
   private int index; // my index in parent's mycachedchildren
 
-  protected SliceNode(@NotNull Project project, SliceUsage sliceUsage, @NotNull DuplicateMap targetEqualUsages) {
+  protected SliceNode(@NotNull Project project, @NotNull SliceUsage sliceUsage, @NotNull DuplicateMap targetEqualUsages) {
     super(project, sliceUsage);
     this.targetEqualUsages = targetEqualUsages;
   }
 
   @NotNull
-  SliceNode copy() {
+  public SliceNode copy() {
     SliceUsage newUsage = getValue().copy();
     SliceNode newNode = new SliceNode(getProject(), newUsage, targetEqualUsages);
     newNode.dupNodeCalculated = dupNodeCalculated;
@@ -64,19 +66,48 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
 
   @Override
   @NotNull
-  public Collection<? extends AbstractTreeNode> getChildren() {
-    ProgressIndicator current = ProgressManager.getInstance().getProgressIndicator();
-    ProgressIndicator indicator = current == null ? new ProgressIndicatorBase() : current;
-    if (current == null) {
-      indicator.start();
+  public Collection<SliceNode> getChildren() {
+    if (isUpToDate()) return myCachedChildren == null ? Collections.emptyList() : myCachedChildren;
+    try {
+      List<SliceNode> nodes;
+      ProgressIndicator current = ProgressManager.getInstance().getProgressIndicator();
+
+      if (current == null) {
+        ProgressIndicator indicator = new ProgressIndicatorBase();
+        Ref<List<SliceNode>> nodesRef = Ref.create();
+        ProgressManager.getInstance().runProcess(() -> nodesRef.set(doGetChildren()), indicator);
+        nodes = nodesRef.get();
+      }
+      else {
+        nodes = doGetChildren();
+      }
+
+      synchronized (nodes) {
+        myCachedChildren = nodes;
+      }
+      return nodes;
     }
-    final Collection[] nodes = new Collection[1];
-    ProgressManager.getInstance().executeProcessUnderProgress(
-      () -> nodes[0] = getChildrenUnderProgress(ProgressManager.getInstance().getProgressIndicator()), indicator);
-    if (current == null) {
-      indicator.stop();
+    catch (ProcessCanceledException pce) {
+      changed = true;
+      throw pce;
     }
-    return nodes[0];
+  }
+
+  private List<SliceNode> doGetChildren() {
+    final List<SliceNode> children = new ArrayList<>();
+    final ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
+    Processor<SliceUsage> processor = sliceUsage -> {
+      progress.checkCanceled();
+      SliceNode node = new SliceNode(myProject, sliceUsage, targetEqualUsages);
+      synchronized (children) {
+        node.index = children.size();
+        children.add(node);
+      }
+      return true;
+    };
+
+    ApplicationManagerEx.getApplicationEx().executeByImpatientReader(() -> getValue().processChildren(processor));
+    return children;
   }
 
   SliceNode getNext(List parentChildren) {
@@ -87,41 +118,8 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
     return index == 0 ? null : (SliceNode)parentChildren.get(index - 1);
   }
 
-  @NotNull
-  protected List<? extends AbstractTreeNode> getChildrenUnderProgress(@NotNull final ProgressIndicator progress) {
-    if (isUpToDate()) return myCachedChildren == null ? Collections.emptyList() : myCachedChildren;
-    final List<SliceNode> children = new ArrayList<>();
-    final SliceManager manager = SliceManager.getInstance(getProject());
-    manager.runInterruptibly(progress, () -> {
-      changed = true;
-      //SwingUtilities.invokeLater(new Runnable() {
-      //  public void run() {
-      //    if (getTreeBuilder().isDisposed()) return;
-      //    DefaultMutableTreeNode node = getTreeBuilder().getNodeForElement(getValue());
-      //    //myTreeBuilder.getUi().queueBackgroundUpdate(node, (NodeDescriptor)node.getUserObject(), new TreeUpdatePass(node));
-      //    if (node == null) node = getTreeBuilder().getRootNode();
-      //    getTreeBuilder().addSubtreeToUpdate(node);
-      //  }
-      //});
-    }, () -> {
-      Processor<SliceUsage> processor = sliceUsage -> {
-        progress.checkCanceled();
-        SliceNode node = new SliceNode(myProject, sliceUsage, targetEqualUsages);
-        synchronized (children) {
-          node.index = children.size();
-          children.add(node);
-        }
-        return true;
-      };
-
-      getValue().processChildren(processor);
-    }
-    );
-
-    synchronized (children) {
-      myCachedChildren = children;
-    }
-    return children;
+  public List<SliceNode> getCachedChildren() {
+    return myCachedChildren;
   }
 
   private boolean isUpToDate() {
@@ -144,14 +142,14 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
     if (presentation != null) {
       presentation.setChanged(presentation.isChanged() || changed);
       changed = false;
     }
   }
 
-  void calculateDupNode() {
+  public void calculateDupNode() {
     if (!dupNodeCalculated) {
       if (!(getValue() instanceof SliceTooComplexDFAUsage)) {
         duplicate = targetEqualUsages.putNodeCheckDupe(this);
@@ -182,12 +180,7 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
   }
 
   public boolean isValid() {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        return getValue().isValid();
-      }
-    });
+    return ReadAction.compute(() -> getValue().isValid());
   }
 
   @Override
@@ -229,14 +222,13 @@ public class SliceNode extends AbstractTreeNode<SliceUsage> implements Duplicate
     return LanguageSlicing.getProvider(psiElement);
   }
 
+  public String getNodeText() {
+    return getValue().getPresentation().getPlainText().trim();
+  }
+
   @Override
   public String toString() {
-    return ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-            @Override
-            public String compute() {
-              return getValue()==null?"<null>":getValue().toString();
-            }
-          });
+    return ReadAction.compute(() -> getValue() == null ? "<null>" : getValue().toString());
   }
 
 }

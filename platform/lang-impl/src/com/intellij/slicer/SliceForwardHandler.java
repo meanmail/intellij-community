@@ -18,12 +18,14 @@ package com.intellij.slicer;
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.AnalysisUIOptions;
 import com.intellij.analysis.BaseAnalysisActionDialog;
+import com.intellij.analysis.dialog.ModelScopeItem;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 
 import javax.swing.*;
+import java.util.List;
 
 /**
  * @author cdr
@@ -37,18 +39,17 @@ public class SliceForwardHandler extends SliceHandler {
   public SliceAnalysisParams askForParams(PsiElement element, boolean dataFlowToThis, SliceManager.StoredSettingsBean storedSettingsBean, String dialogTitle) {
     AnalysisScope analysisScope = new AnalysisScope(element.getContainingFile());
     Module module = ModuleUtilCore.findModuleForPsiElement(element);
-    String name = module == null ? null : module.getName();
 
     Project myProject = element.getProject();
     final SliceForwardForm form = new SliceForwardForm();
     form.init(storedSettingsBean.showDereferences);
 
     AnalysisUIOptions analysisUIOptions = new AnalysisUIOptions();
-    analysisUIOptions.save(storedSettingsBean.analysisUIOptions);
+    analysisUIOptions.loadState(storedSettingsBean.analysisUIOptions);
 
-    BaseAnalysisActionDialog dialog = new BaseAnalysisActionDialog(dialogTitle, "Analyze scope", myProject, analysisScope, name, true,
-                                                                   analysisUIOptions,
-                                                                   element) {
+    List<ModelScopeItem> items = BaseAnalysisActionDialog.standardItems(myProject, analysisScope, module, element);
+    BaseAnalysisActionDialog dialog = new BaseAnalysisActionDialog(dialogTitle, "Analyze scope", myProject,
+                                                                   items, analysisUIOptions, true) {
       @Override
       protected JComponent getAdditionalActionSettings(Project project) {
         return form.getComponent();
@@ -58,7 +59,7 @@ public class SliceForwardHandler extends SliceHandler {
       return null;
     }
 
-    storedSettingsBean.analysisUIOptions.save(analysisUIOptions);
+    storedSettingsBean.analysisUIOptions.loadState(analysisUIOptions);
     storedSettingsBean.showDereferences = form.isToShowDerefs();
 
     AnalysisScope scope = dialog.getScope(analysisUIOptions, analysisScope, myProject, module);

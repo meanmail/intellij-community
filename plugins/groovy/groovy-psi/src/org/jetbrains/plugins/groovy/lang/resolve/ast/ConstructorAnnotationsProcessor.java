@@ -1,29 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve.ast;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
-import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrLightMethodBuilder;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrLightParameter;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames;
@@ -31,6 +15,7 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 import org.jetbrains.plugins.groovy.lang.resolve.CollectClassMembersUtil;
 import org.jetbrains.plugins.groovy.transformations.AstTransformationSupport;
 import org.jetbrains.plugins.groovy.transformations.TransformationContext;
+import org.jetbrains.plugins.groovy.transformations.immutable.GrImmutableUtils;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -49,8 +34,8 @@ public class ConstructorAnnotationsProcessor implements AstTransformationSupport
     if (modifierList == null) return;
 
     final PsiAnnotation tupleConstructor = modifierList.findAnnotation(GroovyCommonClassNames.GROOVY_TRANSFORM_TUPLE_CONSTRUCTOR);
-    final boolean immutable = PsiImplUtil.hasImmutableAnnotation(modifierList);
-    final boolean canonical = modifierList.findAnnotation(GroovyCommonClassNames.GROOVY_TRANSFORM_CANONICAL) != null;
+    final boolean immutable = GrImmutableUtils.hasImmutableAnnotation(typeDefinition);
+    final boolean canonical = modifierList.hasAnnotation(GroovyCommonClassNames.GROOVY_TRANSFORM_CANONICAL);
     if (!immutable && !canonical && tupleConstructor == null) {
       return;
     }
@@ -71,7 +56,7 @@ public class ConstructorAnnotationsProcessor implements AstTransformationSupport
   @NotNull
   private static GrLightMethodBuilder generateMapConstructor(@NotNull GrTypeDefinition typeDefinition) {
     final GrLightMethodBuilder mapConstructor = new GrLightMethodBuilder(typeDefinition.getManager(), typeDefinition.getName());
-    mapConstructor.addParameter("args", CommonClassNames.JAVA_UTIL_HASH_MAP, false);
+    mapConstructor.addParameter("args", CommonClassNames.JAVA_UTIL_HASH_MAP);
     mapConstructor.setConstructor(true);
     mapConstructor.setContainingClass(typeDefinition);
     return mapConstructor;
@@ -126,7 +111,7 @@ public class ConstructorAnnotationsProcessor implements AstTransformationSupport
   private static void addParametersForSuper(@NotNull PsiClass typeDefinition,
                                             GrLightMethodBuilder fieldsConstructor,
                                             boolean superFields,
-                                            boolean superProperties, Set<PsiClass> visited, Set<String> excludes) {
+                                            boolean superProperties, Set<? super PsiClass> visited, Set<String> excludes) {
     PsiClass parent = typeDefinition.getSuperClass();
     if (parent != null && visited.add(parent) && !GroovyCommonClassNames.GROOVY_OBJECT_SUPPORT.equals(parent.getQualifiedName())) {
       addParametersForSuper(parent, fieldsConstructor, superFields, superProperties, visited, excludes);
@@ -144,10 +129,10 @@ public class ConstructorAnnotationsProcessor implements AstTransformationSupport
     PsiMethod[] methods = CollectClassMembersUtil.getMethods(psiClass, false);
     if (includeProperties) {
       for (PsiMethod method : methods) {
-        if (!method.hasModifierProperty(PsiModifier.STATIC) && PropertyUtil.isSimplePropertySetter(method)) {
-          final String name = PropertyUtil.getPropertyNameBySetter(method);
+        if (!method.hasModifierProperty(PsiModifier.STATIC) && PropertyUtilBase.isSimplePropertySetter(method)) {
+          final String name = PropertyUtilBase.getPropertyNameBySetter(method);
           if (!excludes.contains(name)) {
-            final PsiType type = PropertyUtil.getPropertyType(method);
+            final PsiType type = PropertyUtilBase.getPropertyType(method);
             assert type != null : method;
             fieldsConstructor.addParameter(new GrLightParameter(name, type, fieldsConstructor).setOptional(optional));
           }
@@ -155,7 +140,7 @@ public class ConstructorAnnotationsProcessor implements AstTransformationSupport
       }
     }
 
-    final Map<String,PsiMethod> properties = PropertyUtil.getAllProperties(true, false, methods);
+    final Map<String,PsiMethod> properties = PropertyUtilBase.getAllProperties(true, false, methods);
     for (PsiField field : CollectClassMembersUtil.getFields(psiClass, false)) {
       final String name = field.getName();
       if (includeFields ||

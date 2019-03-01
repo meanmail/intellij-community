@@ -23,6 +23,7 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pass;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiExpressionTrimRenderer;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -44,12 +45,30 @@ public class ElementToWorkOn {
   public static final Key<String> PREFIX = Key.create("prefix");
   public static final Key<String> SUFFIX = Key.create("suffix");
   public static final Key<RangeMarker> TEXT_RANGE = Key.create("range");
+  public static final Key<TextRange> EXPR_RANGE = Key.create("expr_range");
   public static final Key<Boolean> REPLACE_NON_PHYSICAL = Key.create("replace_non_physical");
   public static final Key<Boolean> OUT_OF_CODE_BLOCK= Key.create("out_of_code_block");
 
   private ElementToWorkOn(PsiLocalVariable localVariable, PsiExpression expr) {
     myLocalVariable = localVariable;
     myExpression = expr;
+  }
+  
+  public static ElementToWorkOn adjustElements(PsiExpression expr, PsiElement anchorElement) {
+    PsiLocalVariable localVariable = null;
+    if (anchorElement instanceof PsiLocalVariable) {
+      localVariable = (PsiLocalVariable)anchorElement;
+    }
+    else if (expr instanceof PsiReferenceExpression) {
+      PsiElement ref = ((PsiReferenceExpression)expr).resolve();
+      if (ref instanceof PsiLocalVariable) {
+        localVariable = (PsiLocalVariable)ref;
+      }
+    }
+    else if (expr instanceof PsiArrayInitializerExpression && expr.getParent() instanceof PsiNewExpression) {
+      expr = (PsiExpression)expr.getParent();
+    }
+    return new ElementToWorkOn(localVariable, expr);
   }
 
   public PsiExpression getExpression() {
@@ -64,7 +83,7 @@ public class ElementToWorkOn {
     return myExpression == null;
   }
 
-  public static void processElementToWorkOn(final Editor editor, final PsiFile file, final String refactoringName, final String helpId, final Project project, final ElementsProcessor<ElementToWorkOn> processor) {
+  public static void processElementToWorkOn(final Editor editor, final PsiFile file, final String refactoringName, final String helpId, final Project project, final ElementsProcessor<? super ElementToWorkOn> processor) {
     PsiLocalVariable localVar = null;
     PsiExpression expr = null;
 
@@ -153,6 +172,9 @@ public class ElementToWorkOn {
         if (ident != null) {
           localVar = PsiTreeUtil.getParentOfType(ident, PsiLocalVariable.class);
         }
+      }
+      else if (expr instanceof PsiArrayInitializerExpression && expr.getParent() instanceof PsiNewExpression) {
+        expr = (PsiExpression)expr.getParent();
       }
     }
 

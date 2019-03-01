@@ -16,6 +16,7 @@
 package org.jetbrains.plugins.gradle.tooling.internal;
 
 import org.gradle.api.Project;
+import org.gradle.internal.impldep.com.google.common.collect.Lists;
 import org.gradle.tooling.provider.model.ToolingModelBuilder;
 import org.gradle.util.GradleVersion;
 import org.jetbrains.annotations.NotNull;
@@ -25,33 +26,32 @@ import org.jetbrains.plugins.gradle.tooling.ModelBuilderService;
 import org.jetbrains.plugins.gradle.tooling.annotation.TargetVersions;
 import org.jetbrains.plugins.gradle.tooling.util.VersionMatcher;
 
+import java.util.List;
 import java.util.ServiceLoader;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/5/13
  */
 @SuppressWarnings("UnusedDeclaration")
 public class ExtraModelBuilder implements ToolingModelBuilder {
-
-  private static ServiceLoader<ModelBuilderService> buildersLoader =
-    ServiceLoader.load(ModelBuilderService.class, ExtraModelBuilder.class.getClassLoader());
+  private final List<ModelBuilderService> modelBuilderServices;
 
   @NotNull
   private final GradleVersion myCurrentGradleVersion;
 
   public ExtraModelBuilder() {
-    this.myCurrentGradleVersion = GradleVersion.current();
+    this(GradleVersion.current());
   }
 
   @TestOnly
   public ExtraModelBuilder(@NotNull GradleVersion gradleVersion) {
     this.myCurrentGradleVersion = gradleVersion;
+    this.modelBuilderServices = Lists.newArrayList(ServiceLoader.load(ModelBuilderService.class, ExtraModelBuilder.class.getClassLoader()));
   }
 
   @Override
   public boolean canBuild(String modelName) {
-    for (ModelBuilderService service : buildersLoader) {
+    for (ModelBuilderService service : modelBuilderServices) {
       if (service.canBuild(modelName) && isVersionMatch(service)) return true;
     }
     return false;
@@ -59,7 +59,7 @@ public class ExtraModelBuilder implements ToolingModelBuilder {
 
   @Override
   public Object buildAll(String modelName, Project project) {
-    for (ModelBuilderService service : buildersLoader) {
+    for (ModelBuilderService service : modelBuilderServices) {
       if (service.canBuild(modelName) && isVersionMatch(service)) {
         final long startTime = System.currentTimeMillis();
         try {

@@ -84,12 +84,36 @@ class IfCanBeSwitch {
     return num;
   }
   void ifWithGetterToSwitch() {
-    <warning descr="'if' statement replaceable with 'switch' statement">if</warning> (getNum() == Num.ONE) {
+    if (getNum() == Num.ONE) {
       System.out.println(1);
     } else if (getNum() == Num.TWO) {
       System.out.println(2);
     } else {
       System.out.println("-");
+    }
+  }
+}
+class MyText implements Comparable<MyText> {
+
+  private String name;
+
+  String getSuperType() {
+    return name.startsWith("a") ? "b" : "c";
+  }
+
+  @Override
+  public int compareTo(MyText o) {
+    String superType = getSuperType();
+    if (superType.equals(o.getSuperType())) {
+      return this.name.compareTo(o.name);
+    } else if (superType.equals("a")) {
+      return -1;
+    } else if (superType.equals("b")) {
+      return 1;
+    } else if (superType.equals("c")) {
+      return o.getSuperType().equals("a") ? 1 : -1;
+    } else {
+      return 0;
     }
   }
 }

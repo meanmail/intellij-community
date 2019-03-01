@@ -18,13 +18,16 @@
     <compileServer.plugin classpath="google-app-engine-jps-plugin.jar;appEngine-runtime.jar"/>
 
     <xml.schemaProvider implementation="com.intellij.appengine.descriptor.AppEngineWebSchemaProvider"/>
-    <dom.fileDescription implementation="com.intellij.appengine.descriptor.dom.AppEngineWebFileDescription"/>
+    <dom.fileMetaData implementation="com.intellij.appengine.descriptor.dom.AppEngineWebFileDescription" rootTagName="appengine-web-app"/>
 
     <localInspection language="JAVA" shortName="AppEngineForbiddenCode" displayName="Forbidden code in App Engine applications"
                      groupName="Google App Engine" enabledByDefault="true" level="ERROR"
                      implementationClass="com.intellij.appengine.inspections.AppEngineForbiddenCodeInspection"/>
 
     <remoteServer.type implementation="com.intellij.appengine.cloud.AppEngineCloudType"/>
+
+    <pluginReplacement implementation="com.intellij.appengine.converter.AppEnginePluginReplacement"/>
+    <postStartupActivity implementation="com.intellij.appengine.converter.MigrateToCloudToolsNotification"/>
   </extensions>
 
   <actions>

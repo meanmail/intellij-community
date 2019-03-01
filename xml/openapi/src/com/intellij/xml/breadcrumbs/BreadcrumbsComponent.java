@@ -18,11 +18,14 @@ package com.intellij.xml.breadcrumbs;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.colors.ColorKey;
+import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.TextAttributesKey;
+import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Weighted;
 import com.intellij.ui.paint.RectanglePainter;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.GraphicsUtil;
 import com.intellij.util.ui.JBInsets;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -33,33 +36,13 @@ import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author spleaner
  */
 public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent implements Disposable, Weighted {
-  private interface Background {
-    ColorKey DEFAULT = ColorKey.createColorKey("BREADCRUMBS_BACKGROUND");
-    ColorKey HOVERED = ColorKey.createColorKey("BREADCRUMBS_BACKGROUND_HOVERED");
-    ColorKey CURRENT = ColorKey.createColorKey("BREADCRUMBS_BACKGROUND_CURRENT");
-    ColorKey INACTIVE = ColorKey.createColorKey("BREADCRUMBS_BACKGROUND_INACTIVE");
-  }
-
-  private interface TextColor {
-    ColorKey DEFAULT = ColorKey.createColorKey("BREADCRUMBS_TEXT_COLOR");
-    ColorKey HOVERED = ColorKey.createColorKey("BREADCRUMBS_TEXT_COLOR_HOVERED");
-    ColorKey CURRENT = ColorKey.createColorKey("BREADCRUMBS_TEXT_COLOR_CURRENT");
-    ColorKey INACTIVE = ColorKey.createColorKey("BREADCRUMBS_TEXT_COLOR_INACTIVE");
-  }
-
-  private interface BorderColor {
-    ColorKey DEFAULT = ColorKey.createColorKey("BREADCRUMBS_BORDER_COLOR");
-    ColorKey HOVERED = ColorKey.createColorKey("BREADCRUMBS_BORDER_COLOR_HOVERED");
-    ColorKey CURRENT = ColorKey.createColorKey("BREADCRUMBS_BORDER_COLOR_CURRENT");
-    ColorKey INACTIVE = ColorKey.createColorKey("BREADCRUMBS_BORDER_COLOR_INACTIVE");
-  }
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.xml.breadcrumbs.BreadcrumbsComponent");
   private static final Painter DEFAULT_PAINTER = new DefaultPainter(new ButtonSettings());
@@ -247,7 +230,6 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     repaint();
   }
 
-  @SuppressWarnings({"ForLoopReplaceableByForEach"})
   private void fireItemSelected(@Nullable final T item, final int modifiers) {
     if (item != null) {
       for (BreadcrumbsItemListener listener : myListeners) {
@@ -359,7 +341,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
 
   @Override
   public Dimension getPreferredSize() {
-    Graphics2D g2 = (Graphics2D)getGraphics();
+    Graphics2D g2 = (Graphics2D) GraphicsUtil.safelyGetGraphics(this);
     Dimension dim = new Dimension(Integer.MAX_VALUE, g2 != null ? DEFAULT_PAINTER.getSize("DUMMY", g2.getFontMetrics(), Integer.MAX_VALUE).height + 1 : 1);
     JBInsets.addTo(dim, getInsets());
     return dim;
@@ -388,7 +370,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     private int myPage;
     private final int myTotalWidth;
 
-    public PagedImage(int totalWidth, int pageWidth) {
+    PagedImage(int totalWidth, int pageWidth) {
       myPageWidth = pageWidth;
       myTotalWidth = totalWidth;
     }
@@ -445,7 +427,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     private final BreadcrumbsComponent myBreadcrumbs;
     private Crumb myHoveredCrumb;
 
-    public CrumbLineMouseListener(@NotNull final BreadcrumbsComponent line) {
+    CrumbLineMouseListener(@NotNull final BreadcrumbsComponent line) {
       myBreadcrumbs = line;
     }
 
@@ -492,14 +474,14 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     private boolean myHovered;
     private boolean myLight;
 
-    public Crumb(final BreadcrumbsComponent line, final String string, final int width, final T item) {
+    Crumb(final BreadcrumbsComponent line, final String string, final int width, final T item) {
       this(string, width);
 
       myLine = line;
       myItem = item;
     }
 
-    public Crumb(final String string, final int width) {
+    Crumb(final String string, final int width) {
       myString = string;
       myWidth = width;
     }
@@ -578,7 +560,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
     private final boolean myForward;
     private final BreadcrumbsComponent myLine;
 
-    public NavigationCrumb(@NotNull final BreadcrumbsComponent line,
+    NavigationCrumb(@NotNull final BreadcrumbsComponent line,
                            @NotNull final FontMetrics fm,
                            final boolean forward,
                            @NotNull final Painter p) {
@@ -599,7 +581,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   }
 
   private static class DummyCrumb extends Crumb {
-    public DummyCrumb(final int width) {
+    DummyCrumb(final int width) {
       super(null, width);
     }
 
@@ -622,17 +604,17 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   abstract static class PainterSettings {
     @Nullable
     Color getBackgroundColor(@NotNull final Crumb c) {
-      return getColor(c, Background.DEFAULT, Background.HOVERED, Background.CURRENT, Background.INACTIVE);
+      return getAttributes(c).getBackgroundColor();
     }
 
     @Nullable
     Color getForegroundColor(@NotNull final Crumb c) {
-      return getColor(c, TextColor.DEFAULT, TextColor.HOVERED, TextColor.CURRENT, TextColor.INACTIVE);
+      return getAttributes(c).getForegroundColor();
     }
 
     @Nullable
     Color getBorderColor(@NotNull final Crumb c) {
-      return getColor(c, BorderColor.DEFAULT, BorderColor.HOVERED, BorderColor.CURRENT, BorderColor.INACTIVE);
+      return getAttributes(c).getEffectColor();
     }
 
     @Nullable
@@ -640,28 +622,34 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
       return null;
     }
 
-    static Color getColor(Crumb c, ColorKey main, ColorKey hovered, ColorKey current, ColorKey inactive) {
-      return EditorColorsManager.getInstance().getGlobalScheme().getColor(
+    @NotNull
+    static TextAttributesKey getKey(Crumb c) {
+      return
         c.isHovered()
-        ? hovered
+        ? EditorColors.BREADCRUMBS_HOVERED
         : c.isSelected()
-          ? current
+          ? EditorColors.BREADCRUMBS_CURRENT
           : c.isLight() && !(c instanceof NavigationCrumb)
-            ? inactive
-            : main);
+            ? EditorColors.BREADCRUMBS_INACTIVE
+            : EditorColors.BREADCRUMBS_DEFAULT;
+    }
+    
+    @NotNull
+    static TextAttributes getAttributes(Crumb c) {
+      return EditorColorsManager.getInstance().getGlobalScheme().getAttributes(getKey(c));
     }
   }
 
   static class ButtonSettings extends PainterSettings {
     static Color getBackgroundColor(boolean selected, boolean hovered, boolean light, boolean navigationCrumb) {
-      return EditorColorsManager.getInstance().getGlobalScheme().getColor(
+      return EditorColorsManager.getInstance().getGlobalScheme().getAttributes(
         hovered
-        ? Background.HOVERED
+        ? EditorColors.BREADCRUMBS_HOVERED
         : selected
-          ? Background.CURRENT
+          ? EditorColors.BREADCRUMBS_CURRENT
           : light && !navigationCrumb
-            ? Background.INACTIVE
-            : Background.DEFAULT);
+            ? EditorColors.BREADCRUMBS_INACTIVE
+            : EditorColors.BREADCRUMBS_DEFAULT).getBackgroundColor();
     }
 
     @Override
@@ -683,7 +671,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
 
     private final PainterSettings mySettings;
 
-    public Painter(@NotNull final PainterSettings s) {
+    Painter(@NotNull final PainterSettings s) {
       mySettings = s;
     }
 
@@ -702,7 +690,7 @@ public class BreadcrumbsComponent<T extends BreadcrumbsItem> extends JComponent 
   }
 
   private static class DefaultPainter extends Painter {
-    public DefaultPainter(@NotNull final PainterSettings s) {
+    DefaultPainter(@NotNull final PainterSettings s) {
       super(s);
     }
 

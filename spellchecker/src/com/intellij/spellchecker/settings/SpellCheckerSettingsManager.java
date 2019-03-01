@@ -37,22 +37,26 @@ public class SpellCheckerSettingsManager implements SearchableConfigurable, Conf
     this.settings = settings;
   }
 
+  @Override
   @Nls
    public String getDisplayName() {
      return SpellCheckerBundle.message("spelling");
    }
 
+  @Override
   @Nullable
    @NonNls
    public String getHelpTopic() {
      return "reference.settings.ide.settings.spelling";
    }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();
   }
 
+  @Override
   public JComponent createComponent() {
     if (settingsPane == null) {
       settingsPane = new SpellCheckerSettingsPane(settings,project);
@@ -60,22 +64,26 @@ public class SpellCheckerSettingsManager implements SearchableConfigurable, Conf
     return settingsPane.getPane();
   }
 
+  @Override
   public boolean isModified() {
     return settingsPane == null || settingsPane.isModified();
   }
 
+  @Override
   public void apply() throws ConfigurationException {
     if (settingsPane != null) {
       settingsPane.apply();
     }
   }
 
+  @Override
   public void reset() {
     if (settingsPane != null) {
       settingsPane.reset();
     }
   }
 
+  @Override
   public void disposeUIResources() {
     settingsPane = null;
   }

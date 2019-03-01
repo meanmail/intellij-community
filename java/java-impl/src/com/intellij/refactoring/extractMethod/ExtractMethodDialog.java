@@ -1,27 +1,18 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.extractMethod;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInsight.NullableNotNullManager;
-import com.intellij.codeInspection.dataFlow.Nullness;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComboBox;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -34,9 +25,9 @@ import com.intellij.refactoring.ui.*;
 import com.intellij.refactoring.util.ConflictsUtil;
 import com.intellij.refactoring.util.ParameterTablePanel;
 import com.intellij.refactoring.util.VariableData;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.NonFocusableCheckBox;
 import com.intellij.ui.SeparatorFactory;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ObjectUtils;
@@ -54,21 +45,24 @@ import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-
+import java.util.HashSet;
+import java.util.Set;
+import java.util.function.Supplier;
 
 /**
  * @author Konstantin Bulenkov
  */
-public class ExtractMethodDialog extends DialogWrapper implements AbstractExtractDialog {
-  private static final String EXTRACT_METHOD_DEFAULT_VISIBILITY = "extract.method.default.visibility";
-  public static final String EXTRACT_METHOD_GENERATE_ANNOTATIONS = "extractMethod.generateAnnotations";
+public class ExtractMethodDialog extends RefactoringDialog implements AbstractExtractDialog {
+  static final String EXTRACT_METHOD_DEFAULT_VISIBILITY = "extract.method.default.visibility";
+  static final String EXTRACT_METHOD_GENERATE_ANNOTATIONS = "extractMethod.generateAnnotations";
+
   private final Project myProject;
   private final PsiType myReturnType;
   private final PsiTypeParameterList myTypeParameterList;
   private final PsiType[] myExceptions;
   private final boolean myStaticFlag;
   private final boolean myCanBeStatic;
-  private final Nullness myNullness;
+  private final @Nullable Nullability myNullability;
   private final PsiElement[] myElementsToExtract;
   private final String myHelpId;
 
@@ -91,15 +85,13 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
   public JPanel myParamTable;
   private VariableData[] myInputVariables;
   private TypeSelector mySelector;
+  private final Supplier<Integer> myDuplicatesCountSupplier;
 
-  public ExtractMethodDialog(Project project,
-                             PsiClass targetClass, final InputVariables inputVariables, PsiType returnType,
-                             PsiTypeParameterList typeParameterList, PsiType[] exceptions, boolean isStatic, boolean canBeStatic,
-                             final boolean canBeChainedConstructor,
-                             String title,
-                             String helpId,
-                             Nullness nullness,
-                             final PsiElement[] elementsToExtract) {
+  public ExtractMethodDialog(Project project, PsiClass targetClass, InputVariables inputVariables,
+                             PsiType returnType, PsiTypeParameterList typeParameterList, PsiType[] exceptions,
+                             boolean isStatic, boolean canBeStatic, boolean canBeChainedConstructor,
+                             String title, String helpId, @Nullable Nullability nullability, PsiElement[] elementsToExtract,
+                             @Nullable Supplier<Integer> duplicatesCountSupplier) {
     super(project, true);
     myProject = project;
     myTargetClass = targetClass;
@@ -108,7 +100,7 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     myExceptions = exceptions;
     myStaticFlag = isStatic;
     myCanBeStatic = canBeStatic;
-    myNullness = nullness;
+    myNullability = nullability;
     myElementsToExtract = elementsToExtract;
     myVariableData = inputVariables;
     myHelpId = helpId;
@@ -124,6 +116,9 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     if (canBeChainedConstructor) {
       myCbChainedConstructor = new NonFocusableCheckBox(RefactoringBundle.message("extract.chained.constructor.checkbox"));
     }
+    myInputVariables = myVariableData.getInputVariables().toArray(new VariableData[0]);
+    myDuplicatesCountSupplier = duplicatesCountSupplier;
+    setPreviewResults(duplicatesCountSupplier != null);
 
     init();
   }
@@ -138,8 +133,7 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
 
   @Override
   public boolean isMakeStatic() {
-    if (myStaticFlag) return true;
-    return myCanBeStatic && myMakeStatic.isSelected();
+    return myStaticFlag || myCanBeStatic && myMakeStatic.isSelected();
   }
 
   @Override
@@ -148,18 +142,19 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions() {
-    if (myHelpId != null) {
-      return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-    } else {
-      return new Action[]{getOKAction(), getCancelAction()};
-    }
+  protected boolean hasPreviewButton() {
+    return false;
   }
 
   @Override
+  protected boolean hasHelpAction() {
+    return getHelpId() != null;
+  }
+
+  @NotNull
+  @Override
   public String getChosenMethodName() {
-    return myNameField.getEnteredName();
+    return myNameField.getEnteredName().trim();
   }
 
   @Override
@@ -169,7 +164,7 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
 
   @Override
   public JComponent getPreferredFocusedComponent() {
-    return myNameField;
+    return myNameField.getFocusableComponent();
   }
 
   @Override
@@ -178,9 +173,15 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
   }
 
   @Override
-  protected void doOKAction() {
+  protected void doAction() {
     MultiMap<PsiElement, String> conflicts = new MultiMap<>();
-    checkMethodConflicts(conflicts);
+    if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(
+      () -> ApplicationManager.getApplication().runReadAction(
+        () -> checkMethodConflicts(conflicts)
+      ), "Checking Conflicts...", true, myProject)) {
+      return;
+    }
+
     if (!conflicts.isEmpty()) {
       final ConflictsDialog conflictsDialog = new ConflictsDialog(myProject, conflicts);
       if (!conflictsDialog.showAndGet()) {
@@ -203,7 +204,8 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     if (myGenerateAnnotations != null && myGenerateAnnotations.isEnabled()) {
       PropertiesComponent.getInstance(myProject).setValue(EXTRACT_METHOD_GENERATE_ANNOTATIONS, myGenerateAnnotations.isSelected(), true);
     }
-    super.doOKAction();
+
+    close(OK_EXIT_CODE);
   }
 
   @Override
@@ -219,7 +221,9 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     myNameField.addDataChangedListener(this::update);
 
     myVisibilityPanel = createVisibilityPanel();
-    myVisibilityPanel.registerUpDownActionsFor(myNameField);
+    if (!myNameField.hasSuggestions()) {
+      myVisibilityPanel.registerUpDownActionsFor(myNameField);
+    }
     final JPanel visibilityAndReturnType = new JPanel(new BorderLayout(2, 0));
     if (!myTargetClass.isInterface()) {
       visibilityAndReturnType.add(myVisibilityPanel, BorderLayout.WEST);
@@ -235,11 +239,17 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     main.add(visibilityAndName, BorderLayout.CENTER);
     setOKActionEnabled(false);
 
-    setOKActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(myNameField.getEnteredName()));
+    setActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(myNameField.getEnteredName()));
     final JPanel options = new JPanel(new BorderLayout());
     options.add(createOptionsPanel(), BorderLayout.WEST);
     main.add(options, BorderLayout.SOUTH);
     return main;
+  }
+
+  private void setActionEnabled(boolean enabled) {
+    setOKActionEnabled(enabled);
+    getRefactorAction().setEnabled(enabled);
+    getPreviewAction().setEnabled(enabled);
   }
 
   protected boolean isVoidReturn() {
@@ -248,7 +258,7 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
   
   @Nullable
   private JPanel createReturnTypePanel() {
-    if (TypeConversionUtil.isPrimitiveWrapper(myReturnType) && myNullness == Nullness.NULLABLE) {
+    if (TypeConversionUtil.isPrimitiveWrapper(myReturnType) && myNullability == Nullability.NULLABLE) {
       return null;
     }
     final TypeSelectorManagerImpl manager = new TypeSelectorManagerImpl(myProject, myReturnType, findOccurrences(), areTypesDirected()) {
@@ -306,42 +316,22 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
 
     //optionsPanel.add(new JLabel("Options: "));
 
-    if (myStaticFlag || myCanBeStatic) {
-      myMakeStatic.setEnabled(!myStaticFlag);
-      myMakeStatic.setSelected(myStaticFlag);
-      if (myVariableData.hasInstanceFields()) {
-        myMakeStatic.setText(RefactoringBundle.message("declare.static.pass.fields.checkbox"));
-      }
-      myMakeStatic.addItemListener(e -> {
-        if (myVariableData.hasInstanceFields()) {
-          myVariableData.setPassFields(myMakeStatic.isSelected());
-          myInputVariables = myVariableData.getInputVariables().toArray(new VariableData[myVariableData.getInputVariables().size()]);
-          updateVarargsEnabled();
-          createParametersPanel();
-        }
-        updateSignature();
-      });
-      optionsPanel.add(myMakeStatic);
-    } else {
-      myMakeStatic.setSelected(false);
-      myMakeStatic.setEnabled(false);
-    }
-    final Border emptyBorder = IdeBorderFactory.createEmptyBorder(5, 0, 5, 4);
-    myMakeStatic.setBorder(emptyBorder);
+    createStaticOptions(optionsPanel, RefactoringBundle.message("declare.static.pass.fields.checkbox"));
 
     myFoldParameters.setSelected(myVariableData.isFoldingSelectedByDefault());
     myFoldParameters.setVisible(myVariableData.isFoldable());
     myVariableData.setFoldingAvailable(myFoldParameters.isSelected());
-    myInputVariables = myVariableData.getInputVariables().toArray(new VariableData[myVariableData.getInputVariables().size()]);
+    myInputVariables = myVariableData.getInputVariables().toArray(new VariableData[0]);
     myFoldParameters.addActionListener(e -> {
       myVariableData.setFoldingAvailable(myFoldParameters.isSelected());
       myInputVariables =
-        myVariableData.getInputVariables().toArray(new VariableData[myVariableData.getInputVariables().size()]);
+        myVariableData.getInputVariables().toArray(new VariableData[0]);
       updateVarargsEnabled();
       createParametersPanel();
       updateSignature();
     });
     optionsPanel.add(myFoldParameters);
+    final Border emptyBorder = JBUI.Borders.empty(5, 0, 5, 4);
     myFoldParameters.setBorder(emptyBorder);
 
     boolean canBeVarargs = false;
@@ -361,7 +351,7 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
       optionsPanel.add(myMakeVarargs);
     }
 
-    if (myNullness != null && myNullness != Nullness.UNKNOWN) {
+    if (myNullability != null && myNullability != Nullability.UNKNOWN) {
       final boolean isSelected = PropertiesComponent.getInstance(myProject).getBoolean(EXTRACT_METHOD_GENERATE_ANNOTATIONS, true);
       myGenerateAnnotations = new JCheckBox(RefactoringBundle.message("declare.generated.annotations"), isSelected);
       myGenerateAnnotations.addItemListener(e -> updateSignature());
@@ -390,6 +380,30 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
       });
     }
     return optionsPanel;
+  }
+
+  protected void createStaticOptions(JPanel optionsPanel, String passFieldsAsParamsLabel) {
+    if (myStaticFlag || myCanBeStatic) {
+      myMakeStatic.setEnabled(!myStaticFlag);
+      myMakeStatic.setSelected(myStaticFlag);
+      if (myVariableData.hasInstanceFields()) {
+        myMakeStatic.setText(passFieldsAsParamsLabel);
+      }
+      myMakeStatic.addItemListener(e -> {
+        if (myVariableData.hasInstanceFields()) {
+          myVariableData.setPassFields(myMakeStatic.isSelected());
+          myInputVariables = myVariableData.getInputVariables().toArray(new VariableData[0]);
+          updateVarargsEnabled();
+          createParametersPanel();
+        }
+        updateSignature();
+      });
+      optionsPanel.add(myMakeStatic);
+    } else {
+      myMakeStatic.setSelected(false);
+      myMakeStatic.setEnabled(false);
+    }
+    myMakeStatic.setBorder(JBUI.Borders.empty(5, 0, 5, 4));
   }
 
   private ComboBoxVisibilityPanel<String> createVisibilityPanel() {
@@ -423,14 +437,15 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
       myMakeStatic.setEnabled(!myStaticFlag && myCanBeStatic && !isChainedConstructor());
     }
     updateSignature();
-    setOKActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(myNameField.getEnteredName()) ||
-                       isChainedConstructor());
+    setActionEnabled(PsiNameHelper.getInstance(myProject).isIdentifier(myNameField.getEnteredName()) ||
+                     isChainedConstructor());
   }
 
   @Override
   @NotNull
   public String getVisibility() {
-    return myTargetClass.isInterface() ? PsiModifier.PUBLIC : ObjectUtils.notNull(myVisibilityPanel.getVisibility(), PsiModifier.PUBLIC);
+    return myTargetClass.isInterface() || myVisibilityPanel == null 
+           ? PsiModifier.PUBLIC : ObjectUtils.notNull(myVisibilityPanel.getVisibility(), PsiModifier.PUBLIC);
   }
 
   @Override
@@ -441,8 +456,50 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     final Splitter splitter = new Splitter(true);
     splitter.setShowDividerIcon(false);
     splitter.setFirstComponent(myCenterPanel);
-    splitter.setSecondComponent(createSignaturePanel());
+
+    JPanel secondPanel = new JPanel(new BorderLayout(0, 5));
+    secondPanel.add(createSignaturePanel(), BorderLayout.CENTER);
+
+    if (hasPreviewButton()) {
+      JBLabel duplicatesCount = createDuplicatesCountLabel();
+      secondPanel.add(duplicatesCount, BorderLayout.SOUTH);
+    }
+    splitter.setSecondComponent(secondPanel);
     return splitter;
+  }
+
+  @NotNull
+  private JBLabel createDuplicatesCountLabel() {
+    JBLabel duplicatesCount = new JBLabel();
+    if (myDuplicatesCountSupplier != null) {
+      duplicatesCount.setText(RefactoringBundle.message("refactoring.extract.method.dialog.duplicates.pending"));
+      ProgressManager.getInstance().run(
+        new Task.Backgroundable(myProject, RefactoringBundle.message("refactoring.extract.method.dialog.duplicates.progress")) {
+          @Override
+          public void run(@NotNull ProgressIndicator indicator) {
+            int count = ReadAction.compute(myDuplicatesCountSupplier::get);
+            ApplicationManager.getApplication().invokeLater(
+              () -> {
+                if (count != 0) {
+                  showCount(UIUtil.getBalloonInformationIcon(),
+                            " " + RefactoringBundle.message("refactoring.extract.method.dialog.duplicates.count", count),
+                            JBUI.Borders.empty(18, 0));
+                }
+                else {
+                  showCount(null, "", null);
+                }
+              },
+              ModalityState.any());
+          }
+
+          private void showCount(Icon icon, String message, Border border) {
+            duplicatesCount.setIcon(icon);
+            duplicatesCount.setText(message);
+            duplicatesCount.setBorder(border);
+          }
+        });
+    }
+    return duplicatesCount;
   }
 
   protected boolean isOutputVariable(PsiVariable var) {
@@ -526,7 +583,8 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     if (myGenerateAnnotations != null && myGenerateAnnotations.isSelected()) {
       final NullableNotNullManager nullManager = NullableNotNullManager.getInstance(myProject);
       buffer.append("@");
-      buffer.append(StringUtil.getShortName(myNullness == Nullness.NULLABLE ? nullManager.getDefaultNullable() : nullManager.getDefaultNotNull()));
+      buffer.append(
+        StringUtil.getShortName(myNullability == Nullability.NULLABLE ? nullManager.getDefaultNullable() : nullManager.getDefaultNotNull()));
       buffer.append("\n");
     }
     final String visibilityString = VisibilityUtil.getVisibilityString(getVisibility());
@@ -599,10 +657,11 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
   }
 
   protected void checkMethodConflicts(MultiMap<PsiElement, String> conflicts) {
+    checkParametersConflicts(conflicts);
     PsiMethod prototype;
     try {
-      PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
-      prototype = factory.createMethod(myNameField.getEnteredName().trim(), myReturnType);
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
+      prototype = factory.createMethod(getChosenMethodName(), myReturnType);
       if (myTypeParameterList != null) prototype.getTypeParameterList().replace(myTypeParameterList);
       for (VariableData data : myInputVariables) {
         if (data.passAsParameter) {
@@ -618,8 +677,22 @@ public class ExtractMethodDialog extends DialogWrapper implements AbstractExtrac
     ConflictsUtil.checkMethodConflicts(myTargetClass, null, prototype, conflicts);
   }
 
+  protected void checkParametersConflicts(MultiMap<PsiElement, String> conflicts) {
+    Set<String> usedNames = new HashSet<>();
+    for (VariableData data : myInputVariables) {
+      if (data.passAsParameter && !usedNames.add(data.name)) {
+        conflicts.putValue(null, "Conflicting parameter name: " + data.name);
+      }
+    }
+  }
+
   @Override
   public PsiType getReturnType() {
     return mySelector != null ? mySelector.getSelectedType() : myReturnType;
+  }
+
+  @Override
+  public boolean showInTransaction() {
+    return true;
   }
 }

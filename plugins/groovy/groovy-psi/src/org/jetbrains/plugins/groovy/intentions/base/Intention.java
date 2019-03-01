@@ -26,7 +26,6 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyLanguage;
-import org.jetbrains.plugins.groovy.annotator.intentions.QuickfixUtil;
 import org.jetbrains.plugins.groovy.intentions.GroovyIntentionsBundle;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
@@ -38,7 +37,7 @@ public abstract class Intention implements IntentionAction {
   private final PsiElementPredicate predicate;
 
   /**
-   * @noinspection AbstractMethodCallInConstructor, OverridableMethodCallInConstructor
+   * @noinspection AbstractMethodCallInConstructor
    */
   protected Intention() {
     super();
@@ -47,9 +46,6 @@ public abstract class Intention implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!QuickfixUtil.ensureFileWritable(project, file)) {
-      return;
-    }
     final PsiElement element = findMatchingElement(file, editor);
     if (element == null) {
       return;

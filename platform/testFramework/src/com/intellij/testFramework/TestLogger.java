@@ -15,6 +15,7 @@
  */
 package com.intellij.testFramework;
 
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.diagnostic.Log4jBasedLogger;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -41,20 +42,26 @@ public class TestLogger extends Log4jBasedLogger {
 
   @Override
   public void debug(@NonNls String message) {
-    super.debug(message);
-    TestLoggerFactory.log(myLogger, Level.DEBUG, message, null);
+    if (isDebugEnabled()) {
+      super.debug(message);
+      TestLoggerFactory.log(myLogger, Level.DEBUG, message, null);
+    }
   }
 
   @Override
   public void debug(@Nullable Throwable t) {
-    super.debug(t);
-    TestLoggerFactory.log(myLogger, Level.DEBUG, null, t);
+    if (isDebugEnabled()) {
+      super.debug(t);
+      TestLoggerFactory.log(myLogger, Level.DEBUG, null, t);
+    }
   }
 
   @Override
   public void debug(@NonNls String message, @Nullable Throwable t) {
-    super.debug(message, t);
-    TestLoggerFactory.log(myLogger, Level.DEBUG, message, t);
+    if (isDebugEnabled()) {
+      super.debug(message, t);
+      TestLoggerFactory.log(myLogger, Level.DEBUG, message, t);
+    }
   }
 
   @Override
@@ -70,7 +77,26 @@ public class TestLogger extends Log4jBasedLogger {
   }
 
   @Override
+  public void trace(String message) {
+    if (isTraceEnabled()) {
+      super.trace(message);
+      TestLoggerFactory.log(myLogger, Level.TRACE, message, null);
+    }
+  }
+
+  @Override
+  public void trace(@Nullable Throwable t) {
+    if (isTraceEnabled()) {
+      super.trace(t);
+      TestLoggerFactory.log(myLogger, Level.TRACE, null, t);
+    }
+  }
+
+  @Override
   public boolean isDebugEnabled() {
+    if (ApplicationInfoImpl.isInStressTest()) {
+      return super.isDebugEnabled();
+    }
     return true;
   }
 }

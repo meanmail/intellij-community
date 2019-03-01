@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,20 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.ExpectedTypeUtils;
-import com.siyeh.ig.psiutils.TypeUtils;
+import com.siyeh.ig.InspectionGadgetsFix;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class MapReplaceableByEnumMapInspection extends BaseInspection {
 
@@ -40,61 +46,50 @@ public class MapReplaceableByEnumMapInspection extends BaseInspection {
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
-    return new SetReplaceableByEnumSetVisitor();
+    return new MapReplaceableByEnumMapVisitor();
   }
 
-  private static class SetReplaceableByEnumSetVisitor
-    extends BaseInspectionVisitor {
+  @Nullable
+  @Override
+  protected InspectionGadgetsFix buildFix(Object... infos) {
+    if (infos.length != 1) return null;
+    PsiLocalVariable localVariable = (PsiLocalVariable)infos[0];
+    PsiType[] parameters = CollectionReplaceableByEnumCollectionVisitor.extractParameterType(localVariable, 2);
+    if (parameters == null) return null;
+    PsiType enumParameter = parameters[0];
+    String parameterListText = Arrays.stream(parameters).map(PsiType::getCanonicalText).collect(Collectors.joining(",", "<", ">"));
+    PsiClass probablyEnum = PsiUtil.resolveClassInClassTypeOnly(enumParameter);
+    if (probablyEnum == null || !probablyEnum.isEnum()) return null;
+    String text = "new java.util.EnumMap" + parameterListText + "(" + enumParameter.getCanonicalText() + ".class)";
+    return new ReplaceExpressionWithTextFix(text, CommonQuickFixBundle.message("fix.replace.with.x", "EnumMap"));
+  }
+
+  private static class MapReplaceableByEnumMapVisitor extends CollectionReplaceableByEnumCollectionVisitor {
 
     @Override
-    public void visitNewExpression(@NotNull PsiNewExpression expression) {
-      super.visitNewExpression(expression);
-      final PsiType type = expression.getType();
-      if (!(type instanceof PsiClassType)) {
-        return;
-      }
-      PsiClassType classType = (PsiClassType)type;
-      if (!classType.hasParameters()) {
-        final PsiType expectedType = ExpectedTypeUtils.findExpectedType(expression, false);
-        if (!(expectedType instanceof PsiClassType)) {
-          return;
-        }
-        classType = (PsiClassType)expectedType;
-      }
-      final PsiType[] typeArguments = classType.getParameters();
-      if (typeArguments.length != 2) {
-        return;
-      }
-      final PsiType argumentType = typeArguments[0];
-      if (!(argumentType instanceof PsiClassType)) {
-        return;
-      }
-      if (!TypeUtils.expressionHasTypeOrSubtype(expression, CommonClassNames.JAVA_UTIL_MAP)) {
-        return;
-      }
-      if (null != TypeUtils.expressionHasTypeOrSubtype(expression, "java.util.EnumMap", "java.util.concurrent.ConcurrentMap")) {
-        return;
-      }
-      final PsiClassType argumentClassType = (PsiClassType)argumentType;
-      final PsiClass argumentClass = argumentClassType.resolve();
-      if (argumentClass == null || !argumentClass.isEnum()) {
-        return;
-      }
-      final PsiClass aClass = PsiTreeUtil.getParentOfType(expression, PsiClass.class);
-      if (argumentClass.equals(aClass)) {
-        final PsiMember member = PsiTreeUtil.getParentOfType(expression, PsiMember.class);
-        if (member != null && !member.hasModifierProperty(PsiModifier.STATIC)) {
-          return;
-        }
-      }
-      final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList != null) {
-        final PsiExpression[] arguments = argumentList.getExpressions();
-        if (arguments.length > 0 && TypeUtils.expressionHasTypeOrSubtype(arguments[0], "java.util.Comparator")) {
-          return;
-        }
-      }
-      registerNewExpressionError(expression);
+    @NotNull
+    protected List<String> getUnreplaceableCollectionNames() {
+      return Arrays.asList(CommonClassNames.JAVA_UTIL_CONCURRENT_HASH_MAP, "java.util.concurrent.ConcurrentSkipListMap",
+                           "java.util.LinkedHashMap");
     }
+
+    @NotNull
+    @Override
+    protected List<String> getReplaceableCollectionNames() {
+      return Collections.singletonList(CommonClassNames.JAVA_UTIL_HASH_MAP);
+    }
+
+    @Override
+    @NotNull
+    protected String getReplacementCollectionName() {
+      return "java.util.EnumMap";
+    }
+
+    @Override
+    @NotNull
+    protected String getBaseCollectionName() {
+      return CommonClassNames.JAVA_UTIL_MAP;
+    }
+
   }
 }

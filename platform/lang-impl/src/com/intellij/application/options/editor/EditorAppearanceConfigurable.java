@@ -1,25 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.application.options.editor;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzerSettings;
+import com.intellij.codeInsight.hints.InlayParameterHintsExtension;
+import com.intellij.codeInsight.hints.ParameterHintsPassFactory;
+import com.intellij.codeInsight.hints.settings.ParameterNameHintsConfigurable;
 import com.intellij.ide.ui.LafManager;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.options.CompositeConfigurable;
@@ -62,10 +52,12 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
   //private JCheckBox myAntialiasingInEditorCheckBox;
   private JCheckBox myShowCodeLensInEditorCheckBox;
   private JCheckBox myShowVerticalIndentGuidesCheckBox;
-  private JCheckBox myShowBreadcrumbsCheckBox;
+  private JBCheckBox myCbShowIntentionBulbCheckBox;
+  private JPanel myParameterHintsSettingsPanel;
   private JBCheckBox myShowParameterNameHints;
-  private JSpinner myMinimumParameterNameLengthToShow;
-  private JSpinner myMinimumArgumentsToShow;
+  private JButton myConfigureParameterHintsButton;
+  private JBCheckBox myFocusModeCheckBox;
+
   //private JCheckBox myUseLCDRendering;
 
   public EditorAppearanceConfigurable() {
@@ -75,34 +67,29 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     //    myUseLCDRendering.setEnabled(myAntialiasingInEditorCheckBox.isSelected());
     //  }
     //});
-    
+
     myCbBlinkCaret.addActionListener((e) -> myBlinkIntervalField.setEnabled(myCbBlinkCaret.isSelected()));
     myCbShowWhitespaces.addActionListener((e) -> updateWhitespaceCheckboxesState());
-    myShowParameterNameHints.addActionListener((e) -> resetNameHintsSettings());
+
+    myFocusModeCheckBox.setVisible(ApplicationManager.getApplication().isInternal());
+
+    initInlaysPanel();
   }
 
-  private void resetNameHintsSettings() {
-    boolean isSelected = myShowParameterNameHints.isSelected();
-    myMinimumArgumentsToShow.setEnabled(isSelected);
-    myMinimumParameterNameLengthToShow.setEnabled(isSelected);
+  private void initInlaysPanel() {
+    boolean isInlayProvidersAvailable = InlayParameterHintsExtension.INSTANCE.hasAnyExtensions();
+    myParameterHintsSettingsPanel.setVisible(isInlayProvidersAvailable);
+    if (!isInlayProvidersAvailable) return;
 
-    EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
-    final int currentParamLength = settings.getMinParamNameLengthToShow();
-    final int minArguments = settings.getMinArgsToShow();
-
-    myMinimumParameterNameLengthToShow.setModel(new SpinnerNumberModel(currentParamLength, 1, Integer.MAX_VALUE, 1));
-    myMinimumArgumentsToShow.setModel(new SpinnerNumberModel(minArguments, 1, Integer.MAX_VALUE, 1));
+    myConfigureParameterHintsButton.addActionListener(e -> {
+      ParameterNameHintsConfigurable configurable = new ParameterNameHintsConfigurable();
+      configurable.show();
+    });
   }
 
-  private void applyNameHintsSettings() {
-    boolean isSelected = myShowParameterNameHints.isSelected();
-    EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
-
-    settings.setShowParameterNameHints(isSelected);
-    if (isSelected) {
-      settings.setMinParamNameLengthToShow((int)myMinimumParameterNameLengthToShow.getModel().getValue());
-      settings.setMinArgsToShow((int)myMinimumArgumentsToShow.getModel().getValue());
-    }
+  private void setParameterNameHintsSettings(EditorSettingsExternalizable settings) {
+    settings.setShowParameterNameHints(myShowParameterNameHints.isSelected());
+    ParameterHintsPassFactory.forceHintsUpdateOnNextPass();
   }
 
   private void updateWhitespaceCheckboxesState() {
@@ -128,15 +115,15 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     myInnerWhitespacesCheckBox.setSelected(editorSettings.isInnerWhitespacesShown());
     myTrailingWhitespacesCheckBox.setSelected(editorSettings.isTrailingWhitespacesShown());
     myShowVerticalIndentGuidesCheckBox.setSelected(editorSettings.isIndentGuidesShown());
-    myShowBreadcrumbsCheckBox.setSelected(editorSettings.isBreadcrumbsShown());
+    myFocusModeCheckBox.setSelected(editorSettings.isFocusMode());
+    myCbShowIntentionBulbCheckBox.setSelected(editorSettings.isShowIntentionBulb());
     //myAntialiasingInEditorCheckBox.setSelected(UISettings.getInstance().ANTIALIASING_IN_EDITOR);
     //myUseLCDRendering.setSelected(UISettings.getInstance().USE_LCD_RENDERING_IN_EDITOR);
-    myShowCodeLensInEditorCheckBox.setSelected(UISettings.getInstance().SHOW_EDITOR_TOOLTIP);
+    myShowCodeLensInEditorCheckBox.setSelected(UISettings.getInstance().getShowEditorToolTip());
 
     updateWhitespaceCheckboxesState();
 
     myShowParameterNameHints.setSelected(editorSettings.isShowParameterNameHints());
-    resetNameHintsSettings();
 
     super.reset();
   }
@@ -159,6 +146,9 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     editorSettings.setInnerWhitespacesShown(myInnerWhitespacesCheckBox.isSelected());
     editorSettings.setTrailingWhitespacesShown(myTrailingWhitespacesCheckBox.isSelected());
     editorSettings.setIndentGuidesShown(myShowVerticalIndentGuidesCheckBox.isSelected());
+    editorSettings.setFocusMode(myFocusModeCheckBox.isSelected());
+    editorSettings.setShowIntentionBulb(myCbShowIntentionBulbCheckBox.isSelected());
+    setParameterNameHintsSettings(editorSettings);
 
     EditorOptionsPanel.reinitAllEditors();
 
@@ -177,15 +167,10 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     //  uiSettingsModified = true;
     //}
 
-    if (uiSettings.SHOW_EDITOR_TOOLTIP != myShowCodeLensInEditorCheckBox.isSelected()) {
-      uiSettings.SHOW_EDITOR_TOOLTIP = myShowCodeLensInEditorCheckBox.isSelected();
+    if (uiSettings.getShowEditorToolTip() != myShowCodeLensInEditorCheckBox.isSelected()) {
+      uiSettings.setShowEditorToolTip(myShowCodeLensInEditorCheckBox.isSelected());
       uiSettingsModified = true;
       lafSettingsModified = true;
-    }
-    
-    if(editorSettings.isBreadcrumbsShown() != myShowBreadcrumbsCheckBox.isSelected()) {
-      editorSettings.setBreadcrumbsShown(myShowBreadcrumbsCheckBox.isSelected());
-      uiSettingsModified = true;
     }
 
     if (lafSettingsModified) {
@@ -195,8 +180,8 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
       uiSettings.fireUISettingsChanged();
     }
     EditorOptionsPanel.restartDaemons();
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(EditorOptionsListener.APPEARANCE_CONFIGURABLE_TOPIC).changesApplied();
 
-    applyNameHintsSettings();
     super.apply();
   }
 
@@ -205,7 +190,7 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     if (super.isModified()) return true;
     EditorSettingsExternalizable editorSettings = EditorSettingsExternalizable.getInstance();
     boolean isModified = isModified(myCbBlinkCaret, editorSettings.isBlinkCaret());
-    isModified |= isModified(myBlinkIntervalField, editorSettings.getBlinkPeriod());
+    isModified |= isModified(myBlinkIntervalField, editorSettings.getBlinkPeriod(), EditorSettingsExternalizable.BLINKING_RANGE);
 
     isModified |= isModified(myCbBlockCursor, editorSettings.isBlockCursor());
 
@@ -217,34 +202,15 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     isModified |= isModified(myInnerWhitespacesCheckBox, editorSettings.isInnerWhitespacesShown());
     isModified |= isModified(myTrailingWhitespacesCheckBox, editorSettings.isTrailingWhitespacesShown());
     isModified |= isModified(myShowVerticalIndentGuidesCheckBox, editorSettings.isIndentGuidesShown());
+    isModified |= isModified(myFocusModeCheckBox, editorSettings.isFocusMode());
+    isModified |= isModified(myCbShowIntentionBulbCheckBox, editorSettings.isShowIntentionBulb());
     isModified |= isModified(myCbShowMethodSeparators, DaemonCodeAnalyzerSettings.getInstance().SHOW_METHOD_SEPARATORS);
     //isModified |= myAntialiasingInEditorCheckBox.isSelected() != UISettings.getInstance().ANTIALIASING_IN_EDITOR;
     //isModified |= myUseLCDRendering.isSelected() != UISettings.getInstance().USE_LCD_RENDERING_IN_EDITOR;
-    isModified |= myShowCodeLensInEditorCheckBox.isSelected() != UISettings.getInstance().SHOW_EDITOR_TOOLTIP;
-    isModified |= myShowBreadcrumbsCheckBox.isSelected() != editorSettings.isBreadcrumbsShown();
+    isModified |= myShowCodeLensInEditorCheckBox.isSelected() != UISettings.getInstance().getShowEditorToolTip();
     isModified |= myShowParameterNameHints.isSelected() != editorSettings.isShowParameterNameHints();
 
-    if (myShowParameterNameHints.isSelected()) {
-      isModified |= (int)myMinimumParameterNameLengthToShow.getModel().getValue() != editorSettings.getMinParamNameLengthToShow();
-      isModified |= (int)myMinimumArgumentsToShow.getModel().getValue() != editorSettings.getMinArgsToShow();
-    }
-    
-
     return isModified;
-  }
-
-  private static boolean isModified(JToggleButton checkBox, boolean value) {
-    return checkBox.isSelected() != value;
-  }
-
-  private static boolean isModified(JTextField textField, int value) {
-    try {
-      int fieldValue = Integer.parseInt(textField.getText().trim());
-      return fieldValue != value;
-    }
-    catch(NumberFormatException e) {
-      return false;
-    }
   }
 
   @Override
@@ -276,6 +242,7 @@ public class EditorAppearanceConfigurable extends CompositeConfigurable<UnnamedC
     super.disposeUIResources();
   }
 
+  @NotNull
   @Override
   protected List<UnnamedConfigurable> createConfigurables() {
     return ConfigurableWrapper.createConfigurables(EP_NAME);

@@ -15,7 +15,7 @@
  */
 package org.jetbrains.plugins.gradle;
 
-import com.google.common.base.Objects;
+import org.gradle.internal.impldep.com.google.common.base.Objects;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -23,7 +23,6 @@ import java.io.Serializable;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/19/2015
  */
 public class DefaultExternalDependencyId implements ExternalDependencyId, Serializable {
 

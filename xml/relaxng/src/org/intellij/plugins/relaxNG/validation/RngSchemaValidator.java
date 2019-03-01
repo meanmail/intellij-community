@@ -49,11 +49,6 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 18.07.2007
- */
 public class RngSchemaValidator extends ExternalAnnotator<RngSchemaValidator.MyValidationMessageConsumer,RngSchemaValidator.MyValidationMessageConsumer> {
   private static final Logger LOG = Logger.getInstance(RngSchemaValidator.class.getName());
 
@@ -216,7 +211,7 @@ public class RngSchemaValidator extends ExternalAnnotator<RngSchemaValidator.MyV
   private abstract static class MessageConsumerImpl implements ValidationMessageConsumer {
     protected final AnnotationHolder myHolder;
 
-    public MessageConsumerImpl(AnnotationHolder holder) {
+    MessageConsumerImpl(AnnotationHolder holder) {
       myHolder = holder;
     }
 
@@ -251,7 +246,7 @@ public class RngSchemaValidator extends ExternalAnnotator<RngSchemaValidator.MyV
     private static final String MISSING_START_ELEMENT = "missing \"start\" element";
     private static final String UNDEFINED_PATTERN = "reference to undefined pattern ";
 
-    public ErrorMessageConsumer(AnnotationHolder holder) {
+    ErrorMessageConsumer(AnnotationHolder holder) {
       super(holder);
     }
 
@@ -278,7 +273,7 @@ public class RngSchemaValidator extends ExternalAnnotator<RngSchemaValidator.MyV
 
   private static class WarningMessageConsumer extends MessageConsumerImpl {
 
-    public WarningMessageConsumer(AnnotationHolder holder) {
+    WarningMessageConsumer(AnnotationHolder holder) {
       super(holder);
     }
 

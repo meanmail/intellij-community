@@ -52,6 +52,7 @@ public class TempWithQueryHandler implements RefactoringActionHandler {
 
   private static final String REFACTORING_NAME = RefactoringBundle.message("replace.temp.with.query.title");
 
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, PsiFile file, DataContext dataContext) {
     PsiElement element = TargetElementUtil.findTargetElement(editor, TargetElementUtil
                                                                        .ELEMENT_NAME_ACCEPTED |
@@ -98,7 +99,7 @@ public class TempWithQueryHandler implements RefactoringActionHandler {
         array.add(ref);
       }
       if (!array.isEmpty()) {
-        PsiReference[] refsForWriting = array.toArray(new PsiReference[array.size()]);
+        PsiReference[] refsForWriting = array.toArray(PsiReference.EMPTY_ARRAY);
         highlightManager.addOccurrenceHighlights(editor, refsForWriting, attributes, true, null);
         String message =  RefactoringBundle.getCannotRefactorMessage(RefactoringBundle.message("variable.is.accessed.for.writing", localName));
         CommonRefactoringUtil.showErrorHint(project, editor, message, REFACTORING_NAME, HelpID.REPLACE_TEMP_WITH_QUERY);
@@ -168,6 +169,7 @@ public class TempWithQueryHandler implements RefactoringActionHandler {
     WindowManager.getInstance().getStatusBar(project).setInfo(RefactoringBundle.message("press.escape.to.remove.the.highlighting"));
   }
 
+  @Override
   public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
     if (elements.length == 1 && elements[0] instanceof PsiLocalVariable) {
       if (dataContext != null) {

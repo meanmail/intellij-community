@@ -48,23 +48,20 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-import static com.intellij.util.ArrayUtil.toObjectArray;
-
 /**
  * @author Dmitry Avdeev
- *         Date: 10/31/12
  */
 public class ImportModuleAction extends AnAction {
 
   private static final String LAST_IMPORTED_LOCATION = "last.imported.location";
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     doImport(getEventProject(e));
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Presentation presentation = e.getPresentation();
     presentation.setEnabled(getEventProject(e) != null);
   }
@@ -121,7 +118,7 @@ public class ImportModuleAction extends AnAction {
     List<ProjectImportProvider> providers = getProviders(project);
     String description = getFileChooserDescription(providers);
     descriptor.setDescription(description);
-    return selectFileAndCreateWizard(project, dialogParent, descriptor, toObjectArray(providers, ProjectImportProvider.class));
+    return selectFileAndCreateWizard(project, dialogParent, descriptor, providers.toArray(new ProjectImportProvider[0]));
   }
 
   @Nullable
@@ -141,19 +138,16 @@ public class ImportModuleAction extends AnAction {
     }
 
     final VirtualFile file = files[0];
-    for (Project p : ProjectManager.getInstance().getOpenProjects()) {
-      if (ProjectUtil.isSameProject(file.getPath(), p)) {
-        ProjectUtil.focusProjectWindow(p, false);
-        return null;
+    if (project == null) { // wizard will create a new project
+      for (Project p : ProjectManager.getInstance().getOpenProjects()) {
+        if (ProjectUtil.isSameProject(file.getPath(), p)) {
+          ProjectUtil.focusProjectWindow(p, false);
+          return null;
+        }
       }
     }
     PropertiesComponent.getInstance().setValue(LAST_IMPORTED_LOCATION, file.getPath());
     return createImportWizard(project, dialogParent, file, providers);
-  }
-
-  /** @deprecated to be removed in IDEA 16 */
-  public static String getFileChooserDescription(@Nullable final Project project) {
-    return getFileChooserDescription(getProviders(project));
   }
 
   private static String getFileChooserDescription(List<ProjectImportProvider> providers) {
@@ -202,7 +196,7 @@ public class ImportModuleAction extends AnAction {
       path = ProjectImportProvider.getDefaultPath(file);
     }
 
-    ProjectImportProvider[] availableProviders = available.toArray(new ProjectImportProvider[available.size()]);
+    ProjectImportProvider[] availableProviders = available.toArray(new ProjectImportProvider[0]);
 
     return dialogParent == null
            ? new AddModuleWizard(project, path, availableProviders)

@@ -1,17 +1,20 @@
 package com.jetbrains.python.debugger.pydev;
 
 import com.jetbrains.python.debugger.PyDebuggerException;
+import org.jetbrains.annotations.NotNull;
 
 public class VersionCommand extends AbstractCommand {
 
   private final String myVersion;
-  private String myPycharmOS;
+  private final String myPycharmOS;
+  private final long myResponseTimeout;
   private String myRemoteVersion = null;
 
-  public VersionCommand(final RemoteDebugger debugger, final String version, String pycharmOS) {
+  public VersionCommand(final RemoteDebugger debugger, final String version, String pycharmOS, long responseTimeout) {
     super(debugger, VERSION);
     myVersion = version;
     myPycharmOS = pycharmOS;
+    myResponseTimeout = responseTimeout;
   }
 
   @Override
@@ -25,7 +28,12 @@ public class VersionCommand extends AbstractCommand {
   }
 
   @Override
-  protected void processResponse(final ProtocolFrame response) throws PyDebuggerException {
+  protected long getResponseTimeout() {
+    return myResponseTimeout;
+  }
+
+  @Override
+  protected void processResponse(@NotNull final ProtocolFrame response) throws PyDebuggerException {
     super.processResponse(response);
     myRemoteVersion = response.getPayload();
   }

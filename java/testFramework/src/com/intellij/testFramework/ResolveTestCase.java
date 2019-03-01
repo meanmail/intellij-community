@@ -34,11 +34,18 @@ public abstract class ResolveTestCase extends PsiTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    if (myDocument != null) {
-      FileDocumentManager.getInstance().reloadFromDisk(myDocument);
+    try {
+      if (myDocument != null) {
+        FileDocumentManager.getInstance().reloadFromDisk(myDocument);
+        myDocument = null;
+      }
     }
-
-    super.tearDown();
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   protected PsiReference configureByFile(@NotNull String filePath) throws Exception {
@@ -59,7 +66,7 @@ public abstract class ResolveTestCase extends PsiTestCase {
 
   protected PsiReference configureByFileText(String fileText, String fileName, @Nullable VirtualFile parentDir) throws Exception {
     int offset = fileText.indexOf(MARKER);
-    assertTrue(offset >= 0);
+    assertTrue(String.format("Expected to find %s marker in file but was none", MARKER), offset >= 0);
     fileText = fileText.substring(0, offset) + fileText.substring(offset + MARKER.length());
 
     if (parentDir == null) {
@@ -87,6 +94,7 @@ public abstract class ResolveTestCase extends PsiTestCase {
     return ref;
   }
 
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return PathManagerEx.getTestDataPath() + "/psi/resolve/";

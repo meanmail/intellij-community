@@ -24,17 +24,23 @@ import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.*;
+import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyNames;
+import com.jetbrains.python.codeInsight.typing.PyTypeShed;
 import com.jetbrains.python.sdk.PythonSdkType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  *
@@ -115,18 +121,23 @@ public class PyProjectScopeBuilder extends ProjectScopeBuilderImpl {
   }
 
   @Nullable
-  public static GlobalSearchScope excludeSdkTestsScope(Project project, Sdk sdk) {
+  private static GlobalSearchScope excludeSdkTestsScope(Project project, Sdk sdk) {
     if (sdk != null && sdk.getSdkType() instanceof PythonSdkType) {
+      List<VirtualFile> excludedDirs = new ArrayList<>();
       VirtualFile libDir = findLibDir(sdk);
       if (libDir != null) {
         // superset of test dirs found in Python 2.5 to 3.1
-        List<VirtualFile> testDirs = findTestDirs(libDir, "test", "bsddb/test", "ctypes/test", "distutils/tests", "email/test",
-                                                  "importlib/test", "json/tests", "lib2to3/tests", "sqlite3/test", "tkinter/test",
-                                                  "idlelib/testcode.py");
-        if (!testDirs.isEmpty()) {
-          GlobalSearchScope scope = buildUnionScope(project, testDirs);
-          return GlobalSearchScope.notScope(scope);
-        }
+        excludedDirs.addAll(findTestDirs(libDir, "test", "bsddb/test", "ctypes/test", "distutils/tests", "email/test",
+                                         "importlib/test", "json/tests", "lib2to3/tests", "sqlite3/test", "tkinter/test",
+                                         "idlelib/testcode.py"));
+      }
+      // XXX: Disable resolving to any third-party libraries from typeshed in the same places where we don't want SDK tests
+      excludedDirs.addAll(Arrays.stream(sdk.getRootProvider().getFiles(OrderRootType.CLASSES))
+                            .filter(file -> PyTypeShed.INSTANCE.isInside(file) || PyTypeShed.INSTANCE.isInThirdPartyLibraries(file))
+                            .collect(Collectors.toList()));
+      if (!excludedDirs.isEmpty()) {
+        GlobalSearchScope scope = buildUnionScope(project, excludedDirs);
+        return GlobalSearchScope.notScope(scope);
       }
     }
     return null;
@@ -164,12 +175,21 @@ public class PyProjectScopeBuilder extends ProjectScopeBuilderImpl {
       if (root != null) {
         File libRoot = new File(root, "lib");
         File[] versionRoots = libRoot.listFiles();
-        if (versionRoots != null && versionRoots.length == 1) {
-          libRoot = versionRoots[0];
+        if (versionRoots != null && !SystemInfo.isWindows) {
+          final File versionRoot = ContainerUtil.find(versionRoots, file -> file.isDirectory() && file.getName().startsWith("python"));
+          if (versionRoot != null) {
+            libRoot = versionRoot;
+          }
         }
+        final String libRootPath = libRoot.getPath();
         for (VirtualFile file : classVFiles) {
-          if (FileUtil.pathsEqual(file.getPath(), libRoot.getPath())) {
+          if (FileUtil.pathsEqual(file.getPath(), libRootPath)) {
             return file;
+          }
+          // venv module doesn't add virtualenv's lib/pythonX.Y directory itself in sys.path
+          final VirtualFile parent = file.getParent();
+          if (PyNames.SITE_PACKAGES.equals(file.getName()) && FileUtil.pathsEqual(parent.getPath(), libRootPath)) {
+            return parent;
           }
         }
       }

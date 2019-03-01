@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.google.common.collect.Lists;
@@ -27,11 +13,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Comprehension-like element base, for list comps ang generators.
  * User: dcheryasov
- * Date: Jul 31, 2008
  */
 public abstract class PyComprehensionElementImpl extends PyElementImpl implements PyComprehensionElement {
   public PyComprehensionElementImpl(ASTNode astNode) {
@@ -42,6 +28,7 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
    * In "[x+1 for x in (1,2,3)]" result expression is "x+1".
    * @return result expression.
    */
+  @Override
   @Nullable
   public PyExpression getResultExpression() {
     ASTNode[] exprs = getNode().getChildren(PythonDialectsTokenSetProvider.INSTANCE.getExpressionTokens());
@@ -52,11 +39,12 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
    * In "[x+1 for x in (1,2,3)]" a "for component" is "x".
    * @return all "for components"
    */
-  public List<ComprhForComponent> getForComponents() {
-    final List<ComprhForComponent> list = new ArrayList<>(5);
+  @Override
+  public List<PyComprehensionForComponent> getForComponents() {
+    final List<PyComprehensionForComponent> list = new ArrayList<>(5);
     visitComponents(new ComprehensionElementVisitor() {
       @Override
-      void visitForComponent(ComprhForComponent component) {
+      void visitForComponent(PyComprehensionForComponent component) {
         list.add(component);
       }
     });
@@ -74,19 +62,33 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
         if (next2 == null) break;
         final PyExpression variable = (PyExpression)next.getPsi();
         final PyExpression iterated = (PyExpression)next2.getPsi();
-        visitor.visitForComponent(new ComprhForComponent() {
+        final boolean isAsync = Optional
+          .ofNullable(node.getTreePrev())
+          .map(ASTNode::getTreePrev)
+          .map(asyncNode -> asyncNode.getElementType() == PyTokenTypes.ASYNC_KEYWORD)
+          .orElse(false);
+
+        visitor.visitForComponent(new PyComprehensionForComponent() {
+          @Override
           public PyExpression getIteratorVariable() {
             return variable;
           }
 
+          @Override
           public PyExpression getIteratedList() {
             return iterated;
+          }
+
+          @Override
+          public boolean isAsync() {
+            return isAsync;
           }
         });
       }
       else if (type == PyTokenTypes.IF_KEYWORD) {
         final PyExpression test = (PyExpression)next.getPsi();
-        visitor.visitIfComponent(new ComprhIfComponent() {
+        visitor.visitIfComponent(new PyComprehensionIfComponent() {
+          @Override
           public PyExpression getTest() {
             return test;
           }
@@ -96,27 +98,29 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
     }
   }
 
-  public List<ComprhIfComponent> getIfComponents() {
-    final List<ComprhIfComponent> list = new ArrayList<>(5);
+  @Override
+  public List<PyComprehensionIfComponent> getIfComponents() {
+    final List<PyComprehensionIfComponent> list = new ArrayList<>(5);
     visitComponents(new ComprehensionElementVisitor() {
       @Override
-      void visitIfComponent(ComprhIfComponent component) {
+      void visitIfComponent(PyComprehensionIfComponent component) {
         list.add(component);
       }
     });
     return list;
   }
 
-  public List<ComprehensionComponent> getComponents() {
-    final List<ComprehensionComponent> list = new ArrayList<>(5);
+  @Override
+  public List<PyComprehensionComponent> getComponents() {
+    final List<PyComprehensionComponent> list = new ArrayList<>(5);
     visitComponents(new ComprehensionElementVisitor() {
       @Override
-      void visitForComponent(ComprhForComponent component) {
+      void visitForComponent(PyComprehensionForComponent component) {
         list.add(component);
       }
 
       @Override
-      void visitIfComponent(ComprhIfComponent component) {
+      void visitIfComponent(PyComprehensionIfComponent component) {
         list.add(component);
       }
     });
@@ -133,13 +137,14 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
     return node;
   }
 
+  @Override
   @NotNull
   public List<PsiNamedElement> getNamedElements() {
     // extract whatever names are defined in "for" components
-    List<ComprhForComponent> fors = getForComponents();
+    List<PyComprehensionForComponent> fors = getForComponents();
     PyExpression[] for_targets = new PyExpression[fors.size()];
     int i = 0;
-    for (ComprhForComponent for_comp : fors) {
+    for (PyComprehensionForComponent for_comp : fors) {
       for_targets[i] = for_comp.getIteratorVariable();
       i += 1;
     }
@@ -153,16 +158,11 @@ public abstract class PyComprehensionElementImpl extends PyElementImpl implement
     return results;
   }
 
-  @Nullable
-  public PsiNamedElement getNamedElement(@NotNull final String the_name) {
-    return PyUtil.IterHelper.findName(getNamedElements(), the_name);
-  }
-
-  abstract class ComprehensionElementVisitor {
-    void visitIfComponent(ComprhIfComponent component) {
+  abstract static class ComprehensionElementVisitor {
+    void visitIfComponent(PyComprehensionIfComponent component) {
     }
 
-    void visitForComponent(ComprhForComponent component) {
+    void visitForComponent(PyComprehensionForComponent component) {
     }
   }
 }

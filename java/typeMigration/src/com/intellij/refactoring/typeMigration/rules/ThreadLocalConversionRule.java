@@ -1,24 +1,40 @@
 /*
- * User: anna
- * Date: 18-Aug-2009
+ * Copyright 2000-2017 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package com.intellij.refactoring.typeMigration.rules;
 
+import com.intellij.codeInsight.daemon.impl.analysis.HighlightControlFlowUtil;
+import com.intellij.codeInsight.daemon.impl.quickfix.VariableAccessFromInnerClassFix;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.PsiDiamondTypeUtil;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.typeMigration.TypeConversionDescriptor;
 import com.intellij.refactoring.typeMigration.TypeConversionDescriptorBase;
+import com.intellij.refactoring.typeMigration.TypeEvaluator;
 import com.intellij.refactoring.typeMigration.TypeMigrationLabeler;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 public class ThreadLocalConversionRule extends TypeConversionRule {
-  private static final Logger LOG = Logger.getInstance("#" + ThreadLocalConversionRule.class.getName());
+  private static final Logger LOG = Logger.getInstance(ThreadLocalConversionRule.class);
 
 
   @Override
@@ -73,7 +89,9 @@ public class ThreadLocalConversionRule extends TypeConversionRule {
     if (parent instanceof PsiAssignmentExpression) {
       final IElementType operationSign = ((PsiAssignmentExpression)parent).getOperationTokenType();
       if (operationSign == JavaTokenType.EQ) {
-        return new TypeConversionDescriptor("$qualifier$ = $val$", "$qualifier$.set(" + toBoxed("$val$", from, context)+")", (PsiAssignmentExpression)parent);
+        boolean rightInfected = ((PsiAssignmentExpression)parent).getLExpression() == context;
+        String replacement = rightInfected ? "$qualifier$ = $val$.get()" : "$qualifier$.set(" + toBoxed("$val$", from, context) + ")";
+        return new TypeConversionDescriptor("$qualifier$ = $val$", replacement, (PsiAssignmentExpression)parent);
       }
     }
 
@@ -88,6 +106,10 @@ public class ThreadLocalConversionRule extends TypeConversionRule {
       final PsiBinaryExpression binaryExpression = (PsiBinaryExpression)context;
       final String sign = binaryExpression.getOperationSign().getText();
       return new TypeConversionDescriptor("$qualifier$" + sign + "$val$", toPrimitive("$qualifier$.get()", from, context) + " " + sign + " $val$");
+    }
+
+    if (parent instanceof PsiVariable && ((PsiVariable)parent).getInitializer() == context) {
+      return wrapWithNewExpression(to, from, (PsiExpression)context);
     }
 
     if (parent instanceof PsiExpressionStatement) {
@@ -155,24 +177,37 @@ public class ThreadLocalConversionRule extends TypeConversionRule {
 
   public static TypeConversionDescriptor wrapWithNewExpression(PsiType to, PsiType from, PsiExpression initializer) {
     final String boxedTypeName = from instanceof PsiPrimitiveType ? ((PsiPrimitiveType)from).getBoxedTypeName() : from.getCanonicalText();
-    return new TypeConversionDescriptor("$qualifier$", "new " +
-                                                       to.getCanonicalText() +
-                                                       "() {\n" +
-                                                       "@Override \n" +
-                                                       "protected " +
-                                                       boxedTypeName +
-                                                       " initialValue() {\n" +
-                                                       "  return " +
-                                                       (PsiUtil.isLanguageLevel5OrHigher(initializer)
-                                                        ? initializer.getText()
-                                                        : (from instanceof PsiPrimitiveType ? "new " +
-                                                                                              ((PsiPrimitiveType)from).getBoxedTypeName() +
-                                                                                              "(" +
-                                                                                              initializer.getText() +
-                                                                                              ")" : initializer.getText())) +
-                                                       ";\n" +
-                                                       "}\n" +
-                                                       "}", initializer);
+    List<PsiVariable> toMakeFinal = TypeConversionRuleUtil.getVariablesToMakeFinal(initializer);
+    if (toMakeFinal == null) return null;
+    return new WrappingWithInnerClassOrLambdaDescriptor("$qualifier$",
+                                                        createThreadLocalInitializerReplacement(to, from, initializer, boxedTypeName),
+                                                        initializer,
+                                                        toMakeFinal);
+  }
+
+  private static String createThreadLocalInitializerReplacement(PsiType to,
+                                                                  PsiType from,
+                                                                  PsiExpression initializer,
+                                                                  String boxedTypeName) {
+    if (PsiUtil.isLanguageLevel8OrHigher(initializer)) {
+      return "java.lang.ThreadLocal.withInitial(() -> $qualifier$)";
+    }
+    return "new " +
+           to.getCanonicalText() +
+           "() {\n" +
+           "@Override\n" +
+           "protected " +
+           boxedTypeName +
+           " initialValue() {\n" +
+           "  return " +
+           (PsiUtil.isLanguageLevel5OrHigher(initializer)
+                          ? initializer.getText()
+                          : (from instanceof PsiPrimitiveType ? "new " +
+                                                                ((PsiPrimitiveType)from).getBoxedTypeName() +
+                                                                "($qualifier$)" : "$qualifier$")) +
+           ";\n" +
+           "}\n" +
+           "}";
   }
 
   private static String toPrimitive(String replaceByArg, PsiType from, PsiElement context) {
@@ -212,7 +247,6 @@ public class ThreadLocalConversionRule extends TypeConversionRule {
         final PsiType initial = resolveResult.getSubstitutor().substitute(typeParameters[0]);
         final PsiPrimitiveType unboxedInitialType = PsiPrimitiveType.getUnboxedType(initial);
         if (unboxedInitialType != null) {
-          LOG.assertTrue(initial != null);
           if (tryType != null) {
             final PsiType exprType = labeler.getTypeEvaluator().evaluateType(
               JavaPsiFacade.getElementFactory(threadLocalClass.getProject()).createExpressionFromText(tryType, context));
@@ -227,5 +261,27 @@ public class ThreadLocalConversionRule extends TypeConversionRule {
     return toBoxed(arg, from, context);
   }
 
+  private static class WrappingWithInnerClassOrLambdaDescriptor extends ArrayInitializerAwareConversionDescriptor {
+    private final List<PsiVariable> myVariablesToMakeFinal;
 
+    private WrappingWithInnerClassOrLambdaDescriptor(@NonNls final String stringToReplace,
+                                                     @NonNls final String replaceByString,
+                                                     final PsiExpression expression,
+                                                     @NotNull List<PsiVariable> toMakeFinal) {
+      super(stringToReplace, replaceByString, expression);
+      myVariablesToMakeFinal = toMakeFinal;
+    }
+
+    @Override
+    public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) {
+      PsiExpression replaced = super.replace(expression, evaluator);
+      boolean atLeastJava8 = PsiUtil.isLanguageLevel8OrHigher(replaced);
+      for (PsiVariable var : myVariablesToMakeFinal) {
+        if (!atLeastJava8 || !HighlightControlFlowUtil.isEffectivelyFinal(var, replaced, null)) {
+          VariableAccessFromInnerClassFix.fixAccess(var, replaced);
+        }
+      }
+      return replaced;
+    }
+  }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.execution.ExecutionException;
@@ -23,20 +9,23 @@ import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ApplicationBundle;
+import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.updateSettings.impl.ExternalUpdateManager;
+import com.intellij.openapi.util.AtomicNullableLazyValue;
+import com.intellij.openapi.util.NullableLazyValue;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.ExceptionUtil;
-import com.intellij.util.PlatformUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,8 +41,28 @@ import static com.intellij.util.containers.ContainerUtil.newHashMap;
 public class CreateDesktopEntryAction extends DumbAwareAction {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.actions.CreateDesktopEntryAction");
 
+  private static final NullableLazyValue<String> ourScript = new AtomicNullableLazyValue<String>() {
+    @Nullable
+    @Override
+    protected String compute() {
+      String binPath = PathManager.getBinPath();
+      ApplicationNamesInfo names = ApplicationNamesInfo.getInstance();
+
+      String execPath = binPath + '/' + names.getProductName() + ".sh";
+      if (new File(execPath).canExecute()) return execPath;
+
+      execPath = binPath + '/' + names.getProductName().toLowerCase(Locale.US) + ".sh";
+      if (new File(execPath).canExecute()) return execPath;
+
+      execPath = binPath + '/' + names.getScriptName() + ".sh";
+      if (new File(execPath).canExecute()) return execPath;
+
+      return null;
+    }
+  };
+
   public static boolean isAvailable() {
-    return SystemInfo.isUnix && SystemInfo.hasXdgOpen();
+    return SystemInfo.isXWindow && !ExternalUpdateManager.isRoaming() && SystemInfo.hasXdgOpen();
   }
 
   @Override
@@ -72,16 +81,14 @@ public class CreateDesktopEntryAction extends DumbAwareAction {
       return;
     }
 
-    final boolean globalEntry = dialog.myGlobalEntryCheckBox.isSelected();
-    ProgressManager.getInstance().run(new Task.Backgroundable(project, ApplicationBundle.message("desktop.entry.title")) {
+    boolean globalEntry = dialog.myGlobalEntryCheckBox.isSelected();
+    new Task.Backgroundable(project, ApplicationBundle.message("desktop.entry.title")) {
       @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
-          indicator.setIndeterminate(true);
-
           createDesktopEntry(globalEntry);
 
-          final String message = ApplicationBundle.message("desktop.entry.success", ApplicationNamesInfo.getInstance().getProductName());
+          String message = ApplicationBundle.message("desktop.entry.success", ApplicationNamesInfo.getInstance().getProductName());
           Notifications.Bus.notify(
             new Notification(Notifications.SYSTEM_MESSAGES_GROUP_ID, "Desktop Entry Created", message, NotificationType.INFORMATION),
             getProject());
@@ -90,7 +97,7 @@ public class CreateDesktopEntryAction extends DumbAwareAction {
           reportFailure(e, getProject());
         }
       }
-    });
+    }.queue();
   }
 
   public static void createDesktopEntry(boolean globalEntry) throws Exception {
@@ -123,46 +130,34 @@ public class CreateDesktopEntryAction extends DumbAwareAction {
   }
 
   private static File prepare() throws IOException {
-    String homePath = PathManager.getHomePath();
-    assert new File(homePath).isDirectory() : "Invalid home path: '" + homePath + "'";
-    String binPath = homePath + "/bin";
+    String binPath = PathManager.getBinPath();
     assert new File(binPath).isDirectory() : "Invalid bin path: '" + binPath + "'";
 
-    String name = ApplicationNamesInfo.getInstance().getFullProductName();
-    if (PlatformUtils.isIdeaCommunity()) name += " Community Edition";
-
-    String iconPath = AppUIUtil.findIcon(binPath);
+    String iconPath = AppUIUtil.findIcon();
     if (iconPath == null) {
       throw new RuntimeException(ApplicationBundle.message("desktop.entry.icon.missing", binPath));
     }
 
-    String execPath = findScript(binPath);
+    String execPath = ourScript.getValue();
     if (execPath == null) {
       throw new RuntimeException(ApplicationBundle.message("desktop.entry.script.missing", binPath));
     }
+    execPath = StringUtil.wrapWithDoubleQuote(execPath);
 
+    ApplicationNamesInfo names = ApplicationNamesInfo.getInstance();
+
+    String name = names.getFullProductNameWithEdition();
+    String comment = names.getMotto();
     String wmClass = AppUIUtil.getFrameClass();
-    Map<String, String> vars = newHashMap(pair("$NAME$", name), pair("$SCRIPT$", execPath), pair("$ICON$", iconPath), pair("$WM_CLASS$", wmClass));
+    Map<String, String> vars = newHashMap(pair("$NAME$", name),
+                                          pair("$SCRIPT$", execPath),
+                                          pair("$ICON$", iconPath),
+                                          pair("$COMMENT$", comment),
+                                          pair("$WM_CLASS$", wmClass));
     String content = ExecUtil.loadTemplate(CreateDesktopEntryAction.class.getClassLoader(), "entry.desktop", vars);
     File entryFile = new File(FileUtil.getTempDirectory(), wmClass + ".desktop");
     FileUtil.writeToFile(entryFile, content);
     return entryFile;
-  }
-
-  @Nullable
-  private static String findScript(String binPath) {
-    ApplicationNamesInfo names = ApplicationNamesInfo.getInstance();
-
-    String execPath = binPath + '/' + names.getProductName() + ".sh";
-    if (new File(execPath).canExecute()) return execPath;
-
-    execPath = binPath + '/' + names.getProductName().toLowerCase(Locale.US) + ".sh";
-    if (new File(execPath).canExecute()) return execPath;
-
-    execPath = binPath + '/' + names.getScriptName() + ".sh";
-    if (new File(execPath).canExecute()) return execPath;
-
-    return null;
   }
 
   private static void install(File entryFile, boolean globalEntry) throws IOException, ExecutionException {
@@ -212,5 +207,10 @@ public class CreateDesktopEntryAction extends DumbAwareAction {
     protected JComponent createCenterPanel() {
       return myContentPane;
     }
+  }
+
+  @Nullable
+  public static String getLauncherScript() {
+    return ourScript.getValue();
   }
 }

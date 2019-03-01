@@ -81,3 +81,33 @@ public class UnnecessarySuperQualifier {
         }
     }
 }
+class BugSuper {
+    public void close() {
+        System.out.println("BugSuper.close()");
+    }
+    public static void main(String[] arg) {
+        try {
+            BugSuper bug = new Next2();
+            bug.close();
+        } catch(Throwable t) {
+            System.out.println("ERROR: " + t);
+            t.printStackTrace();
+        }
+    }
+}
+
+class Next1 extends  BugSuper {
+    public void closeall() {
+        System.out.println("Next1.closeall()");
+        // IDEA Intellij is suggesting: Remove unnecessary "super" qualifier.
+        // Try to remove yourself :-)
+        super.close();
+    }
+}
+
+class Next2 extends Next1 {
+    public void close() {
+        System.out.println("Next2.close()");
+        closeall();
+    }
+}

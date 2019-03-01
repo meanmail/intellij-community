@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 17.04.2002
- * Time: 14:39:57
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.makeStatic;
 
 import com.intellij.psi.*;
@@ -34,7 +26,6 @@ import com.intellij.refactoring.util.VariableData;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 
 public class MakeStaticUtil {
@@ -42,14 +33,14 @@ public class MakeStaticUtil {
     PsiClass containingClass = member.getContainingClass();
     ArrayList<InternalUsageInfo> classRefs = new ArrayList<>();
     addClassRefs(member, classRefs, containingClass, member, includeSelf);
-    return classRefs.toArray(new InternalUsageInfo[classRefs.size()]);
+    return classRefs.toArray(new InternalUsageInfo[0]);
   }
 
   public static boolean isParameterNeeded(PsiTypeParameterListOwner member) {
     return findClassRefsInMember(member, false).length > 0;
   }
 
-  private static void addClassRefs(PsiTypeParameterListOwner originalMember, ArrayList<InternalUsageInfo> classRefs,
+  private static void addClassRefs(PsiTypeParameterListOwner originalMember, ArrayList<? super InternalUsageInfo> classRefs,
                                    PsiClass containingClass, PsiElement element, boolean includeSelf) {
     if (element instanceof PsiReferenceExpression) {
       PsiReferenceExpression ref = (PsiReferenceExpression)element;
@@ -132,13 +123,13 @@ public class MakeStaticUtil {
     return false;
   }
 
-  public static boolean buildVariableData(PsiTypeParameterListOwner member, ArrayList<VariableData> result) {
+  public static boolean buildVariableData(PsiTypeParameterListOwner member, ArrayList<? super VariableData> result) {
     final InternalUsageInfo[] classRefsInMethod = findClassRefsInMember(member, false);
     return collectVariableData(member, classRefsInMethod, result);
   }
 
   public static boolean collectVariableData(PsiMember member, InternalUsageInfo[] internalUsages,
-                                             ArrayList<VariableData> variableDatum) {
+                                            ArrayList<? super VariableData> variableDatum) {
     HashSet<PsiField> reported = new HashSet<>();
     HashSet<PsiField> accessedForWriting = new HashSet<>();
     boolean needClassParameter = false;

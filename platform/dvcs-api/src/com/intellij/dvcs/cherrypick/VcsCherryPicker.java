@@ -18,21 +18,17 @@ package com.intellij.dvcs.cherrypick;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.vcs.VcsKey;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.MultiMap;
-import com.intellij.vcs.log.Hash;
 import com.intellij.vcs.log.VcsFullCommitDetails;
-import com.intellij.vcs.log.VcsLog;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 
 public abstract class VcsCherryPicker {
 
   @NonNls public static final ExtensionPointName<VcsCherryPicker> EXTENSION_POINT_NAME =
     ExtensionPointName.create("com.intellij.cherryPicker");
-
   /**
    * @return - return vcs for current cherryPicker
    */
@@ -50,14 +46,10 @@ public abstract class VcsCherryPicker {
    *
    * @param commits to cherry-pick
    */
-  public abstract void cherryPick(@NotNull final List<VcsFullCommitDetails> commits);
+  public abstract void cherryPick(@NotNull final List<? extends VcsFullCommitDetails> commits);
 
   /**
-   * Return true if all selected commits can be cherry-picked by this cherry-picker
-   *
-   * @param log     additional log information
-   * @param commits commits to cherry-pick, grouped by version control root
-   * @return
+   * Return true if cherry picker can manage all commits from roots
    */
-  public abstract boolean isEnabled(@NotNull VcsLog log, @NotNull Map<VirtualFile, List<Hash>> commits);
+  public abstract boolean canHandleForRoots(@NotNull Collection<? extends VirtualFile> roots);
 }

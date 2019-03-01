@@ -22,7 +22,6 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 24, 2004
  */
 public class Import extends Tag{
   public Import(@NonNls String file, boolean optional) {
@@ -31,7 +30,6 @@ public class Import extends Tag{
   }
 
   public Import(@NonNls String file) {
-    //noinspection HardCodedStringLiteral
     super("import", Couple.of("file", file));
   }
 }

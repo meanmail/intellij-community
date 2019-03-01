@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.TestFrameworks;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IconLayerProvider;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.Key;
@@ -81,7 +66,7 @@ public class ElementPresentationUtil implements PlatformIcons {
   private static final int FLAGS_JUNIT_TEST = 0x2000;
   public static final int FLAGS_RUNNABLE = 0x4000;
 
-  private static final Key<CachedValue<Integer>> CLASS_KIND_KEY = new Key<CachedValue<Integer>>("CLASS_KIND_KEY");
+  private static final Key<CachedValue<Integer>> CLASS_KIND_KEY = new Key<>("CLASS_KIND_KEY");
 
   public static int getBasicClassKind(PsiClass aClass) {
     if (!aClass.isValid()) return CLASS_KIND_CLASS;
@@ -102,12 +87,8 @@ public class ElementPresentationUtil implements PlatformIcons {
 
     CachedValue<Integer> value = aClass.getUserData(CLASS_KIND_KEY);
     if (value == null) {
-      value = CachedValuesManager.getManager(aClass.getProject()).createCachedValue(new CachedValueProvider<Integer>() {
-        @Override
-        public Result<Integer> compute() {
-          return Result.createSingleDependency(Integer.valueOf(getClassKindImpl(aClass)), aClass);
-        }
-      }, false);
+      value = CachedValuesManager.getManager(aClass.getProject()).createCachedValue(
+        () -> CachedValueProvider.Result.createSingleDependency(Integer.valueOf(getClassKindImpl(aClass)), aClass), false);
       aClass.putUserData(CLASS_KIND_KEY, value);
     }
     return value.getValue().intValue();
@@ -148,7 +129,7 @@ public class ElementPresentationUtil implements PlatformIcons {
     return CLASS_KIND_CLASS;
   }
 
-  private static final TIntObjectHashMap<Icon> BASE_ICON = new TIntObjectHashMap<Icon>(20);
+  private static final TIntObjectHashMap<Icon> BASE_ICON = new TIntObjectHashMap<>(20);
   static {
     BASE_ICON.put(CLASS_KIND_CLASS, CLASS_ICON);
     BASE_ICON.put(CLASS_KIND_CLASS | FLAGS_ABSTRACT, ABSTRACT_CLASS_ICON);
@@ -204,7 +185,7 @@ public class ElementPresentationUtil implements PlatformIcons {
   private static String getFlagsDescription(final PsiModifierListOwner aClass) {
     int flags = getFlags(aClass, false);
     String adj = "";
-    for (IconLayerProvider provider : Extensions.getExtensions(IconLayerProvider.EP_NAME)) {
+    for (IconLayerProvider provider : IconLayerProvider.EP_NAME.getExtensionList()) {
       if (provider.getLayerIcon(aClass, false) != null) {
         adj += " " + provider.getLayerDescription();
       }

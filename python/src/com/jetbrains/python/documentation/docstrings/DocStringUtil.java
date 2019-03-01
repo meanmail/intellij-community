@@ -27,11 +27,11 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.documentation.PyDocumentationSettings;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
-import com.jetbrains.python.psi.impl.PyStringLiteralExpressionImpl;
 import com.jetbrains.python.toolbox.Substring;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -39,9 +39,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * User: catherine
- */
 public class DocStringUtil {
   private DocStringUtil() {
   }
@@ -137,7 +134,7 @@ public class DocStringUtil {
 
   @NotNull
   private static Substring stripPrefixAndQuotes(@NotNull String text) {
-    final TextRange contentRange = PyStringLiteralExpressionImpl.getNodeTextRange(text);
+    final TextRange contentRange = PyStringLiteralUtil.getContentRange(text);
     return new Substring(text, contentRange.getStartOffset(), contentRange.getEndOffset());
   }
   
@@ -172,7 +169,7 @@ public class DocStringUtil {
   @NotNull
   public static DocStringFormat guessDocStringFormat(@NotNull String text, @Nullable PsiElement anchor) {
     final DocStringFormat guessed = guessDocStringFormat(text);
-    return guessed == DocStringFormat.PLAIN && anchor != null ? getConfiguredDocStringFormat(anchor) : guessed;
+    return guessed == DocStringFormat.PLAIN && anchor != null ? getConfiguredDocStringFormatOrPlain(anchor) : guessed;
   }
 
   /**
@@ -180,20 +177,36 @@ public class DocStringUtil {
    * @return docstring format configured for file or module containing given anchor PSI element
    * @see PyDocumentationSettings#getFormatForFile(PsiFile)
    */
-  @NotNull
+  @Nullable
   public static DocStringFormat getConfiguredDocStringFormat(@NotNull PsiElement anchor) {
-    final PyDocumentationSettings settings = PyDocumentationSettings.getInstance(getModuleForElement(anchor));
+    final Module module = getModuleForElement(anchor);
+    if (module == null) {
+      return null;
+    }
+
+    final PyDocumentationSettings settings = PyDocumentationSettings.getInstance(module);
     return settings.getFormatForFile(anchor.getContainingFile());
   }
 
+  @NotNull
+  public static DocStringFormat getConfiguredDocStringFormatOrPlain(@NotNull PsiElement anchor) {
+    return ObjectUtils.chooseNotNull(getConfiguredDocStringFormat(anchor), DocStringFormat.PLAIN);
+  }
+
   public static boolean isLikeSphinxDocString(@NotNull String text) {
-    return text.contains(":param ") || 
-           text.contains(":return:") || text.contains(":returns:") || 
+    return text.contains(":param ") ||
+           text.contains(":key ") ||  text.contains(":keyword ") ||
+           text.contains(":return:") || text.contains(":returns:") ||
+           text.contains(":raise ") || text.contains(":raises ") || text.contains(":except ") || text.contains(":exception ") ||
            text.contains(":rtype") || text.contains(":type");
   }
 
   public static boolean isLikeEpydocDocString(@NotNull String text) {
-    return text.contains("@param ") || text.contains("@return:") || text.contains("@rtype") || text.contains("@type");
+    return text.contains("@param ") ||
+           text.contains("@kwarg ") || text.contains("@keyword ") || text.contains("@kwparam ") ||
+           text.contains("@raise ") || text.contains("@raises ") || text.contains("@except ") || text.contains("@exception ") ||
+           text.contains("@return:") ||
+           text.contains("@rtype") || text.contains("@type");
   }
 
   public static boolean isLikeGoogleDocString(@NotNull String text) {
@@ -305,7 +318,7 @@ public class DocStringUtil {
   }
 
   /**
-   * Checks that docstring format is set either via element module's {@link com.jetbrains.python.PyNames.DOCFORMAT} attribute or
+   * Checks that docstring format is set either via element module's {@link com.jetbrains.python.PyNames#DOCFORMAT} attribute or
    * in module settings. If none of them applies, show standard choose dialog, asking user to pick one and updates module settings
    * accordingly.
    *
@@ -313,16 +326,24 @@ public class DocStringUtil {
    * @return false if no structured docstring format was specified initially and user didn't select any, true otherwise
    */
   public static boolean ensureNotPlainDocstringFormat(@NotNull PsiElement anchor) {
-    return ensureNotPlainDocstringFormatForFile(anchor.getContainingFile(), getModuleForElement(anchor));
+    final Module module = getModuleForElement(anchor);
+    if (module == null) {
+      return false;
+    }
+
+    return ensureNotPlainDocstringFormatForFile(anchor.getContainingFile(), module);
   }
 
-  @NotNull
+  // Might return {@code null} in some rare cases when PSI element doesn't have an associated module.
+  // For instance, an empty IDEA project with a Python scratch file.
+  @Nullable
   private static Module getModuleForElement(@NotNull PsiElement element) {
-    Module module = ModuleUtilCore.findModuleForPsiElement(element);
-    if (module == null) {
-      module = ModuleManager.getInstance(element.getProject()).getModules()[0];
+    final Module module = ModuleUtilCore.findModuleForPsiElement(element);
+    if (module != null) {
+      return module;
     }
-    return module;
+    
+    return ArrayUtil.getFirstElement(ModuleManager.getInstance(element.getProject()).getModules());
   }
 
   private static boolean ensureNotPlainDocstringFormatForFile(@NotNull PsiFile file, @NotNull Module module) {

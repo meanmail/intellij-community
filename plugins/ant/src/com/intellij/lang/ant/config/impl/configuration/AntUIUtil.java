@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import com.intellij.openapi.roots.ui.OrderEntryAppearanceService;
 import com.intellij.openapi.ui.FixedSizeButton;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.ui.SimpleTextAttributes;
@@ -61,12 +62,14 @@ public class AntUIUtil {
 
     public AntInstallationRenderer(PropertiesEditor<AntInstallation> editor) {
       myEditor = editor != null ? editor : new PropertiesEditor<AntInstallation>(){
+        @Override
         public AbstractProperty.AbstractPropertyContainer getProperties(AntInstallation antInstallation) {
           return antInstallation.getProperties();
         }
       };
     }
 
+    @Override
     protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
       AntInstallation ant = (AntInstallation)value;
       if (ant == null) return;
@@ -82,6 +85,7 @@ public class AntUIUtil {
       myConfiguration = configuration;
     }
 
+    @Override
     protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
       if (value == null) return;
       customizeReference((AntReference)value, this, myConfiguration);
@@ -108,6 +112,7 @@ public class AntUIUtil {
 
 
   public static class ClasspathRenderer extends ColoredListCellRenderer {
+    @Override
     protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
       AntClasspathEntry entry = (AntClasspathEntry)value;
       entry.getAppearance().customize(this);
@@ -125,6 +130,7 @@ public class AntUIUtil {
       button.setIcon(IconUtil.getAddIcon());
       button.setToolTipText(AntBundle.message("ant.property.value.editor.insert.macro.tooltip.text"));
       button.addActionListener(new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent e) {
           MacrosDialog dialog = new MacrosDialog(getChildComponent());
           if (dialog.showAndGet() && dialog.getSelectedMacro() != null) {
@@ -139,12 +145,13 @@ public class AntUIUtil {
             catch (BadLocationException ex) {
               LOG.error(ex);
             }
-            textField.requestFocus();
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(textField, true));
           }
         }
       });
     }
 
+    @Override
     public Object getCellEditorValue() {
       return getChildComponent().getText();
     }
@@ -157,6 +164,7 @@ public class AntUIUtil {
       return myComponent.getChildComponent();
     }
 
+    @Override
     public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
       getChildComponent().setText((String)value);
       return myComponent;
@@ -172,13 +180,14 @@ public class AntUIUtil {
       myProjectJdkName = projectJdkName != null ? projectJdkName : "";
     }
 
+    @Override
     protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
       String jdkName = (String)value;
       if (jdkName == null || jdkName.length() == 0) jdkName = "";
       Sdk jdk = GlobalAntConfiguration.findJdk(jdkName);
       if (jdk == null) {
         if (myProjectJdkName.length() > 0) {
-          setIcon(AllIcons.General.Jdk);
+          setIcon(AllIcons.Nodes.PpJdk);
           append(AntBundle.message("project.jdk.project.jdk.name.list.column.value", myProjectJdkName),
                  selected && !(SystemInfo.isWinVistaOrNewer && UIManager.getLookAndFeel().getName().contains("Windows"))
                  ? SimpleTextAttributes.SELECTED_SIMPLE_CELL_ATTRIBUTES

@@ -18,10 +18,10 @@ package com.siyeh.ig.fixes;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInspection.util.SpecialAnnotationsUtilBase;
 import com.intellij.psi.PsiModifierListOwner;
-import com.intellij.util.Processor;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.DelegatingFix;
 import com.siyeh.ig.InspectionGadgetsFix;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,9 +33,10 @@ public class AddToIgnoreIfAnnotatedByListQuickFix {
 
   private AddToIgnoreIfAnnotatedByListQuickFix() {}
 
+  @NotNull
   public static InspectionGadgetsFix[] build(PsiModifierListOwner modifierListOwner, List<String> configurationList) {
-    final List<InspectionGadgetsFix> fixes = build(modifierListOwner, configurationList, new ArrayList());
-    return fixes.isEmpty() ? InspectionGadgetsFix.EMPTY_ARRAY : fixes.toArray(new InspectionGadgetsFix[fixes.size()]);
+    final List<InspectionGadgetsFix> fixes = build(modifierListOwner, configurationList, new ArrayList<>());
+    return fixes.isEmpty() ? InspectionGadgetsFix.EMPTY_ARRAY : fixes.toArray(InspectionGadgetsFix.EMPTY_ARRAY);
   }
 
   public static List<InspectionGadgetsFix> build(final PsiModifierListOwner modifierListOwner,

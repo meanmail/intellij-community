@@ -15,20 +15,18 @@
  */
 package com.intellij.psi.search.searches;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.SmartPointerManager;
-import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.psi.search.SearchScope;
-import com.intellij.util.AbstractQuery;
-import com.intellij.util.FilteredQuery;
-import com.intellij.util.Query;
-import com.intellij.util.QueryExecutor;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -39,13 +37,18 @@ public class ClassInheritorsSearch extends ExtensibleQueryFactory<PsiClass, Clas
   public static final ExtensionPointName<QueryExecutor> EP_NAME = ExtensionPointName.create("com.intellij.classInheritorsSearch");
   public static final ClassInheritorsSearch INSTANCE = new ClassInheritorsSearch();
 
-  public static class SearchParameters {
-    @NotNull private final PsiClass myClass;
-    @NotNull private final SearchScope myScope;
+  public static class SearchParameters implements QueryParameters {
+    @NotNull
+    private final PsiClass myClass;
+    @NotNull
+    private final SearchScope myScope;
     private final boolean myCheckDeep;
     private final boolean myCheckInheritance;
     private final boolean myIncludeAnonymous;
-    @NotNull private final Condition<String> myNameCondition;
+    @NotNull
+    private final Condition<String> myNameCondition;
+    @NotNull
+    private final Project myProject;
 
     public SearchParameters(@NotNull final PsiClass aClass, @NotNull SearchScope scope, final boolean checkDeep, final boolean checkInheritance, boolean includeAnonymous) {
       this(aClass, scope, checkDeep, checkInheritance, includeAnonymous, Conditions.alwaysTrue());
@@ -60,11 +63,23 @@ public class ClassInheritorsSearch extends ExtensibleQueryFactory<PsiClass, Clas
       assert checkInheritance;
       myIncludeAnonymous = includeAnonymous;
       myNameCondition = nameCondition;
+      myProject = PsiUtilCore.getProjectInReadAction(myClass);
     }
 
     @NotNull
     public PsiClass getClassToProcess() {
       return myClass;
+    }
+
+    @NotNull
+    @Override
+    public Project getProject() {
+      return myProject;
+    }
+
+    @Override
+    public boolean isQueryValid() {
+      return myClass.isValid();
     }
 
     @NotNull
@@ -139,12 +154,12 @@ public class ClassInheritorsSearch extends ExtensibleQueryFactory<PsiClass, Clas
       Query<PsiClass> directQuery = DirectClassInheritorsSearch.search(parameters.getClassToProcess(), parameters.getScope(), parameters.isIncludeAnonymous());
       if (parameters.getNameCondition() != Conditions.<String>alwaysTrue()) {
         directQuery = new FilteredQuery<>(directQuery, psiClass -> parameters.getNameCondition()
-          .value(ApplicationManager.getApplication().runReadAction((Computable<String>)psiClass::getName)));
+          .value(ReadAction.compute(psiClass::getName)));
       }
       return AbstractQuery.wrapInReadAction(directQuery);
     }
     return INSTANCE.createUniqueResultsQuery(parameters, ContainerUtil.canonicalStrategy(),
-                                             psiClass -> ApplicationManager.getApplication().runReadAction((Computable<SmartPsiElementPointer<PsiClass>>)() -> SmartPointerManager.getInstance(psiClass.getProject()).createSmartPsiElementPointer(psiClass)));
+                                             psiClass -> ReadAction.compute(() -> SmartPointerManager.getInstance(psiClass.getProject()).createSmartPsiElementPointer(psiClass)));
   }
 
   /**
@@ -163,11 +178,12 @@ public class ClassInheritorsSearch extends ExtensibleQueryFactory<PsiClass, Clas
 
   @NotNull
   public static Query<PsiClass> search(@NotNull final PsiClass aClass, final boolean checkDeep) {
-    return search(aClass, ApplicationManager.getApplication().runReadAction((Computable<SearchScope>)() -> {
+    return search(aClass, ReadAction.compute(() -> {
       if (!aClass.isValid()) {
         throw new ProcessCanceledException();
       }
-      return aClass.getUseScope();
+      PsiFile file = aClass.getContainingFile();
+      return (file != null ? file : aClass).getUseScope();
     }), checkDeep);
   }
 

@@ -31,71 +31,67 @@ import com.intellij.psi.impl.PsiDocumentManagerBase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* User: cdr
-*/
 class FileElementInfo extends SmartPointerElementInfo {
+  @NotNull
   private final VirtualFile myVirtualFile;
+  @NotNull
   private final Project myProject;
+  @NotNull
   private final Language myLanguage;
+  @NotNull
+  private final Class<? extends PsiFile> myFileClass;
 
-  public FileElementInfo(@NotNull final PsiFile file) {
+  FileElementInfo(@NotNull final PsiFile file) {
     myVirtualFile = file.getVirtualFile();
     myProject = file.getProject();
     myLanguage = LanguageUtil.getRootLanguage(file);
+    myFileClass = file.getClass();
   }
 
   @Override
-  public PsiElement restoreElement() {
-    return SelfElementInfo.restoreFileFromVirtual(myVirtualFile, myProject, myLanguage);
+  PsiElement restoreElement(@NotNull SmartPointerManagerImpl manager) {
+    PsiFile file = SelfElementInfo.restoreFileFromVirtual(myVirtualFile, myProject, myLanguage);
+    return myFileClass.isInstance(file) ? file : null;
   }
 
   @Override
-  public PsiFile restoreFile() {
-    PsiElement element = restoreElement();
+  PsiFile restoreFile(@NotNull SmartPointerManagerImpl manager) {
+    PsiElement element = restoreElement(manager);
     return element == null ? null : element.getContainingFile(); // can be directory
   }
 
   @Override
-  public int elementHashCode() {
+  int elementHashCode() {
     return myVirtualFile.hashCode();
   }
 
   @Override
-  public boolean pointsToTheSameElementAs(@NotNull SmartPointerElementInfo other) {
-    if (other instanceof FileElementInfo) {
-      return Comparing.equal(myVirtualFile, ((FileElementInfo)other).myVirtualFile);
-    }
-    if (other instanceof SelfElementInfo || other instanceof ClsElementInfo) {
-      // optimisation: SelfElementInfo need psi (parsing) for element restoration and apriori could not reference psi file
-      return false;
-    }
-    return Comparing.equal(restoreElement(), other.restoreElement());
-  }
-
-  @Override
-  public VirtualFile getVirtualFile() {
-    return myVirtualFile;
-  }
-
-  @Override
-  public Segment getRange() {
-    return new TextRange(0, (int)myVirtualFile.getLength());
+  boolean pointsToTheSameElementAs(@NotNull SmartPointerElementInfo other,
+                                   @NotNull SmartPointerManagerImpl manager) {
+    return other instanceof FileElementInfo && Comparing.equal(myVirtualFile, ((FileElementInfo)other).myVirtualFile);
   }
 
   @NotNull
   @Override
-  public Project getProject() {
-    return myProject;
+  VirtualFile getVirtualFile() {
+    return myVirtualFile;
+  }
+
+  @Override
+  Segment getRange(@NotNull SmartPointerManagerImpl manager) {
+    if (!myVirtualFile.isValid()) return null;
+
+    Document document = FileDocumentManager.getInstance().getDocument(myVirtualFile);
+    return document == null ? null : TextRange.from(0, document.getTextLength());
   }
 
   @Nullable
   @Override
-  public Segment getPsiRange() {
+  Segment getPsiRange(@NotNull SmartPointerManagerImpl manager) {
     Document currentDoc = FileDocumentManager.getInstance().getCachedDocument(myVirtualFile);
     Document committedDoc = currentDoc == null ? null :
                                   ((PsiDocumentManagerBase)PsiDocumentManager.getInstance(myProject)).getLastCommittedDocument(currentDoc);
-    return committedDoc == null ? getRange() : new TextRange(0, committedDoc.getTextLength());
+    return committedDoc == null ? getRange(manager) : new TextRange(0, committedDoc.getTextLength());
   }
 
   @Override

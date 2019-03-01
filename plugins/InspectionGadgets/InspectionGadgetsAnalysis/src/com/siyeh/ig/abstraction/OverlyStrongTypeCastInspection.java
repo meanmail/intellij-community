@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,7 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
-import com.siyeh.ig.psiutils.ExpectedTypeUtils;
-import com.siyeh.ig.psiutils.InstanceOfUtils;
-import com.siyeh.ig.psiutils.TypeUtils;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -66,15 +64,10 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
   }
 
   private static class OverlyStrongCastFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("overly.strong.type.cast.weaken.quickfix");
     }
 
@@ -93,9 +86,10 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
       if (operand == null) {
         return;
       }
+      CommentTracker commentTracker = new CommentTracker();
       @NonNls
-      final String newExpression = '(' + expectedType.getCanonicalText() + ')' + operand.getText();
-      PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression);
+      final String newExpression = '(' + expectedType.getCanonicalText() + ')' + commentTracker.text(operand);
+      PsiReplacementUtil.replaceExpressionAndShorten(expression, newExpression, commentTracker);
     }
   }
 
@@ -122,18 +116,15 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
         return;
       }
       final PsiType expectedType = ExpectedTypeUtils.findExpectedType(expression, true);
-      if (expectedType == null) {
-        return;
-      }
-      if (expectedType.equals(type)) {
+      if (expectedType == null || expectedType.equals(type)) {
         return;
       }
       final PsiClass resolved = PsiUtil.resolveClassInType(expectedType);
       if (resolved != null && !resolved.isPhysical()) {
         return;
       }
-      if (expectedType.isAssignableFrom(operandType)) {
-        //then it's redundant, and caught by the built-in inspection
+      if (expectedType.isAssignableFrom(operandType) && !MethodCallUtils.isNecessaryForSurroundingMethodCall(expression, operand)) {
+        //then it's redundant, and caught by the "Redundant type cast" inspection
         return;
       }
       if (TypeUtils.isTypeParameter(expectedType)) {
@@ -176,8 +167,14 @@ public class OverlyStrongTypeCastInspection extends BaseInspection {
       if (castTypeElement == null) {
         return;
       }
-      if (operand instanceof PsiFunctionalExpression && !LambdaUtil.isFunctionalType(expectedType)) {
-        return;
+      if (operand instanceof PsiFunctionalExpression) {
+        if (!LambdaUtil.isFunctionalType(expectedType)) {
+          return;
+        }
+        PsiType interfaceReturnType = LambdaUtil.getFunctionalInterfaceReturnType(expectedType);
+        if (interfaceReturnType instanceof PsiPrimitiveType || PsiPrimitiveType.getUnboxedType(interfaceReturnType) != null) {
+          return;
+        }
       }
       registerError(castTypeElement, expectedType);
     }

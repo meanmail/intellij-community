@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.ui;
 
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.containers.ContainerUtil;
 
@@ -59,6 +60,7 @@ public abstract class OrderPanel<T> extends JPanel {
     myEntryTable.getSelectionModel().setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
     myEntryTable.registerKeyboardAction(
       new ActionListener() {
+        @Override
         public void actionPerformed(ActionEvent e) {
           if (getCheckboxColumn() == -1) return;
 
@@ -108,7 +110,7 @@ public abstract class OrderPanel<T> extends JPanel {
   }
 
   public void moveSelectedItemsUp() {
-    myEntryTable.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true));
     try {
       myInsideMove++;
       TableUtil.moveSelectedItemsUp(myEntryTable);
@@ -122,7 +124,7 @@ public abstract class OrderPanel<T> extends JPanel {
   }
 
   public void moveSelectedItemsDown() {
-    myEntryTable.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myEntryTable, true));
     try {
       myInsideMove++;
       TableUtil.moveSelectedItemsDown(myEntryTable);
@@ -181,7 +183,7 @@ public abstract class OrderPanel<T> extends JPanel {
     }
   }
 
-  public void addAll(Collection<T> orderEntries) {
+  public void addAll(Collection<? extends T> orderEntries) {
     for (T orderEntry : orderEntries) {
       add(orderEntry);
     }
@@ -203,7 +205,7 @@ public abstract class OrderPanel<T> extends JPanel {
   private class MyTableModel extends DefaultTableModel {
     private final boolean myShowCheckboxes;
 
-    public MyTableModel(boolean showCheckboxes) {
+    MyTableModel(boolean showCheckboxes) {
       myShowCheckboxes = showCheckboxes;
     }
 
@@ -215,6 +217,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return getColumnCount() - 2;
     }
 
+    @Override
     public String getColumnName(int column) {
       if (column == getEntryColumn()) {
         return "";
@@ -225,6 +228,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return null;
     }
 
+    @Override
     public Class getColumnClass(int column) {
       if (column == getEntryColumn()) {
         return myEntryClass;
@@ -235,10 +239,12 @@ public abstract class OrderPanel<T> extends JPanel {
       return super.getColumnClass(column);
     }
 
+    @Override
     public int getColumnCount() {
       return myShowCheckboxes ? 2 : 1;
     }
 
+    @Override
     public boolean isCellEditable(int row, int column) {
       if (column == getCheckboxColumn()) {
         return isCheckable(OrderPanel.this.getValueAt(row));
@@ -246,6 +252,7 @@ public abstract class OrderPanel<T> extends JPanel {
       return myEntryEditable;
     }
 
+    @Override
     public void setValueAt(Object aValue, int row, int column) {
       super.setValueAt(aValue, row, column);
       if (!isInsideMove() && column == getCheckboxColumn()) {

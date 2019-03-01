@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 09.07.2002
- * Time: 15:44:58
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.classMembers;
 
 import com.intellij.psi.PsiElement;
@@ -69,7 +61,7 @@ public class DelegatingMemberInfoModel<T extends PsiElement, M extends MemberInf
   }
 
   @Override
-  public void memberInfoChanged(MemberInfoChange<T, M> event) {
+  public void memberInfoChanged(@NotNull MemberInfoChange<T, M> event) {
     myDelegatingTarget.memberInfoChanged(event);
   }
 

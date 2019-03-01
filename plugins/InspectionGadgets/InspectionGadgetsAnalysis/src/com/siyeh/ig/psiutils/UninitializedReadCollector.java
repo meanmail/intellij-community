@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,8 +33,9 @@ public class UninitializedReadCollector {
     uninitializedReads = new HashSet<>();
   }
 
+  @NotNull
   public PsiExpression[] getUninitializedReads() {
-    return uninitializedReads.toArray(new PsiExpression[uninitializedReads.size()]);
+    return uninitializedReads.toArray(PsiExpression.EMPTY_ARRAY);
   }
 
   public boolean blockAssignsVariable(@Nullable PsiCodeBlock block, @NotNull PsiVariable variable) {
@@ -146,10 +147,15 @@ public class UninitializedReadCollector {
     }
     else if (statement instanceof PsiSwitchStatement) {
       final PsiSwitchStatement switchStatement = (PsiSwitchStatement)statement;
-      return switchStatementAssignsVariable(switchStatement, variable, stamp, checkedMethods);
+      return switchBlockAssignsVariable(switchStatement, variable, stamp, checkedMethods);
     }
     else if (statement instanceof PsiSwitchLabelStatement) {
       return false;
+    }
+    else if (statement instanceof PsiSwitchLabeledRuleStatement) {
+      final PsiSwitchLabeledRuleStatement switchLabeledRuleStatement = (PsiSwitchLabeledRuleStatement)statement;
+      final PsiStatement body = switchLabeledRuleStatement.getBody();
+      return statementAssignsVariable(body, variable, stamp, checkedMethods);
     }
     else {
       assert false : "unknown statement: " + statement;
@@ -157,13 +163,13 @@ public class UninitializedReadCollector {
     }
   }
 
-  private boolean switchStatementAssignsVariable(@NotNull PsiSwitchStatement switchStatement, @NotNull PsiVariable variable,
-                                                 int stamp, @NotNull Set<MethodSignature> checkedMethods) {
-    final PsiExpression expression = switchStatement.getExpression();
+  private boolean switchBlockAssignsVariable(@NotNull PsiSwitchBlock switchBlock, @NotNull PsiVariable variable,
+                                             int stamp, @NotNull Set<MethodSignature> checkedMethods) {
+    final PsiExpression expression = switchBlock.getExpression();
     if (expressionAssignsVariable(expression, variable, stamp, checkedMethods)) {
       return true;
     }
-    final PsiCodeBlock body = switchStatement.getBody();
+    final PsiCodeBlock body = switchBlock.getBody();
     if (body == null) {
       return false;
     }
@@ -184,13 +190,13 @@ public class UninitializedReadCollector {
       }
       else if (statement instanceof PsiBreakStatement) {
         final PsiBreakStatement breakStatement = (PsiBreakStatement)statement;
-        if (breakStatement.getLabelIdentifier() != null) {
+        final PsiExpression valueExpression = breakStatement.getValueExpression();
+        if (expressionAssignsVariable(valueExpression, variable, stamp, checkedMethods)) {
+          assigns = true;
+        }
+        if (breakStatement.getLabelIdentifier() != null || !assigns) {
           return false;
         }
-        if (!assigns) {
-          return false;
-        }
-        assigns = false;
       }
       else {
         assigns |= statementAssignsVariable(statement, variable, stamp, checkedMethods);
@@ -199,7 +205,7 @@ public class UninitializedReadCollector {
         }
       }
     }
-    return containsDefault;
+    return assigns && (containsDefault || switchBlock instanceof PsiSwitchExpression);
   }
 
   private boolean declarationStatementAssignsVariable(@NotNull PsiDeclarationStatement declarationStatement, @NotNull PsiVariable variable,
@@ -317,7 +323,8 @@ public class UninitializedReadCollector {
     if (expression instanceof PsiThisExpression ||
         expression instanceof PsiLiteralExpression ||
         expression instanceof PsiSuperExpression ||
-        expression instanceof PsiClassObjectAccessExpression) {
+        expression instanceof PsiClassObjectAccessExpression ||
+        expression instanceof PsiLambdaExpression) {
       return false;
     }
     else if (expression instanceof PsiReferenceExpression) {
@@ -354,14 +361,9 @@ public class UninitializedReadCollector {
       return expressionAssignsVariable(arrayExpression, variable, stamp, checkedMethods) ||
              expressionAssignsVariable(indexExpression, variable, stamp, checkedMethods);
     }
-    else if (expression instanceof PsiPrefixExpression) {
-      final PsiPrefixExpression prefixExpression = (PsiPrefixExpression)expression;
-      final PsiExpression operand = prefixExpression.getOperand();
-      return expressionAssignsVariable(operand, variable, stamp, checkedMethods);
-    }
-    else if (expression instanceof PsiPostfixExpression) {
-      final PsiPostfixExpression postfixExpression = (PsiPostfixExpression)expression;
-      final PsiExpression operand = postfixExpression.getOperand();
+    else if (expression instanceof PsiUnaryExpression) {
+      final PsiUnaryExpression unaryExpression = (PsiUnaryExpression)expression;
+      final PsiExpression operand = unaryExpression.getOperand();
       return expressionAssignsVariable(operand, variable, stamp, checkedMethods);
     }
     else if (expression instanceof PsiPolyadicExpression) {
@@ -399,6 +401,10 @@ public class UninitializedReadCollector {
       final PsiExpression operand = instanceOfExpression.getOperand();
       return expressionAssignsVariable(operand, variable, stamp, checkedMethods);
     }
+    else if (expression instanceof PsiSwitchExpression) {
+      final PsiSwitchExpression switchExpression = (PsiSwitchExpression)expression;
+      return switchBlockAssignsVariable(switchExpression, variable, stamp, checkedMethods);
+    }
     else {
       return false;
     }
@@ -406,7 +412,7 @@ public class UninitializedReadCollector {
 
   private boolean assignmentExpressionAssignsVariable(@NotNull PsiAssignmentExpression assignment, @NotNull PsiVariable variable,
     int stamp, @NotNull Set<MethodSignature> checkedMethods) {
-    final PsiExpression lhs = assignment.getLExpression();
+    final PsiExpression lhs = ParenthesesUtils.stripParentheses(assignment.getLExpression());
     if (expressionAssignsVariable(lhs, variable, stamp, checkedMethods)) {
       return true;
     }
@@ -430,7 +436,7 @@ public class UninitializedReadCollector {
       return true;
     }
     if (variable.equals(referenceExpression.resolve())) {
-      final PsiElement parent = referenceExpression.getParent();
+      final PsiElement parent = ParenthesesUtils.getParentSkipParentheses(referenceExpression);
       if (parent instanceof PsiAssignmentExpression) {
         final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)parent;
         final PsiExpression rhs = assignmentExpression.getRExpression();
@@ -438,7 +444,7 @@ public class UninitializedReadCollector {
           checkReferenceExpression(referenceExpression, variable, qualifierExpression);
         }
       }
-      else {
+      else if (!(parent instanceof PsiExpression) || !ComparisonUtils.isNullComparison((PsiExpression)parent)) {
         checkReferenceExpression(referenceExpression, variable, qualifierExpression);
       }
     }

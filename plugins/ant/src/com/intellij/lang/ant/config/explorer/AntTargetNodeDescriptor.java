@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,12 +50,13 @@ final class AntTargetNodeDescriptor extends AntNodeDescriptor {
   private final AntBuildTargetBase myTarget;
   private CompositeAppearance myHighlightedText;
 
-  public AntTargetNodeDescriptor(final Project project, final NodeDescriptor parentDescriptor, final AntBuildTargetBase target) {
+  AntTargetNodeDescriptor(final Project project, final NodeDescriptor parentDescriptor, final AntBuildTargetBase target) {
     super(project, parentDescriptor);
     myTarget = target;
     myHighlightedText = new CompositeAppearance();
   }
 
+  @Override
   public Object getElement() {
     return myTarget;
   }
@@ -64,6 +65,7 @@ final class AntTargetNodeDescriptor extends AntNodeDescriptor {
     return myTarget;
   }
 
+  @Override
   public boolean update() {
     final CompositeAppearance oldText = myHighlightedText;
     final boolean isMeta = myTarget instanceof MetaTarget;
@@ -96,10 +98,9 @@ final class AntTargetNodeDescriptor extends AntNodeDescriptor {
         myHighlightedText.getEnding().addText(" (" + presentableName + ')', ourPostfixAttributes);
       }
     }
-    final RunManagerEx runManager = RunManagerEx.getInstanceEx(myProject);
     final VirtualFile vFile = buildFile.getVirtualFile();
     if (vFile != null) {
-      for (AntBeforeRunTask task : runManager.getBeforeRunTasks(AntBeforeRunTaskProvider.ID)) {
+      for (AntBeforeRunTask task : RunManagerEx.getInstanceEx(myProject).getBeforeRunTasks(AntBeforeRunTaskProvider.ID)) {
         if (task.isRunningTarget(myTarget)) {
           myHighlightedText.getEnding().addText(" (Before Run/Debug)", ourPostfixAttributes);
           break;
@@ -135,10 +136,12 @@ final class AntTargetNodeDescriptor extends AntNodeDescriptor {
     return myHighlightedText;
   }
 
+  @Override
   public boolean isAutoExpand() {
     return false;
   }
 
+  @Override
   public void customize(@NotNull SimpleColoredComponent component) {
     getHighlightedText().customize(component);
     component.setIcon(getIcon());

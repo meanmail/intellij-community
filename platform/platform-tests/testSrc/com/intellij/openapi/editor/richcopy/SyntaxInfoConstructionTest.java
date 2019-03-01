@@ -34,7 +34,6 @@ import com.intellij.ui.JBColor;
 
 /**
  * @author Denis Zhdanov
- * @since 3/27/13 11:11 AM
  */
 public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureTestCase {
   public void testBlockSelection() {
@@ -219,7 +218,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
                      "text= \n");
   }
 
-  public void testIndentStrippingWhenFirstLineIsMostIndented() throws Exception {
+  public void testIndentStrippingWhenFirstLineIsMostIndented() {
     init("public class Test {\n" +
          "<selection>  int field;\n" +
          "}</selection>");
@@ -231,7 +230,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
                      "text=}\n");
   }
 
-  public void testIndentStrippingWhenSelectionEndIsBeforeNonWsCharactersOnTheLine() throws Exception {
+  public void testIndentStrippingWhenSelectionEndIsBeforeNonWsCharactersOnTheLine() {
     init("public class Test {\n" +
          "<selection>  int field;\n" +
          "</selection>}");
@@ -241,7 +240,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
                      "\n");
   }
 
-  public void testSlashRSeparator() throws Exception {
+  public void testSlashRSeparator() {
     String text = "package org;\r" +
                   "\r" +
                   "public class TestClass {\r" +
@@ -268,7 +267,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
                      "text=}\n");
   }
 
-  public void testSlashRSlashNSeparator() throws Exception {
+  public void testSlashRSlashNSeparator() {
     String text = "package org;\r\n" +
                   "\r\n" +
                   "public class TestClass {\r\n" +
@@ -295,7 +294,7 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
                      "text=}\n");
   }
   
-  public void testNonPhysicalFile() throws Exception {
+  public void testNonPhysicalFile() {
     String fileName = "Test.java";
     FileType fileType = FileTypeRegistry.getInstance().getFileTypeByFileName(fileName);
     PsiFile psiFile = PsiFileFactory.getInstance(getProject()).createFileFromText(fileName, fileType, "class Test {}", 0, false);
@@ -335,27 +334,27 @@ public class SyntaxInfoConstructionTest extends LightPlatformCodeInsightFixtureT
         assertEquals((float)editor.getColorsScheme().getEditorFontSize(), syntaxInfo.getFontSize(), 0.01f);
         syntaxInfo.processOutputInfo(new MarkupHandler() {
           @Override
-          public void handleText(int startOffset, int endOffset) throws Exception {
-            builder.append("text=").append(text.substring(startOffset, endOffset)).append('\n');
+          public void handleText(int startOffset, int endOffset) {
+            builder.append("text=").append(text, startOffset, endOffset).append('\n');
           }
 
           @Override
-          public void handleForeground(int foregroundId) throws Exception {
+          public void handleForeground(int foregroundId) {
             builder.append("foreground=").append(colorRegistry.dataById(foregroundId)).append(',');
           }
 
           @Override
-          public void handleBackground(int backgroundId) throws Exception {
+          public void handleBackground(int backgroundId) {
             builder.append("background=").append(colorRegistry.dataById(backgroundId)).append(',');
           }
 
           @Override
-          public void handleFont(int fontNameId) throws Exception {
+          public void handleFont(int fontNameId) {
             assertEquals(1, fontNameId);
           }
 
           @Override
-          public void handleStyle(int style) throws Exception {
+          public void handleStyle(int style) {
             builder.append("fontStyle=").append(style).append(',');
           }
 

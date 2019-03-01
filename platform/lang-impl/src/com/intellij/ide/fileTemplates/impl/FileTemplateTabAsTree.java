@@ -21,7 +21,6 @@ import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
 import com.intellij.ide.fileTemplates.FileTemplateGroupDescriptor;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.tree.TreeUtil;
@@ -75,7 +74,7 @@ abstract class FileTemplateTabAsTree extends FileTemplateTab {
       this(descriptor.getDisplayName(),
            descriptor.getIcon(),
            descriptor instanceof FileTemplateGroupDescriptor ? ContainerUtil.map2List(((FileTemplateGroupDescriptor)descriptor).getTemplates(),
-                                                                                      s -> new FileTemplateNode(s)) : Collections.<FileTemplateNode>emptyList(),
+                                                                                      s -> new FileTemplateNode(s)) : Collections.emptyList(),
            descriptor instanceof FileTemplateGroupDescriptor ? null : descriptor.getFileName());
     }
 
@@ -84,7 +83,7 @@ abstract class FileTemplateTabAsTree extends FileTemplateTab {
     }
 
     FileTemplateNode(Icon icon, String templateName) {
-      this(templateName, icon, Collections.<FileTemplateNode>emptyList(), templateName);
+      this(templateName, icon, Collections.emptyList(), templateName);
     }
 
     private FileTemplateNode(String name, Icon icon, List<FileTemplateNode> children, String templateName) {
@@ -115,7 +114,12 @@ abstract class FileTemplateTabAsTree extends FileTemplateTab {
   private class MyTreeCellRenderer extends DefaultTreeCellRenderer {
     @Override
     public Component getTreeCellRendererComponent(JTree tree, Object value, boolean sel, boolean expanded, boolean leaf, int row, boolean hasFocus) {
-      super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, false);
+      setBorderSelectionColor(null);
+      setBackgroundSelectionColor(null);
+      setBackgroundNonSelectionColor(null);
+      super.getTreeCellRendererComponent(tree, value, sel, expanded, leaf, row, hasFocus);
+      setBackground(UIUtil.getTreeBackground(sel, hasFocus));
+      setForeground(UIUtil.getTreeForeground(sel, hasFocus));
 
       if (value instanceof FileTemplateNode) {
         final FileTemplateNode node = (FileTemplateNode)value;

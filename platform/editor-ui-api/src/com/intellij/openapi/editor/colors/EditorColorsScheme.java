@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.colors;
 
 import com.intellij.openapi.editor.markup.TextAttributes;
@@ -31,7 +17,7 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
 
   void setName(String name);
 
-  void setAttributes(TextAttributesKey key, TextAttributes attributes);
+  void setAttributes(@NotNull TextAttributesKey key, TextAttributes attributes);
 
   @NotNull
   Color getDefaultBackground();
@@ -59,6 +45,7 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
   void setFontPreferences(@NotNull FontPreferences preferences);
 
   String getEditorFontName();
+
   void setEditorFontName(String fontName);
 
   int getEditorFontSize();
@@ -77,7 +64,14 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
   @Deprecated
   void setQuickDocFontSize(@NotNull FontSize fontSize);
 
+  @NotNull
   Font getFont(EditorFontType key);
+
+  /**
+   * @deprecated Use {@link #getFontPreferences()} and {@link ModifiableFontPreferences}
+   * to change fonts.
+   */
+  @Deprecated
   void setFont(EditorFontType key, Font font);
 
   float getLineSpacing();
@@ -100,7 +94,14 @@ public interface EditorColorsScheme extends Cloneable, TextAttributesScheme, Sch
   FontPreferences getConsoleFontPreferences();
   void setConsoleFontPreferences(@NotNull FontPreferences preferences);
 
+  default void setUseEditorFontPreferencesInConsole() {}
+  default boolean isUseEditorFontPreferencesInConsole() {return false;}
+
+  default void setUseAppFontPreferencesInEditor() {}
+  default boolean isUseAppFontPreferencesInEditor() {return false;}
+
   String getConsoleFontName();
+
   void setConsoleFontName(String fontName);
 
   int getConsoleFontSize();

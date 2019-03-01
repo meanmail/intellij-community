@@ -14,25 +14,23 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Jun 6, 2002
- * Time: 5:41:42 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.util;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.ParameterizedCachedValue;
 import com.intellij.psi.util.ParameterizedCachedValueProvider;
 import org.jetbrains.annotations.NotNull;
 
-public abstract class ParameterizedCachedValueImpl<T,P> extends CachedValueBase<T> implements ParameterizedCachedValue<T,P> {
+public class ParameterizedCachedValueImpl<T,P> extends CachedValueBase<T> implements ParameterizedCachedValue<T,P> {
+  @NotNull private final Project myProject;
   private final ParameterizedCachedValueProvider<T,P> myProvider;
 
-  public ParameterizedCachedValueImpl(@NotNull ParameterizedCachedValueProvider<T,P> provider) {
+  ParameterizedCachedValueImpl(@NotNull Project project,
+                               @NotNull ParameterizedCachedValueProvider<T, P> provider,
+                               boolean trackValue) {
+    super(trackValue);
+    myProject = project;
     myProvider = provider;
   }
 
@@ -42,6 +40,12 @@ public abstract class ParameterizedCachedValueImpl<T,P> extends CachedValueBase<
   }
 
   @Override
+  public boolean isFromMyProject(@NotNull Project project) {
+    return myProject == project;
+  }
+
+  @Override
+  @NotNull
   public ParameterizedCachedValueProvider<T,P> getValueProvider() {
     return myProvider;
   }

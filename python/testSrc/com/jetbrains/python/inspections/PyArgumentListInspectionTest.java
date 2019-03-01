@@ -1,27 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
-public class PyArgumentListInspectionTest extends PyTestCase {
+public class PyArgumentListInspectionTest extends PyInspectionTestCase {
   public void testBadarglist() {
     doTest();
   }
@@ -35,7 +22,7 @@ public class PyArgumentListInspectionTest extends PyTestCase {
   }
 
   public void testDecoratorsPy3K() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   // PY-19130
@@ -79,7 +66,7 @@ public class PyArgumentListInspectionTest extends PyTestCase {
   }
   
   public void testPy1268() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
   
   public void testInstanceMethodAsLambda() {
@@ -97,12 +84,7 @@ public class PyArgumentListInspectionTest extends PyTestCase {
 
   // PY-19412
   public void testReassignedViaClassMethodInAnotherModule() {
-    final String folderPath = "inspections/PyArgumentListInspection/ReassignedViaClassMethodInAnotherModule/";
-
-    myFixture.copyDirectoryToProject(folderPath, "");
-    myFixture.configureFromTempProjectFile("b.py");
-    myFixture.enableInspections(PyArgumentListInspection.class);
-    myFixture.checkHighlighting(true, false, false);
+    doMultiFileTest("b.py");
   }
 
   // PY-2294
@@ -159,13 +141,13 @@ public class PyArgumentListInspectionTest extends PyTestCase {
   }
 
   public void testPy3k() {
-    runWithLanguageLevel(LanguageLevel.PYTHON30, this::doTest);
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
-  private void doTest() {
-    myFixture.configureByFile("inspections/PyArgumentListInspection/" + getTestName(true) + ".py");
-    myFixture.enableInspections(PyArgumentListInspection.class);
-    myFixture.checkHighlighting(true, false, false);
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyArgumentListInspection.class;
   }
 
   // PY-9664
@@ -203,12 +185,195 @@ public class PyArgumentListInspectionTest extends PyTestCase {
     doTest();
   }
 
-  public void testUnionTypeAttributeCall() {
-    doTest();
-  }
-
   // PY-18275
   public void testStrFormat() {
     doTest();
+  }
+
+  // PY-19716
+  public void testMethodsForLoggingExceptions() {
+    doMultiFileTest("b.py");
+  }
+
+  // PY-19522
+  public void testCsvRegisterDialect() {
+    doMultiFileTest("b.py");
+  }
+
+  // PY-21083
+  public void testFloatFromhex() {
+    doTest();
+  }
+
+  public void testMultiResolveWhenOneResultIsDecoratedFunction() {
+    doTest();
+  }
+
+  public void testMultiResolveWhenOneResultIsDunderInitInDecoratedClass() {
+    // Implement after fixing PY-20057
+  }
+
+  public void testMultiResolveWhenOneResultDoesNotHaveUnmappedArguments() {
+    doTest();
+  }
+
+  public void testMultiResolveWhenOneResultDoesNotHaveUnmappedParameters() {
+    doTest();
+  }
+
+  public void testMultiResolveWhenAllResultsHaveUnmappedArguments() {
+    doTest();
+  }
+
+  public void testMultiResolveWhenAllResultsHaveUnmappedParameters() {
+    doTest();
+  }
+
+  public void testUnfilledSentinelInBuiltinIter() {
+    doTest();
+  }
+
+  public void testUnfilledDefaultInBuiltinNext() {
+    doTest();
+  }
+
+  public void testUnfilledIter4InBuiltinZip() {
+    doTest();
+  }
+
+  public void testUnfilledIter2InBuiltinMap() {
+    doTest();
+  }
+
+  // PY-22507
+  public void testTimetupleOnAssertedDate() {
+    doMultiFileTest("b.py");
+  }
+
+  // PY-23069
+  public void testDunderNewCallInDictInheritor() {
+    doTest();
+  }
+
+  // PY-22767
+  public void testBuiltinZip() {
+    doTest();
+  }
+
+  // PY-19293, PY-22102
+  public void testInitializingTypingNamedTuple() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-24099
+  public void testInitializingTypingNamedTupleWithDefaultValues() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-4344, PY-8422, PY-22269, PY-22740
+  public void testInitializingCollectionsNamedTuple() {
+    doTest();
+  }
+
+  // PY-26007
+  public void testInitializingCollectionsNamedTupleInheritor() {
+    doTestByText("from collections import namedtuple\n" +
+                 "\n" +
+                 "nt = namedtuple(\"nt\", \"f1 f2\")\n" +
+                 "\n" +
+                 "class mynt(nt):\n" +
+                 "    def __new__(cls, p1):\n" +
+                 "        # expected: explicit namedtuple's __init__ and __new__ are not supported yet\n" +
+                 "        return nt.__new__(cls, p1, <warning descr=\"Unexpected argument\">10</warning>)\n" +
+                 "\n" +
+                 "mynt(1)");
+  }
+
+  // PY-22971
+  public void testOverloadsAndImplementationInClass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-22971
+  public void testTopLevelOverloadsAndImplementation() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-22971
+  public void testOverloadsAndImplementationInImportedClass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> doMultiFileTest("b.py"));
+  }
+
+  // PY-22971
+  public void testOverloadsAndImplementationInImportedModule() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> doMultiFileTest("b.py"));
+  }
+
+  public void testTypingCallableCall() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-24286
+  public void testBuiltinLong() {
+    doTest();
+  }
+
+  // PY-24930
+  public void testCallOperator() {
+    runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-16968
+  public void testKwargsAgainstKeywordOnly() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-26023
+  public void testAbstractMethod() {
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  }
+
+  // PY-27148
+  public void testCollectionsNamedTupleReplace() {
+    doTest();
+  }
+
+  // PY-27148
+  public void testTypingNamedTupleReplace() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-27398
+  public void testInitializingDataclass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-28957
+  public void testDataclassesReplace() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  public void testInitializingImportedTypingNamedTupleInheritor() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-29929
+  public void testInitializingImportedDataclass() {
+    runWithLanguageLevel(LanguageLevel.PYTHON37, this::doMultiFileTest);
+  }
+
+  // PY-25497
+  public void testObjectMethodInPossiblyInheritanceChain() {
+    doTest();
+  }
+
+  // PY-28127
+  public void testInitializingTypeVar() {
+    doTest();
+  }
+
+  // PY-30182
+  public void testAnotherMethodIsWrappedIntoStatic() {
+    doMultiFileTest();
   }
 }

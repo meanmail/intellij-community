@@ -20,7 +20,6 @@ import com.intellij.psi.presentation.java.ClassPresentationUtil;
 import org.jetbrains.annotations.Nullable;
 
 public class PsiClassListCellRenderer extends PsiElementListCellRenderer<PsiClass> {
-  public static final PsiClassListCellRenderer INSTANCE = new PsiClassListCellRenderer();
 
   @Override
   public String getElementText(PsiClass element) {

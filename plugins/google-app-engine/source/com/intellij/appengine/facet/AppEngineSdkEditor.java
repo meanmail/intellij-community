@@ -32,16 +32,16 @@ import javax.swing.*;
  * @author nik
  */
 public class AppEngineSdkEditor {
-  private ComboboxWithBrowseButton myPathEditor;
+  private final ComboboxWithBrowseButton myPathEditor;
 
   public AppEngineSdkEditor(final @Nullable Project project) {
     myPathEditor = new ComboboxWithBrowseButton(new ComboBox(100));
-    myPathEditor.addBrowseFolderListener(project, new ComponentWithBrowseButton.BrowseFolderActionListener<>("Google App Engine SDK",
-                                                                                                             "Specify Google App Engine Java SDK home",
-                                                                                                             myPathEditor, project,
-                                                                                                             FileChooserDescriptorFactory
+    myPathEditor.addActionListener(new ComponentWithBrowseButton.BrowseFolderActionListener<>("Google App Engine SDK",
+                                                                                              "Specify Google App Engine Java SDK home",
+                                                                                              myPathEditor, project,
+                                                                                              FileChooserDescriptorFactory
                                                                                                                .createSingleFolderDescriptor(),
-                                                                                                             TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT));
+                                                                                              TextComponentAccessor.STRING_COMBOBOX_WHOLE_TEXT));
     final JComboBox comboBox = myPathEditor.getComboBox();
     comboBox.setEditable(true);
     comboBox.removeAllItems();

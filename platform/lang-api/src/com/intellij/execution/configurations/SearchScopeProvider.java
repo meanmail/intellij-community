@@ -18,6 +18,7 @@ package com.intellij.execution.configurations;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +30,7 @@ public class SearchScopeProvider {
   @NotNull
   public static GlobalSearchScope createSearchScope(@NotNull Project project, @Nullable RunProfile runProfile) {
     if (runProfile instanceof SearchScopeProvidingRunProfile) {
-      GlobalSearchScope scope = ((SearchScopeProvidingRunProfile)runProfile).getScope();
+      GlobalSearchScope scope = ((SearchScopeProvidingRunProfile)runProfile).getSearchScope();
       if (scope != null) return scope;
     }
     return GlobalSearchScope.allScope(project);
@@ -40,13 +41,8 @@ public class SearchScopeProvider {
     if (modules.length == 0) {
       return null;
     }
-    else {
-      GlobalSearchScope scope = GlobalSearchScope.moduleRuntimeScope(modules[0], true);
-      for (int idx = 1; idx < modules.length; idx++) {
-        Module module = modules[idx];
-        scope = scope.uniteWith(GlobalSearchScope.moduleRuntimeScope(module, true));
-      }
-      return scope;
-    }
+    GlobalSearchScope[] scopes =
+      ContainerUtil.map2Array(modules, GlobalSearchScope.class, module -> GlobalSearchScope.moduleRuntimeScope(module, true));
+    return GlobalSearchScope.union(scopes);
   }
 }

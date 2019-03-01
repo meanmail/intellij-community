@@ -1,29 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
 import com.intellij.configurationStore.ComponentStoreImpl
 import com.intellij.notification.Notification
 import com.intellij.notification.Notifications
 import com.intellij.notification.NotificationsAdapter
-import com.intellij.openapi.application.Application
-import com.intellij.openapi.application.ApplicationAdapter
+import com.intellij.openapi.application.AppUIExecutor
 import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.ex.ApplicationManagerEx
 import com.intellij.openapi.application.impl.ApplicationImpl
+import com.intellij.openapi.application.impl.coroutineDispatchingContext
 import com.intellij.openapi.components.stateStore
 import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.progress.ProgressIndicator
@@ -32,10 +18,13 @@ import com.intellij.openapi.util.ShutDownTracker
 import com.intellij.openapi.vcs.VcsBundle
 import com.intellij.openapi.vcs.VcsNotifier
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.util.concurrent.Future
 
 internal class AutoSyncManager(private val icsManager: IcsManager) {
-  private @Volatile var autoSyncFuture: Future<*>? = null
+  @Volatile
+  private var autoSyncFuture: Future<*>? = null
 
   @Volatile var enabled = true
 
@@ -58,18 +47,10 @@ internal class AutoSyncManager(private val icsManager: IcsManager) {
     }
   }
 
-  fun registerListeners(application: Application) {
-    application.addApplicationListener(object : ApplicationAdapter() {
-      override fun applicationExiting() {
-        autoSync(true)
-      }
-    })
-  }
-
   fun registerListeners(project: Project) {
     project.messageBus.connect().subscribe(Notifications.TOPIC, object : NotificationsAdapter() {
       override fun notify(notification: Notification) {
-        if (!icsManager.repositoryActive || project.isDisposed) {
+        if (!icsManager.isActive) {
           return
         }
 
@@ -85,14 +66,16 @@ internal class AutoSyncManager(private val icsManager: IcsManager) {
 
           else -> false
         }) {
-          autoSync()
+          runBlocking {
+            autoSync()
+          }
         }
       }
     })
   }
 
-  fun autoSync(onAppExit: Boolean = false, force: Boolean = false) {
-    if (!enabled || !icsManager.repositoryActive || (!force && !icsManager.settings.autoSync)) {
+  suspend fun autoSync(onAppExit: Boolean = false, force: Boolean = false) {
+    if (!enabled || !icsManager.isActive || (!force && !icsManager.settings.autoSync)) {
       return
     }
 
@@ -117,7 +100,9 @@ internal class AutoSyncManager(private val icsManager: IcsManager) {
       try {
         // to ensure that repository will not be in uncompleted state and changes will be pushed
         ShutDownTracker.getInstance().registerStopperThread(Thread.currentThread())
-        sync(app, onAppExit)
+        runBlocking {
+          sync(app, onAppExit)
+        }
       }
       finally {
         autoSyncFuture = null
@@ -126,44 +111,62 @@ internal class AutoSyncManager(private val icsManager: IcsManager) {
     }
   }
 
-  private fun sync(app: ApplicationImpl, onAppExit: Boolean) {
+  private suspend fun sync(app: ApplicationImpl, onAppExit: Boolean) {
     catchAndLog {
       icsManager.runInAutoCommitDisabledMode {
-        val repositoryManager = icsManager.repositoryManager
-        if (!repositoryManager.canCommit()) {
-          LOG.warn("Auto sync skipped: repository is not committable")
-          return@runInAutoCommitDisabledMode
-        }
+        doSync(app, onAppExit)
+      }
+    }
+  }
 
-        // on app exit fetch and push only if there are commits to push
-        if (onAppExit && !repositoryManager.commit() && repositoryManager.getAheadCommitsCount() == 0) {
-          return@runInAutoCommitDisabledMode
-        }
+  private suspend fun doSync(app: ApplicationImpl, onAppExit: Boolean) {
+    val repositoryManager = icsManager.repositoryManager
+    val hasUpstream = repositoryManager.hasUpstream()
+    if (hasUpstream && !repositoryManager.canCommit()) {
+      LOG.warn("Auto sync skipped: repository is not committable")
+      return
+    }
 
-        val updater = repositoryManager.fetch()
-        // we merge in EDT non-modal to ensure that new settings will be properly applied
-        app.invokeAndWait({
-          catchAndLog {
-            val updateResult = updater.merge()
-            if (!onAppExit &&
-                !app.isDisposeInProgress &&
-                updateResult != null &&
-                updateStoragesFromStreamProvider(app.stateStore as ComponentStoreImpl, updateResult, app.messageBus)) {
-              // force to avoid saveAll & confirmation
-              app.exit(true, true, true)
-            }
+    // on app exit fetch and push only if there are commits to push
+    if (onAppExit) {
+      // if no upstream - just update cloud schemes
+      if (hasUpstream && !repositoryManager.commit() && repositoryManager.getAheadCommitsCount() == 0 && icsManager.readOnlySourcesManager.repositories.isEmpty()) {
+        return
+      }
+
+      // use explicit progress task to sync on app exit to make it clear why app is not exited immediately
+      icsManager.syncManager.sync(SyncType.MERGE, onAppExit = true)
+      return
+    }
+
+    // update read-only sources at first (because contain scheme - to ensure that some scheme will exist when it will be set as current by some setting)
+    updateCloudSchemes(icsManager)
+
+    if (hasUpstream) {
+      val updater = repositoryManager.fetch()
+      // we merge in EDT non-modal to ensure that new settings will be properly applied
+      withContext(AppUIExecutor.onUiThread(ModalityState.NON_MODAL).coroutineDispatchingContext()) {
+        catchAndLog {
+          val updateResult = updater.merge()
+          if (!onAppExit &&
+              !app.isDisposeInProgress &&
+              updateResult != null &&
+              updateStoragesFromStreamProvider(icsManager, app.stateStore as ComponentStoreImpl, updateResult,
+                                               app.messageBus)) {
+            // force to avoid saveAll & confirmation
+            app.exit(true, true, true)
           }
-        }, ModalityState.NON_MODAL)
-
-        if (!updater.definitelySkipPush) {
-          repositoryManager.push()
         }
+      }
+
+      if (!updater.definitelySkipPush) {
+        repositoryManager.push()
       }
     }
   }
 }
 
-inline internal fun catchAndLog(asWarning: Boolean = false, runnable: () -> Unit) {
+internal inline fun catchAndLog(asWarning: Boolean = false, runnable: () -> Unit) {
   try {
     runnable()
   }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.turnRefsToSuper;
 
 import com.intellij.internal.diGraph.analyzer.GlobalAnalyzer;
@@ -28,7 +14,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.javadoc.PsiDocComment;
-import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -40,19 +25,14 @@ import com.intellij.refactoring.rename.naming.AutomaticVariableRenamer;
 import com.intellij.refactoring.util.MoveRenameUsageInfo;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.usageView.UsageInfo;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashMap;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.containers.Queue;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 /**
  * @author dsl
@@ -145,7 +125,7 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
     super(project);
     mySuperClassName = superClassName;
     myManager = PsiManager.getInstance(project);
-    mySearchHelper = PsiSearchHelper.SERVICE.getInstance(myManager.getProject());
+    mySearchHelper = PsiSearchHelper.getInstance(myManager.getProject());
     myManager = PsiManager.getInstance(myProject);
     myReplaceInstanceOf = replaceInstanceOf;
   }
@@ -355,7 +335,6 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
     final PsiTypeParameterListOwner owner = typeParameter.getOwner();
     if (owner instanceof PsiClass) {
       final PsiClass ownerClass = ((PsiClass)owner);
-      final LocalSearchScope derivedScope = new LocalSearchScope(inheritingClass);
       final PsiSubstitutor substitutor = TypeConversionUtil.getClassSubstitutor(ownerClass, inheritingClass, PsiSubstitutor.EMPTY);
       if (substitutor == null) return;
       ownerClass.accept(new JavaRecursiveElementVisitor() {
@@ -398,15 +377,7 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
 
   private void addArgumentParameterLink(PsiElement arg, PsiExpressionList actualArgsList, PsiMethod method) {
     PsiParameter[] params = method.getParameterList().getParameters();
-    PsiExpression[] actualArgs = actualArgsList.getExpressions();
-    int argIndex = -1;
-    for (int i = 0; i < actualArgs.length; i++) {
-      PsiExpression actualArg = actualArgs[i];
-      if (actualArg.equals(arg)) {
-        argIndex = i;
-        break;
-      }
-    }
+    int argIndex = ArrayUtil.indexOf(actualArgsList.getExpressions(), arg);
 
     if (argIndex >= 0 && argIndex < params.length) {
       addLink(params[argIndex], arg);
@@ -532,9 +503,7 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
 
     final PsiElement parent = element.getParent();
     if (parent instanceof PsiReturnStatement) {
-      final PsiElement el = PsiTreeUtil.getParentOfType(parent, PsiMethod.class, PsiLambdaExpression.class);
-      constrainingType = el instanceof PsiMethod ? ((PsiMethod)el).getReturnType() 
-                                                 : el instanceof PsiLambdaExpression ? LambdaUtil.getFunctionalInterfaceReturnType((PsiLambdaExpression)el) : null;
+      constrainingType = PsiTypesUtil.getMethodReturnType(parent);
     }
     else if (parent instanceof PsiAssignmentExpression) {
       constrainingType = ((PsiAssignmentExpression)parent).getLExpression().getType();
@@ -587,6 +556,7 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
       public void linkInheritors(final PsiMethod[] methods) {
         for (final PsiMethod superMethod : methods) {
           final PsiTypeElement superType = superMethod.getReturnTypeElement();
+          if (superType == null) continue;
           addLink(superType, returnType);
           addLink(returnType, superType);
         }
@@ -760,12 +730,12 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
       return ((VisitMark)x).myVisited == myVisited;
     }
 
-    public VisitMark(VisitMark m) {
+    VisitMark(VisitMark m) {
       myVisited = false;
       myElement = m.myElement;
     }
 
-    public VisitMark(PsiElement e) {
+    VisitMark(PsiElement e) {
       myVisited = false;
       myElement = e;
     }
@@ -787,7 +757,7 @@ public abstract class TurnRefsToSuperProcessorBase extends BaseRefactoringProces
     private final HashSet<Node> mySuccessors = new HashSet<>();
     private VisitMark myMark;
 
-    public Node(PsiElement x) {
+    Node(PsiElement x) {
       super();
       myMark = new VisitMark(x);
     }

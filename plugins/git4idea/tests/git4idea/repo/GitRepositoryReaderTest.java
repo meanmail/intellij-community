@@ -61,7 +61,7 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
     return ContainerUtil.map(testCases, file -> new Object[] { file.getName(), file });
   }
 
-  @SuppressWarnings({"UnusedParameters", "JUnitTestCaseWithNonTrivialConstructors"})
+  @SuppressWarnings({"JUnitTestCaseWithNonTrivialConstructors"})
   public GitRepositoryReaderTest(@NotNull String name, @NotNull File testDir) {
     myTestCaseDir = testDir;
   }
@@ -70,13 +70,13 @@ public class GitRepositoryReaderTest extends GitPlatformTest {
   @Before
   public void setUp() throws Exception {
     EdtTestUtil.runInEdtAndWait(() -> super.setUp());
-    myTempDir = new File(myProjectRoot.getPath(), "test");
+    myTempDir = new File(projectRoot.getPath(), "test");
     prepareTest(myTestCaseDir);
   }
 
   @After
   @Override
-  public void tearDown() throws Exception {
+  public void tearDown() {
     try {
       if (myTempDir != null) {
         FileUtil.delete(myTempDir);

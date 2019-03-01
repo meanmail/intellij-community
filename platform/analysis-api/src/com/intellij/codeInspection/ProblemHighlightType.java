@@ -30,6 +30,9 @@ public enum ProblemHighlightType {
   /** The same as {@link #LIKE_UNKNOWN_SYMBOL} with enforced {@link com.intellij.codeHighlighting.HighlightDisplayLevel#ERROR} severity level */
   ERROR,
 
+  /** Enforces {@link com.intellij.codeHighlighting.HighlightDisplayLevel#WARNING} severity level */
+  WARNING,
+
   /** The same as {@link #GENERIC_ERROR_OR_WARNING} with enforced {@link com.intellij.codeHighlighting.HighlightDisplayLevel#ERROR} severity level */
   GENERIC_ERROR,
 
@@ -41,6 +44,11 @@ public enum ProblemHighlightType {
   /** Enforces {@link com.intellij.codeHighlighting.HighlightDisplayLevel#WEAK_WARNING} severity level */
   WEAK_WARNING,
 
-  /** Enforces {@link com.intellij.codeHighlighting.HighlightDisplayLevel#DO_NOT_SHOW} severity level */
-  INFORMATION
+  /** Enforces {@link com.intellij.codeHighlighting.HighlightDisplayLevel#DO_NOT_SHOW} severity level
+   *  Please ensure that if used from inspection explicitly, corresponding problem is added in the onTheFly mode only
+   */
+  INFORMATION,
+
+  /** JEP 277 enhanced deprecation */
+  LIKE_MARKED_FOR_REMOVAL
 }

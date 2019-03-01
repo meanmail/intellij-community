@@ -15,17 +15,18 @@
  */
 package org.jetbrains.jps.builders.rebuild
 
-import org.jetbrains.jps.util.JpsPathUtil
 import com.intellij.util.PathUtil
+import com.intellij.util.io.directoryContent
 import org.jetbrains.jps.model.java.JavaResourceRootType
 import org.jetbrains.jps.model.java.JpsJavaExtensionService
+import org.jetbrains.jps.util.JpsPathUtil
 
 /**
  * @author nik
  */
 class ModuleRebuildTest: JpsRebuildTestCase() {
   fun testModuleCycle() {
-    doTest("moduleCycle/moduleCycle.ipr", fs {
+    doTest("moduleCycle/moduleCycle.ipr", directoryContent {
         dir("production") {
           dir("module1") {
             file("Bar1.class")
@@ -41,7 +42,7 @@ class ModuleRebuildTest: JpsRebuildTestCase() {
   }
 
   fun testOverlappingSourceRoots() {
-    doTest("overlappingSourceRoots/overlappingSourceRoots.ipr", fs {
+    doTest("overlappingSourceRoots/overlappingSourceRoots.ipr", directoryContent {
         dir("production") {
           dir("inner") {
             dir("y") {
@@ -58,8 +59,30 @@ class ModuleRebuildTest: JpsRebuildTestCase() {
     })
   }
 
+  fun testContentRootUnderExcluded() {
+    doTest("contentRootUnderExcluded/contentRootUnderExcluded.ipr", directoryContent {
+      dir("production") {
+        dir("contentRootUnderExcluded") {
+          file("A.class")
+          file("B.class")
+        }
+      }
+    })
+  }
+
+  fun testSourceRootUnderExcluded() {
+    doTest("sourceRootUnderExcluded/sourceRootUnderExcluded.ipr", directoryContent {
+      dir("production") {
+        dir("sourceRootUnderExcluded") {
+          file("A.class")
+          file("B.class")
+        }
+      }
+    })
+  }
+
   fun testResourceCopying() {
-    doTest("resourceCopying/resourceCopying.ipr", fs {
+    doTest("resourceCopying/resourceCopying.ipr", directoryContent {
       dir("production") {
         dir("resourceCopying") {
           dir("copy") {
@@ -84,7 +107,7 @@ class ModuleRebuildTest: JpsRebuildTestCase() {
     val url = JpsPathUtil.pathToUrl(res)
     m.addSourceRoot(url, JavaResourceRootType.RESOURCE, JpsJavaExtensionService.getInstance().createResourceRootProperties("foo", false))
     rebuild()
-    assertOutput(getAbsolutePath("out/production/m"), fs {
+    assertOutput(getAbsolutePath("out/production/m"), directoryContent {
       dir("foo") {
         file("a.txt", "42")
       }

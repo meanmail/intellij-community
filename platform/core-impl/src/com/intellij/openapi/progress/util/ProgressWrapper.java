@@ -14,14 +14,9 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Sep 26, 2007
- * Time: 1:56:28 PM
- */
 package com.intellij.openapi.progress.util;
 
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.StandardProgressIndicator;
@@ -73,6 +68,15 @@ public class ProgressWrapper extends AbstractProgressIndicatorBase implements Wr
     }
   }
 
+  @Nullable
+  @Override
+  protected Throwable getCancellationTrace() {
+    if (myOriginal instanceof AbstractProgressIndicatorBase) {
+      return ((AbstractProgressIndicatorBase)myOriginal).getCancellationTrace();
+    }
+    return super.getCancellationTrace();
+  }
+
   private boolean isCanceledRaw() { return super.isCanceled(); }
   private void checkCanceledRaw() { super.checkCanceled(); }
 
@@ -90,6 +94,12 @@ public class ProgressWrapper extends AbstractProgressIndicatorBase implements Wr
         break;
       }
     }
+  }
+
+  @NotNull
+  @Override
+  public ModalityState getModalityState() {
+    return myOriginal.getModalityState();
   }
 
   @Override

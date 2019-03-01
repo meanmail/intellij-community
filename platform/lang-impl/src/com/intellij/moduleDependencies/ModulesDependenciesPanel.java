@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.moduleDependencies;
 
@@ -21,7 +9,6 @@ import com.intellij.analysis.AnalysisScopeBundle;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.CommonActionsManager;
 import com.intellij.ide.TreeExpander;
-import com.intellij.ide.actions.ContextHelpAction;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -30,8 +17,8 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootAdapter;
 import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Comparing;
@@ -40,9 +27,7 @@ import com.intellij.pom.NavigatableWithText;
 import com.intellij.ui.*;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.treeStructure.Tree;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.Convertor;
 import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.Graph;
 import com.intellij.util.graph.GraphAlgorithms;
@@ -67,15 +52,14 @@ import java.util.List;
 
 /**
  * @author anna
- * @since Feb 10, 2005
  */
 public class ModulesDependenciesPanel extends JPanel implements Disposable {
-  private static final String HELP_ID = "module.dependencies.tool.window";
+  public static final String HELP_ID = "module.dependencies.tool.window";
 
   private static final Comparator<DefaultMutableTreeNode> NODE_COMPARATOR = (o1, o2) -> {
     if (!(o1.getUserObject() instanceof MyUserObject)) return 1;
     if (!(o2.getUserObject() instanceof MyUserObject)) return -1;
-    return (o1.getUserObject().toString().compareToIgnoreCase(o2.getUserObject().toString()));
+    return o1.getUserObject().toString().compareToIgnoreCase(o2.getUserObject().toString());
   };
 
   private static final ColoredTreeCellRenderer NODE_RENDERER = new ColoredTreeCellRenderer() {
@@ -130,9 +114,9 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     myPathField.setEditable(false);
     add(createNorthPanel(), BorderLayout.NORTH);
 
-    project.getMessageBus().connect(this).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    project.getMessageBus().connect(this).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         updateModuleGraph();
         updateSplitterProportion();
         updateLeftTree();
@@ -188,7 +172,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
             for (Module dependency : getModuleDependencies(module)) {
               child.add(new DefaultMutableTreeNode(new MyUserObject(isInCycle(dependency), dependency)));
             }
-            TreeUtil.sort(child, NODE_COMPARATOR);
+            TreeUtil.sortRecursively(child, NODE_COMPARATOR);
           }
         }
       }
@@ -232,12 +216,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
 
     TreeUtil.installActions(tree);
 
-    new TreeSpeedSearch(tree, new Convertor<TreePath, String>() {
-      @Override
-      public String convert(TreePath o) {
-        return o.getLastPathComponent().toString();
-      }
-    }, true);
+    new TreeSpeedSearch(tree, o -> o.getLastPathComponent().toString(), true);
 
     DefaultActionGroup group = new DefaultActionGroup();
     CommonActionsManager commonActionManager = CommonActionsManager.getInstance();
@@ -266,7 +245,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
 
     group.add(new AnAction(CommonBundle.message("action.close"), null, AllIcons.Actions.Cancel) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         DependenciesAnalyzeManager.getInstance(myProject).closeContent(myContent);
       }
     });
@@ -274,24 +253,24 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     final AnAction analyzeDepsAction = ActionManager.getInstance().getAction(IdeActions.ACTION_ANALYZE_DEPENDENCIES);
     group.add(new AnAction(analyzeDepsAction.getTemplatePresentation().getText(), null, AllIcons.Toolwindows.ToolWindowInspection) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         analyzeDepsAction.actionPerformed(e);
       }
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         analyzeDepsAction.update(e);
       }
     });
 
     group.add(new ToggleAction(AnalysisScopeBundle.message("action.module.dependencies.direction")) {
       @Override
-      public boolean isSelected(AnActionEvent e) {
+      public boolean isSelected(@NotNull AnActionEvent e) {
         return !myState.forwardDirection;
       }
 
       @Override
-      public void setSelected(AnActionEvent e, boolean state) {
+      public void setSelected(@NotNull AnActionEvent e, boolean state) {
         myState.forwardDirection = !state;
         updateLeftTree();
       }
@@ -305,21 +284,19 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
 
     group.add(new ToggleAction(AnalysisScopeBundle.message("action.module.dependencies.tests"), null, AllIcons.Modules.TestSourceFolder) {
       @Override
-      public boolean isSelected(AnActionEvent e) {
+      public boolean isSelected(@NotNull AnActionEvent e) {
         return myState.includeTests;
       }
 
       @Override
-      public void setSelected(AnActionEvent e, boolean state) {
+      public void setSelected(@NotNull AnActionEvent e, boolean state) {
         myState.includeTests = state;
         updateModuleGraph();
         updateLeftTree();
       }
     });
 
-    group.add(new ContextHelpAction(HELP_ID));
-
-    ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, true);
+    ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("ModulesDependencies", group, true);
     JPanel panel = new JPanel(new BorderLayout());
     panel.add(toolbar.getComponent(), BorderLayout.WEST);
     panel.add(myPathField, BorderLayout.CENTER);
@@ -343,7 +320,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
       }
     }, AnalysisScopeBundle.message("update.module.tree.progress.title"), true, myProject);
 
-    TreeUtil.sort(root, NODE_COMPARATOR);
+    TreeUtil.sortRecursively(root, NODE_COMPARATOR);
     ((DefaultTreeModel)myLeftTree.getModel()).reload();
     TreeUtil.selectFirstNode(myLeftTree);
   }
@@ -379,7 +356,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     private final Module myModule;
     private final boolean myInCycle;
 
-    public MyUserObject(boolean inCycle, Module module) {
+    MyUserObject(boolean inCycle, Module module) {
       myInCycle = inCycle;
       myModule = module;
     }
@@ -424,7 +401,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     private final Tree myTree;
     private final Project myProject;
 
-    public MyTreePanel(Tree tree, Project project) {
+    MyTreePanel(Tree tree, Project project) {
       super(new BorderLayout());
       myTree = tree;
       myProject = project;
@@ -432,7 +409,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     }
 
     @Override
-    public Object getData(String dataId) {
+    public Object getData(@NotNull String dataId) {
       if (CommonDataKeys.PROJECT.is(dataId)) {
         return myProject;
       }
@@ -465,7 +442,7 @@ public class ModulesDependenciesPanel extends JPanel implements Disposable {
     private final Tree myTree;
     private final boolean myEnableExpandAll;
 
-    public MyTreeExpander(Tree tree, boolean enableExpandAll) {
+    MyTreeExpander(Tree tree, boolean enableExpandAll) {
       myTree = tree;
       myEnableExpandAll = enableExpandAll;
     }

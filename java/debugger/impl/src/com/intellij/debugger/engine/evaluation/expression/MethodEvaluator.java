@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class MethodEvaluator
@@ -29,10 +15,15 @@ import com.intellij.debugger.engine.JVMName;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.impl.ClassLoadingUtils;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.psi.PsiPrimitiveType;
+import com.intellij.psi.impl.PsiJavaParserFacadeImpl;
 import com.intellij.rt.debugger.DefaultMethodInvoker;
+import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.*;
+import one.util.streamex.StreamEx;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -63,7 +54,7 @@ public class MethodEvaluator implements Evaluator {
                          Evaluator[] argumentEvaluators,
                          boolean checkDefaultInterfaceMethod,
                          boolean mustBeVararg) {
-    myObjectEvaluator = new DisableGC(objectEvaluator);
+    myObjectEvaluator = DisableGC.create(objectEvaluator);
     myClassName = className;
     myMethodName = methodName;
     myMethodSignature = signature;
@@ -74,55 +65,85 @@ public class MethodEvaluator implements Evaluator {
 
   @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
-    if(!context.getDebugProcess().isAttached()) return null;
+    if (!context.getDebugProcess().isAttached()) {
+      return null;
+    }
     DebugProcessImpl debugProcess = context.getDebugProcess();
-    
-    final boolean requiresSuperObject = 
-      myObjectEvaluator instanceof SuperEvaluator || 
-      (myObjectEvaluator instanceof DisableGC && ((DisableGC)myObjectEvaluator).getDelegate() instanceof SuperEvaluator);
-    
+
+    final boolean requiresSuperObject = DisableGC.unwrap(myObjectEvaluator) instanceof SuperEvaluator;
     final Object object = myObjectEvaluator.evaluate(context);
     if (LOG.isDebugEnabled()) {
       LOG.debug("MethodEvaluator: object = " + object);
     }
-    if(object == null) {
+    if (object == null) {
       throw EvaluateExceptionUtil.createEvaluateException(new NullPointerException());
     }
     if (!(object instanceof ObjectReference || isInvokableType(object))) {
       throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.evaluating.method", myMethodName));
     }
-    List args = new ArrayList(myArgumentEvaluators.length);
+    List<Value> args = new ArrayList<>(myArgumentEvaluators.length);
     for (Evaluator evaluator : myArgumentEvaluators) {
-      args.add(evaluator.evaluate(context));
+      args.add((Value)evaluator.evaluate(context));
     }
     try {
       ReferenceType referenceType = null;
 
-      if(object instanceof ObjectReference) {
+      if (object instanceof ObjectReference) {
         // it seems that if we have an object of the class, the class must be ready, so no need to use findClass here
         referenceType = ((ObjectReference)object).referenceType();
       }
       else if (isInvokableType(object)) {
         referenceType = (ReferenceType)object;
       }
-      else {
-        final String className = myClassName != null? myClassName.getName(debugProcess) : null;
-        if (className != null) {
-          referenceType = debugProcess.findClass(context, className, context.getClassLoader());
-        }
-      }
-      
+
       if (referenceType == null) {
         throw new EvaluateRuntimeException(EvaluateExceptionUtil.createEvaluateException(
           DebuggerBundle.message("evaluation.error.cannot.evaluate.qualifier", myMethodName))
         );
       }
       final String signature = myMethodSignature != null ? myMethodSignature.getName(debugProcess) : null;
-      final String methodName = DebuggerUtilsEx.methodName(referenceType.name(), myMethodName, signature);
+
+      if (requiresSuperObject && (referenceType instanceof ClassType)) {
+        referenceType = ((ClassType)referenceType).superclass();
+        String className = myClassName != null ? myClassName.getName(debugProcess) : null;
+        if (referenceType == null || (className != null && !className.equals(referenceType.name()))) {
+          referenceType = debugProcess.findClass(context, className, context.getClassLoader());
+        }
+      }
+
+      Method jdiMethod = null;
+      if (signature == null) {
+        // we know nothing about expected method's signature, so trying to match my method name and parameter count
+        // dummy matching, may be improved with types matching later
+        // IMPORTANT! using argumentTypeNames() instead of argumentTypes() to avoid type resolution inside JDI, which may be time-consuming
+        List<Method> matchingMethods =
+          StreamEx.of(referenceType.methodsByName(myMethodName)).filter(m -> m.argumentTypeNames().size() == args.size()).toList();
+        if (matchingMethods.size() == 1) {
+          jdiMethod = matchingMethods.get(0);
+        }
+        else if (matchingMethods.size() > 1) {
+          jdiMethod = matchingMethods.stream().filter(m -> matchArgs(m, args)).findFirst().orElse(null);
+        }
+      }
+      if (jdiMethod == null) {
+        jdiMethod = DebuggerUtils.findMethod(referenceType, myMethodName, signature);
+      }
+      if (jdiMethod == null) {
+        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.instance.method", myMethodName));
+      }
+      if (myMustBeVararg && !jdiMethod.isVarArgs()) {
+        // this is a workaround for jdk bugs when bridge or proxy methods do not have ACC_VARARGS flags
+        // see IDEA-129869 and IDEA-202380
+        wrapVarargParams(jdiMethod, args);
+      }
+      if (signature == null) { // runtime conversions
+        argsConversions(jdiMethod, args, context);
+      }
+
+      // Static methods
       if (isInvokableType(object)) {
         if (isInvokableType(referenceType)) {
-          Method jdiMethod = DebuggerUtils.findMethod(referenceType, myMethodName, signature);
-          if (jdiMethod != null && jdiMethod.isStatic()) {
+          if (jdiMethod.isStatic()) {
             if (referenceType instanceof ClassType) {
               return debugProcess.invokeMethod(context, (ClassType)referenceType, jdiMethod, args);
             }
@@ -131,44 +152,13 @@ public class MethodEvaluator implements Evaluator {
             }
           }
         }
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.static.method", methodName));
+        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message(
+          "evaluation.error.no.static.method", DebuggerUtilsEx.methodName(referenceType.name(), myMethodName, signature)));
       }
+
       // object should be an ObjectReference
       final ObjectReference objRef = (ObjectReference)object;
-      ReferenceType _refType = referenceType;
-      if (requiresSuperObject && (referenceType instanceof ClassType)) {
-        _refType = ((ClassType)referenceType).superclass();
-      }
-      Method jdiMethod = DebuggerUtils.findMethod(_refType, myMethodName, signature);
-      if (signature == null) {
-        // we know nothing about expected method's signature, so trying to match my method name and parameter count
-        // dummy matching, may be improved with types matching later
-        // IMPORTANT! using argumentTypeNames() instead of argumentTypes() to avoid type resolution inside JDI, which may be time-consuming
-        if (jdiMethod == null || jdiMethod.argumentTypeNames().size() != args.size()) {
-          for (Method method : _refType.methodsByName(myMethodName)) {
-            if (method.argumentTypeNames().size() == args.size()) {
-              jdiMethod = method;
-              break;
-            }
-          }
-        }
-      }
-      else if (myMustBeVararg && jdiMethod != null && !jdiMethod.isVarArgs() && jdiMethod.isBridge()) {
-        // see IDEA-129869, avoid bridge methods for varargs
-        int retTypePos = signature.lastIndexOf(")");
-        if (retTypePos >= 0) {
-          String signatureNoRetType = signature.substring(0, retTypePos + 1);
-          for (Method method : _refType.visibleMethods()) {
-            if (method.name().equals(myMethodName) && method.signature().startsWith(signatureNoRetType) && !method.isBridge() && !method.isAbstract()) {
-              jdiMethod = method;
-              break;
-            }
-          }
-        }
-      }
-      if (jdiMethod == null) {
-        throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("evaluation.error.no.instance.method", methodName));
-      }
+
       if (requiresSuperObject) {
         return debugProcess.invokeInstanceMethod(context, objRef, jdiMethod, args, ObjectReference.INVOKE_NONVIRTUAL);
       }
@@ -176,7 +166,8 @@ public class MethodEvaluator implements Evaluator {
       if (Patches.JDK_BUG_ID_8042123 && myCheckDefaultInterfaceMethod && jdiMethod.declaringType() instanceof InterfaceType) {
         try {
           return invokeDefaultMethod(debugProcess, context, objRef, myMethodName);
-        } catch (EvaluateException e) {
+        }
+        catch (EvaluateException e) {
           LOG.info(e);
         }
       }
@@ -188,6 +179,55 @@ public class MethodEvaluator implements Evaluator {
     }
   }
 
+  private static boolean matchArgs(Method m, List<Value> args) {
+    try {
+      List<Type> argumentTypes = m.argumentTypes();
+      for (int i = 0; i < argumentTypes.size(); i++) {
+        Type expectedArgType = argumentTypes.get(i);
+        Type argType = args.get(i).type();
+        if (expectedArgType.equals(argType)) {
+          continue;
+        }
+        if (expectedArgType instanceof ReferenceType) {
+          if (argType == null) {
+            continue;
+          }
+          else if (argType instanceof PrimitiveType) {
+            // TODO: boxing-unboxing
+          }
+          else if (argType instanceof ReferenceType &&
+                   DebuggerUtilsImpl.instanceOf((ReferenceType)argType, (ReferenceType)expectedArgType)) {
+            continue;
+          }
+        }
+        return false;
+      }
+    }
+    catch (ClassNotLoadedException ignored) {
+      return false;
+    }
+    return true;
+  }
+
+  private static void argsConversions(Method jdiMethod, List<Value> args, EvaluationContextImpl context) throws EvaluateException {
+    if (!jdiMethod.isVarArgs()) { // totally skip varargs for now
+      List<String> typeNames = jdiMethod.argumentTypeNames();
+      int size = typeNames.size();
+      if (size == args.size()) {
+        for (int i = 0; i < size; i++) {
+          Value arg = args.get(i);
+          PsiPrimitiveType primitiveType = PsiJavaParserFacadeImpl.getPrimitiveType(typeNames.get(i));
+          if (primitiveType == null && arg.type() instanceof PrimitiveType) {
+            args.set(i, (Value)BoxingEvaluator.box(arg, context));
+          }
+          else if (primitiveType != null && !(arg.type() instanceof PrimitiveType)) {
+            args.set(i, (Value)UnBoxingEvaluator.unbox(arg, context));
+          }
+        }
+      }
+    }
+  }
+
   private static boolean isInvokableType(Object type) {
     return type instanceof ClassType || type instanceof InterfaceType;
   }
@@ -196,7 +236,7 @@ public class MethodEvaluator implements Evaluator {
   private static Value invokeDefaultMethod(DebugProcess debugProcess, EvaluationContext evaluationContext,
                                            Value obj, String name)
     throws EvaluateException {
-    ClassType invokerClass = ClassLoadingUtils.getHelperClass(DefaultMethodInvoker.class.getName(), evaluationContext, debugProcess);
+    ClassType invokerClass = ClassLoadingUtils.getHelperClass(DefaultMethodInvoker.class, evaluationContext);
 
     if (invokerClass != null) {
       List<Method> methods = invokerClass.methodsByName("invoke");
@@ -211,5 +251,21 @@ public class MethodEvaluator implements Evaluator {
   @Override
   public String toString() {
     return "call " + myMethodName;
+  }
+
+  private static void wrapVarargParams(Method method, List<Value> args) throws ClassNotLoadedException, InvalidTypeException {
+    int argCount = args.size();
+    List<Type> paramTypes = method.argumentTypes();
+    Type varargType = ContainerUtil.getLastItem(paramTypes);
+    if (varargType instanceof ArrayType) {
+      int paramCount = paramTypes.size();
+      int arraySize = argCount - paramCount + 1;
+      ArrayReference argArray = ((ArrayType)varargType).newInstance(arraySize);
+      argArray.setValues(0, args, paramCount - 1, arraySize);
+      if (paramCount <= argCount) {
+        args.subList(paramCount - 1, argCount).clear();
+      }
+      args.add(argArray);
+    }
   }
 }

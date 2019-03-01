@@ -17,16 +17,17 @@ package org.jetbrains.idea.maven.compiler;
 
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.compiler.options.ExcludeEntryDescription;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.PsiTestUtil;
 
 import java.io.File;
+import java.io.IOException;
 
 public class ResourceCopyingTest extends MavenCompilingTestCase {
 
@@ -71,6 +72,41 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
 
     assertCopied("target/classes/dir1/file1.properties");
     assertCopied("target/test-classes/dir2/file2.properties");
+  }
+
+  public void testCopyWithFilteringIntoReadonlyTarget() throws Exception {
+    final VirtualFile f = createProjectSubFile("res/dir1/file.properties", /*"Hello world"*/"Hello ${name}");
+    final File srcFile = new File(f.getPath());
+
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<version>1</version>" +
+      
+                  "<properties>" +
+                  "  <name>world</name>" +
+                  "</properties>" +
+
+                  "<build>" +
+                  "  <resources>" +
+                  "    <resource>" +
+                  "       <directory>res</directory>" +
+                  "       <filtering>true</filtering>" +
+                  "    </resource>" +
+                  "  </resources>" +
+                  "</build>");
+
+    compileModules("project");
+    assertCopied("target/classes/dir1/file.properties", "Hello world");
+    
+    // make sure the output file is readonly
+    final File outFile = new File(getProjectPath(), "target/classes/dir1/file.properties");
+    outFile.setWritable(false);
+    assertFalse(outFile.canWrite());
+
+    FileUtil.writeToFile(srcFile, "Hello, ${name}" );
+
+    compileModules("project");
+    assertCopied("target/classes/dir1/file.properties", "Hello, world");
   }
 
   public void testCustomTargetPath() throws Exception {
@@ -337,12 +373,7 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
     compileModules("project");
     assertCopied("target/classes/file.properties");
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        file.delete(this);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> file.delete(this));
 
     compileModules("project");
     assertNotCopied("target/classes/file.properties");
@@ -424,6 +455,7 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<modules>" +
                      "  <module>m1</module>" +
@@ -480,6 +512,7 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<version>1</version>" +
+                     "<packaging>pom</packaging>" +
 
                      "<modules>" +
                      "  <module>m1</module>" +
@@ -513,12 +546,8 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
                     "</build>");
     importProject();
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        setModulesOutput(myProjectRoot.createChildDirectory(this, "output"), "project", "m1", "m2");
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject)
+                      .run(() -> setModulesOutput(myProjectRoot.createChildDirectory(this, "output"), "project", "m1", "m2"));
 
 
     compileModules("project", "m1", "m2");
@@ -535,16 +564,12 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
   }
 
   private void setModulesOutput(final VirtualFile output, final String... moduleNames) {
-    AccessToken accessToken = WriteAction.start();
-    try {
+    WriteAction.run(() -> {
       for (String each : moduleNames) {
         PsiTestUtil.setCompilerOutputPath(getModule(each), output.getUrl(), false);
         PsiTestUtil.setCompilerOutputPath(getModule(each), output.getUrl(), true);
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   public void testWebResources() throws Exception {
@@ -592,7 +617,7 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
     assertNotCopied("target/classes/file.txt");
   }
 
-  public void testOverridingWebResourceFilters() throws Exception {
+  public void testOverridingWebResourceFilters() {
     if (ignore()) return;
 
     createProjectPom("<groupId>test</groupId>" +
@@ -657,15 +682,12 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
     PsiTestUtil.addSourceRoot(module, configDir);
     PsiTestUtil.addSourceRoot(module, excludedDir);
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        CompilerConfiguration.getInstance(myProject).getExcludedEntriesConfiguration()
-          .addExcludeEntryDescription(new ExcludeEntryDescription(excludedDir, true, false, getTestRootDisposable()));
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      CompilerConfiguration.getInstance(myProject).getExcludedEntriesConfiguration()
+                           .addExcludeEntryDescription(new ExcludeEntryDescription(excludedDir, true, false, getTestRootDisposable()));
 
-        setModulesOutput(myProjectRoot.createChildDirectory(this, "output"), "project", "m1", "m2");
-      }
-    }.execute().throwException();
+      setModulesOutput(myProjectRoot.createChildDirectory(this, "output"), "project", "m1", "m2");
+    });
 
     compileModules("project");
 
@@ -679,6 +701,12 @@ public class ResourceCopyingTest extends MavenCompilingTestCase {
 
   private void assertCopied(String path) {
     assertTrue(new File(myProjectPom.getParent().getPath(), path).exists());
+  }
+
+  private void assertCopied(String path, String content) throws IOException {
+    final File file = new File(myProjectPom.getParent().getPath(), path);
+    assertTrue(file.exists());
+    assertEquals(content, FileUtil.loadFile(file));
   }
 
   private void assertNotCopied(String path) {

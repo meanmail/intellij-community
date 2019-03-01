@@ -62,7 +62,7 @@ public class PsiAnnotationMethodImpl extends PsiMethodImpl implements PsiAnnotat
       }
 
       value = JavaPsiFacade.getElementFactory(getProject()).createAnnotationFromText("@Foo(" + text + ")", this).findAttributeValue(null);
-      myCachedDefaultValue = new SoftReference<PsiAnnotationMemberValue>(value);
+      myCachedDefaultValue = new SoftReference<>(value);
       return value;
     }
 
@@ -73,6 +73,7 @@ public class PsiAnnotationMethodImpl extends PsiMethodImpl implements PsiAnnotat
     return (PsiAnnotationMemberValue)node.getPsi();
   }
 
+  @Override
   @NonNls
   public String toString() {
     return "PsiAnnotationMethod:" + getName();

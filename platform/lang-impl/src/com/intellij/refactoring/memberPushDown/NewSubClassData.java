@@ -23,10 +23,10 @@ import com.intellij.psi.PsiElement;
 public class NewSubClassData {
   public static final NewSubClassData ABORT_REFACTORING = new NewSubClassData(null, null);
 
-  private Object myContext;
-  private String myNewClassName;
+  private final Object myContext;
+  private final String myNewClassName;
 
-  public NewSubClassData(PsiElement context, String newClassName) {
+  public NewSubClassData(Object context, String newClassName) {
     myContext = context;
     myNewClassName = newClassName;
   }
@@ -34,11 +34,11 @@ public class NewSubClassData {
   /**
    * Directory to create new class
    */
-  protected Object getContext() {
+  public Object getContext() {
     return myContext;
   }
 
-  protected String getNewClassName() {
+  public String getNewClassName() {
     return myNewClassName;
   }
 }

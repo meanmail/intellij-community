@@ -26,10 +26,6 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.*;
 
-/**
- * User: anna
- * Date: 3/28/13
- */
 public class JavaFxAntGenerator {
   public static List<SimpleTag> createJarAndDeployTasks(AbstractJavaFxPackager packager,
                                                         String artifactFileName,
@@ -38,7 +34,7 @@ public class JavaFxAntGenerator {
                                                         String tempDirDeployPath,
                                                         String relativeToBaseDirPath) {
     final String artifactFileNameWithoutExtension = FileUtil.getNameWithoutExtension(artifactFileName);
-    final List<SimpleTag> topLevelTagsCollector = new ArrayList<SimpleTag>(); 
+    final List<SimpleTag> topLevelTagsCollector = new ArrayList<>();
     final String preloaderJar = packager.getPreloaderJar();
     final String preloaderClass = packager.getPreloaderClass();
     String preloaderFiles = null;
@@ -103,12 +99,13 @@ public class JavaFxAntGenerator {
     //create jar task
     final SimpleTag createJarTag = new SimpleTag("fx:jar",
                                                  Couple.of("destfile", tempDirPath + "/" + artifactFileName));
+    addVerboseAttribute(createJarTag, packager);
     createJarTag.add(new SimpleTag("fx:application", Couple.of("refid", appId)));
 
-    final List<Pair> fileset2Jar = new ArrayList<Pair>();
+    final List<Pair> fileset2Jar = new ArrayList<>();
     fileset2Jar.add(Couple.of("dir", tempDirPath));
     fileset2Jar.add(Couple.of("excludes", "**/*.jar"));
-    createJarTag.add(new SimpleTag("fileset", fileset2Jar.toArray(new Pair[fileset2Jar.size()])));
+    createJarTag.add(new SimpleTag("fileset", fileset2Jar.toArray(new Pair[0])));
 
     createJarTag.add(createResourcesTag(preloaderFiles, false, allButPreloader, allButSelf, all));
 
@@ -141,6 +138,7 @@ public class JavaFxAntGenerator {
     if (!StringUtil.isEmpty(packager.getHtmlPlaceholderId())) {
       deployTag.addAttribute(Couple.of("placeholderId", packager.getHtmlPlaceholderId()));
     }
+    addVerboseAttribute(deployTag, packager);
 
     if (packager.isEnabledSigning()) {
       deployTag.add(new SimpleTag("fx:permissions", Couple.of("elevated", "true")));
@@ -148,7 +146,7 @@ public class JavaFxAntGenerator {
 
     deployTag.add(new SimpleTag("fx:application", Couple.of("refid", appId)));
 
-    final List<Pair> infoPairs = new ArrayList<Pair>();
+    final List<Pair> infoPairs = new ArrayList<>();
     appendIfNotEmpty(infoPairs, "title", packager.getTitle());
     appendIfNotEmpty(infoPairs, "vendor", packager.getVendor());
     appendIfNotEmpty(infoPairs, "description", packager.getDescription());
@@ -165,9 +163,16 @@ public class JavaFxAntGenerator {
     return topLevelTagsCollector;
   }
 
+  private static void addVerboseAttribute(SimpleTag tag, @NotNull AbstractJavaFxPackager packager) {
+    JavaFxPackagerConstants.MsgOutputLevel msgOutputLevel = packager.getMsgOutputLevel();
+    if (msgOutputLevel != null && msgOutputLevel.isVerbose()) {
+      tag.addAttribute(Couple.of("verbose", "true"));
+    }
+  }
+
   @NotNull
   private static List<JavaFxManifestAttribute> getManifestAttributes(@NotNull AbstractJavaFxPackager packager) {
-    final List<JavaFxManifestAttribute> manifestAttributes = new ArrayList<JavaFxManifestAttribute>();
+    final List<JavaFxManifestAttribute> manifestAttributes = new ArrayList<>();
     final String title = packager.getTitle();
     if (title != null) {
       manifestAttributes.add(new JavaFxManifestAttribute("Implementation-Title", title));
@@ -309,24 +314,24 @@ public class JavaFxAntGenerator {
   public static class SimpleTag {
     private final String myName;
     private final List<Pair> myPairs;
-    private final List<SimpleTag> mySubTags = new ArrayList<SimpleTag>();
+    private final List<SimpleTag> mySubTags = new ArrayList<>();
     private final String myValue;
 
     public SimpleTag(String name, Pair... pairs) {
       myName = name;
-      myPairs = new ArrayList<Pair>(Arrays.asList(pairs));
+      myPairs = new ArrayList<>(Arrays.asList(pairs));
       myValue = null;
     }
 
-    public SimpleTag(String name, Collection<Pair> pairs) {
+    public SimpleTag(String name, Collection<? extends Pair> pairs) {
       myName = name;
-      myPairs = new ArrayList<Pair>(pairs);
+      myPairs = new ArrayList<>(pairs);
       myValue = null;
     }
 
     public SimpleTag(String name, String value) {
       myName = name;
-      myPairs = new ArrayList<Pair>();
+      myPairs = new ArrayList<>();
       myValue = value;
     }
 
@@ -343,7 +348,7 @@ public class JavaFxAntGenerator {
     }
 
     public Pair[] getPairs() {
-      return myPairs.toArray(new Pair[myPairs.size()]);
+      return myPairs.toArray(new Pair[0]);
     }
 
     public String getValue() {

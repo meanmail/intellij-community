@@ -1,41 +1,23 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.CopyProvider;
 import com.intellij.ide.TextCopyProvider;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonShortcuts;
-import com.intellij.openapi.actionSystem.DataProvider;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.ComboBox;
+import com.intellij.openapi.ui.ComboBoxTableRenderer;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.*;
 import com.intellij.ui.speedSearch.SpeedSearchUtil;
 import com.intellij.ui.table.JBTable;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.ListWithSelection;
-import com.intellij.util.PairFunction;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.ComboBoxTableCellRenderer;
 import com.intellij.util.ui.EditableModel;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
@@ -46,11 +28,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.TableModelEvent;
-import javax.swing.event.TableModelListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableColumn;
-import java.io.IOException;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -68,8 +49,9 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
   @NotNull private final JBTable myCommitsTable;
   @NotNull private final CopyProvider myCopyProvider;
 
-  protected GitRebaseEditor(@NotNull Project project, @NotNull VirtualFile gitRoot, @NotNull List<GitRebaseEntry> entries)
-    throws IOException {
+  private boolean myModified;
+
+  protected GitRebaseEditor(@NotNull Project project, @NotNull VirtualFile gitRoot, @NotNull List<GitRebaseEntry> entries) {
     super(project, true);
     myProject = project;
     myRoot = gitRoot;
@@ -77,18 +59,12 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
     setOKButtonText(GitBundle.getString("rebase.editor.button"));
 
     myTableModel = new MyTableModel(entries);
+    myTableModel.addTableModelListener(e -> validateFields());
+    myTableModel.addTableModelListener(e -> myModified = true);
+
     myCommitsTable = new JBTable(myTableModel);
     myCommitsTable.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
     myCommitsTable.setIntercellSpacing(JBUI.emptySize());
-
-    final JComboBox editorComboBox = new ComboBox();
-    for (Object option : GitRebaseEntry.Action.values()) {
-      editorComboBox.addItem(option);
-    }
-    TableColumn actionColumn = myCommitsTable.getColumnModel().getColumn(MyTableModel.ACTION_COLUMN);
-    actionColumn.setCellEditor(new DefaultCellEditor(editorComboBox));
-    actionColumn.setCellRenderer(ComboBoxTableCellRenderer.INSTANCE);
-
     myCommitsTable.setDefaultRenderer(String.class, new ColoredTableCellRenderer() {
       @Override
       protected void customizeCellRenderer(JTable table, Object value, boolean selected, boolean hasFocus, int row, int column) {
@@ -98,29 +74,39 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
         }
       }
     });
+    TableColumn actionColumn = myCommitsTable.getColumnModel().getColumn(MyTableModel.ACTION_COLUMN);
+    actionColumn.setCellEditor(new ComboBoxTableRenderer<>(GitRebaseEntry.Action.values()).withClickCount(1));
+    actionColumn.setCellRenderer(new ComboBoxTableRenderer<>(GitRebaseEntry.Action.values()));
 
-    myTableModel.addTableModelListener(new TableModelListener() {
-      public void tableChanged(final TableModelEvent e) {
-        validateFields();
-      }
-    });
+    List<AnAction> actions = generateSelectRebaseActionActions();
+    for (AnAction action : actions) {
+      action.registerCustomShortcutSet(myCommitsTable, null);
+    }
+    PopupHandler.installRowSelectionTablePopup(myCommitsTable,
+                                               new DefaultActionGroup(actions),
+                                               ActionPlaces.EDITOR_POPUP,
+                                               ActionManager.getInstance());
 
     installSpeedSearch();
     myCopyProvider = new MyCopyProvider();
 
-    adjustColumnWidth(0);
-    adjustColumnWidth(1);
+    adjustColumnWidth(MyTableModel.ACTION_COLUMN);
+    adjustColumnWidth(MyTableModel.HASH_COLUMN);
     init();
   }
 
   private void installSpeedSearch() {
-    new TableSpeedSearch(myCommitsTable, new PairFunction<Object, Cell, String>() {
-      @Nullable
-      @Override
-      public String fun(Object o, Cell cell) {
-        return cell.column == 0 ? null : String.valueOf(o);
-      }
-    });
+    new TableSpeedSearch(myCommitsTable, (o, cell) -> cell.column == 0 ? null : String.valueOf(o));
+  }
+
+  @Override
+  public void doCancelAction() {
+    if (myModified) {
+      int ans = Messages.showDialog(getRootPane(), GitBundle.getString("rebase.editor.discard.modifications.message"),
+                                    "Cancel Rebase", new String[]{"Discard", "Continue Rebasing"}, 0, Messages.getQuestionIcon());
+      if (ans != Messages.YES) return;
+    }
+    super.doCancelAction();
   }
 
   @Nullable
@@ -139,18 +125,18 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
   private void validateFields() {
     final List<GitRebaseEntry> entries = myTableModel.myEntries;
     if (entries.size() == 0) {
-      setErrorText(GitBundle.getString("rebase.editor.invalid.entryset"));
+      setErrorText(GitBundle.getString("rebase.editor.invalid.entryset"), myCommitsTable);
       setOKActionEnabled(false);
       return;
     }
     int i = 0;
-    while (i < entries.size() && entries.get(i).getAction() == GitRebaseEntry.Action.skip) {
+    while (i < entries.size() && entries.get(i).getAction() == GitRebaseEntry.Action.SKIP) {
       i++;
     }
     if (i < entries.size()) {
       GitRebaseEntry.Action action = entries.get(i).getAction();
-      if (action == GitRebaseEntry.Action.squash || action == GitRebaseEntry.Action.fixup) {
-        setErrorText(GitBundle.message("rebase.editor.invalid.squash", StringUtil.toLowerCase(action.name())));
+      if (action == GitRebaseEntry.Action.SQUASH || action == GitRebaseEntry.Action.FIXUP) {
+        setErrorText(GitBundle.message("rebase.editor.invalid.squash", StringUtil.toLowerCase(action.name())), myCommitsTable);
         setOKActionEnabled(false);
         return;
       }
@@ -159,6 +145,7 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
     setOKActionEnabled(true);
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return ToolbarDecorator.createDecorator(myCommitsTable)
       .disableAddAction()
@@ -167,6 +154,11 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
       .setMoveUpAction(new MoveUpDownActionListener(MoveDirection.UP))
       .setMoveDownAction(new MoveUpDownActionListener(MoveDirection.DOWN))
       .createPanel();
+  }
+
+  @NotNull
+  private List<AnAction> generateSelectRebaseActionActions() {
+    return ContainerUtil.map(GitRebaseEntry.Action.values(), SetActionAction::new);
   }
 
   @Override
@@ -186,7 +178,7 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.COPY_PROVIDER.is(dataId)) {
       return myCopyProvider;
     }
@@ -207,7 +199,7 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
 
     @Override
     public Class<?> getColumnClass(int columnIndex) {
-      return columnIndex == ACTION_COLUMN ? ListWithSelection.class : String.class;
+      return columnIndex == ACTION_COLUMN ? GitRebaseEntry.Action.class : String.class;
     }
 
     @Override
@@ -224,19 +216,22 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
       }
     }
 
+    @Override
     public int getRowCount() {
       return myEntries.size();
     }
 
+    @Override
     public int getColumnCount() {
       return SUBJECT_COLUMN + 1;
     }
 
+    @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
       GitRebaseEntry e = myEntries.get(rowIndex);
       switch (columnIndex) {
         case ACTION_COLUMN:
-          return new ListWithSelection<>(Arrays.asList(GitRebaseEntry.Action.values()), e.getAction());
+          return e.getAction();
         case HASH_COLUMN:
           return e.getCommit();
         case SUBJECT_COLUMN:
@@ -353,27 +348,27 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
       return myMax == null ? UNSET_VALUE : myMax;
     }
 
-    public void track( int... entries ) {
+    public void track(int... entries) {
       for (int entry : entries) {
-        checkMax( entry );
-        checkMin( entry );
+        checkMax(entry);
+        checkMin(entry);
       }
     }
 
     private void checkMax(int entry) {
-      if ( null == myMax || entry > myMax ) {
+      if (null == myMax || entry > myMax) {
         myMax = entry;
       }
     }
 
     private void checkMin(int entry) {
-      if ( null == myMin || entry < myMin ) {
+      if (null == myMin || entry < myMin) {
         myMin = entry;
       }
     }
 
     public boolean hasValues() {
-      return ( null != myMin && null != myMax);
+      return (null != myMin && null != myMax);
     }
   }
 
@@ -394,12 +389,12 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
 
   private class MyDiffAction extends ToolbarDecorator.ElementActionButton implements DumbAware {
     MyDiffAction() {
-      super("View", "View commit contents", AllIcons.Actions.Diff);
+      super("View", "View commit contents", AllIcons.Actions.ListChanges);
       registerCustomShortcutSet(CommonShortcuts.getDiff(), myCommitsTable);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       int row = myCommitsTable.getSelectedRow();
       assert row >= 0 && row < myTableModel.getRowCount();
       GitRebaseEntry entry = myTableModel.myEntries.get(row);
@@ -412,10 +407,29 @@ public class GitRebaseEditor extends DialogWrapper implements DataProvider {
     }
   }
 
+  private class SetActionAction extends DumbAwareAction {
+    private final GitRebaseEntry.Action myAction;
+
+    SetActionAction(GitRebaseEntry.Action action) {
+      super(action.toString());
+      myAction = action;
+      KeyStroke keyStroke = KeyStroke.getKeyStroke(KeyEvent.getExtendedKeyCodeForChar(action.getMnemonic()), InputEvent.ALT_MASK);
+      setShortcutSet(new CustomShortcutSet(new KeyboardShortcut(keyStroke, null)));
+    }
+
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      int[] selectedRows = myCommitsTable.getSelectedRows();
+      for (int i : selectedRows) {
+        myTableModel.setValueAt(myAction, i, MyTableModel.ACTION_COLUMN);
+      }
+    }
+  }
+
   private class MoveUpDownActionListener implements AnActionButtonRunnable {
     private final MoveDirection direction;
 
-    public MoveUpDownActionListener(@NotNull MoveDirection direction) {
+    MoveUpDownActionListener(@NotNull MoveDirection direction) {
       this.direction = direction;
     }
 

@@ -25,6 +25,7 @@ import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.CommonActionsPanel;
 import com.intellij.ui.RowIcon;
 import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,9 +35,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
-/**
- * User: Vassiliy.Kudryashov
- */
 public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider<Bookmark> implements BookmarksListener {
   private final BookmarkManager myBookmarkManager;
   private final FavoritesManager myFavoritesManager;
@@ -69,11 +67,6 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
     updateChildren();
   }
 
-  @Override
-  public String getListName(Project project) {
-    return "Bookmarks";
-  }
-
   private void updateChildren() {
     if (myProject.isDisposed()) return;
     myChildren.clear();
@@ -102,7 +95,7 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
         }
 
         @Override
-        protected void update(PresentationData presentation) {
+        protected void update(@NotNull PresentationData presentation) {
           presentation.setPresentableText(bookmark.toString());
           presentation.setIcon(bookmark.getIcon());
         }
@@ -151,27 +144,25 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
   public void handle(@NotNull CommonActionsPanel.Buttons type, Project project, @NotNull Set<Object> selectedObjects, JComponent component) {
     switch (type) {
       case EDIT:
-
         if (selectedObjects.size() != 1) {
-          return;
+          break;
         }
         Object toEdit = selectedObjects.iterator().next();
         if (toEdit instanceof AbstractTreeNode && ((AbstractTreeNode)toEdit).getValue() instanceof Bookmark) {
           Bookmark bookmark = (Bookmark)((AbstractTreeNode)toEdit).getValue();
           if (bookmark == null) {
-            return;
+            break;
           }
-          BookmarkManager.getInstance(project).editDescription(bookmark);
+          BookmarkManager.getInstance(project).editDescription(bookmark, component);
         }
-        return;
+        break;
       case REMOVE:
         for (Object toRemove : selectedObjects) {
           Bookmark bookmark = (Bookmark)((AbstractTreeNode)toRemove).getValue();
           BookmarkManager.getInstance(project).removeBookmark(bookmark);
         }
-        return;
-      default: {
-      }
+        break;
+      default:
     }
   }
 
@@ -197,7 +188,7 @@ public class BookmarksFavoriteListProvider extends AbstractFavoritesListProvider
       if (renderer.getIcon() != null) {
         RowIcon icon = new RowIcon(3, RowIcon.Alignment.CENTER);
         icon.setIcon(bookmark.getIcon(), 0);
-        icon.setIcon(EmptyIcon.create(1), 1);
+        icon.setIcon(JBUI.scale(EmptyIcon.create(1)), 1);
         icon.setIcon(renderer.getIcon(), 2);
         renderer.setIcon(icon);
       }

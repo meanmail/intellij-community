@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.ant.config.execution;
 
-import com.intellij.execution.ExecutionException;
 import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
@@ -25,13 +10,10 @@ import com.intellij.lang.ant.config.AntConfiguration;
 import com.intellij.lang.ant.config.impl.BuildFileProperty;
 import com.intellij.lang.ant.config.impl.GlobalAntConfiguration;
 import com.intellij.lang.ant.config.impl.TargetChooserDialog;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.LabeledComponent;
 import com.intellij.openapi.ui.TextFieldWithBrowseButton;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizable;
 import com.intellij.openapi.util.WriteExternalException;
@@ -52,11 +34,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class AntRunConfiguration extends LocatableConfigurationBase implements RunProfileWithCompileBeforeLaunchOption{
+public final class AntRunConfiguration extends LocatableConfigurationBase implements RunProfileWithCompileBeforeLaunchOption{
   private AntSettings mySettings = new AntSettings();
 
-  public AntRunConfiguration(Project project, ConfigurationFactory factory, String name) {
-    super(project, factory, name);
+  public AntRunConfiguration(@NotNull Project project, @NotNull ConfigurationFactory factory) {
+    super(project, factory);
   }
 
   @Override
@@ -64,12 +46,6 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
     final AntRunConfiguration configuration = (AntRunConfiguration)super.clone();
     configuration.mySettings = mySettings.copy();
     return configuration;
-  }
-
-  @NotNull
-  @Override
-  public Module[] getModules() {
-    return Module.EMPTY_ARRAY;
   }
 
   @NotNull
@@ -90,24 +66,23 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
   @Override
   public String suggestedName() {
     AntBuildTarget target = getTarget();
-    return target != null ? target.getDisplayName() : "";
+    return target == null ? null : target.getDisplayName();
   }
 
-
-  @Nullable
+  @NotNull
   @Override
-  public RunProfileState getState(@NotNull Executor executor, @NotNull ExecutionEnvironment env) throws ExecutionException {
+  public RunProfileState getState(@NotNull Executor executor, @NotNull ExecutionEnvironment env) {
     return new AntRunProfileState(env);
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
     mySettings.readExternal(element);
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
     mySettings.writeExternal(element);
   }
@@ -121,7 +96,8 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
   public List<BuildFileProperty> getProperties() {
     return Collections.unmodifiableList(mySettings.myProperties);
   }
-  
+
+  @SuppressWarnings("UnusedReturnValue")
   public boolean acceptSettings(AntBuildTarget target) {
     VirtualFile virtualFile = target.getModel().getBuildFile().getVirtualFile();
     if (virtualFile == null) {
@@ -194,11 +170,11 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
   private class AntConfigurationSettingsEditor extends SettingsEditor<RunConfiguration> {
     private String myFileUrl = null;
     private String myTargetName = null;
-    
+
     private final JTextField myTextField = new JTextField();
     private final PropertiesTable myPropTable = new PropertiesTable();
-    
-    private ActionListener myActionListener = new ActionListener() {
+
+    private final ActionListener myActionListener = new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
         AntBuildTarget buildTarget = getTarget();
@@ -229,7 +205,7 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
     }
 
     @Override
-    protected void resetEditorFrom(RunConfiguration s) {
+    protected void resetEditorFrom(@NotNull RunConfiguration s) {
       final AntRunConfiguration config = (AntRunConfiguration)s;
       myFileUrl = config.mySettings.myFileUrl;
       myTargetName = config.mySettings.myTargetName;
@@ -238,7 +214,7 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
     }
 
     @Override
-    protected void applyEditorTo(RunConfiguration s) throws ConfigurationException {
+    protected void applyEditorTo(@NotNull RunConfiguration s) {
       final AntRunConfiguration config = (AntRunConfiguration)s;
       config.mySettings.myFileUrl = myFileUrl;
       config.mySettings.myTargetName = myTargetName;
@@ -251,14 +227,14 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
       myTextField.setEditable(false);
       final JPanel panel = new JPanel(new BorderLayout());
       panel.add(LabeledComponent.create(new TextFieldWithBrowseButton(myTextField, myActionListener), "Target name", BorderLayout.WEST), BorderLayout.NORTH);
-      
+
       final LabeledComponent<JComponent> tableComponent = LabeledComponent.create(myPropTable.getComponent(), "Ant Properties");
       tableComponent.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
       panel.add(tableComponent, BorderLayout.CENTER);
       return panel;
     }
   }
-  
+
   private static class PropertiesTable extends ListTableWithButtons<BuildFileProperty> {
     @Override
     protected ListTableModel createListModel() {
@@ -315,7 +291,7 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
     }
 
     private abstract static class TableColumn extends ElementsColumnInfoBase<BuildFileProperty> {
-      public TableColumn(final String name) {
+      TableColumn(final String name) {
         super(name);
       }
 
@@ -331,8 +307,8 @@ public class AntRunConfiguration extends LocatableConfigurationBase implements R
       }
     }
   }
-  
-  private static void copyProperties(final Iterable<BuildFileProperty> from, final List<BuildFileProperty> to) {
+
+  private static void copyProperties(final Iterable<BuildFileProperty> from, final List<? super BuildFileProperty> to) {
     to.clear();
     for (BuildFileProperty p : from) {
       to.add(p.clone());

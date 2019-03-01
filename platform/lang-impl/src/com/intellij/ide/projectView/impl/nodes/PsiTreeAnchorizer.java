@@ -17,9 +17,8 @@ package com.intellij.ide.projectView.impl.nodes;
 
 import com.intellij.ide.util.treeView.TreeAnchorizer;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.SmartPointerManager;
 import com.intellij.psi.SmartPsiElementPointer;
@@ -30,43 +29,23 @@ import org.jetbrains.annotations.Nullable;
  * @author peter
  */
 public class PsiTreeAnchorizer extends TreeAnchorizer {
-  private static final Key<SmartPointerWrapper> PSI_ANCHORIZER_POINTER = Key.create("PSI_ANCHORIZER_POINTER");
-
+  @NotNull
   @Override
-  public Object createAnchor(Object element) {
+  public Object createAnchor(@NotNull Object element) {
     if (element instanceof PsiElement) {
-      final PsiElement psiElement = (PsiElement)element;
-
-      return ApplicationManager.getApplication().runReadAction(new Computable<Object>() {
-        @Override
-        public Object compute() {
-          SmartPointerWrapper pointer = psiElement.getUserData(PSI_ANCHORIZER_POINTER);
-          if (!psiElement.isValid()) {
-            return pointer != null ? pointer : psiElement;
-          }
-
-          if (pointer == null || pointer.myPointer.getElement() != psiElement) {
-            Project project = psiElement.getProject();
-            SmartPsiElementPointer<PsiElement> psiElementPointer = SmartPointerManager.getInstance(project).createSmartPsiElementPointer(psiElement);
-            pointer = new SmartPointerWrapper(psiElementPointer);
-            psiElement.putUserData(PSI_ANCHORIZER_POINTER, pointer);
-          }
-          return pointer;
-        }
+      PsiElement psi = (PsiElement)element;
+      return ReadAction.compute(() -> {
+        if (!psi.isValid()) return psi;
+        return SmartPointerManager.getInstance(psi.getProject()).createSmartPsiElementPointer(psi);
       });
     }
     return super.createAnchor(element);
   }
   @Override
   @Nullable
-  public Object retrieveElement(final Object pointer) {
-    if (pointer instanceof SmartPointerWrapper) {
-      return ApplicationManager.getApplication().runReadAction(new Computable<Object>() {
-        @Override
-        public Object compute() {
-          return ((SmartPointerWrapper)pointer).myPointer.getElement();
-        }
-      });
+  public Object retrieveElement(@NotNull final Object pointer) {
+    if (pointer instanceof SmartPsiElementPointer) {
+      return ReadAction.compute(() -> ((SmartPsiElementPointer)pointer).getElement());
     }
 
     return super.retrieveElement(pointer);
@@ -74,39 +53,14 @@ public class PsiTreeAnchorizer extends TreeAnchorizer {
 
   @Override
   public void freeAnchor(final Object element) {
-    if (element instanceof SmartPointerWrapper) {
+    if (element instanceof SmartPsiElementPointer) {
       ApplicationManager.getApplication().runReadAction(() -> {
-        SmartPsiElementPointer pointer = ((SmartPointerWrapper)element).myPointer;
+        SmartPsiElementPointer pointer = (SmartPsiElementPointer)element;
         Project project = pointer.getProject();
         if (!project.isDisposed()) {
           SmartPointerManager.getInstance(project).removePointer(pointer);
         }
       });
-    }
-  }
-
-  private static class SmartPointerWrapper {
-    private final SmartPsiElementPointer myPointer;
-
-    private SmartPointerWrapper(@NotNull SmartPsiElementPointer pointer) {
-      myPointer = pointer;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-      if (this == o) return true;
-      if (!(o instanceof SmartPointerWrapper)) return false;
-
-      SmartPointerWrapper wrapper = (SmartPointerWrapper)o;
-
-      if (!myPointer.equals(wrapper.myPointer)) return false;
-
-      return true;
-    }
-
-    @Override
-    public int hashCode() {
-      return myPointer.hashCode();
     }
   }
 }

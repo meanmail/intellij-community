@@ -20,6 +20,7 @@ import com.intellij.openapi.project.Project;
 import org.intellij.plugins.xpathView.util.Namespace;
 import org.intellij.plugins.xpathView.util.Variable;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -50,12 +51,12 @@ public class XPathProjectComponent implements PersistentStateComponent<Element> 
 
 //    private Set<Namespace> namespaces = new HashSet();
 
-  public void loadState(Element state) {
+  @Override
+  public void loadState(@NotNull Element state) {
     readHistory(state, HISTORY, history);
     readHistory(state, FIND_HISTORY, findHistory);
   }
 
-    @SuppressWarnings({"unchecked"})
     private static void readHistory(Element element, String s, LinkedHashMap<String, HistoryElement> hst) {
         final Element historyElement = element.getChild(s);
         if (historyElement != null) {
@@ -80,6 +81,7 @@ public class XPathProjectComponent implements PersistentStateComponent<Element> 
         }
     }
 
+  @Override
   public Element getState() {
     Element element = new Element("xpathview");
     writeHistory(element, HISTORY, history);
@@ -117,31 +119,27 @@ public class XPathProjectComponent implements PersistentStateComponent<Element> 
      * Add a string to the history list
      */
     public void addHistory(HistoryElement element) {
-        final String expression = element.expression;
-        if (history.containsKey(expression)) {
-            history.remove(expression);
-        }
-        history.put(expression, element);
+      String expression = element.expression;
+      history.remove(expression);
+      history.put(expression, element);
     }
 
-    public void addFindHistory(HistoryElement element) {
-        final String expression = element.expression;
-        if (findHistory.containsKey(expression)) {
-            findHistory.remove(expression);
-        }
-        findHistory.put(expression, element);
-    }
+  public void addFindHistory(HistoryElement element) {
+    String expression = element.expression;
+    findHistory.remove(expression);
+    findHistory.put(expression, element);
+  }
 
     /**
      * Returns the history
      * @return the history as an array of strings
      */
     public HistoryElement[] getHistory() {
-        return history.values().toArray(new HistoryElement[history.values().size()]);
+        return history.values().toArray(new HistoryElement[0]);
     }
 
     public HistoryElement[] getFindHistory() {
-        return findHistory.values().toArray(new HistoryElement[findHistory.values().size()]);
+        return findHistory.values().toArray(new HistoryElement[0]);
     }
 
     public static XPathProjectComponent getInstance(Project project) {

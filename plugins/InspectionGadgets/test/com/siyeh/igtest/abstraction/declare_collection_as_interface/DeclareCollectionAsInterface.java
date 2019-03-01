@@ -52,7 +52,7 @@ public class DeclareCollectionAsInterface
       <warning descr="Declaration of 'ArrayList' should probably be weakened to 'java.util.List'">ArrayList</warning> list22 = new ArrayList();
       System.out.println(list22.get(0));
 
-      <warning descr="Declaration of 'ArrayList' should probably be weakened to 'java.util.List'">ArrayList</warning><String> list33 = new ArrayList();
+      ArrayList<String> list33 = new ArrayList();
       System.out.println(list33.get(0));
     }
 
@@ -78,5 +78,13 @@ public class DeclareCollectionAsInterface
     } else {
       this.properties = (Properties) properties.clone();
     }
+  }
+}
+
+class Labeling<T> {
+  private Map<T, HashSet<Integer>> myLabels;
+
+  void addLabel(T node, HashSet<Integer> label){ // no warning on 'HashSet'
+    myLabels.put<error descr="'put(T, java.util.HashSet<java.lang.Integer>)' in 'java.util.Map' cannot be applied to '(java.util.HashSet<java.lang.Integer>, T)'">(label, node)</error>;
   }
 }

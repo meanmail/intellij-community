@@ -33,12 +33,12 @@ public class ColoredRemoteProcessHandler<T extends RemoteProcess> extends BaseRe
   }
 
   @Override
-  public final void notifyTextAvailable(String text, Key outputType) {
+  public final void notifyTextAvailable(@NotNull String text, @NotNull Key outputType) {
     myAnsiEscapeDecoder.escapeText(text, outputType, this);
   }
 
   @Override
-  public void coloredTextAvailable(String text, Key attributes) {
+  public void coloredTextAvailable(@NotNull String text, @NotNull Key attributes) {
     super.notifyTextAvailable(text, attributes);
   }
 }

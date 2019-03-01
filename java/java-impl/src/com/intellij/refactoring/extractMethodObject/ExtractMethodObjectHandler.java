@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 06-May-2008
- */
 package com.intellij.refactoring.extractMethodObject;
 
 import com.intellij.lang.ContextAwareActionHandler;
@@ -30,8 +26,9 @@ import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pass;
-import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.PostprocessReformattingAspect;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
@@ -44,10 +41,12 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 public class ExtractMethodObjectHandler implements RefactoringActionHandler, ContextAwareActionHandler {
-  private static final Logger LOG = Logger.getInstance("#" + ExtractMethodObjectHandler.class.getName());
+  private static final Logger LOG = Logger.getInstance(ExtractMethodObjectHandler.class);
 
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file, final DataContext dataContext) {
     ExtractMethodHandler.selectAndPass(project, editor, file, new Pass<PsiElement[]>() {
+      @Override
       public void pass(final PsiElement[] selectedValue) {
         invokeOnElements(project, editor, file, selectedValue);
       }
@@ -85,49 +84,25 @@ public class ExtractMethodObjectHandler implements RefactoringActionHandler, Con
     if (!extractProcessor.prepare()) return;
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, extractProcessor.getTargetClass().getContainingFile())) return;
     if (extractProcessor.showDialog()) {
-      run(project, editor, processor, extractProcessor);
+      extractMethodObject(project, editor, processor, extractProcessor);
     }
   }
 
-  public static void run(@NotNull final Project project,
-                           final Editor editor,
-                  @NotNull final ExtractMethodObjectProcessor processor,
-                  @NotNull final ExtractMethodObjectProcessor.MyExtractMethodProcessor extractProcessor) {
+  public static void extractMethodObject(@NotNull final Project project,
+                                         final Editor editor,
+                                         @NotNull final ExtractMethodObjectProcessor processor,
+                                         @NotNull final ExtractMethodObjectProcessor.MyExtractMethodProcessor extractProcessor) {
     final RangeMarker marker;
     if (editor != null) {
       final int offset = editor.getCaretModel().getOffset();
-      marker = editor.getDocument().createRangeMarker(new TextRange(offset, offset));
+      marker = editor.getDocument().createRangeMarker(offset, offset);
     } else {
       marker = null;
     }
     CommandProcessor.getInstance().executeCommand(project,
-                                                  () -> PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(() -> {
-                                                    try {
-                                                      ApplicationManager.getApplication().runWriteAction(() -> extractProcessor.doRefactoring());
-                                                      processor.run();
-                                                      ApplicationManager.getApplication().runWriteAction(() -> processor.runChangeSignature());
-                                                    }
-                                                    catch (IncorrectOperationException e) {
-                                                      LOG.error(e);
-                                                    }
-
-                                                    PsiDocumentManager.getInstance(project).commitAllDocuments();
-                                                    if (processor.isCreateInnerClass()) {
-                                                      ApplicationManager.getApplication().runWriteAction(() -> processor.moveUsedMethodsToInner());
-                                                      PsiDocumentManager.getInstance(project).commitAllDocuments();
-                                                      if (editor != null) {
-                                                        DuplicatesImpl.processDuplicates(extractProcessor, project, editor);
-                                                      }
-                                                    }
-                                                    ApplicationManager.getApplication().runWriteAction(() -> {
-                                                      if (processor.isCreateInnerClass()) {
-                                                        processor.changeInstanceAccess(project);
-                                                      }
-                                                      final PsiElement method = processor.getMethod();
-                                                      LOG.assertTrue(method != null);
-                                                      method.delete();
-                                                    });
-                                                  }), ExtractMethodObjectProcessor.REFACTORING_NAME, ExtractMethodObjectProcessor.REFACTORING_NAME);
+                                                  () -> doRefactoring(project, editor, processor, extractProcessor),
+                                                  ExtractMethodObjectProcessor.REFACTORING_NAME,
+                                                  ExtractMethodObjectProcessor.REFACTORING_NAME);
     if (editor != null) {
       editor.getCaretModel().moveToOffset(marker.getStartOffset());
       marker.dispose();
@@ -135,6 +110,40 @@ public class ExtractMethodObjectHandler implements RefactoringActionHandler, Con
     }
   }
 
+  private static void doRefactoring(@NotNull Project project,
+                                    Editor editor,
+                                    @NotNull ExtractMethodObjectProcessor processor,
+                                    @NotNull ExtractMethodObjectProcessor.MyExtractMethodProcessor extractProcessor) {
+    PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(() -> {
+      try {
+        ApplicationManager.getApplication().runWriteAction(() -> extractProcessor.doRefactoring());
+        processor.run();
+        ApplicationManager.getApplication().runWriteAction(() -> processor.runChangeSignature());
+      }
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+
+      PsiDocumentManager.getInstance(project).commitAllDocuments();
+      if (processor.isCreateInnerClass()) {
+        processor.moveUsedMethodsToInner();
+        PsiDocumentManager.getInstance(project).commitAllDocuments();
+        if (editor != null) {
+          DuplicatesImpl.processDuplicates(extractProcessor, project, editor);
+        }
+      }
+      ApplicationManager.getApplication().runWriteAction(() -> {
+        if (processor.isCreateInnerClass()) {
+          processor.changeInstanceAccess(project);
+        }
+        final PsiElement method = processor.getMethod();
+        LOG.assertTrue(method != null);
+        method.delete();
+      });
+    });
+  }
+
+  @Override
   public void invoke(@NotNull final Project project, @NotNull final PsiElement[] elements, final DataContext dataContext) {
     throw new UnsupportedOperationException();
   }

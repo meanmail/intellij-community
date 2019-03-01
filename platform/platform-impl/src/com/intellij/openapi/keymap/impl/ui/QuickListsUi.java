@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.openapi.actionSystem.ex.QuickList;
@@ -22,7 +8,6 @@ import com.intellij.openapi.options.ConfigurableUi;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.ui.DocumentAdapter;
-import com.intellij.util.PairProcessor;
 import com.intellij.util.ui.ListItemEditor;
 import com.intellij.util.ui.ListModelEditor;
 import org.jetbrains.annotations.NotNull;
@@ -71,11 +56,11 @@ class QuickListsUi implements ConfigurableUi<List<QuickList>> {
 
   private final ListModelEditor<QuickList> editor = new ListModelEditor<>(itemEditor);
 
-  private JComponent component;
+  private final JComponent component;
   private final QuickListPanel itemPanel;
   private final JPanel itemPanelWrapper;
 
-  public QuickListsUi() {
+  QuickListsUi() {
     keymapListener = ApplicationManager.getApplication().getMessageBus().syncPublisher(KeymapListener.CHANGE_TOPIC);
 
     final CardLayout cardLayout = new CardLayout();
@@ -100,7 +85,7 @@ class QuickListsUi implements ConfigurableUi<List<QuickList>> {
     itemPanel = new QuickListPanel(editor.getModel());
     itemPanel.myName.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         QuickList item = itemPanel.item;
         if (item != null) {
           String name = itemPanel.myName.getText();
@@ -154,7 +139,7 @@ class QuickListsUi implements ConfigurableUi<List<QuickList>> {
 
     if (isModified(settings)) {
       java.util.List<QuickList> result = editor.apply();
-      keymapListener.processCurrentKeymapChanged(result.toArray(new QuickList[result.size()]));
+      keymapListener.processCurrentKeymapChanged(result.toArray(new QuickList[0]));
       QuickListsManager.getInstance().setQuickLists(result);
     }
   }

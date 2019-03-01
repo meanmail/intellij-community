@@ -30,8 +30,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author irengrig
- *         Date: 3/16/11
- *         Time: 2:41 PM
  */
 public class ShowAllAffectedGenericAction extends AnAction implements DumbAware {
 
@@ -46,7 +44,7 @@ public class ShowAllAffectedGenericAction extends AnAction implements DumbAware 
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) return;
     final VcsKey vcsKey = e.getData(VcsDataKeys.VCS);
@@ -77,7 +75,7 @@ public class ShowAllAffectedGenericAction extends AnAction implements DumbAware 
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final VcsKey vcsKey = e.getData(VcsDataKeys.VCS);
     if (project == null || vcsKey == null) {

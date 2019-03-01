@@ -18,6 +18,8 @@ package git4idea.push;
 import com.intellij.dvcs.push.PushSpec;
 import com.intellij.dvcs.push.Pusher;
 import com.intellij.dvcs.push.VcsPushOptionValue;
+import com.intellij.notification.NotificationType;
+import com.intellij.notification.NotificationsManager;
 import com.intellij.openapi.project.Project;
 import git4idea.GitUtil;
 import git4idea.config.GitVcsSettings;
@@ -45,23 +47,30 @@ class GitPusher extends Pusher<GitRepository, GitPushSource, GitPushTarget> {
   @Override
   public void push(@NotNull Map<GitRepository, PushSpec<GitPushSource, GitPushTarget>> pushSpecs,
                    @Nullable VcsPushOptionValue optionValue, boolean force) {
-    GitPushTagMode pushTagMode = (GitPushTagMode)optionValue;
-    GitPushResult result = new GitPushOperation(myProject, myPushSupport, pushSpecs, pushTagMode, force).execute();
+    expireExistingErrorsAndWarnings();
+    GitPushTagMode pushTagMode;
+    boolean skipHook;
+    if (optionValue instanceof GitVcsPushOptionValue) {
+      pushTagMode = ((GitVcsPushOptionValue)optionValue).getPushTagMode();
+      skipHook = ((GitVcsPushOptionValue)optionValue).isSkipHook();
+    }
+    else {
+      pushTagMode = null;
+      skipHook = false;
+    }
+
+    GitPushResult result = new GitPushOperation(myProject, myPushSupport, pushSpecs, pushTagMode, force, skipHook).execute();
     GitPushResultNotification notification = GitPushResultNotification.create(myProject, result, myRepositoryManager.moreThanOneRoot());
     notification.notify(myProject);
     mySettings.setPushTagMode(pushTagMode);
-    rememberTargets(pushSpecs);
   }
 
-  private void rememberTargets(@NotNull Map<GitRepository, PushSpec<GitPushSource, GitPushTarget>> pushSpecs) {
-    for (Map.Entry<GitRepository, PushSpec<GitPushSource, GitPushTarget>> entry : pushSpecs.entrySet()) {
-      GitRepository repository = entry.getKey();
-      GitPushSource source = entry.getValue().getSource();
-      GitPushTarget target = entry.getValue().getTarget();
-      GitPushTarget defaultTarget = myPushSupport.getDefaultTarget(repository);
-      if (defaultTarget == null || !target.getBranch().equals(defaultTarget.getBranch())) {
-        mySettings.setPushTarget(repository, source.getBranch().getName(),
-                                 target.getBranch().getRemote().getName(), target.getBranch().getNameForRemoteOperations());
+  protected void expireExistingErrorsAndWarnings() {
+    GitPushResultNotification[] existingNotifications =
+      NotificationsManager.getNotificationsManager().getNotificationsOfType(GitPushResultNotification.class, myProject);
+    for (GitPushResultNotification notification : existingNotifications) {
+      if (notification.getType() != NotificationType.INFORMATION) {
+        notification.expire();
       }
     }
   }

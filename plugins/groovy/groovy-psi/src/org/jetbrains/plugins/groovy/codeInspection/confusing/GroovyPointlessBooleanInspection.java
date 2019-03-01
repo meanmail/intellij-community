@@ -40,24 +40,9 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.utils.ParenthesesUtils;
 import java.util.HashSet;
 import java.util.Set;
 
+import static org.jetbrains.plugins.groovy.lang.psi.util.GroovyExpressionUtil.isFake;
+
 public class GroovyPointlessBooleanInspection extends BaseInspection {
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return GroovyInspectionBundle.message("pointless.boolean.display.name");
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
 
   @NotNull
   @Override
@@ -172,7 +157,7 @@ public class GroovyPointlessBooleanInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return GroovyInspectionBundle.message("pointless.boolean.quickfix");
     }
 
@@ -213,6 +198,7 @@ public class GroovyPointlessBooleanInspection extends BaseInspection {
     @Override
     public void visitBinaryExpression(@NotNull GrBinaryExpression expression) {
       super.visitBinaryExpression(expression);
+      if (isFake(expression)) return;
       final GrExpression rhs = expression.getRightOperand();
       if (rhs == null) {
         return;

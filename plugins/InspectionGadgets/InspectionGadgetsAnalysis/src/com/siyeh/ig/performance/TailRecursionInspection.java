@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,18 +18,24 @@ package com.siyeh.ig.performance;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.SmartList;
+import com.intellij.util.graph.*;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
+import com.siyeh.ig.psiutils.MethodUtils;
+import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.*;
 
 public class TailRecursionInspection extends BaseInspection {
 
@@ -42,8 +48,7 @@ public class TailRecursionInspection extends BaseInspection {
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "tail.recursion.problem.descriptor");
+    return InspectionGadgetsBundle.message("tail.recursion.problem.descriptor");
   }
 
   @Override
@@ -57,8 +62,10 @@ public class TailRecursionInspection extends BaseInspection {
   }
 
   private static boolean mayBeReplacedByIterativeMethod(PsiMethod containingMethod) {
-    final PsiParameterList parameterList = containingMethod.getParameterList();
-    final PsiParameter[] parameters = parameterList.getParameters();
+    if (containingMethod.isVarArgs()) {
+      return false;
+    }
+    final PsiParameter[] parameters = containingMethod.getParameterList().getParameters();
     for (final PsiParameter parameter : parameters) {
       if (parameter.hasModifierProperty(PsiModifier.FINAL)) {
         return false;
@@ -71,22 +78,15 @@ public class TailRecursionInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "tail.recursion.replace.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("tail.recursion.replace.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement tailCallToken = descriptor.getPsiElement();
-      final PsiMethod method = PsiTreeUtil.getParentOfType(tailCallToken, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      final PsiMethod method =
+        PsiTreeUtil.getParentOfType(tailCallToken, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
       if (method == null) {
         return;
       }
@@ -105,16 +105,12 @@ public class TailRecursionInspection extends BaseInspection {
       if (methodReturnsContainingClassType(method, containingClass)) {
         builder.append(containingClass.getName());
         thisVariableName = styleManager.suggestUniqueVariableName("result", method, false);
-        builder.append(' ');
-        builder.append(thisVariableName);
-        builder.append(" = this;");
+        builder.append(' ').append(thisVariableName).append(" = this;");
       }
       else if (methodContainsCallOnOtherInstance(method)) {
         builder.append(containingClass.getName());
         thisVariableName = styleManager.suggestUniqueVariableName("other", method, false);
-        builder.append(' ');
-        builder.append(thisVariableName);
-        builder.append(" = this;");
+        builder.append(' ').append(thisVariableName).append(" = this;");
       }
       else {
         thisVariableName = null;
@@ -122,37 +118,58 @@ public class TailRecursionInspection extends BaseInspection {
       final boolean tailCallIsContainedInLoop;
       if (ControlFlowUtils.isInLoop(tailCallToken)) {
         tailCallIsContainedInLoop = true;
-        builder.append(method.getName());
-        builder.append(':');
+        builder.append(method.getName()).append(':');
       }
       else {
         tailCallIsContainedInLoop = false;
       }
       builder.append("while(true)");
-      final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
       replaceTailCalls(body, method, thisVariableName, tailCallIsContainedInLoop, builder);
       builder.append('}');
-      @NonNls final String replacementText = builder.toString();
-      final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
-      final PsiElementFactory elementFactory = psiFacade.getElementFactory();
-      final PsiCodeBlock block = elementFactory.createCodeBlockFromText(replacementText, method);
+      final PsiCodeBlock block = JavaPsiFacade.getElementFactory(project).createCodeBlockFromText(builder.toString(), method);
+      removeEmptyElse(block);
       body.replace(block);
-      codeStyleManager.reformat(method);
+    }
+
+    private static void removeEmptyElse(PsiElement element) {
+      final List<PsiStatement> emptyElseBranches = new SmartList<>();
+      element.accept(new JavaRecursiveElementWalkingVisitor() {
+        @Override
+        public void visitIfStatement(PsiIfStatement statement) {
+          super.visitIfStatement(statement);
+          final PsiStatement elseBranch = statement.getElseBranch();
+          if (ControlFlowUtils.isEmpty(elseBranch, false, true)) {
+            emptyElseBranches.add(elseBranch);
+          }
+        }
+      });
+      for (PsiStatement statement : emptyElseBranches) {
+        final List<PsiComment> comments = new ArrayList<>(PsiTreeUtil.collectElementsOfType(statement, PsiComment.class));
+        final PsiParserFacade parserFacade = PsiParserFacade.SERVICE.getInstance(statement.getProject());
+        for (int i = comments.size() - 1; i >= 0; i--) {
+          final PsiElement parent = statement.getParent();
+          final PsiComment comment = comments.get(i);
+          parent.addAfter(comment, statement);
+          // newline followed by space convinces formatter to indent line
+          parent.addAfter(parserFacade.createWhiteSpaceFromText(isAtStartOfLine(comment) ? "\n" : "\n "), statement);
+        }
+        statement.delete();
+      }
+    }
+
+    private static boolean isAtStartOfLine(PsiElement element) {
+      final PsiElement prev = element.getPrevSibling();
+      if (!(prev instanceof PsiWhiteSpace)) {
+        return false;
+      }
+      return prev.getText().endsWith("\n");
     }
 
     private static boolean methodReturnsContainingClassType(PsiMethod method, PsiClass containingClass) {
-      if (containingClass == null) {
+      if (containingClass == null || method.hasModifierProperty(PsiModifier.STATIC)) {
         return false;
       }
-      if (method.hasModifierProperty(PsiModifier.STATIC)) {
-        return false;
-      }
-      final PsiType returnType = method.getReturnType();
-      if (!(returnType instanceof PsiClassType)) {
-        return false;
-      }
-      final PsiClassType classType = (PsiClassType)returnType;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(method.getReturnType());
       return containingClass.equals(aClass);
     }
 
@@ -175,7 +192,7 @@ public class TailRecursionInspection extends BaseInspection {
       private boolean containsCallOnOtherInstance;
       private final PsiClass aClass;
 
-      private MethodContainsCallOnOtherInstanceVisitor(PsiClass aClass) {
+      MethodContainsCallOnOtherInstanceVisitor(PsiClass aClass) {
         this.aClass = aClass;
       }
 
@@ -187,7 +204,7 @@ public class TailRecursionInspection extends BaseInspection {
         super.visitMethodCallExpression(expression);
         final PsiReferenceExpression methodExpression = expression.getMethodExpression();
         final PsiExpression qualifier = methodExpression.getQualifierExpression();
-        if (qualifier == null) {
+        if (qualifier == null || qualifier instanceof PsiThisExpression) {
           return;
         }
         final PsiMethod method = expression.resolveMethod();
@@ -200,64 +217,99 @@ public class TailRecursionInspection extends BaseInspection {
         }
       }
 
-      private boolean containsCallOnOtherInstance() {
+      boolean containsCallOnOtherInstance() {
         return containsCallOnOtherInstance;
       }
     }
 
-    private static void replaceTailCalls(PsiElement element, PsiMethod method, @Nullable String thisVariableName, 
-                                         boolean tailCallIsContainedInLoop, @NonNls StringBuilder out) {
-      final String text = element.getText();
+    private static void replaceTailCalls(PsiElement element,
+                                         PsiMethod method,
+                                         @Nullable String thisVariableName,
+                                         boolean tailCallIsContainedInLoop,
+                                         @NonNls StringBuilder out) {
       if (isImplicitCallOnThis(element, method)) {
         if (thisVariableName != null) {
-          out.append(thisVariableName);
-          out.append('.');
+          out.append(thisVariableName).append('.');
         }
-        out.append(text);
+        out.append(element.getText());
       }
-      else if (element instanceof PsiThisExpression ||
-               element instanceof PsiSuperExpression) {
-        if (thisVariableName == null) {
-          out.append(text);
-        }
-        else {
-          out.append(thisVariableName);
-        }
+      else if (element instanceof PsiThisExpression || element instanceof PsiSuperExpression) {
+        out.append(thisVariableName == null ? element.getText() : thisVariableName);
       }
       else if (isTailCallReturn(element, method)) {
         final PsiReturnStatement returnStatement = (PsiReturnStatement)element;
-        final PsiMethodCallExpression call = (PsiMethodCallExpression)returnStatement.getReturnValue();
+        final PsiMethodCallExpression call = (PsiMethodCallExpression)ParenthesesUtils.stripParentheses(returnStatement.getReturnValue());
         assert call != null;
-        final PsiExpressionList argumentList = call.getArgumentList();
-        final PsiExpression[] arguments = argumentList.getExpressions();
-        final PsiParameterList parameterList = method.getParameterList();
-        final PsiParameter[] parameters = parameterList.getParameters();
+        final PsiExpression[] arguments = call.getArgumentList().getExpressions();
+        final PsiParameter[] parameters = method.getParameterList().getParameters();
         final boolean isInBlock = returnStatement.getParent() instanceof PsiCodeBlock;
         if (!isInBlock) {
           out.append('{');
         }
-        for (int i = 0; i < parameters.length; i++) {
-          final PsiParameter parameter = parameters[i];
-          final PsiExpression argument = arguments[i];
+        else {
+          // remove tabs and spaces at the end
+          int index = out.length() - 1;
+          char c = out.charAt(index);
+          while (c == ' ' || c == '\t') c = out.charAt(--index);
+          out.delete(index + 1, out.length());
+        }
+        for (PsiComment comment : PsiTreeUtil.findChildrenOfType(element, PsiComment.class)) {
+          if (!isAtStartOfLine(comment)) out.append(' ');
+          out.append(comment.getText()).append('\n');
+        }
+        final Graph<Integer> graph = buildGraph(parameters, arguments);
+        // When replacing recursion with iteration, new values are assigned to the parameters,
+        // instead of calling the method with the new values. Care needs to be taken to not clobber
+        // the value of a parameter which is used later (in some expression assigned to a different
+        // parameter). To achieve this a simple graph of the dependencies between the parameters is
+        // built and analysed/ordered. If the graph is a directed acyclic graph, the assignments
+        // are ordered in such a way that making a defensive copy is unnecessary (topological
+        // ordering). If the graph has a cycle, a copy of the value of at least one parameter needs
+        // to be made before assigning a new value.
+        final DFSTBuilder<Integer> builder = new DFSTBuilder<>(graph);
+        final List<Integer> sortedNodes = builder.getSortedNodes();
+        final Set<Integer> seen = new HashSet<>();
+        final Map<PsiElement, String> replacements = new HashMap<>();
+        for (Integer index : sortedNodes) {
+          final PsiParameter parameter = parameters[index];
           final String parameterName = parameter.getName();
-          if (parameterName == null) {
-            continue;
+          assert parameterName != null;
+          final PsiExpression argument = ParenthesesUtils.stripParentheses(arguments[index]);
+          assert argument != null;
+          if (argument instanceof PsiReferenceExpression) {
+            final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)argument;
+            if (parameter.equals(referenceExpression.resolve())) {
+              // parameter keeps same value
+              continue;
+            }
           }
-          final String argumentText = argument.getText();
-          if (parameterName.equals(argumentText)) {
-            continue;
+          final Iterator<Integer> dependants = graph.getIn(index); // parameters which depend on parameter 'index'
+          boolean copy = false;
+          while (dependants.hasNext()) {
+            if (!seen.contains(dependants.next())) {
+              // current parameter which depends on value of parameter 'index' has not yet received its value (cycle)
+              // if 'dependants' was some collection instead of an iterator this would have been a nice containsAll expression
+              copy = true;
+              break;
+            }
           }
-          out.append(parameterName);
-          out.append(" = ");
-          out.append(argumentText);
+          if (copy) {
+            final String variableName =
+              JavaCodeStyleManager.getInstance(method.getProject()).suggestUniqueVariableName(parameterName, element, false);
+            out.append(parameter.getType().getCanonicalText()).append(' ').append(variableName).append('=');
+            out.append(parameterName).append(';');
+            replacements.put(parameter, variableName);
+          }
+          out.append(parameterName).append('=');
+          buildText(argument, replacements, out);
           out.append(';');
+          seen.add(index);
         }
         if (thisVariableName != null) {
           final PsiReferenceExpression methodExpression = call.getMethodExpression();
           final PsiExpression qualifier = methodExpression.getQualifierExpression();
           if (qualifier != null) {
-            out.append(thisVariableName);
-            out.append(" = ");
+            out.append(thisVariableName).append('=');
             replaceTailCalls(qualifier, method, thisVariableName, tailCallIsContainedInLoop, out);
             out.append(';');
           }
@@ -268,10 +320,7 @@ public class TailRecursionInspection extends BaseInspection {
           //don't do anything, as the continue is unnecessary
         }
         else if (tailCallIsContainedInLoop) {
-          final String methodName = method.getName();
-          out.append("continue ");
-          out.append(methodName);
-          out.append(';');
+          out.append("continue ").append(method.getName()).append(';');
         }
         else {
           out.append("continue;");
@@ -283,7 +332,7 @@ public class TailRecursionInspection extends BaseInspection {
       else {
         final PsiElement[] children = element.getChildren();
         if (children.length == 0) {
-          out.append(text);
+          out.append(element.getText());
         }
         else {
           for (final PsiElement child : children) {
@@ -293,8 +342,55 @@ public class TailRecursionInspection extends BaseInspection {
       }
     }
 
-    private static boolean isImplicitCallOnThis(PsiElement element,
-                                                PsiMethod containingMethod) {
+    private static void buildText(PsiElement element, Map<PsiElement, String> replacements, StringBuilder out) {
+      if (element instanceof PsiReferenceExpression) {
+        final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)element;
+        final PsiElement target = referenceExpression.resolve();
+        final String replacement = replacements.get(target);
+        out.append(replacement != null ? replacement : element.getText());
+        return;
+      }
+      final PsiElement[] children = element.getChildren();
+      if (children.length > 0) {
+        for (PsiElement child : children) {
+          buildText(child, replacements, out);
+        }
+      }
+      else {
+        out.append(element.getText());
+      }
+    }
+
+    private static Graph<Integer> buildGraph(PsiParameter[] parameters, PsiExpression[] arguments) {
+      final InboundSemiGraph<Integer> graph = new InboundSemiGraph<Integer>() {
+        @NotNull
+        @Override
+        public Collection<Integer> getNodes() {
+          final List<Integer> result = new ArrayList<>();
+          for (int i = 0; i < parameters.length; i++) {
+            result.add(i);
+          }
+          return result;
+        }
+
+        @NotNull
+        @Override
+        public Iterator<Integer> getIn(Integer n) {
+          final List<Integer> result = new ArrayList<>();
+          final PsiParameter target = parameters[n];
+          for (int i = 0, length = arguments.length; i < length; i++) {
+            if (i == n) continue;
+            if (VariableAccessUtils.variableIsUsed(target, arguments[i])) {
+              result.add(i);
+            }
+          }
+          return result.iterator();
+        }
+      };
+      return GraphGenerator.generate(CachingSemiGraph.cache(graph));
+    }
+
+    private static boolean isImplicitCallOnThis(PsiElement element, PsiMethod containingMethod) {
       if (containingMethod.hasModifierProperty(PsiModifier.STATIC)) {
         return false;
       }
@@ -322,13 +418,12 @@ public class TailRecursionInspection extends BaseInspection {
       }
     }
 
-    private static boolean isTailCallReturn(PsiElement element,
-                                            PsiMethod containingMethod) {
+    private static boolean isTailCallReturn(PsiElement element, PsiMethod containingMethod) {
       if (!(element instanceof PsiReturnStatement)) {
         return false;
       }
       final PsiReturnStatement returnStatement = (PsiReturnStatement)element;
-      final PsiExpression returnValue = returnStatement.getReturnValue();
+      final PsiExpression returnValue = ParenthesesUtils.stripParentheses(returnStatement.getReturnValue());
       if (!(returnValue instanceof PsiMethodCallExpression)) {
         return false;
       }
@@ -348,25 +443,23 @@ public class TailRecursionInspection extends BaseInspection {
     @Override
     public void visitReturnStatement(@NotNull PsiReturnStatement statement) {
       super.visitReturnStatement(statement);
-      final PsiExpression returnValue = statement.getReturnValue();
+      final PsiExpression returnValue = ParenthesesUtils.stripParentheses(statement.getReturnValue());
       if (!(returnValue instanceof PsiMethodCallExpression)) {
         return;
       }
       final PsiMethodCallExpression returnCall = (PsiMethodCallExpression)returnValue;
-      final PsiMethod containingMethod = PsiTreeUtil.getParentOfType(statement, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
+      final PsiReferenceExpression methodExpression = returnCall.getMethodExpression();
+      final PsiMethod containingMethod =
+        PsiTreeUtil.getParentOfType(statement, PsiMethod.class, true, PsiClass.class, PsiLambdaExpression.class);
       if (containingMethod == null) {
         return;
       }
-      final PsiReferenceExpression methodExpression = returnCall.getMethodExpression();
-      final String name = containingMethod.getName();
-      if (!name.equals(methodExpression.getReferenceName())) {
+      final JavaResolveResult resolveResult = returnCall.resolveMethodGenerics();
+      if (!resolveResult.isValidResult() || !containingMethod.equals(resolveResult.getElement())) {
         return;
       }
-      final PsiMethod method = returnCall.resolveMethod();
-      if (method == null) {
-        return;
-      }
-      if (!method.equals(containingMethod)) {
+      final PsiExpression qualifier = ParenthesesUtils.stripParentheses(methodExpression.getQualifierExpression());
+      if (qualifier != null && !(qualifier instanceof PsiThisExpression) && MethodUtils.isOverridden(containingMethod)) {
         return;
       }
       registerMethodCallError(returnCall, containingMethod);

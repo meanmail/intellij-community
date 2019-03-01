@@ -23,7 +23,6 @@ import java.util.Map;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/14/14
  */
 public class ExternalProjectBuildClasspathPojo {
 
@@ -37,7 +36,7 @@ public class ExternalProjectBuildClasspathPojo {
   @SuppressWarnings("UnusedDeclaration")
   public ExternalProjectBuildClasspathPojo() {
     // Used by IJ serialization
-    this("___DUMMY___", ContainerUtil.<String>newArrayList(), ContainerUtil.<String, ExternalModuleBuildClasspathPojo>newHashMap());
+    this("___DUMMY___", ContainerUtil.newArrayList(), ContainerUtil.newHashMap());
   }
 
   public ExternalProjectBuildClasspathPojo(@NotNull String name,

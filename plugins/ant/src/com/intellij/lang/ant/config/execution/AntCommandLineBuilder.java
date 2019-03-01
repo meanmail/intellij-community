@@ -22,7 +22,6 @@ import com.intellij.ide.macro.Macro;
 import com.intellij.ide.macro.MacroManager;
 import com.intellij.lang.ant.AntBundle;
 import com.intellij.lang.ant.config.impl.*;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.project.Project;
@@ -42,6 +41,7 @@ import org.jetbrains.annotations.NonNls;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 
 public class AntCommandLineBuilder {
@@ -54,6 +54,7 @@ public class AntCommandLineBuilder {
   @NonNls private static final String INPUT_HANDLER_PARAMETER = "-inputhandler";
   @NonNls private static final String LOGFILE_PARAMETER = "-logfile";
   @NonNls private static final String LOGFILE_SHORT_PARAMETER = "-l";
+  @NonNls private static final String LOGGER_PARAMETER = "-logger";
 
   public void calculateProperties(final DataContext dataContext, Project project, List<BuildFileProperty> additionalProperties) throws Macro.ExecutionCancelledException {
     for (BuildFileProperty property : myProperties) {
@@ -80,16 +81,13 @@ public class AntCommandLineBuilder {
   public void setBuildFile(AbstractProperty.AbstractPropertyContainer container, File buildFile) throws CantRunException {
     String jdkName = AntBuildFileImpl.CUSTOM_JDK_NAME.get(container);
     Sdk jdk;
-    if (jdkName != null && jdkName.length() > 0) {
-      jdk = GlobalAntConfiguration.findJdk(jdkName);
-    }
-    else {
+    if (jdkName == null || jdkName.length() <= 0) {
       jdkName = AntConfigurationImpl.DEFAULT_JDK_NAME.get(container);
       if (jdkName == null || jdkName.length() == 0) {
         throw new CantRunException(AntBundle.message("project.jdk.not.specified.error.message"));
       }
-      jdk = GlobalAntConfiguration.findJdk(jdkName);
     }
+    jdk = GlobalAntConfiguration.findJdk(jdkName);
     if (jdk == null) {
       throw new CantRunException(AntBundle.message("jdk.with.name.not.configured.error.message", jdkName));
     }
@@ -154,8 +152,8 @@ public class AntCommandLineBuilder {
       }
     }
 
-    if (!(programParameters.getList().contains(LOGFILE_SHORT_PARAMETER) || programParameters.getList().contains(LOGFILE_PARAMETER)) ) {
-      programParameters.add("-logger", IdeaAntLogger2.class.getName());
+    if (!(programParameters.getList().contains(LOGGER_PARAMETER))) {
+      programParameters.add(LOGGER_PARAMETER, IdeaAntLogger2.class.getName());
     }
     if (!programParameters.getList().contains(INPUT_HANDLER_PARAMETER)) {
       programParameters.add(INPUT_HANDLER_PARAMETER, IdeaInputHandler.class.getName());
@@ -186,6 +184,10 @@ public class AntCommandLineBuilder {
   }
 
   public void addTargets(String[] targets) {
+    ContainerUtil.addAll(myTargets, targets);
+  }
+  
+  public void addTargets(Collection<String> targets) {
     ContainerUtil.addAll(myTargets, targets);
   }
 

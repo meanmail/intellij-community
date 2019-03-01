@@ -77,7 +77,7 @@ public class MavenIdeaPluginConfigurer extends MavenModuleConfigurer {
 
     String hideEmptyPackages = cfg.getChildTextTrim("hideEmptyPackages");
     if (!StringUtil.isEmptyOrSpaces(hideEmptyPackages)) {
-      ProjectView.getInstance(project).setHideEmptyPackages(Boolean.parseBoolean(hideEmptyPackages), ProjectViewPane.ID);
+      ProjectView.getInstance(project).setHideEmptyPackages(ProjectViewPane.ID, Boolean.parseBoolean(hideEmptyPackages));
     }
 
     String optimizeImportsBeforeCommit = cfg.getChildTextTrim("optimizeImportsBeforeCommit");
@@ -93,9 +93,7 @@ public class MavenIdeaPluginConfigurer extends MavenModuleConfigurer {
     String reformatCodeBeforeCommit = cfg.getChildTextTrim("reformatCodeBeforeCommit");
     if (!StringUtil.isEmptyOrSpaces(reformatCodeBeforeCommit)) {
       VcsConfiguration vcsConfiguration = VcsConfiguration.getInstance(module.getProject());
-      boolean value = Boolean.parseBoolean(reformatCodeBeforeCommit);
-      vcsConfiguration.REFORMAT_BEFORE_FILE_COMMIT = value;
-      vcsConfiguration.REFORMAT_BEFORE_PROJECT_COMMIT = value;
+      vcsConfiguration.REFORMAT_BEFORE_PROJECT_COMMIT = Boolean.parseBoolean(reformatCodeBeforeCommit);
     }
   }
 

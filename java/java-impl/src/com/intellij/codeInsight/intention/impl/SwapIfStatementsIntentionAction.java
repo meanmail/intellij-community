@@ -15,13 +15,13 @@
  */
 package com.intellij.codeInsight.intention.impl;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Dmitry Batkovich
@@ -29,7 +29,6 @@ import org.jetbrains.annotations.NotNull;
 public class SwapIfStatementsIntentionAction extends PsiElementBaseIntentionAction {
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, @NotNull final PsiElement element) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(element)) return;
     final PsiIfStatement ifStatement = (PsiIfStatement)element.getParent();
     final PsiIfStatement nestedIfStatement = (PsiIfStatement) ifStatement.getElseBranch();
     assert nestedIfStatement != null;
@@ -60,7 +59,11 @@ public class SwapIfStatementsIntentionAction extends PsiElementBaseIntentionActi
       return false;
     }
     final PsiElement parent = element.getParent();
-    return parent instanceof PsiIfStatement && ((PsiIfStatement)parent).getElseBranch() instanceof PsiIfStatement;
+    return isWellFormedIf(parent) && isWellFormedIf(((PsiIfStatement)parent).getElseBranch());
+  }
+
+  private static boolean isWellFormedIf(@Nullable PsiElement e) {
+    return e instanceof PsiIfStatement && ((PsiIfStatement)e).getCondition() != null && ((PsiIfStatement)e).getThenBranch() != null;
   }
 
   @NotNull

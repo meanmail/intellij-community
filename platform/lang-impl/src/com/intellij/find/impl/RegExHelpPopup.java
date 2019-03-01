@@ -24,6 +24,7 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.util.MinimizeButton;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.ui.ColorUtil;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.ui.components.labels.LinkListener;
@@ -35,8 +36,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
 import javax.swing.event.HyperlinkListener;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.html.HTMLEditorKit;
 import java.awt.*;
 
 /**
@@ -46,14 +45,14 @@ public class RegExHelpPopup extends JPanel {
   private final JEditorPane myEditorPane;
   private final JScrollPane myScrollPane;
 
-  public RegExHelpPopup() throws BadLocationException {
+  public RegExHelpPopup() {
     setLayout(new BorderLayout());
 
     myEditorPane = new JEditorPane();
     myEditorPane.setEditable(false);
-    myEditorPane.setEditorKit(new HTMLEditorKit());
+    myEditorPane.setEditorKit(UIUtil.getHTMLEditorKit());
     myEditorPane.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
-    myEditorPane.setBackground(HintUtil.INFORMATION_COLOR);
+    myEditorPane.setBackground(HintUtil.getInformationColor());
 
     myEditorPane.setText("<html><h2> Summary of regular-expression constructs</h2> \n" +
                          " \n" +
@@ -61,9 +60,11 @@ public class RegExHelpPopup extends JPanel {
                          "  summary=\"Regular expression constructs, and what they match\"> \n" +
                          " \n" +
                          " <tr align=\"left\"> \n" +
-                         " <th bgcolor=\"" + toHTMLColor(UIUtil.getLabelBackground()) +
+                         " <th bgcolor=\"" +
+                         ColorUtil.toHtmlColor(UIUtil.getLabelBackground()) +
                          "\" align=\"left\" id=\"construct\">Construct</th> \n" +
-                         " <th bgcolor=\"" + toHTMLColor(UIUtil.getLabelBackground()) +
+                         " <th bgcolor=\"" +
+                         ColorUtil.toHtmlColor(UIUtil.getLabelBackground()) +
                          "\" align=\"left\" id=\"matches\">Matches</th> \n" +
                          " </tr> \n" +
                          " \n" +
@@ -358,11 +359,15 @@ public class RegExHelpPopup extends JPanel {
 
       @Override
       public void run() {
-        try {
           if (helpPopup != null && !helpPopup.isDisposed() && helpPopup.isVisible()) {
             return;
           }
-          helpPopup = createRegExHelpPopup();
+        RegExHelpPopup content = new RegExHelpPopup();
+        final ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(content, content);
+          helpPopup = builder.setCancelOnClickOutside(false).setBelongsToGlobalPopupStack(true).setFocusable(true).setRequestFocus(true)
+            .setMovable(true).setResizable(true)
+            .setCancelOnOtherWindowOpen(false).setCancelButton(new MinimizeButton("Hide"))
+            .setTitle("Regular expressions syntax").setDimensionServiceKey(null, "RegExHelpPopup", true).createPopup();
           Disposer.register(helpPopup, new Disposable() {
             @Override
             public void dispose() {
@@ -375,10 +380,6 @@ public class RegExHelpPopup extends JPanel {
           else {
             helpPopup.showInFocusCenter();
           }
-        }
-        catch (BadLocationException ex) {
-          if (logger != null) logger.info(ex);
-        }
       }
 
       private void destroyPopup() {
@@ -390,16 +391,5 @@ public class RegExHelpPopup extends JPanel {
   @Override
   public Dimension getPreferredSize() {
     return JBUI.size(600, 300);
-  }
-
-  public static JBPopup createRegExHelpPopup() throws BadLocationException {
-    final ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(new RegExHelpPopup(), null);
-    return builder.setCancelOnClickOutside(false).setBelongsToGlobalPopupStack(true).setFocusable(true).setRequestFocus(true).setMovable(true).setResizable(true)
-      .setCancelOnOtherWindowOpen(false).setCancelButton(new MinimizeButton("Hide"))
-      .setTitle("Regular expressions syntax").setDimensionServiceKey(null, "RegExHelpPopup", true).createPopup();
-  }
-
-  private static String toHTMLColor(Color color) {
-    return "#" + Integer.toHexString(color.getRGB() & 0xffffff);
   }
 }

@@ -26,6 +26,7 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
  * @date: 04.04.2007
  */
 public interface GrAnnotationNameValuePair extends GroovyPsiElement, PsiNameValuePair {
+
   GrAnnotationNameValuePair[] EMPTY_ARRAY = new GrAnnotationNameValuePair[0];
 
   @Nullable

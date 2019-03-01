@@ -28,7 +28,6 @@ import java.util.Properties;
 
 /**
  * @author MYakovlev
- * Date: Jul 24, 2002
  */
 public abstract class FileTemplateManager{
   public static final Key<Properties> DEFAULT_TEMPLATE_PROPERTIES = Key.create("DEFAULT_TEMPLATE_PROPERTIES");
@@ -55,6 +54,7 @@ public abstract class FileTemplateManager{
     return ServiceManager.getService(project, FileTemplateManager.class).checkInitialized();
   }
 
+  @NotNull
   protected FileTemplateManager checkInitialized() { return this; }
 
   /** Use {@link #getInstance(Project)} instead */
@@ -77,7 +77,8 @@ public abstract class FileTemplateManager{
    */
   public abstract FileTemplatesScheme getProjectScheme();
 
-  public abstract FileTemplate[] getTemplates(String category);
+  @NotNull
+  public abstract FileTemplate[] getTemplates(@NotNull String category);
 
   /**
    *  Returns all templates from "Default" category.
@@ -116,13 +117,16 @@ public abstract class FileTemplateManager{
 
   public abstract void addRecentName(@NotNull @NonNls String name);
 
+  @NotNull
   public abstract FileTemplate getInternalTemplate(@NotNull @NonNls String templateName);
   public abstract FileTemplate findInternalTemplate(@NotNull @NonNls String templateName);
 
   @NotNull 
   public abstract FileTemplate[] getInternalTemplates();
 
+  @NotNull
   public abstract FileTemplate getJ2eeTemplate(@NotNull @NonNls String templateName);
+  @NotNull
   public abstract FileTemplate getCodeTemplate(@NotNull @NonNls String templateName);
 
   @NotNull 
@@ -136,10 +140,6 @@ public abstract class FileTemplateManager{
 
   @NotNull
   public abstract String internalTemplateToSubject(@NotNull @NonNls String templateName);
-
-  @Deprecated
-  @NotNull
-  public abstract String localizeInternalTemplateName(@NotNull FileTemplate template);
 
   public abstract FileTemplate getPattern(@NotNull @NonNls String name);
 

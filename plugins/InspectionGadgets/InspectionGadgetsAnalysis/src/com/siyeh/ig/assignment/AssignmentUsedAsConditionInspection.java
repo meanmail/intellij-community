@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,17 @@
  */
 package com.siyeh.ig.assignment;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 public class AssignmentUsedAsConditionInspection extends BaseInspection {
@@ -48,14 +51,8 @@ public class AssignmentUsedAsConditionInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("assignment.used.as.condition.replace.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", "=", "==");
     }
 
     @Override
@@ -64,8 +61,9 @@ public class AssignmentUsedAsConditionInspection extends BaseInspection {
       final PsiExpression leftExpression = expression.getLExpression();
       final PsiExpression rightExpression = expression.getRExpression();
       assert rightExpression != null;
-      final String newExpression = leftExpression.getText() + "==" + rightExpression.getText();
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+      CommentTracker commentTracker = new CommentTracker();
+      final String newExpression = commentTracker.text(leftExpression) + "==" + commentTracker.text(rightExpression);
+      PsiReplacementUtil.replaceExpression(expression, newExpression, commentTracker);
     }
   }
 
@@ -79,33 +77,20 @@ public class AssignmentUsedAsConditionInspection extends BaseInspection {
     @Override
     public void visitAssignmentExpression(@NotNull PsiAssignmentExpression expression) {
       super.visitAssignmentExpression(expression);
-      if (expression.getRExpression() == null || !(expression.getLExpression() instanceof PsiReferenceExpression)) {
+      if (expression.getRExpression() == null ||
+          expression.getOperationTokenType() != JavaTokenType.EQ ||
+          !PsiType.BOOLEAN.equals(expression.getType())) {
         return;
       }
-      final PsiElement parent = expression.getParent();
-      final PsiExpression condition;
-      if (parent instanceof PsiIfStatement) {
-        final PsiIfStatement ifStatement = (PsiIfStatement)parent;
-        condition = ifStatement.getCondition();
-      }
-      else if (parent instanceof PsiWhileStatement) {
-        final PsiWhileStatement whileStatement = (PsiWhileStatement)parent;
-        condition = whileStatement.getCondition();
-      }
-      else if (parent instanceof PsiForStatement) {
-        final PsiForStatement forStatement = (PsiForStatement)parent;
-        condition = forStatement.getCondition();
-      }
-      else if (parent instanceof PsiDoWhileStatement) {
-        final PsiDoWhileStatement doWhileStatement = (PsiDoWhileStatement)parent;
-        condition = doWhileStatement.getCondition();
-      }
-      else {
+      final PsiExpression lhs = PsiUtil.skipParenthesizedExprDown(expression.getLExpression());
+      if (!(lhs instanceof PsiReferenceExpression)) {
         return;
       }
-      if (expression.equals(condition)) {
-        registerError(expression);
+      final PsiElement parent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
+      if (!PsiUtil.isCondition(expression, parent)) {
+        return;
       }
+      registerError(expression);
     }
   }
 }

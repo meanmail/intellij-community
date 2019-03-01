@@ -17,6 +17,8 @@ package com.intellij.diff.merge;
 
 import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.diff.util.DiffUtil;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Disposer;
@@ -33,6 +35,8 @@ import java.awt.event.WindowEvent;
 import java.util.List;
 
 public class MergeWindow {
+  private static final Logger LOG = Logger.getInstance(MergeWindow.class);
+
   @Nullable private final Project myProject;
   @NotNull private final MergeRequest myMergeRequest;
 
@@ -66,6 +70,10 @@ public class MergeWindow {
   }
 
   public void show() {
+    if (ApplicationManager.getApplication().isWriteAccessAllowed()) {
+      LOG.error("Merge dialog should not be shown under a write action, as it will disable any background activity.");
+    }
+
     init();
     myWrapper.show();
   }
@@ -75,7 +83,7 @@ public class MergeWindow {
     @NotNull private final MergeRequestProcessor myProcessor;
     @NotNull private final Wrapper mySouthPanel = new Wrapper();
 
-    public MyDialog(@NotNull MergeRequestProcessor processor) {
+    MyDialog(@NotNull MergeRequestProcessor processor) {
       super(processor.getProject(), true);
       myProcessor = processor;
     }
@@ -87,6 +95,7 @@ public class MergeWindow {
       getWindow().addWindowListener(new WindowAdapter() {
         @Override
         public void windowOpened(WindowEvent e) {
+          e.getWindow().removeWindowListener(this);
           myProcessor.init();
         }
       });
@@ -125,7 +134,7 @@ public class MergeWindow {
       if (bottomActions.resolveAction != null) {
         bottomActions.resolveAction.putValue(DialogWrapper.DEFAULT_ACTION, true);
       }
-      return actions.toArray(new Action[actions.size()]);
+      return actions.toArray(new Action[0]);
     }
 
     @NotNull
@@ -133,7 +142,7 @@ public class MergeWindow {
     protected Action[] createLeftSideActions() {
       MergeRequestProcessor.BottomActions bottomActions = myProcessor.getBottomActions();
       List<Action> actions = ContainerUtil.skipNulls(ContainerUtil.list(bottomActions.applyLeft, bottomActions.applyRight));
-      return actions.toArray(new Action[actions.size()]);
+      return actions.toArray(new Action[0]);
     }
 
     @NotNull
@@ -170,7 +179,7 @@ public class MergeWindow {
   }
 
   private static class MyPanel extends JPanel {
-    public MyPanel(@NotNull JComponent content) {
+    MyPanel(@NotNull JComponent content) {
       super(new BorderLayout());
       add(content, BorderLayout.CENTER);
     }

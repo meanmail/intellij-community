@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.codeInsight.lookup.LookupManager;
@@ -20,19 +6,18 @@ import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.execution.Executor;
 import com.intellij.execution.ExecutorRegistry;
 import com.intellij.execution.RunnerAndConfigurationSettings;
-import com.intellij.execution.RunnerRegistry;
 import com.intellij.execution.actions.ChooseRunConfigurationPopup;
-import com.intellij.execution.actions.ExecutorProvider;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.impl.RunDialog;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.DataManager;
-import com.intellij.ide.IdeEventQueue;
-import com.intellij.ide.IdeTooltipManager;
-import com.intellij.ide.SearchTopHitProvider;
+import com.intellij.ide.*;
+import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManager;
+import com.intellij.ide.actions.searcheverywhere.SearchEverywhereManagerImpl;
+import com.intellij.ide.actions.searcheverywhere.SearchEverywhereUI;
+import com.intellij.ide.actions.searcheverywhere.statistics.SearchEverywhereUsageTriggerCollector;
 import com.intellij.ide.structureView.StructureView;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.ide.structureView.StructureViewModel;
@@ -48,6 +33,7 @@ import com.intellij.ide.ui.search.OptionDescription;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.ide.util.gotoByName.*;
 import com.intellij.ide.util.treeView.smartTree.TreeElement;
+import com.intellij.internal.statistic.eventLog.FeatureUsageData;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguagePsiElementExternalizer;
 import com.intellij.navigation.ItemPresentation;
@@ -58,10 +44,11 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction;
+import com.intellij.openapi.actionSystem.impl.ActionButton;
 import com.intellij.openapi.actionSystem.impl.ActionToolbarImpl;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actions.TextComponentEditorAction;
@@ -69,7 +56,6 @@ import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
 import com.intellij.openapi.keymap.MacKeymapUtil;
 import com.intellij.openapi.keymap.impl.ModifierKeyDoubleClickHandler;
@@ -79,6 +65,7 @@ import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
+import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.DumbService;
@@ -86,10 +73,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.ActionCallback;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Iconable;
-import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -98,14 +82,16 @@ import com.intellij.openapi.vfs.VirtualFilePathWrapper;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
 import com.intellij.pom.Navigatable;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiDirectory;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.codeStyle.MinusculeMatcher;
 import com.intellij.psi.codeStyle.NameUtil;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.*;
 import com.intellij.ui.awt.RelativePoint;
-import com.intellij.ui.border.CustomLineBorder;
-import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.OnOffButton;
@@ -127,19 +113,24 @@ import org.jetbrains.annotations.Nullable;
 import javax.accessibility.Accessible;
 import javax.accessibility.AccessibleContext;
 import javax.swing.*;
+import javax.swing.border.Border;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
 import java.awt.event.*;
-import java.util.*;
 import java.util.List;
 import java.util.Vector;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
+import static com.intellij.openapi.wm.IdeFocusManager.getGlobalInstance;
 
 /**
  * @author Konstantin Bulenkov
  */
 @SuppressWarnings("FieldAccessedSynchronizedAndUnsynchronized")
-public class SearchEverywhereAction extends AnAction implements CustomComponentAction, DumbAware, DataProvider, RightAlignedToolbarAction {
+public class SearchEverywhereAction extends AnAction implements CustomComponentAction, DumbAware, DataProvider {
   public static final String SE_HISTORY_KEY = "SearchEverywhereHistoryKey";
   public static final int SEARCH_FIELD_COLUMNS = 25;
   private static final int MAX_CLASSES = 6;
@@ -149,12 +140,13 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
   private static final int MAX_SYMBOLS = 6;
   private static final int MAX_SETTINGS = 5;
   private static final int MAX_ACTIONS = 5;
-  private static final int MAX_STRUCTURE = 10;
   private static final int MAX_RECENT_FILES = 10;
   private static final int DEFAULT_MORE_STEP_COUNT = 15;
   public static final int MAX_SEARCH_EVERYWHERE_HISTORY = 50;
   public static final int MAX_TOP_HIT = 15;
-  private static final Logger LOG = Logger.getInstance("#" + SearchEverywhereAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(SearchEverywhereAction.class);
+  private static final Border RENDERER_BORDER = JBUI.Borders.empty(1, 0);
+  private static final Border RENDERER_TITLE_BORDER = JBUI.Borders.emptyTop(3);
 
   private SearchEverywhereAction.MyListRenderer myRenderer;
   MySearchTextField myPopupField;
@@ -164,20 +156,24 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
   private volatile GotoSymbolModel2 mySymbolsModel;
   private Component myFocusComponent;
   private JBPopup myPopup;
-  private Map<String, String> myConfigurables = new HashMap<>();
+  private final Map<String, String> myConfigurables = new HashMap<>();
 
-  private Alarm myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, ApplicationManager.getApplication());
-  private JBList myList;
+  private final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.SWING_THREAD, ApplicationManager.getApplication());
+  private JBList<Object> myList;
   private JCheckBox myNonProjectCheckBox;
   private AnActionEvent myActionEvent;
-  private Set<AnAction> myDisabledActions = new HashSet<>();
+  private final Set<AnAction> myDisabledActions = new HashSet<>();
   private Component myContextComponent;
   private CalcThread myCalcThread;
-  private static AtomicBoolean ourShiftIsPressed = new AtomicBoolean(false);
-  private static AtomicBoolean showAll = new AtomicBoolean(false);
+  private static final AtomicBoolean ourShiftIsPressed = new AtomicBoolean(false);
+  private static final AtomicBoolean showAll = new AtomicBoolean(false);
   private volatile ActionCallback myCurrentWorker = ActionCallback.DONE;
+  private int myCalcThreadRestartRequestId = 0;
+  private final Object myWorkerRestartRequestLock = new Object();
   private int myHistoryIndex = 0;
   boolean mySkipFocusGain = false;
+
+  public static final Key<JBPopup> SEARCH_EVERYWHERE_POPUP = new Key<>("SearchEverywherePopup");
 
   static {
     ModifierKeyDoubleClickHandler.getInstance().registerAction(IdeActions.ACTION_SEARCH_EVERYWHERE, KeyEvent.VK_SHIFT, -1, false);
@@ -204,60 +200,33 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
   private Editor myEditor;
   private FileEditor myFileEditor;
-  private PsiFile myFile;
   private HistoryItem myHistoryItem;
 
+  @NotNull
   @Override
-  public JComponent createCustomComponent(Presentation presentation) {
-    JPanel panel = JBUI.Panels.simplePanel();
-    panel.setOpaque(false);
+  public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
+    return new ActionButton(this, presentation, place, ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE) {
+      @Override protected void updateToolTipText() {
+        String shortcutText = getShortcut();
 
-    final JLabel label = new JBLabel(AllIcons.Actions.FindPlain) {
-      {
-        enableEvents(AWTEvent.MOUSE_EVENT_MASK);
-        enableEvents(AWTEvent.MOUSE_MOTION_EVENT_MASK);
+        if (Registry.is("ide.helptooltip.enabled")) {
+          HelpTooltip.dispose(this);
+
+          new HelpTooltip()
+            .setTitle(myPresentation.getText())
+            .setShortcut(shortcutText)
+            .setDescription("Searches for:<br/> - Classes<br/> - Files<br/> - Tool Windows<br/> - Actions<br/> - Settings")
+            .setLocation(getTooltipLocation()).installOn(this);
+        } else {
+          setToolTipText("<html><body>Search Everywhere<br/>Press <b>" + shortcutText +
+                         "</b> to access<br/> - Classes<br/> - Files<br/> - Tool Windows<br/> - Actions<br/> - Settings</body></html>");
+        }
       }
     };
-    panel.add(label, BorderLayout.CENTER);
-    initTooltip(label);
-    label.addMouseListener(new MouseAdapter() {
-      @Override
-      public void mousePressed(MouseEvent e) {
-        if (myBalloon != null) {
-          myBalloon.cancel();
-        }
-        myFocusOwner = IdeFocusManager.findInstance().getFocusOwner();
-        label.setToolTipText(null);
-        IdeTooltipManager.getInstance().hideCurrentNow(false);
-        actionPerformed(null, e);
-      }
-
-      @Override
-      public void mouseEntered(MouseEvent e) {
-        if (myBalloon == null || myBalloon.isDisposed()) {
-          label.setIcon(AllIcons.Actions.Find);
-        }
-      }
-
-      @Override
-      public void mouseExited(MouseEvent e) {
-        if (myBalloon == null || myBalloon.isDisposed()) {
-          label.setIcon(AllIcons.Actions.FindPlain);
-        }
-      }
-    });
-
-    return panel;
-  }
-
-  private static Gradient getGradientColors() {
-    return new Gradient(
-      new JBColor(new Color(101, 147, 242), new Color(64, 80, 94)),
-      new JBColor(new Color(46, 111, 205), new Color(53, 65, 87)));
   }
 
   private void updateComponents() {
-    myList = new JBList(new SearchListModel()) {
+    myList = new JBList<Object>(new SearchListModel()) {
       int lastKnownHeight = JBUI.scale(30);
       @Override
       public Dimension getPreferredSize() {
@@ -267,7 +236,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         } else {
           lastKnownHeight = size.height;
         }
-        return new Dimension(Math.max(myBalloon.getSize().width, Math.min(size.width - 2, getPopupMaxWidth())), myList.isEmpty() ? JBUI.scale(30) : size.height);
+        int width = myBalloon != null ? myBalloon.getSize().width : 0;
+        return new Dimension(Math.max(width, Math.min(size.width - 2, getPopupMaxWidth())), myList.isEmpty() ? JBUI.scale(30) : size.height);
       }
 
       @Override
@@ -293,9 +263,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         final int i = myList.locationToIndex(e.getPoint());
         if (i != -1) {
           mySkipFocusGain = true;
-          getField().requestFocus();
-          //noinspection SSBasedInspection
-          SwingUtilities.invokeLater(() -> {
+          getGlobalInstance().doWhenFocusSettlesDown(() -> getGlobalInstance().requestFocus(getField(), true));
+          ApplicationManager.getApplication().invokeLater(() -> {
             myList.setSelectedIndex(i);
             doNavigate(i);
           });
@@ -306,51 +275,35 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     myNonProjectCheckBox = new JCheckBox();
     myNonProjectCheckBox.setOpaque(false);
     myNonProjectCheckBox.setAlignmentX(1.0f);
-    myNonProjectCheckBox.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        if (showAll.get() != myNonProjectCheckBox.isSelected()) {
-          showAll.set(!showAll.get());
-          final JTextField editor = UIUtil.findComponentOfType(myBalloon.getContent(), JTextField.class);
-          if (editor != null) {
-            final String pattern = editor.getText();
-            myAlarm.cancelAllRequests();
-            myAlarm.addRequest(() -> {
-              if (editor.hasFocus()) {
-                rebuildList(pattern);
-              }
-            }, 30);
-          }
+    myNonProjectCheckBox.addActionListener(e -> {
+      if (showAll.get() != myNonProjectCheckBox.isSelected()) {
+        showAll.set(!showAll.get());
+        final JTextField editor = UIUtil.findComponentOfType(myBalloon.getContent(), JTextField.class);
+        if (editor != null) {
+          final String pattern = editor.getText();
+          myAlarm.cancelAllRequests();
+          myAlarm.addRequest(() -> {
+            if (editor.hasFocus()) {
+              rebuildList(pattern);
+            }
+          }, 30);
         }
       }
     });
   }
 
-  private static void initTooltip(JLabel label) {
-    final String shortcutText;
-    shortcutText = getShortcut();
-
-    label.setToolTipText("<html><body>Search Everywhere<br/>Press <b>"
-                                 + shortcutText
-                                 + "</b> to access<br/> - Classes<br/> - Files<br/> - Tool Windows<br/> - Actions<br/> - Settings</body></html>");
-
-  }
-
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     return null;
   }
 
   private static String getShortcut() {
-    String shortcutText;
-    final Shortcut[] shortcuts = KeymapManager.getInstance().getActiveKeymap().getShortcuts(IdeActions.ACTION_SEARCH_EVERYWHERE);
+    Shortcut[] shortcuts = getActiveKeymapShortcuts(IdeActions.ACTION_SEARCH_EVERYWHERE).getShortcuts();
     if (shortcuts.length == 0) {
-      shortcutText = "Double " + (SystemInfo.isMac ? MacKeymapUtil.SHIFT : "Shift");
-    } else {
-      shortcutText = KeymapUtil.getShortcutsText(shortcuts);
+      return "Double" + (SystemInfo.isMac ? FontUtil.thinSpace() + MacKeymapUtil.SHIFT : " Shift");
     }
-    return shortcutText;
+    return KeymapUtil.getShortcutsText(shortcuts);
   }
 
   private void initSearchField(final MySearchTextField search) {
@@ -358,7 +311,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 //    onFocusLost();
     editor.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         final String pattern = editor.getText();
         if (editor.hasFocus()) {
           rebuildList(pattern);
@@ -372,14 +325,12 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           mySkipFocusGain = false;
           return;
         }
-        String text = "";
-        //if (myEditor != null) {
-        //  text = myEditor.getSelectionModel().getSelectedText();
-        //  text = text == null ? "" : text.trim();
-        //}
+        String text = GotoActionBase.getInitialTextForNavigation(myEditor);
+        text = text != null ? text.trim() : "";
 
         search.setText(text);
         search.getTextEditor().setForeground(UIUtil.getLabelForeground());
+        search.selectText();
         //titleIndex = new TitleIndexes();
         editor.setColumns(SEARCH_FIELD_COLUMNS);
         myFocusComponent = e.getOppositeComponent();
@@ -404,9 +355,14 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         }
         if (myNonProjectCheckBox == e.getOppositeComponent()) {
           mySkipFocusGain = true;
-          editor.requestFocus();
+          getGlobalInstance().doWhenFocusSettlesDown(() -> getGlobalInstance().requestFocus(editor, true));
           return;
         }
+
+        if (UIUtil.haveCommonOwner(e.getComponent(), e.getOppositeComponent())) {
+          return;
+        }
+
         onFocusLost();
       }
     });
@@ -433,7 +389,6 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
   private ActionCallback onFocusLost() {
     final ActionCallback result = new ActionCallback();
-    //noinspection SSBasedInspection
     UIUtil.invokeLaterIfNeeded(() -> {
       try {
         if (myCalcThread != null) {
@@ -441,13 +396,16 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           //myCalcThread = null;
         }
         myAlarm.cancelAllRequests();
-        if (myBalloon != null && !myBalloon.isDisposed() && myPopup != null && !myPopup.isDisposed()) {
+        if (myBalloon != null && !myBalloon.isDisposed()) {
           myBalloon.cancel();
+        }
+
+        if (myPopup != null && !myPopup.isDisposed()) {
           myPopup.cancel();
         }
 
         //noinspection SSBasedInspection
-        SwingUtilities.invokeLater(() -> ActionToolbarImpl.updateAllToolbarsImmediately());
+        SwingUtilities.invokeLater(ActionToolbarImpl::updateAllToolbarsImmediately);
       }
       finally {
         result.setDone();
@@ -477,12 +435,19 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       else if (index == model.moreIndex.runConfigurations) wid = WidgetID.RUN_CONFIGURATIONS;
       if (wid != null) {
         final WidgetID widgetID = wid;
-        myCurrentWorker.doWhenProcessed(() -> {
-          myCalcThread = new CalcThread(project, pattern, true);
-          myPopupActualWidth = 0;
-          myCurrentWorker = myCalcThread.insert(index, widgetID);
-        });
-
+        synchronized (myWorkerRestartRequestLock) { // this lock together with RestartRequestId should be enough to prevent two CalcThreads running at the same time
+          final int currentRestartRequest = ++myCalcThreadRestartRequestId;
+          myCurrentWorker.doWhenProcessed(() -> {
+            synchronized (myWorkerRestartRequestLock) {
+              if (currentRestartRequest != myCalcThreadRestartRequestId) {
+                return;
+              }
+              myCalcThread = new CalcThread(project, pattern, true);
+              myPopupActualWidth = 0;
+              myCurrentWorker = myCalcThread.insert(index, widgetID);
+            }
+          });
+        }
         return;
       }
     }
@@ -499,31 +464,26 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       option.setOptionState(!option.isOptionEnabled());
       myList.revalidate();
       myList.repaint();
-      getField().requestFocus();
+      getGlobalInstance().doWhenFocusSettlesDown(() -> getGlobalInstance().requestFocus(getField(), true));
       return;
     }
 
     if (value instanceof OptionsTopHitProvider) {
       //noinspection SSBasedInspection
-      SwingUtilities.invokeLater(() -> getField().setText("#" + ((OptionsTopHitProvider)value).getId() + " "));
+      SwingUtilities.invokeLater(() -> getField().setText(SearchTopHitProvider.getTopHitAccelerator() + ((OptionsTopHitProvider)value).getId() + " "));
       return;
     }
-    Runnable onDone = null;
-
-    AccessToken token = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
+    Runnable onDone =
+    ReadAction.compute(() -> {
       if (value instanceof PsiElement) {
-        onDone = () -> NavigationUtil.activateFileWithPsiElement((PsiElement)value, true);
-        return;
+        return () -> NavigationUtil.activateFileWithPsiElement((PsiElement)value, true);
       }
       else if (isVirtualFile(value)) {
-        onDone = () -> OpenSourceUtil.navigate(true, new OpenFileDescriptor(project, (VirtualFile)value));
-        return;
+        return () -> OpenSourceUtil.navigate(true, new OpenFileDescriptor(project, (VirtualFile)value));
       }
       else if (isActionValue(value) || isSetting(value) || isRunConfiguration(value)) {
         focusManager.requestDefaultFocus(true);
         final Component comp = myContextComponent;
-        final AnActionEvent event = myActionEvent;
         IdeFocusManager.getInstance(project).doWhenFocusSettlesDown(() -> {
           Component c = comp;
           if (c == null) {
@@ -539,24 +499,23 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
                 itemWrapper.perform(project, executor, dataManager.getDataContext(c));
               }
             }
-          } else {
-            GotoActionAction.openOptionOrPerformAction(value, pattern, project, c, event);
-            if (isToolWindowAction(value)) return;
+          }
+          else {
+            GotoActionAction.openOptionOrPerformAction(value, pattern, project, c);
           }
         });
-        return;
+        return ()->{};
       }
       else if (value instanceof Navigatable) {
-        onDone = () -> OpenSourceUtil.navigate(true, (Navigatable)value);
-        return;
+        return () -> OpenSourceUtil.navigate(true, (Navigatable)value);
       }
-    }
-    finally {
-      token.finish();
-      final ActionCallback callback = onFocusLost();
-      if (onDone != null) {
-        callback.doWhenDone(onDone);
-      }
+      return null;
+    });
+
+    final ActionCallback callback = onFocusLost();
+    if (onDone != null) {
+      callback.doWhenDone(onDone);
+      return;
     }
     focusManager.requestDefaultFocus(true);
   }
@@ -571,7 +530,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
            index == model.moreIndex.runConfigurations;
   }
 
-  private void rebuildList(final String pattern) {
+  private void rebuildList(@NotNull String pattern) {
     assert EventQueue.isDispatchThread() : "Must be EDT";
     if (myCalcThread != null && !myCurrentWorker.isProcessed()) {
       myCurrentWorker = myCalcThread.cancel();
@@ -583,24 +542,59 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     assert project != null;
     myRenderer.myProject = project;
-    final Runnable run = () -> {
-      myCalcThread = new CalcThread(project, pattern, false);
-      myPopupActualWidth = 0;
-      myCurrentWorker = myCalcThread.start();
-    };
-    if (myCurrentWorker.isDone()) {
-      myCurrentWorker.doWhenDone(run);
-    } else {
-      myCurrentWorker.doWhenRejected(run);
+    synchronized (myWorkerRestartRequestLock) { // this lock together with RestartRequestId should be enough to prevent two CalcThreads running at the same time
+      final int currentRestartRequest = ++myCalcThreadRestartRequestId;
+      myCurrentWorker.doWhenProcessed(() -> {
+        synchronized (myWorkerRestartRequestLock) {
+          if (currentRestartRequest != myCalcThreadRestartRequestId) {
+            return;
+          }
+          myCalcThread = new CalcThread(project, pattern, false);
+          myPopupActualWidth = 0;
+          myCurrentWorker = myCalcThread.start();
+        }
+      });
     }
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    if (Registry.is("ide.suppress.double.click.handler") && e.getInputEvent() instanceof KeyEvent) {
+      if (((KeyEvent)e.getInputEvent()).getKeyCode() == KeyEvent.VK_SHIFT) {
+        return;
+      }
+    }
+
     actionPerformed(e, null);
   }
 
   public void actionPerformed(AnActionEvent e, MouseEvent me) {
+    if (Registry.is("new.search.everywhere") && e.getProject() != null) {
+      String searchProviderID = SearchEverywhereManagerImpl.ALL_CONTRIBUTORS_GROUP_ID;
+      FeatureUsageTracker.getInstance().triggerFeatureUsed(IdeActions.ACTION_SEARCH_EVERYWHERE + "." + searchProviderID);
+
+      SearchEverywhereManager seManager = SearchEverywhereManager.getInstance(e.getProject());
+      if (seManager.isShown()) {
+        if (searchProviderID.equals(seManager.getShownContributorID())) {
+          seManager.setShowNonProjectItems(!seManager.isShowNonProjectItems());
+        }
+        else {
+          seManager.setShownContributor(searchProviderID);
+          String shortcut = KeymapUtil.getEventCallerKeystrokeText(e);
+          FeatureUsageData data = SearchEverywhereUsageTriggerCollector.createData(searchProviderID, shortcut);
+          SearchEverywhereUsageTriggerCollector.trigger(e.getProject(), SearchEverywhereUsageTriggerCollector.TAB_SWITCHED, data);
+        }
+        return;
+      }
+
+      FeatureUsageData data = SearchEverywhereUsageTriggerCollector.createData(searchProviderID, null);
+      SearchEverywhereUsageTriggerCollector.trigger(e.getProject(), SearchEverywhereUsageTriggerCollector.DIALOG_OPEN, data);
+      IdeEventQueue.getInstance().getPopupManager().closeAllPopups(false);
+      String text = GotoActionBase.getInitialTextForNavigation(e.getData(CommonDataKeys.EDITOR));
+      seManager.show(searchProviderID, text, e);
+      return;
+    }
+
     if (myBalloon != null && myBalloon.isVisible()) {
       showAll.set(!showAll.get());
       myNonProjectCheckBox.setSelected(showAll.get());
@@ -612,7 +606,6 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     if (e != null) {
       myEditor = e.getData(CommonDataKeys.EDITOR);
       myFileEditor = e.getData(PlatformDataKeys.FILE_EDITOR);
-      myFile = e.getData(CommonDataKeys.PSI_FILE);
     }
     if (e == null && myFocusOwner != null) {
       e = AnActionEvent.createFromAnAction(this, me, ActionPlaces.UNKNOWN, DataManager.getInstance().getDataContext(myFocusOwner));
@@ -637,6 +630,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       Disposer.dispose(myPopupField);
     }
     myPopupField = new MySearchTextField();
+    //UIUtil.typeAheadUntilFocused(e.getInputEvent(), myPopupField.getTextEditor());
     myPopupField.getTextEditor().addKeyListener(new KeyAdapter() {
       @Override
       public void keyTyped(KeyEvent e) {
@@ -660,28 +654,41 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     });
     initSearchField(myPopupField);
     myPopupField.setOpaque(false);
-    final JTextField editor = myPopupField.getTextEditor();
+
+    JTextField editor = myPopupField.getTextEditor();
     editor.setColumns(SEARCH_FIELD_COLUMNS);
-    final JPanel panel = new JPanel(new BorderLayout()) {
-      @Override
-      protected void paintComponent(Graphics g) {
-        final Gradient gradient = getGradientColors();
-        ((Graphics2D)g).setPaint(new GradientPaint(0, 0, gradient.getStartColor(), 0, getHeight(), gradient.getEndColor()));
-        g.fillRect(0, 0, getWidth(), getHeight());
-      }
-    };
-    final JLabel title = new JLabel(" Search Everywhere:       ");
-    final JPanel topPanel = new NonOpaquePanel(new BorderLayout());
-    title.setForeground(new JBColor(Gray._240, Gray._200));
+    JPanel panel = UIUtil.isUnderWin10LookAndFeel() ?
+      new JPanel(new BorderLayout()) {
+        @Override protected void paintComponent(Graphics g) {
+          g.setColor(UIManager.getColor("SearchEverywhere.background"));
+          g.fillRect(0, 0, getWidth(), getHeight());
+        }
+      } :
+      new JPanel(new BorderLayout()) {
+        @Override protected void paintComponent(Graphics g) {
+          Gradient gradient = new Gradient(new JBColor(0x6593f2, 0x40505e), new JBColor(0x2e6fcd, 0x354157));
+          ((Graphics2D)g).setPaint(new GradientPaint(0, 0, gradient.getStartColor(), 0, getHeight(), gradient.getEndColor()));
+          g.fillRect(0, 0, getWidth(), getHeight());
+        }
+      };
+
+    JLabel title = new JLabel(" Search Everywhere:       ");
+    JPanel topPanel = new NonOpaquePanel(new BorderLayout());
+    Color foregroundColor = UIUtil.isUnderWin10LookAndFeel() ?
+                            UIManager.getColor("SearchEverywhere.foreground") :
+                            new JBColor(Gray._240, Gray._200);
+
+    title.setForeground(foregroundColor);
     if (SystemInfo.isMac) {
       title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize() - 1f));
     } else {
       title.setFont(title.getFont().deriveFont(Font.BOLD));
     }
     topPanel.add(title, BorderLayout.WEST);
-    final JPanel controls = new JPanel(new BorderLayout());
+    JPanel controls = new JPanel(new BorderLayout());
     controls.setOpaque(false);
-    final JLabel settings = new JLabel(AllIcons.General.SearchEverywhereGear);
+
+    JLabel settings = new JLabel(AllIcons.General.SearchEverywhereGear);
     new ClickListener(){
       @Override
       public boolean onClick(@NotNull MouseEvent event, int clickCount) {
@@ -689,31 +696,45 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         return true;
       }
     }.installOn(settings);
+
+    settings.setBorder(UIUtil.isUnderWin10LookAndFeel() ? JBUI.Borders.emptyLeft(6) : JBUI.Borders.empty());
+
     controls.add(settings, BorderLayout.EAST);
-    myNonProjectCheckBox.setForeground(new JBColor(Gray._240, Gray._200));
-    myNonProjectCheckBox.setText("Include non-project items (" + getShortcut() + ")  ");
     if (!NonProjectScopeDisablerEP.isSearchInNonProjectDisabled()) {
+      myNonProjectCheckBox.setForeground(foregroundColor);
+
+      Color shortcutColor = UIUtil.isUnderWin10LookAndFeel() ?
+                            UIManager.getColor("SearchEverywhere.shortcutForeground") : foregroundColor;
+
+      StringBuilder cbText = new StringBuilder("<html>");
+      cbText.append(IdeBundle.message("checkbox.include.non.project.items", IdeUICustomization.getInstance().getProjectConceptName()));
+      cbText.append(" ");
+      if (!UIUtil.isUnderWin10LookAndFeel()) cbText.append("<b>");
+      cbText.append("<font color=#").append(ColorUtil.toHex(shortcutColor)).append(">").append(getShortcut()).append("</font>");
+      if (!UIUtil.isUnderWin10LookAndFeel()) cbText.append("</b>");
+      cbText.append("</html>");
+
+      myNonProjectCheckBox.setText(cbText.toString());
       controls.add(myNonProjectCheckBox, BorderLayout.WEST);
     }
+
+    controls.setBorder(UIUtil.isUnderWin10LookAndFeel() ? JBUI.Borders.emptyTop(1) : JBUI.Borders.empty());
+
     topPanel.add(controls, BorderLayout.EAST);
     panel.add(myPopupField, BorderLayout.CENTER);
     panel.add(topPanel, BorderLayout.NORTH);
-    panel.setBorder(IdeBorderFactory.createEmptyBorder(3, 5, 4, 5));
+    panel.setBorder(JBUI.Borders.empty(3, 5, 4, 5));
     DataManager.registerDataProvider(panel, this);
     final ComponentPopupBuilder builder = JBPopupFactory.getInstance().createComponentPopupBuilder(panel, editor);
     myBalloon = builder
       .setCancelOnClickOutside(true)
       .setModalContext(false)
       .setRequestFocus(true)
-      .setCancelCallback(() -> !mySkipFocusGain)
       .createPopup();
     myBalloon.getContent().setBorder(JBUI.Borders.empty());
-    final Window window = WindowManager.getInstance().suggestParentWindow(project);
+
 
     project.getMessageBus().connect(myBalloon).subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
-      @Override
-      public void enteredDumbMode() {
-      }
 
       @Override
       public void exitDumbMode() {
@@ -721,24 +742,34 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       }
     });
 
-    Component parent = UIUtil.findUltimateParent(window);
     registerDataProvider(panel, project);
-    final RelativePoint showPoint;
-    if (parent != null) {
-      int height = UISettings.getInstance().SHOW_MAIN_TOOLBAR ? 135 : 115;
-      if (parent instanceof IdeFrameImpl && ((IdeFrameImpl)parent).isInFullScreen()) {
-        height -= 20;
-      }
-      showPoint = new RelativePoint(parent, new Point((parent.getSize().width - panel.getPreferredSize().width) / 2, height));
-    } else {
-      showPoint = JBPopupFactory.getInstance().guessBestPopupLocation(e.getDataContext());
-    }
+    final RelativePoint showPoint = calculateShowingPoint(e, panel);
     myList.setFont(UIUtil.getListFont());
     myBalloon.show(showPoint);
     initSearchActions(myBalloon, myPopupField);
     IdeFocusManager focusManager = IdeFocusManager.getInstance(project);
     focusManager.requestFocus(editor, true);
     FeatureUsageTracker.getInstance().triggerFeatureUsed(IdeActions.ACTION_SEARCH_EVERYWHERE);
+  }
+
+  @NotNull
+  private static RelativePoint calculateShowingPoint(AnActionEvent e, JComponent showingContent) {
+    Project project = e.getProject();
+    final Window window = project != null
+                          ? WindowManager.getInstance().suggestParentWindow(project)
+                          : KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
+    Component parent = UIUtil.findUltimateParent(window);
+    final RelativePoint showPoint;
+    if (parent != null) {
+      int height = UISettings.getInstance().getShowMainToolbar() ? 135 : 115;
+      if (parent instanceof IdeFrameImpl && ((IdeFrameImpl)parent).isInFullScreen()) {
+        height -= 20;
+      }
+      showPoint = new RelativePoint(parent, new Point((parent.getSize().width - showingContent.getPreferredSize().width) / 2, height));
+    } else {
+      showPoint = JBPopupFactory.getInstance().guessBestPopupLocation(e.getDataContext());
+    }
+    return showPoint;
   }
 
   private void showSettings() {
@@ -767,7 +798,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
   static class SEOption extends BooleanOptionDescription {
     private final String myKey;
 
-    public SEOption(String option, String registryKey) {
+    SEOption(String option, String registryKey) {
       super(option, null);
       myKey = registryKey;
     }
@@ -825,9 +856,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
     history.add(0, new HistoryItem(text, type == null ? null : type.name(), fqn));
 
-    if (history.size() > MAX_SEARCH_EVERYWHERE_HISTORY) {
-      history = history.subList(0, MAX_SEARCH_EVERYWHERE_HISTORY);
-    }
+    history = ContainerUtil.getFirstItems(history, MAX_SEARCH_EVERYWHERE_HISTORY);
     final String[] newValues = new String[history.size()];
     for (int i = 0; i < newValues.length; i++) {
       newValues[i] = history.get(i).toString();
@@ -842,10 +871,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     Executor executor = ourShiftIsPressed.get() ? runExecutor : debugExecutor;
     RunConfiguration runConf = settings.getConfiguration();
-    if (executor == null || runConf == null) {
-      return null;
-    }
-    ProgramRunner runner = RunnerRegistry.getInstance().getRunner(executor.getId(), runConf);
+    if (executor == null) return null;
+    ProgramRunner runner = ProgramRunner.getRunner(executor.getId(), runConf);
     if (runner == null) {
       executor = runExecutor == executor ? debugExecutor : runExecutor;
     }
@@ -853,88 +880,70 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
   }
 
   private void registerDataProvider(JPanel panel, final Project project) {
-    DataManager.registerDataProvider(panel, new DataProvider() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        final Object value = myList.getSelectedValue();
-        if (CommonDataKeys.PSI_ELEMENT.is(dataId) && value instanceof PsiElement) {
-          return value;
-        }
-        if (CommonDataKeys.VIRTUAL_FILE.is(dataId) && value instanceof VirtualFile) {
-          return value;
-        }
-        if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
-          if (value instanceof Navigatable) return value;
-          if (value instanceof ChooseRunConfigurationPopup.ItemWrapper) {
-            final Object config = ((ChooseRunConfigurationPopup.ItemWrapper)value).getValue();
-            if (config instanceof RunnerAndConfigurationSettings) {
-              return new Navigatable() {
-                @Override
-                public void navigate(boolean requestFocus) {
-                  Executor executor = findExecutor((RunnerAndConfigurationSettings)config);
-                  RunDialog.editConfiguration(project, (RunnerAndConfigurationSettings)config, "Edit Configuration", executor);
-                }
+    DataManager.registerDataProvider(panel, dataId -> {
+      final Object value = myList.getSelectedValue();
+      if (CommonDataKeys.PSI_ELEMENT.is(dataId) && value instanceof PsiElement) {
+        return value;
+      }
+      if (CommonDataKeys.VIRTUAL_FILE.is(dataId) && value instanceof VirtualFile) {
+        return value;
+      }
+      if (CommonDataKeys.NAVIGATABLE.is(dataId)) {
+        if (value instanceof Navigatable) return value;
+        if (value instanceof ChooseRunConfigurationPopup.ItemWrapper) {
+          final Object config = ((ChooseRunConfigurationPopup.ItemWrapper)value).getValue();
+          if (config instanceof RunnerAndConfigurationSettings) {
+            return new Navigatable() {
+              @Override
+              public void navigate(boolean requestFocus) {
+                Executor executor = findExecutor((RunnerAndConfigurationSettings)config);
+                RunDialog.editConfiguration(project, (RunnerAndConfigurationSettings)config, "Edit Configuration", executor);
+              }
 
-                @Override
-                public boolean canNavigate() {
-                  return true;
-                }
+              @Override
+              public boolean canNavigate() {
+                return true;
+              }
 
-                @Override
-                public boolean canNavigateToSource() {
-                  return true;
-                }
-              };
-            }
+              @Override
+              public boolean canNavigateToSource() {
+                return true;
+              }
+            };
           }
         }
-        if (PlatformDataKeys.SEARCH_INPUT_TEXT.is(dataId)) {
-          return myPopupField == null ? null : myPopupField.getText();
-        }
-        return null;
       }
+      if (PlatformDataKeys.SEARCH_INPUT_TEXT.is(dataId)) {
+        return myPopupField == null ? null : myPopupField.getText();
+      }
+      return null;
     });
   }
 
   private void initSearchActions(JBPopup balloon, MySearchTextField searchTextField) {
     final JTextField editor = searchTextField.getTextEditor();
-    new DumbAwareAction(){
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        jumpNextGroup(true);
+    DumbAwareAction.create(e -> jumpNextGroup(true))
+      .registerCustomShortcutSet(CustomShortcutSet.fromString("TAB"), editor, balloon);
+    DumbAwareAction.create(e -> jumpNextGroup(false))
+      .registerCustomShortcutSet(CustomShortcutSet.fromString("shift TAB"), editor, balloon);
+    AnAction escape = ActionManager.getInstance().getAction("EditorEscape");
+    DumbAwareAction.create(e -> {
+      if (myBalloon != null && myBalloon.isVisible()) {
+        myBalloon.cancel();
       }
-    }.registerCustomShortcutSet(CustomShortcutSet.fromString("TAB"), editor, balloon);
-    new DumbAwareAction(){
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        jumpNextGroup(false);
+      if (myPopup != null && myPopup.isVisible()) {
+        myPopup.cancel();
       }
-    }.registerCustomShortcutSet(CustomShortcutSet.fromString("shift TAB"), editor, balloon);
-    final AnAction escape = ActionManager.getInstance().getAction("EditorEscape");
-    new DumbAwareAction(){
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        if (myBalloon != null && myBalloon.isVisible()) {
-          myBalloon.cancel();
-        }
-        if (myPopup != null && myPopup.isVisible()) {
-          myPopup.cancel();
-        }
+    }).registerCustomShortcutSet(escape == null ? CommonShortcuts.ESCAPE : escape.getShortcutSet(), editor, balloon);
+    DumbAwareAction.create(e -> {
+      int index = myList.getSelectedIndex();
+      if (index != -1) {
+        doNavigate(index);
       }
-    }.registerCustomShortcutSet(escape == null ? CommonShortcuts.ESCAPE : escape.getShortcutSet(), editor, balloon);
-    new DumbAwareAction(){
+    }).registerCustomShortcutSet(CustomShortcutSet.fromString("ENTER", "shift ENTER"), editor, balloon);
+    new DumbAwareAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
-        final int index = myList.getSelectedIndex();
-        if (index != -1) {
-          doNavigate(index);
-        }
-      }
-    }.registerCustomShortcutSet(CustomShortcutSet.fromString("ENTER", "shift ENTER"), editor, balloon);
-    new DumbAwareAction(){
-      @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         final PropertiesComponent storage = PropertiesComponent.getInstance(e.getProject());
         final String[] values = storage.getValues(SE_HISTORY_KEY);
         if (values != null) {
@@ -950,21 +959,22 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       }
 
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         e.getPresentation().setEnabled(editor.getCaretPosition() == 0);
       }
     }.registerCustomShortcutSet(CustomShortcutSet.fromString("LEFT"), editor, balloon);
   }
 
   private static class MySearchTextField extends SearchTextField implements DataProvider, Disposable {
-    public MySearchTextField() {
-      super(false);
+    MySearchTextField() {
+      super(false, "SearchEveryWhereHistory");
       JTextField editor = getTextEditor();
       editor.setOpaque(false);
-      if (SystemInfo.isMac && UIUtil.isUnderIntelliJLaF()) {
+      editor.putClientProperty(SearchEverywhereUI.SEARCH_EVERYWHERE_SEARCH_FILED_KEY, true);
+      if (UIUtil.isUnderDefaultMacTheme()) {
         editor.setUI((MacIntelliJTextFieldUI)MacIntelliJTextFieldUI.createUI(editor));
         editor.setBorder(new MacIntelliJTextBorder());
-      } else {
+      } else if (!UIUtil.isUnderWin10LookAndFeel()){
         editor.setUI((DarculaTextFieldUI)DarculaTextFieldUI.createUI(editor));
         editor.setBorder(new DarculaTextBorder());
       }
@@ -977,22 +987,12 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
 
     @Override
-    protected boolean isSearchControlUISupported() {
-      return true;
-    }
-
-    @Override
-    protected boolean hasIconsOutsideOfTextField() {
-      return false;
-    }
-
-    @Override
     protected void showPopup() {
     }
 
     @Nullable
     @Override
-    public Object getData(@NonNls String dataId) {
+    public Object getData(@NotNull @NonNls String dataId) {
       if (PlatformDataKeys.PREDEFINED_TEXT.is(dataId)) {
         return getTextEditor().getText();
       }
@@ -1004,7 +1004,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
   }
 
-  private class MyListRenderer extends ColoredListCellRenderer {
+  private class MyListRenderer extends ColoredListCellRenderer<Object> {
     ColoredListCellRenderer myLocation = new ColoredListCellRenderer() {
       @Override
       protected void customizeCellRenderer(@NotNull JList list, Object value, int index, boolean selected, boolean hasFocus) {
@@ -1020,8 +1020,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     private String myLocationString;
     private Icon myLocationIcon;
     private Project myProject;
-    private MyAccessibleComponent myMainPanel = new MyAccessibleComponent(new BorderLayout());
-    private JLabel myTitle = new JLabel();
+    private final MyAccessibleComponent myMainPanel = new MyAccessibleComponent(new BorderLayout());
+    private final JLabel myTitle = new JLabel();
 
     MyListRenderer(@NotNull JBList myList) {
       assert myList == SearchEverywhereAction.this.myList;
@@ -1029,8 +1029,9 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     private class MyAccessibleComponent extends JPanel {
       private Accessible myAccessible;
-      public MyAccessibleComponent(LayoutManager layout) {
+      MyAccessibleComponent(LayoutManager layout) {
         super(layout);
+        setOpaque(false);
       }
       void setAccessible(Accessible comp) {
         myAccessible = comp;
@@ -1066,12 +1067,13 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       }
 
       if (cmp == null) {
-        cmp = tryFileRenderer(matcher, list, value, index, isSelected, cellHasFocus);
+        cmp = tryFileRenderer(matcher, list, value, index, isSelected);
       }
 
       if (cmp == null) {
         if (value instanceof GotoActionModel.ActionWrapper) {
           cmp = myActionsRenderer.getListCellRendererComponent(list, new GotoActionModel.MatchedValue(((GotoActionModel.ActionWrapper)value), pattern), index, isSelected, isSelected);
+          if (cmp instanceof JComponent) ((JComponent)cmp).setBorder(null);
         } else {
           cmp = super.getListCellRendererComponent(list, value, index, isSelected, isSelected);
           final JPanel p = new JPanel(new BorderLayout());
@@ -1102,14 +1104,17 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         cmp.setBackground(UIUtil.getListBackground(isSelected));
         bg = cmp.getBackground();
       }
-      myMainPanel.setBorder(new CustomLineBorder(bg, 0, 0, 2, 0));
       String title = getModel().titleIndex.getTitle(index);
       myMainPanel.removeAll();
       if (title != null) {
         myTitle.setText(title);
         myMainPanel.add(createTitle(" " + title), BorderLayout.NORTH);
       }
-      myMainPanel.add(cmp, BorderLayout.CENTER);
+      JPanel wrapped = new JPanel(new BorderLayout());
+      wrapped.setBackground(bg);
+      wrapped.setBorder(RENDERER_BORDER);
+      wrapped.add(cmp, BorderLayout.CENTER);
+      myMainPanel.add(wrapped, BorderLayout.CENTER);
       if (cmp instanceof Accessible) {
         myMainPanel.setAccessible((Accessible)cmp);
       }
@@ -1122,9 +1127,9 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
 
     @Nullable
-    private Component tryFileRenderer(Matcher matcher, JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-      if (value instanceof VirtualFile && myProject != null) {
-        value = ((VirtualFile)value).isDirectory() ? PsiManager.getInstance(myProject).findDirectory((VirtualFile)value) : PsiManager.getInstance(myProject).findFile((VirtualFile)value);
+    private Component tryFileRenderer(Matcher matcher, JList list, Object value, int index, boolean isSelected) {
+      if (myProject != null && value instanceof VirtualFile) {
+        value = PsiUtilCore.findFileSystemItem(myProject, (VirtualFile)value);
       }
 
       if (value instanceof PsiElement) {
@@ -1216,13 +1221,14 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           }
           append(text, attrs);
           final String id = ((OptionDescription)value).getConfigurableId();
-          final String name1 = myConfigurables.get(id);
-          if (name1 != null) {
-            setLocationString(name1);
+          String location = myConfigurables.get(id);
+          if (location == null) location = ((OptionDescription)value).getValue();
+          if (location != null) {
+            setLocationString(location);
           }
         }
         else if (value instanceof OptionsTopHitProvider) {
-          append("#" + ((OptionsTopHitProvider)value).getId());
+          append(SearchTopHitProvider.getTopHitAccelerator() + ((OptionsTopHitProvider)value).getId());
         }
         else {
           ItemPresentation presentation = null;
@@ -1269,7 +1275,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     if (hit == null) {
       hit = value.getOption();
     }
-    hit = StringUtil.unescapeXml(hit);
+    hit = StringUtil.unescapeXmlEntities(hit);
     if (hit.length() > 60) {
       hit = hit.substring(0, 60) + "...";
     }
@@ -1301,7 +1307,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
   enum WidgetID {CLASSES, FILES, ACTIONS, SETTINGS, SYMBOLS, RUN_CONFIGURATIONS}
 
-  @SuppressWarnings({"SSBasedInspection", "unchecked"})
+  @SuppressWarnings({"SSBasedInspection", "Duplicates"})
   private class CalcThread implements Runnable {
     private final Project project;
     private final String pattern;
@@ -1312,7 +1318,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     private final ArrayList<AnAction> myAlreadyAddedActions = new ArrayList<>();
 
 
-    public CalcThread(Project project, String pattern, boolean reuseModel) {
+    CalcThread(Project project, @NotNull String pattern, boolean reuseModel) {
       this.project = project;
       this.pattern = pattern;
       myListModel = reuseModel ? (SearchListModel)myList.getModel() : new SearchListModel();
@@ -1329,7 +1335,6 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           myList.getEmptyText().setText("Searching...");
 
           if (myList.getModel() instanceof SearchListModel) {
-            //noinspection unchecked
             myAlarm.cancelAllRequests();
             myAlarm.addRequest(() -> {
               if (!myDone.isRejected()) {
@@ -1351,7 +1356,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         checkModelsUpToDate();              check();
         buildTopHit(pattern);               check();
 
-        if (!pattern.startsWith("#")) {
+        if (!pattern.startsWith(SearchTopHitProvider.getTopHitAccelerator())) {
           buildRecentFiles(pattern);
           check();
           runReadAction(() -> buildStructure(pattern), true);
@@ -1362,6 +1367,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           updatePopup();
           check();
 
+          checkModelsUpToDate();
           runReadAction(() -> buildRunConfigurations(pattern), true);
           runReadAction(() -> buildClasses(pattern), true);
           runReadAction(() -> buildFiles(pattern), false);
@@ -1395,7 +1401,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     private void runReadAction(Runnable action, boolean checkDumb) {
       if (!checkDumb || !DumbService.getInstance(project).isDumb()) {
-        ApplicationManager.getApplication().runReadAction(action);
+        ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(action, myProgressIndicator);
         updatePopup();
       }
     }
@@ -1404,6 +1410,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       myProgressIndicator.checkCanceled();
       if (myDone.isRejected()) throw new ProcessCanceledException();
       if (myBalloon == null || myBalloon.isDisposed()) throw new ProcessCanceledException();
+      assert myCalcThread == this : "There are two CalcThreads running before one of them was cancelled";
     }
 
     private synchronized void buildToolWindows(String pattern) {
@@ -1446,7 +1453,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         myActionProvider = createActionProvider();
       }
 
-      myActionProvider.filterElements(pattern, true, matched -> {
+      myActionProvider.filterElements(pattern, matched -> {
         check();
         Object object = matched.value;
         if (myListModel.contains(object)) return true;
@@ -1532,7 +1539,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       }
     }
 
-    private void fillStructure(StructureViewTreeElement element, List<StructureViewTreeElement> elements, Matcher matcher) {
+    private void fillStructure(StructureViewTreeElement element, List<? super StructureViewTreeElement> elements, Matcher matcher) {
       final TreeElement[] children = element.getChildren();
       check();
       for (TreeElement child : children) {
@@ -1566,13 +1573,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     @Nullable
     private ChooseRunConfigurationPopup.ItemWrapper getRunConfigurationByName(String name) {
-      final ChooseRunConfigurationPopup.ItemWrapper[] wrappers =
-        ChooseRunConfigurationPopup.createSettingsList(project, new ExecutorProvider() {
-          @Override
-          public Executor getExecutor() {
-            return ExecutorRegistry.getInstance().getExecutorById(ToolWindowId.DEBUG);
-          }
-        }, false);
+      final List<ChooseRunConfigurationPopup.ItemWrapper> wrappers =
+        ChooseRunConfigurationPopup.createSettingsList(project, () -> ExecutorRegistry.getInstance().getExecutorById(ToolWindowId.DEBUG), false);
 
       for (ChooseRunConfigurationPopup.ItemWrapper wrapper : wrappers) {
         if (wrapper.getText().equals(name)) {
@@ -1603,13 +1605,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         return configurations;
       }
       final MinusculeMatcher matcher = NameUtil.buildMatcher(pattern).build();
-      final ChooseRunConfigurationPopup.ItemWrapper[] wrappers =
-        ChooseRunConfigurationPopup.createSettingsList(project, new ExecutorProvider() {
-          @Override
-          public Executor getExecutor() {
-            return ExecutorRegistry.getInstance().getExecutorById(ToolWindowId.DEBUG);
-          }
-        }, false);
+      final List<ChooseRunConfigurationPopup.ItemWrapper> wrappers =
+        ChooseRunConfigurationPopup.createSettingsList(project, () -> ExecutorRegistry.getInstance().getExecutorById(ToolWindowId.DEBUG), false);
       check();
       for (ChooseRunConfigurationPopup.ItemWrapper wrapper : wrappers) {
         if (matcher.matches(wrapper.getText()) && !myListModel.contains(wrapper)) {
@@ -1645,12 +1642,19 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       }
     }
 
+    @NotNull
+    private GlobalSearchScope getProjectScope(@NotNull Project project) {
+      final GlobalSearchScope scope = SearchEverywhereClassifier.EP_Manager.getProjectScope(project);
+      if (scope != null) return scope;
+      return GlobalSearchScope.projectScope(project);
+    }
+
     private SearchResult getSymbols(String pattern, final int max, final boolean includeLibs, ChooseByNamePopup chooseByNamePopup) {
       final SearchResult symbols = new SearchResult();
       if (!Registry.is("search.everywhere.symbols") || shouldSkipPattern(pattern)) {
         return symbols;
       }
-      final GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+      final GlobalSearchScope scope = getProjectScope(project);
       if (chooseByNamePopup == null) return symbols;
       final ChooseByNameItemProvider provider = chooseByNamePopup.getProvider();
       provider.filterElements(chooseByNamePopup, pattern, includeLibs,
@@ -1667,7 +1671,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
                                   //some elements are non-physical like DB columns
                                   boolean isElementWithoutFile = element != null && element.getContainingFile() == null;
                                   boolean isFileInScope = virtualFile != null && (includeLibs || scope.accept(virtualFile));
-                                  if (isElementWithoutFile || isFileInScope) {
+                                  boolean isSpecialElement = element == null && virtualFile == null; //all Rider elements don't have any psi elements within
+                                  if (isElementWithoutFile || isFileInScope || isSpecialElement) {
                                     symbols.add(o);
                                   }
                                 }
@@ -1727,7 +1732,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       if (chooseByNamePopup == null || !Registry.is("search.everywhere.files")) {
         return files;
       }
-      final GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+      final GlobalSearchScope scope = getProjectScope(project);
       chooseByNamePopup.getProvider().filterElements(chooseByNamePopup, pattern, true,
                                                      myProgressIndicator, o -> {
                                                        VirtualFile file = null;
@@ -1763,7 +1768,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       final MinusculeMatcher matcher = NameUtil.buildMatcher("*" + pattern).build();
       final ArrayList<VirtualFile> files = new ArrayList<>();
       final List<VirtualFile> selected = Arrays.asList(FileEditorManager.getInstance(project).getSelectedFiles());
-      for (VirtualFile file : ArrayUtil.reverseArray(EditorHistoryManager.getInstance(project).getFiles())) {
+      for (VirtualFile file : ContainerUtil.reverse(EditorHistoryManager.getInstance(project).getFileList())) {
         if (StringUtil.isEmptyOrSpaces(pattern) || matcher.matches(file.getName())) {
           if (!files.contains(file) && !selected.contains(file)) {
             files.add(file);
@@ -1790,7 +1795,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
       return myProgressIndicator.isCanceled() || myDone.isRejected();
     }
 
-    private synchronized void buildTopHit(String pattern) {
+    private synchronized void buildTopHit(@NotNull String pattern) {
       final List<Object> elements = new ArrayList<>();
       final HistoryItem history = myHistoryItem;
       if (history != null) {
@@ -1852,7 +1857,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           }
         }
       }
-      final Consumer<Object> consumer = o -> {
+      final java.util.function.Consumer<Object> consumer = o -> {
         if (isSetting(o) || isVirtualFile(o) || isActionValue(o) || o instanceof PsiElement || o instanceof OptionsTopHitProvider) {
           if (o instanceof AnAction && myAlreadyAddedActions.contains(o)) {
             return;
@@ -1861,7 +1866,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         }
       };
 
-      if (pattern.startsWith("#") && !pattern.contains(" ")) {
+      if (pattern.startsWith(SearchTopHitProvider.getTopHitAccelerator()) && !pattern.contains(" ")) {
         String id = pattern.substring(1);
         final HashSet<String> ids = new HashSet<>();
         for (SearchTopHitProvider provider : SearchTopHitProvider.EP_NAME.getExtensions()) {
@@ -1869,7 +1874,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           if (provider instanceof OptionsTopHitProvider) {
             final String providerId = ((OptionsTopHitProvider)provider).getId();
             if (!ids.contains(providerId) && StringUtil.startsWithIgnoreCase(providerId, id)) {
-              consumer.consume(provider);
+              consumer.accept(provider);
               ids.add(providerId);
             }
           }
@@ -1878,14 +1883,11 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         final ActionManager actionManager = ActionManager.getInstance();
         final List<String> actions = AbbreviationManager.getInstance().findActions(pattern);
         for (String actionId : actions) {
-          consumer.consume(actionManager.getAction(actionId));
+          consumer.accept(actionManager.getAction(actionId));
         }
 
         for (SearchTopHitProvider provider : SearchTopHitProvider.EP_NAME.getExtensions()) {
           check();
-          if (provider instanceof OptionsTopHitProvider && !((OptionsTopHitProvider)provider).isEnabled(project)) {
-            continue;
-          }
           provider.consumeTopHits(pattern, consumer, project);
         }
       }
@@ -1893,7 +1895,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         SwingUtilities.invokeLater(() -> {
           if (isCanceled()) return;
 
-          for (Object element : new ArrayList(elements)) {
+          for (Object element : new ArrayList<>(elements)) {
             if (element instanceof AnAction) {
               if (!isEnabled((AnAction)element)) {
                 elements.remove(element);
@@ -1911,16 +1913,21 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
 
     protected boolean isEnabled(final AnAction action) {
-      if (myDisabledActions.contains(action)) return false;
-      final AnActionEvent e = new AnActionEvent(myActionEvent.getInputEvent(),
-                                                myActionEvent.getDataContext(),
-                                                myActionEvent.getPlace(),
-                                                action.getTemplatePresentation().clone(),
-                                                myActionEvent.getActionManager(),
-                                                myActionEvent.getModifiers());
+      AnActionEvent event = myActionEvent;
+      if (myDisabledActions.contains(action) || event == null) return false;
 
-      ApplicationManager.getApplication().invokeAndWait(() -> ActionUtil.performDumbAwareUpdate(action, e, false), ModalityState.NON_MODAL);
-      final Presentation presentation = e.getPresentation();
+      AtomicReference<Presentation> presentationReference= new AtomicReference<>();
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        AnActionEvent e = new AnActionEvent(event.getInputEvent(),
+                                            DataManager.getInstance().getDataContext(myContextComponent),
+                                            event.getPlace(),
+                                            action.getTemplatePresentation().clone(),
+                                            event.getActionManager(),
+                                            event.getModifiers());
+        ActionUtil.performDumbAwareUpdate(action, e, false);
+        presentationReference.set(e.getPresentation());
+      }, ModalityState.NON_MODAL);
+      final Presentation presentation = presentationReference.get();
       final boolean enabled = presentation.isEnabled() && presentation.isVisible() && !StringUtil.isEmpty(presentation.getText());
       if (!enabled) {
         myDisabledActions.add(action);
@@ -1931,7 +1938,12 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     private synchronized void checkModelsUpToDate() {
       if (myClassModel == null) {
         myClassModel = new GotoClassModel2(project);
-        myFileModel = new GotoFileModel(project);
+        myFileModel = new GotoFileModel(project) {
+          @Override
+          public boolean isSlashlessMatchingEnabled() {
+            return false;
+          }
+        };
         mySymbolsModel = new GotoSymbolModel2(project);
         myFileChooseByName = ChooseByNamePopup.createPopup(project, myFileModel, (PsiElement)null);
         myClassChooseByName = ChooseByNamePopup.createPopup(project, myClassModel, (PsiElement)null);
@@ -1956,7 +1968,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     }
 
     private GotoActionItemProvider createActionProvider() {
-      GotoActionModel model = new GotoActionModel(project, myFocusComponent, myEditor, myFile) {
+      GotoActionModel model = new GotoActionModel(project, myFocusComponent, myEditor) {
         @Override
         protected MatchMode actionMatches(@NotNull String pattern, MinusculeMatcher matcher, @NotNull AnAction anAction) {
           MatchMode mode = super.actionMatches(pattern, matcher, anAction);
@@ -1996,13 +2008,14 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
                   size.height = Math.max(JBUI.scale(30), listSize.height);
                 }
 
-                if (size.width < myBalloon.getSize().width) {
+                if (myBalloon != null && size.width < myBalloon.getSize().width) {
                   size.width = myBalloon.getSize().width;
                 }
 
                 return size;
               }
             };
+            content.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
             content.setMinimumSize(new Dimension(myBalloon.getSize().width, 30));
             final ComponentPopupBuilder builder = JBPopupFactory.getInstance()
               .createComponentPopupBuilder(content, null);
@@ -2028,35 +2041,34 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
               .setShowShadow(false)
               .setShowBorder(false)
               .createPopup();
+            project.putUserData(SEARCH_EVERYWHERE_POPUP, myPopup);
             //myPopup.setMinimumSize(new Dimension(myBalloon.getSize().width, 30));
             myPopup.getContent().setBorder(null);
-            Disposer.register(myPopup, new Disposable() {
-              @Override
-              public void dispose() {
-                ApplicationManager.getApplication().executeOnPooledThread(() -> {
-                  resetFields();
-                  myNonProjectCheckBox.setSelected(false);
-                  //noinspection SSBasedInspection
-                  SwingUtilities.invokeLater(() -> ActionToolbarImpl.updateAllToolbarsImmediately());
-                  if (myActionEvent != null && myActionEvent.getInputEvent() instanceof MouseEvent) {
-                    final Component component = myActionEvent.getInputEvent().getComponent();
-                    if (component != null) {
-                      final JLabel label = UIUtil.getParentOfType(JLabel.class, component);
-                      if (label != null) {
-                        SwingUtilities.invokeLater(() -> label.setIcon(AllIcons.Actions.FindPlain));
-                      }
+            Disposer.register(myPopup, () -> {
+              project.putUserData(SEARCH_EVERYWHERE_POPUP, null);
+              ApplicationManager.getApplication().executeOnPooledThread(() -> {
+                resetFields();
+                myNonProjectCheckBox.setSelected(false);
+                //noinspection SSBasedInspection
+                SwingUtilities.invokeLater(ActionToolbarImpl::updateAllToolbarsImmediately);
+                if (myActionEvent != null && myActionEvent.getInputEvent() instanceof MouseEvent) {
+                  final Component component = myActionEvent.getInputEvent().getComponent();
+                  if (component != null) {
+                    final JLabel label = UIUtil.getParentOfType(JLabel.class, component);
+                    if (label != null) {
+                      SwingUtilities.invokeLater(() -> label.setIcon(AllIcons.Actions.Find));
                     }
                   }
-                  myActionEvent = null;
-                });
-              }
+                }
+                myActionEvent = null;
+              });
             });
             updatePopupBounds();
             myPopup.show(new RelativePoint(getField().getParent(), new Point(0, getField().getParent().getHeight())));
 
-            ActionManager.getInstance().addAnActionListener(new AnActionListener.Adapter() {
+            ApplicationManager.getApplication().getMessageBus().connect(myPopup).subscribe(AnActionListener.TOPIC, new AnActionListener() {
               @Override
-              public void beforeActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event) {
+              public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
                 if (action instanceof TextComponentEditorAction) {
                   return;
                 }
@@ -2064,7 +2076,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
                   myPopup.cancel();
                 }
               }
-            }, myPopup);
+            });
           }
           else {
             myList.revalidate();
@@ -2080,59 +2092,60 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     public ActionCallback cancel() {
       myProgressIndicator.cancel();
-      myDone.setRejected();
+      //myDone.setRejected();
       return myDone;
     }
 
     public ActionCallback insert(final int index, final WidgetID id) {
-       ApplicationManager.getApplication().executeOnPooledThread(() -> runReadAction(() -> {
+       ApplicationManager.getApplication().executeOnPooledThread(() -> {
          try {
-           final SearchResult result
-             = id == WidgetID.CLASSES ? getClasses(pattern, showAll.get(), DEFAULT_MORE_STEP_COUNT, myClassChooseByName)
-             : id == WidgetID.FILES ? getFiles(pattern, showAll.get(), DEFAULT_MORE_STEP_COUNT, myFileChooseByName)
-             : id == WidgetID.RUN_CONFIGURATIONS ? getConfigurations(pattern, DEFAULT_MORE_STEP_COUNT)
-             : id == WidgetID.SYMBOLS ? getSymbols(pattern, DEFAULT_MORE_STEP_COUNT, showAll.get(), mySymbolsChooseByName)
-             : id == WidgetID.ACTIONS ? getActionsOrSettings(pattern, DEFAULT_MORE_STEP_COUNT, true)
-             : id == WidgetID.SETTINGS ? getActionsOrSettings(pattern, DEFAULT_MORE_STEP_COUNT, false)
-             : new SearchResult();
+           runReadAction(() -> {
+             final SearchResult result
+               = id == WidgetID.CLASSES ? getClasses(pattern, showAll.get(), DEFAULT_MORE_STEP_COUNT, myClassChooseByName)
+               : id == WidgetID.FILES ? getFiles(pattern, showAll.get(), DEFAULT_MORE_STEP_COUNT, myFileChooseByName)
+               : id == WidgetID.RUN_CONFIGURATIONS ? getConfigurations(pattern, DEFAULT_MORE_STEP_COUNT)
+               : id == WidgetID.SYMBOLS ? getSymbols(pattern, DEFAULT_MORE_STEP_COUNT, showAll.get(), mySymbolsChooseByName)
+               : id == WidgetID.ACTIONS ? getActionsOrSettings(pattern, DEFAULT_MORE_STEP_COUNT, true)
+               : id == WidgetID.SETTINGS ? getActionsOrSettings(pattern, DEFAULT_MORE_STEP_COUNT, false)
+               : new SearchResult();
 
-           check();
-           SwingUtilities.invokeLater(() -> {
-             try {
-               int shift = 0;
-               int i = index+1;
-               for (Object o : result) {
-                 //noinspection unchecked
-                 myListModel.insertElementAt(o, i);
-                 shift++;
-                 i++;
-               }
-               MoreIndex moreIndex = myListModel.moreIndex;
-               myListModel.titleIndex.shift(index, shift);
-               moreIndex.shift(index, shift);
-
-               if (!result.needMore) {
-                 switch (id) {
-                   case CLASSES: moreIndex.classes = -1; break;
-                   case FILES: moreIndex.files = -1; break;
-                   case ACTIONS: moreIndex.actions = -1; break;
-                   case SETTINGS: moreIndex.settings = -1; break;
-                   case SYMBOLS: moreIndex.symbols = -1; break;
-                   case RUN_CONFIGURATIONS: moreIndex.runConfigurations = -1; break;
+             check();
+             SwingUtilities.invokeLater(() -> {
+               try {
+                 int shift = 0;
+                 int i = index+1;
+                 for (Object o : result) {
+                   myListModel.insertElementAt(o, i);
+                   shift++;
+                   i++;
                  }
+                 MoreIndex moreIndex = myListModel.moreIndex;
+                 myListModel.titleIndex.shift(index, shift);
+                 moreIndex.shift(index, shift);
+
+                 if (!result.needMore) {
+                   switch (id) {
+                     case CLASSES: moreIndex.classes = -1; break;
+                     case FILES: moreIndex.files = -1; break;
+                     case ACTIONS: moreIndex.actions = -1; break;
+                     case SETTINGS: moreIndex.settings = -1; break;
+                     case SYMBOLS: moreIndex.symbols = -1; break;
+                     case RUN_CONFIGURATIONS: moreIndex.runConfigurations = -1; break;
+                   }
+                 }
+                 ScrollingUtil.selectItem(myList, index);
+                 myDone.setDone();
                }
-               ScrollingUtil.selectItem(myList, index);
-               myDone.setDone();
-             }
-             catch (Exception e) {
-               myDone.setRejected();
-             }
-           });
+               catch (Exception e) {
+                 myDone.setRejected();
+               }
+             });
+           }, true);
          }
          catch (Exception e) {
            myDone.setRejected();
          }
-       }, true));
+       });
       return myDone;
     }
 
@@ -2150,7 +2163,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     if (myBalloon != null) {
       final JBPopup balloonToBeCanceled = myBalloon;
       //noinspection SSBasedInspection
-      SwingUtilities.invokeLater(() -> balloonToBeCanceled.cancel());
+      SwingUtilities.invokeLater(balloonToBeCanceled::cancel);
       myBalloon = null;
     }
     myCurrentWorker.doWhenProcessed(() -> {
@@ -2181,8 +2194,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
           myPopup = null;
           myHistoryIndex = 0;
           myPopupActualWidth = 0;
-          myCurrentWorker = ActionCallback.DONE;
           showAll.set(false);
+          myCurrentWorker = myCalcThread.cancel();
           myCalcThread = null;
           myEditor = null;
           myFileEditor = null;
@@ -2215,12 +2228,11 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         final int extraHeight = pane.getHorizontalScrollBar().getHeight() + 1;
         sz = new Dimension(Math.min(getPopupMaxWidth(), Math.max(getField().getWidth(), sz.width + extraWidth)), Math.min(getPopupMaxWidth(), sz.height + extraHeight));
         sz.width += 20;
-        sz.height+=2;
       } else {
-        sz.width+=2;
-        sz.height+=2;
+        sz.width += 2;
       }
     }
+    sz.height += 2;
     sz.width = Math.max(sz.width, myPopup.getSize().width);
     myPopup.setSize(sz);
     if (myActionEvent != null && myActionEvent.getInputEvent() == null) {
@@ -2284,7 +2296,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
            && ((GotoActionModel.ActionWrapper)o).getAction() instanceof ActivateToolWindowAction;
   }
 
-  private void fillConfigurablesIds(String pathToParent, Configurable[] configurables) {
+  private void fillConfigurablesIds(String pathToParent, @NotNull List<Configurable> configurables) {
     for (Configurable configurable : configurables) {
       if (configurable instanceof SearchableConfigurable) {
         final String id = ((SearchableConfigurable)configurable).getId();
@@ -2294,7 +2306,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
         }
         myConfigurables.put(id, name);
         if (configurable instanceof SearchableConfigurable.Parent) {
-          fillConfigurablesIds(name, ((SearchableConfigurable.Parent)configurable).getConfigurables());
+          fillConfigurablesIds(name, Arrays.asList(((SearchableConfigurable.Parent)configurable).getConfigurables()));
         }
       }
     }
@@ -2344,7 +2356,8 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
 
     TitleIndex() {
       String gotoClass = KeymapUtil.getFirstKeyboardShortcutText(ActionManager.getInstance().getAction("GotoClass"));
-      gotoClassTitle = StringUtil.isEmpty(gotoClass) ? "Classes" : "Classes (" + gotoClass + ")";
+      String classesStr = StringUtil.capitalize(StringUtil.join(GotoClassPresentationUpdater.getElementKinds(), StringUtil::pluralize, "/"));
+      gotoClassTitle = StringUtil.isEmpty(gotoClass) ? classesStr : classesStr + " (" + gotoClass + ")";
       String gotoFile = KeymapUtil.getFirstKeyboardShortcutText(ActionManager.getInstance().getAction("GotoFile"));
       gotoFileTitle = StringUtil.isEmpty(gotoFile) ? "Files" : "Files (" + gotoFile + ")";
       String gotoAction = KeymapUtil.getFirstKeyboardShortcutText(ActionManager.getInstance().getAction("GotoAction"));
@@ -2407,7 +2420,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
   }
 
   @SuppressWarnings("unchecked")
-  private static class SearchListModel extends DefaultListModel {
+  private static class SearchListModel extends DefaultListModel<Object> {
     @SuppressWarnings("UseOfObsoleteCollectionType")
     Vector myDelegate;
 
@@ -2497,6 +2510,7 @@ public class SearchEverywhereAction extends AnAction implements CustomComponentA
     return JBUI.Panels.simplePanel(5, 10)
       .addToCenter(separatorComponent)
       .addToLeft(titleLabel)
+      .withBorder(RENDERER_TITLE_BORDER)
       .withBackground(UIUtil.getListBackground());
   }
 

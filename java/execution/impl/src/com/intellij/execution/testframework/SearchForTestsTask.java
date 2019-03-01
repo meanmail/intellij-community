@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.testframework;
 
+import com.intellij.concurrency.SensitiveProgressWrapper;
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.process.OSProcessHandler;
@@ -27,6 +14,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.impl.BackgroundableProcessIndicator;
+import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
@@ -36,12 +24,13 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public abstract class SearchForTestsTask extends Task.Backgroundable {
 
-  private static final Logger LOG = Logger.getInstance("#" + SearchForTestsTask.class.getName());
+  private static final Logger LOG = Logger.getInstance(SearchForTestsTask.class);
   protected Socket mySocket;
-  private ServerSocket myServerSocket;
+  private final ServerSocket myServerSocket;
   private ProgressIndicator myProcessIndicator;
 
   public SearchForTestsTask(@Nullable final Project project,
@@ -52,7 +41,7 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
 
 
   protected abstract void search() throws ExecutionException;
-  protected abstract void onFound();
+  protected abstract void onFound() throws ExecutionException;
 
   public void ensureFinished() {
     if (myProcessIndicator != null && !myProcessIndicator.isCanceled()) {
@@ -68,7 +57,12 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
       catch (Throwable e) {
         LOG.error(e);
       }
-      onFound();
+      try {
+        onFound();
+      }
+      catch (ExecutionException e) {
+        LOG.error(e);
+      }
     }
     else {
       myProcessIndicator = new BackgroundableProcessIndicator(this);
@@ -79,13 +73,13 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
   public void attachTaskToProcess(final OSProcessHandler handler) {
     handler.addProcessListener(new ProcessAdapter() {
       @Override
-      public void processTerminated(final ProcessEvent event) {
+      public void processTerminated(@NotNull final ProcessEvent event) {
         handler.removeProcessListener(this);
         ensureFinished();
       }
 
       @Override
-      public void startNotified(final ProcessEvent event) {
+      public void startNotified(@NotNull final ProcessEvent event) {
         startSearch();
       }
     });
@@ -96,14 +90,17 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
     try {
       mySocket = myServerSocket.accept();
       final ExecutionException[] ex = new ExecutionException[1];
-      DumbService.getInstance(getProject()).repeatUntilPassesInSmartMode(() -> {
-        try {
-          search();
-        }
-        catch (ExecutionException e) {
-          ex[0] = e;
-        }
-      });
+      Runnable runnable = () ->
+        DumbService.getInstance(myProject).withAlternativeResolveEnabled(() -> {
+          try {
+            search();
+          }
+          catch (ExecutionException e) {
+            ex[0] = e;
+          }
+        });
+      //noinspection StatementWithEmptyBody
+      while (!runSmartModeReadActionWithWritePriority(runnable, new SensitiveProgressWrapper(indicator)));
       if (ex[0] != null) {
         logCantRunException(ex[0]);
       }
@@ -119,6 +116,35 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
     }
   }
 
+  /**
+   * @return true if runnable has been executed with no write action interference and in "smart" mode
+   */
+  private boolean runSmartModeReadActionWithWritePriority(@NotNull Runnable runnable, ProgressIndicator indicator) {
+    DumbService dumbService = DumbService.getInstance(myProject);
+
+    indicator.checkCanceled();
+    dumbService.waitForSmartMode();
+
+    AtomicBoolean dumb = new AtomicBoolean();
+    boolean success = ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(() -> {
+      if (myProject.isDisposed()) return;
+
+      if (dumbService.isDumb()) {
+        dumb.set(true);
+        return;
+      }
+
+      runnable.run();
+    }, indicator);
+    if (dumb.get()) {
+      return false;
+    }
+    if (!success) {
+      ProgressIndicatorUtils.yieldToPendingWriteActions();
+    }
+    return success;
+  }
+
   protected void logCantRunException(ExecutionException e) throws ExecutionException {
     throw e;
   }
@@ -130,10 +156,16 @@ public abstract class SearchForTestsTask extends Task.Backgroundable {
 
   @Override
   public void onSuccess() {
-    DumbService.getInstance(getProject()).runWhenSmart(() -> {
-      onFound();
+    Runnable runnable = () -> {
+      try {
+        onFound();
+      }
+      catch (ExecutionException e) {
+        LOG.error(e);
+      }
       finish();
-    });
+    };
+    DumbService.getInstance(getProject()).runWhenSmart(runnable);
   }
 
   public void finish() {

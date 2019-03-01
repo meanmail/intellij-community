@@ -15,7 +15,10 @@
  */
 package com.siyeh.ipp.trivialif;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiIfStatement;
+import com.intellij.psi.PsiJavaToken;
+import com.intellij.psi.PsiStatement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
@@ -24,6 +27,7 @@ import com.siyeh.ipp.psiutils.ErrorUtil;
 
 class MergeIfOrPredicate implements PsiElementPredicate {
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     return isMergableExplicitIf(element) || isMergableImplicitIf(element);
   }
@@ -79,7 +83,7 @@ class MergeIfOrPredicate implements PsiElementPredicate {
     if (ControlFlowUtils.statementMayCompleteNormally(thenBranch)) {
       return false;
     }
-    final PsiElement nextStatement = PsiTreeUtil.skipSiblingsForward(ifStatement, PsiWhiteSpace.class);
+    final PsiElement nextStatement = PsiTreeUtil.skipWhitespacesForward(ifStatement);
     if (!(nextStatement instanceof PsiIfStatement)) {
       return false;
     }

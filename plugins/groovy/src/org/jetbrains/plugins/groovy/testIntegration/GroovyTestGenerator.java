@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.testIntegration;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.CodeInsightUtil;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Editor;
@@ -58,8 +43,7 @@ public class GroovyTestGenerator implements TestGenerator {
   @Nullable
   @Override
   public PsiElement generateTest(final Project project, final CreateTestDialog d) {
-    AccessToken accessToken = WriteAction.start();
-    try {
+    return WriteAction.compute(() -> {
       final PsiClass test = (PsiClass)PostprocessReformattingAspect.getInstance(project).postponeFormattingInside(
         (Computable<PsiElement>)() -> {
           try {
@@ -93,10 +77,7 @@ public class GroovyTestGenerator implements TestGenerator {
       JavaCodeStyleManager.getInstance(test.getProject()).shortenClassReferences(test);
       CodeStyleManager.getInstance(project).reformat(test);
       return test;
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   @Override
@@ -116,7 +97,7 @@ public class GroovyTestGenerator implements TestGenerator {
       superClassRef = factory.createCodeReferenceElementFromClass(superClass);
     }
     else {
-      superClassRef = factory.createCodeReferenceElementFromText(superClassName);
+      superClassRef = factory.createCodeReference(superClassName);
     }
     GrExtendsClause extendsClause = targetClass.getExtendsClause();
     if (extendsClause == null) {
@@ -135,7 +116,7 @@ public class GroovyTestGenerator implements TestGenerator {
   private static void addTestMethods(Editor editor,
                                      PsiClass targetClass,
                                      TestFramework descriptor,
-                                     Collection<MemberInfo> methods,
+                                     Collection<? extends MemberInfo> methods,
                                      boolean generateBefore,
                                      boolean generateAfter) throws IncorrectOperationException {
     final HashSet<String> existingNames = new HashSet<>();
@@ -160,7 +141,7 @@ public class GroovyTestGenerator implements TestGenerator {
                                      TestFramework descriptor,
                                      PsiClass targetClass,
                                      Editor editor,
-                                     @Nullable String name, Set<String> existingNames) {
+                                     @Nullable String name, Set<? super String> existingNames) {
     GroovyPsiElementFactory f = GroovyPsiElementFactory.getInstance(targetClass.getProject());
     PsiMethod method = (PsiMethod)targetClass.add(f.createMethod("dummy", PsiType.VOID));
     PsiDocumentManager.getInstance(targetClass.getProject()).doPostponedOperationsAndUnblockDocument(editor.getDocument());

@@ -1,19 +1,6 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
-
 package com.intellij.diagnostic.logging;
 
 import com.intellij.execution.process.ProcessOutputTypes;
@@ -28,22 +15,20 @@ import com.intellij.openapi.util.DefaultJDOMExternalizer;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.SortedMap;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * User: anna
- * Date: 06-Feb-2006
- */
 @State(name = "LogFilters", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
-@SuppressWarnings({"AssignmentToStaticFieldFromInstanceMethod"})
 public class LogConsolePreferences extends LogFilterRegistrar {
   private final SortedMap<LogFilter, Boolean> myRegisteredLogFilters = new TreeMap<>((o1, o2) -> -1);
   @NonNls private static final String FILTER = "filter";
@@ -62,16 +47,59 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   @NonNls public static final String DEBUG = "DEBUG";
   @NonNls public static final String CUSTOM = "CUSTOM";
 
-  public final static Pattern ERROR_PATTERN = Pattern.compile(".*(" + ERROR + "|FATAL).*");
-  public final static Pattern WARNING_PATTERN = Pattern.compile(".*" + WARNING + ".*");
-  public final static Pattern WARN_PATTERN = Pattern.compile(".*" + WARN + ".*");
-  public final static Pattern INFO_PATTERN = Pattern.compile(".*" + INFO + ".*");
-  public static final Pattern DEBUG_PATTERN = Pattern.compile(".*" + DEBUG + ".*");
+  /**
+   * Set of patterns to assign severity to given message.
+   */
+  private enum LevelPattern {
 
-  @NonNls public final static Pattern EXCEPTION_PATTERN = Pattern.compile(".*at .*");
+    ERROR("ERROR|FATAL", LogConsolePreferences.ERROR),
+    WARNING("WARN", LogConsolePreferences.WARNING), // "|WARNING" omitted since it is covered by "WARN"
+    INFO("INFO", LogConsolePreferences.INFO),
+    DEBUG("DEBUG", LogConsolePreferences.DEBUG);
+
+    private final Pattern myPattern;
+    private final String myType;
+
+    LevelPattern(@NotNull @NonNls String regexp, @NotNull @NonNls String type) {
+      myPattern = Pattern.compile(regexp, Pattern.CASE_INSENSITIVE);
+      myType = type;
+    }
+
+    @NotNull
+    public Pattern getPattern() {
+      return myPattern;
+    }
+
+    @NotNull @NonNls
+    public String getType() {
+      return myType;
+    }
+
+    @Nullable
+    public static LevelPattern findBestMatchingPattern(@NotNull String text) {
+      return findBestMatchingPattern(text, LevelPattern.values());
+    }
+
+    @Nullable
+    public static LevelPattern findBestMatchingPattern(@NotNull String text, @NotNull LevelPattern[] patterns) {
+      int bestStart = Integer.MAX_VALUE;
+      LevelPattern bestMatch = null;
+      for (LevelPattern next : patterns) {
+        Matcher nextMatcher = next.getPattern().matcher(text);
+        if (nextMatcher.find()) {
+          int nextStart = nextMatcher.start();
+          if (nextStart < bestStart) {
+            bestMatch = next;
+            bestStart = nextStart;
+          }
+        }
+      }
+      return bestMatch;
+    }
+  }
 
   private final List<LogFilterListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
-  private static final Logger LOG = Logger.getInstance("#" + LogConsolePreferences.class.getName());
+  private static final Logger LOG = Logger.getInstance(LogConsolePreferences.class);
 
   public static LogConsolePreferences getInstance(Project project) {
     return ServiceManager.getService(project, LogConsolePreferences.class);
@@ -121,12 +149,8 @@ public class LogConsolePreferences extends LogFilterRegistrar {
 
   @Nullable
   public static String getType(@NotNull String text) {
-    String upcased = StringUtil.toUpperCase(text);
-    if (ERROR_PATTERN.matcher(upcased).matches()) return ERROR;
-    if (WARNING_PATTERN.matcher(upcased).matches() || WARN_PATTERN.matcher(upcased).matches()) return WARNING;
-    if (INFO_PATTERN.matcher(upcased).matches()) return INFO;
-    if (DEBUG_PATTERN.matcher(upcased).matches()) return DEBUG;
-    return null;
+    LevelPattern bestMatch = LevelPattern.findBestMatchingPattern(text);
+    return bestMatch == null ? null : bestMatch.getType();
   }
 
   public static Key getProcessOutputTypes(String type) {
@@ -154,7 +178,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   }
 
   @Override
-  public void loadState(final Element object) {
+  public void loadState(@NotNull final Element object) {
     try {
       final List children = object.getChildren(FILTER);
       for (Object child : children) {
@@ -193,7 +217,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
   }
 
   @Override
-  public void setFilterSelected(LogFilter filter, boolean state) {
+  public void setFilterSelected(@NotNull LogFilter filter, boolean state) {
     if (filter instanceof IndependentLogFilter) {
       ((IndependentLogFilter)filter).selectFilter();
     }
@@ -212,7 +236,7 @@ public class LogConsolePreferences extends LogFilterRegistrar {
     }
   }
 
-  private void fireStateChanged(final LogFilter filter) {
+  private void fireStateChanged(@NotNull LogFilter filter) {
     for (LogFilterListener listener : myListeners) {
       listener.onFilterStateChange(filter);
     }

@@ -29,7 +29,6 @@ import org.jetbrains.annotations.Nullable;
  * adjust white space and
  *
  * @author Denis Zhdanov
- * @since Sep 22, 2010 10:19:07 AM
  */
 public abstract class AbstractWhiteSpaceFormattingStrategy implements WhiteSpaceFormattingStrategy {
 
@@ -81,7 +80,7 @@ public abstract class AbstractWhiteSpaceFormattingStrategy implements WhiteSpace
         buffer.append(text);
       }
       else {
-        buffer.append(text.substring(start, end));
+        buffer.append(text, start, end);
       } 
     }
     

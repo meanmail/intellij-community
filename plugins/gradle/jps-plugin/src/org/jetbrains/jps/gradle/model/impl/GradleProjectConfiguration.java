@@ -23,7 +23,6 @@ import java.util.Map;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
 public class GradleProjectConfiguration {
   public static final String CONFIGURATION_FILE_RELATIVE_PATH = "gradle/configuration.xml";
@@ -31,5 +30,5 @@ public class GradleProjectConfiguration {
   @Tag("resource-processing")
   @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false, entryTagName = "gradle-module",
                  keyAttributeName = "name")
-  public Map<String, GradleModuleResourceConfiguration> moduleConfigurations = new THashMap<String, GradleModuleResourceConfiguration>();
+  public Map<String, GradleModuleResourceConfiguration> moduleConfigurations = new THashMap<>();
 }

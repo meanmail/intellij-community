@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.dsl;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,7 +7,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.FakePsiElement;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FList;
 import groovy.lang.Closure;
@@ -39,6 +24,7 @@ import org.jetbrains.plugins.groovy.dsl.holders.NonCodeMembersHolder;
 import org.jetbrains.plugins.groovy.dsl.toplevel.ClassContextFilter;
 import org.jetbrains.plugins.groovy.extensions.NamedArgumentDescriptor;
 import org.jetbrains.plugins.groovy.extensions.impl.NamedArgumentDescriptorImpl;
+import org.jetbrains.plugins.groovy.lang.completion.closureParameters.ClosureDescriptor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
@@ -47,6 +33,7 @@ import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 /**
  * @author peter
@@ -110,6 +97,12 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
           return NonCodeMembersHolder.generateMembers(ContainerUtil.reverse(myDeclarations), descriptor.justGetPlaceFile()).processMembers(
             descriptor, processor, state);
         }
+
+        @Override
+        public void consumeClosureDescriptors(GroovyClassDescriptor descriptor, Consumer<? super ClosureDescriptor> consumer) {
+          NonCodeMembersHolder.generateMembers(ContainerUtil.reverse(myDeclarations), descriptor.justGetPlaceFile())
+            .consumeClosureDescriptors(descriptor, consumer);
+        }
       });
     }
     return myDepot;
@@ -170,7 +163,6 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
     method(args);
   }
 
-  @SuppressWarnings("MethodMayBeStatic")
   public ParameterDescriptor parameter(Map args) {
     return new ParameterDescriptor(args, myDescriptor.justGetPlaceFile());
   }
@@ -196,8 +188,8 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
       PsiType[] argTypes = PsiUtil.getArgumentTypes(ref, false);
       if (argTypes == null) return;
 
-      String[] types = new String[argTypes.length];
-      ContainerUtil.map(argTypes, (Function<PsiType, Object>)type -> type.getCanonicalText(), types);
+      String[] types =
+      ContainerUtil.map(argTypes, PsiType::getCanonicalText, new String[argTypes.length]);
 
       generator.setDelegate(this);
 
@@ -230,7 +222,6 @@ public class CustomMembersGenerator extends GroovyObjectSupport implements GdslM
       args.put("params", newParams);
     }
 
-    //noinspection unchecked
     Object params = args.get("params");
     if (params instanceof Map) {
       boolean first = true;

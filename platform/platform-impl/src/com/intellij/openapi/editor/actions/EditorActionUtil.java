@@ -1,29 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Jun 6, 2002
- * Time: 4:54:58 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.ide.ui.customization.CustomActionsSchema;
 import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -37,15 +16,14 @@ import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.editor.impl.EditorImpl;
+import com.intellij.openapi.editor.impl.FoldingModelImpl;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.PsiDocumentManager;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.util.DocumentUtil;
 import com.intellij.util.EditorPopupHandler;
+import com.intellij.util.SystemProperties;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -84,7 +62,7 @@ public class EditorActionUtil {
       return;
     }
     
-    Rectangle viewRectangle = editor.getScrollingModel().getVisibleArea();
+    Rectangle viewRectangle = getVisibleArea(editor);
     int lineNumber = editor.getCaretModel().getVisualPosition().line;
     VisualPosition startPos = editor.xyToVisualPosition(new Point(0, viewRectangle.y));
     int start = startPos.line + 1;
@@ -102,7 +80,7 @@ public class EditorActionUtil {
                                                   int columnShift,
                                                   int lineShift,
                                                   boolean withSelection) {
-    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Rectangle visibleArea = getVisibleArea(editor);
     VisualPosition pos = editor.getCaretModel().getVisualPosition();
     Point caretLocation = editor.visualPositionToXY(pos);
     int caretVShift = caretLocation.y - visibleArea.y;
@@ -225,8 +203,7 @@ public class EditorActionUtil {
 
   private static boolean shouldUseSmartTabs(Project project, @NotNull Editor editor) {
     if (!(editor instanceof EditorEx)) return false;
-    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
-    return CodeStyleSettingsManager.getSettings(project).getIndentOptionsByFile(file).SMART_TABS;
+    return CodeStyle.getIndentOptions(project, editor.getDocument()).SMART_TABS;
   }
 
   public static boolean isWordOrLexemeStart(@NotNull Editor editor, int offset, boolean isCamel) {
@@ -243,7 +220,11 @@ public class EditorActionUtil {
    * Finds out whether there's a boundary between two lexemes of different type at given offset.
    */
   public static boolean isLexemeBoundary(@NotNull Editor editor, int offset) {
-    if (!(editor instanceof EditorEx) || offset <= 0 || offset >= editor.getDocument().getTextLength()) return false;
+    if (!(editor instanceof EditorEx) ||
+        offset <= 0 || offset >= editor.getDocument().getTextLength() ||
+        DocumentUtil.isInsideSurrogatePair(editor.getDocument(), offset)) {
+      return false;
+    }
     if (CharArrayUtil.isEmptyOrSpaces(editor.getDocument().getImmutableCharSequence(), offset - 1, offset + 1)) return false;
     EditorHighlighter highlighter = ((EditorEx)editor).getHighlighter();
     HighlighterIterator it = highlighter.createIterator(offset);
@@ -253,7 +234,8 @@ public class EditorActionUtil {
     IElementType rightToken = it.getTokenType();
     it.retreat();
     IElementType leftToken = it.getTokenType();
-    return !Comparing.equal(leftToken, rightToken);
+    if (leftToken == null || rightToken == null) return false;
+    return LanguageWordBoundaryFilter.INSTANCE.forLanguage(leftToken.getLanguage()).isWordBoundary(leftToken, rightToken);
   }
 
   public static boolean isWordStart(@NotNull CharSequence text, int offset, boolean isCamel) {
@@ -326,7 +308,7 @@ public class EditorActionUtil {
     if (currentVisCaret.line > caretLogLineStartVis.line) {
       // Caret is located not at the first visual line of soft-wrapped logical line.
       if (editorSettings.isSmartHome()) {
-        moveCaretToStartOfSoftWrappedLine(editor, currentVisCaret, currentVisCaret.line - caretLogLineStartVis.line);
+        moveCaretToStartOfSoftWrappedLine(editor, currentVisCaret);
       }
       else {
         caretModel.moveToVisualPosition(new VisualPosition(currentVisCaret.line, 0));
@@ -365,7 +347,7 @@ public class EditorActionUtil {
       VisualPosition logLineEndVis = editor.logicalToVisualPosition(logLineEndLog);
       int softWrapCount = EditorUtil.getSoftWrapCountAfterLineStart(editor, logLineEndLog);
       if (softWrapCount > 0) {
-        moveCaretToStartOfSoftWrappedLine(editor, logLineEndVis, softWrapCount);
+        moveCaretToStartOfSoftWrappedLine(editor, logLineEndVis);
       }
       else {
         int line = logLineEndVis.line;
@@ -384,7 +366,7 @@ public class EditorActionUtil {
     EditorModificationUtil.scrollToCaret(editor);
   }
 
-  private static void moveCaretToStartOfSoftWrappedLine(@NotNull Editor editor, VisualPosition currentVisual, int softWrappedLines) {
+  private static void moveCaretToStartOfSoftWrappedLine(@NotNull Editor editor, VisualPosition currentVisual) {
     CaretModel caretModel = editor.getCaretModel();
     LogicalPosition startLineLogical = editor.visualToLogicalPosition(new VisualPosition(currentVisual.line, 0));
     int startLineOffset = editor.logicalPositionToOffset(startLineLogical);
@@ -409,19 +391,9 @@ public class EditorActionUtil {
     }
     else {
       // We assume that caret is already located at zero visual column of soft-wrapped line if control flow reaches this place.
-      int newVisualCaretLine = currentVisual.line - 1;
-      int newVisualCaretColumn = -1;
-      if (softWrappedLines > 1) {
-        int offset = editor.logicalPositionToOffset(editor.visualToLogicalPosition(new VisualPosition(newVisualCaretLine, 0)));
-        SoftWrap prevLineSoftWrap = softWrapModel.getSoftWrap(offset);
-        if (prevLineSoftWrap != null) {
-          newVisualCaretColumn = prevLineSoftWrap.getIndentInColumns();
-        }
-      }
-      if (newVisualCaretColumn < 0) {
-        newVisualCaretColumn = findFirstNonSpaceColumnOnTheLine(editor, newVisualCaretLine);
-      }
-      caretModel.moveToVisualPosition(new VisualPosition(newVisualCaretLine, newVisualCaretColumn));
+      int lineStartOffset = EditorUtil.getNotFoldedLineStartOffset(editor, startLineOffset);
+      int visualLine = editor.offsetToVisualPosition(lineStartOffset).line;
+      caretModel.moveToVisualPosition(new VisualPosition(visualLine, findFirstNonSpaceColumnOnTheLine(editor, visualLine)));
     }
   }
 
@@ -441,7 +413,7 @@ public class EditorActionUtil {
    * @param editor              target editor
    * @param visualLineNumber    target visual line
    * @return                    visual column that points to the first non-white space symbol at the target visual line if the one exists;
-   *                            <code>'-1'</code> otherwise
+   *                            {@code '-1'} otherwise
    */
   public static int findFirstNonSpaceColumnOnTheLine(@NotNull Editor editor, int visualLineNumber) {
     Document document = editor.getDocument();
@@ -451,7 +423,7 @@ public class EditorActionUtil {
     int logLineEndOffset = document.getLineEndOffset(logLine);
     LogicalPosition logLineStart = editor.offsetToLogicalPosition(logLineStartOffset);
     VisualPosition visLineStart = editor.logicalToVisualPosition(logLineStart);
-    boolean newRendering = editor instanceof EditorImpl && ((EditorImpl)editor).myUseNewRendering;
+    boolean newRendering = editor instanceof EditorImpl;
 
     boolean softWrapIntroducedLine = visLineStart.line != visualLineNumber;
     if (!softWrapIntroducedLine) {
@@ -534,7 +506,7 @@ public class EditorActionUtil {
    * @param start       target start offset (inclusive)
    * @param end         target end offset (exclusive)
    * @return            index of the first non-white space character at the given document at the given range if the one is found;
-   *                    <code>'-1'</code> otherwise
+   *                    {@code '-1'} otherwise
    */
   public static int findFirstNonSpaceOffsetInRange(@NotNull CharSequence text, int start, int end) {
     for (; start < end; start++) {
@@ -555,7 +527,7 @@ public class EditorActionUtil {
    * 
    * @param editor target editor
    * @param isWithSelection whether selection should be set from original caret position to its target position
-   * @param ignoreTrailingWhitespace if <code>true</code>, line end will be determined while ignoring trailing whitespace, unless caret is
+   * @param ignoreTrailingWhitespace if {@code true}, line end will be determined while ignoring trailing whitespace, unless caret is
    *                                 already at so-determined target position, in which case trailing whitespace will be taken into account
    */
   public static void moveCaretToLineEnd(@NotNull Editor editor, boolean isWithSelection, boolean ignoreTrailingWhitespace) {
@@ -579,26 +551,13 @@ public class EditorActionUtil {
       = new VisualPosition(currentVisualCaret.line, EditorUtil.getLastVisualLineColumnNumber(editor, currentVisualCaret.line), true);
 
     // There is a possible case that the caret is already located at the visual end of line and the line is soft wrapped.
-    // We want to move the caret to the end of the next visual line then.
+    // We want to move the caret to the end of the logical line then.
     if (currentVisualCaret.equals(visualEndOfLineWithCaret)) {
       LogicalPosition logical = editor.visualToLogicalPosition(visualEndOfLineWithCaret);
       int offset = editor.logicalPositionToOffset(logical);
       if (offset < editor.getDocument().getTextLength()) {
-
-        SoftWrap softWrap = softWrapModel.getSoftWrap(offset);
-        if (softWrap == null) {
-          // Same offset may correspond to positions on different visual lines in case of soft wraps presence
-          // (all soft-wrap introduced virtual text is mapped to the same offset as the first document symbol after soft wrap).
-          // Hence, we check for soft wraps presence at two offsets.
-          softWrap = softWrapModel.getSoftWrap(offset + 1);
-        }
-        int line = currentVisualCaret.line;
-        int column = currentVisualCaret.column;
-        if (softWrap != null) {
-          line++;
-          column = EditorUtil.getLastVisualLineColumnNumber(editor, line);
-        }
-        visualEndOfLineWithCaret = new VisualPosition(line, column, true);
+        int logicalLineEndOffset = EditorUtil.getNotFoldedLineEndOffset(editor, offset);
+        visualEndOfLineWithCaret = editor.offsetToVisualPosition(logicalLineEndOffset, true, false);
       }
     }
 
@@ -625,7 +584,7 @@ public class EditorActionUtil {
       caretModel.moveToVisualPosition(visualEndOfLineWithCaret);
     }
     else {
-      if (editor instanceof EditorImpl && ((EditorImpl)editor).myUseNewRendering) {
+      if (editor instanceof EditorImpl) {
         caretModel.moveToLogicalPosition(editor.offsetToLogicalPosition(newOffset).leanForward(true));
       }
       else {
@@ -722,7 +681,8 @@ public class EditorActionUtil {
 
       int caret = caretModel.getOffset();
       final FoldRegion collapsedUnderCaret = editor.getFoldingModel().getCollapsedRegionAtOffset(caret);
-      if (collapsedUnderCaret != null && collapsedUnderCaret.shouldNeverExpand()) {
+      if (collapsedUnderCaret != null && collapsedUnderCaret.shouldNeverExpand() && 
+          Boolean.TRUE.equals(collapsedUnderCaret.getUserData(FoldingModelImpl.SELECT_REGION_ON_CARET_NEARBY))) {
         if (caret > collapsedUnderCaret.getStartOffset() && columnShift > 0) {
           caretModel.moveToOffset(collapsedUnderCaret.getEndOffset());
         }
@@ -765,7 +725,7 @@ public class EditorActionUtil {
       }
     }
 
-    if (editor instanceof EditorImpl && ((EditorImpl)editor).myUseNewRendering) {
+    if (editor instanceof EditorImpl) {
       int boundaryOffset = ((EditorImpl)editor).findNearestDirectionBoundary(offset, false);
       if (boundaryOffset >= 0) {
         newOffset = Math.max(boundaryOffset, newOffset);
@@ -782,7 +742,7 @@ public class EditorActionUtil {
 
   public static void moveCaretPageUp(@NotNull Editor editor, boolean isWithSelection) {
     int lineHeight = editor.getLineHeight();
-    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Rectangle visibleArea = getVisibleArea(editor);
     int linesIncrement = visibleArea.height / lineHeight;
     editor.getScrollingModel().scrollVertically(visibleArea.y - visibleArea.y % lineHeight - linesIncrement * lineHeight);
     int lineShift = -linesIncrement;
@@ -791,7 +751,7 @@ public class EditorActionUtil {
 
   public static void moveCaretPageDown(@NotNull Editor editor, boolean isWithSelection) {
     int lineHeight = editor.getLineHeight();
-    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Rectangle visibleArea = getVisibleArea(editor);
     int linesIncrement = visibleArea.height / lineHeight;
     int allowedBottom = ((EditorEx)editor).getContentSize().height - visibleArea.height;
     editor.getScrollingModel().scrollVertically(
@@ -805,7 +765,7 @@ public class EditorActionUtil {
     int selectionStart = selectionModel.getLeadSelectionOffset();
     CaretModel caretModel = editor.getCaretModel();
     LogicalPosition blockSelectionStart = caretModel.getLogicalPosition();
-    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Rectangle visibleArea = getVisibleArea(editor);
     int lineNumber = visibleArea.y / lineHeight;
     if (visibleArea.y % lineHeight > 0) {
       lineNumber++;
@@ -821,13 +781,24 @@ public class EditorActionUtil {
     int selectionStart = selectionModel.getLeadSelectionOffset();
     CaretModel caretModel = editor.getCaretModel();
     LogicalPosition blockSelectionStart = caretModel.getLogicalPosition();
-    Rectangle visibleArea = editor.getScrollingModel().getVisibleArea();
+    Rectangle visibleArea = getVisibleArea(editor);
     int lineNumber = Math.max(0, (visibleArea.y + visibleArea.height) / lineHeight - 1);
     VisualPosition pos = new VisualPosition(lineNumber, editor.getCaretModel().getVisualPosition().column);
     editor.getCaretModel().moveToVisualPosition(pos);
     setupSelection(editor, isWithSelection, selectionStart, blockSelectionStart);
   }
 
+  @NotNull
+  private static Rectangle getVisibleArea(@NotNull Editor editor) {
+    return SystemProperties.isTrueSmoothScrollingEnabled() ? editor.getScrollingModel().getVisibleAreaOnScrollingFinished()
+                                                           : editor.getScrollingModel().getVisibleArea();
+  }
+
+  /**
+   * @deprecated Use {@link EditorEx#setContextMenuGroupId(String)} or
+   * {@link EditorEx#installPopupHandler(com.intellij.openapi.editor.ex.EditorPopupHandler)} instead. To be removed in version 2020.2.
+   */
+  @Deprecated
   public static EditorPopupHandler createEditorPopupHandler(@NotNull final String groupId) {
     return new EditorPopupHandler() {
       @Override
@@ -840,6 +811,11 @@ public class EditorActionUtil {
     };
   }
 
+  /**
+   * @deprecated Use {@link EditorEx#setContextMenuGroupId(String)} or
+   * {@link EditorEx#installPopupHandler(com.intellij.openapi.editor.ex.EditorPopupHandler)} instead. To be removed in version 2020.2.
+   */
+  @Deprecated
   public static EditorPopupHandler createEditorPopupHandler(@NotNull final ActionGroup group) {
     return new EditorPopupHandler() {
       @Override
@@ -890,10 +866,21 @@ public class EditorActionUtil {
    */
   public static void makePositionVisible(@NotNull final Editor editor, final int offset) {
     FoldingModel foldingModel = editor.getFoldingModel();
-    FoldRegion collapsedRegionAtOffset;
-    while ((collapsedRegionAtOffset  = foldingModel.getCollapsedRegionAtOffset(offset)) != null) {
-      final FoldRegion region = collapsedRegionAtOffset;
+    while (true) {
+      FoldRegion region = foldingModel.getCollapsedRegionAtOffset(offset);
+      if (region == null || region.shouldNeverExpand()) break;
       foldingModel.runBatchFoldingOperation(() -> region.setExpanded(true));
     }
+  }
+
+  public static void moveCaret(@NotNull Caret caret, int offset, boolean withSelection) {
+    if (withSelection) {
+      caret.setSelection(caret.getLeadSelectionOffset(), offset);
+    }
+    else {
+      caret.removeSelection();
+    }
+    caret.moveToOffset(offset);
+    EditorModificationUtil.scrollToCaret(caret.getEditor());
   }
 }

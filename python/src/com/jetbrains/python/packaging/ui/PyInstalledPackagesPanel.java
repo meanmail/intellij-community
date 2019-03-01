@@ -18,11 +18,14 @@ package com.jetbrains.python.packaging.ui;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 import com.intellij.execution.ExecutionException;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.ui.ToggleActionButton;
 import com.intellij.webcore.packaging.InstalledPackage;
 import com.intellij.webcore.packaging.InstalledPackagesPanel;
 import com.intellij.webcore.packaging.PackageManagementService;
@@ -30,6 +33,7 @@ import com.intellij.webcore.packaging.PackagesNotificationPanel;
 import com.jetbrains.python.packaging.*;
 import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonSdkType;
+import icons.PythonIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -43,7 +47,7 @@ import java.util.Set;
 public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
   private boolean myHasManagement = false;
 
-  public PyInstalledPackagesPanel(Project project, PackagesNotificationPanel area) {
+  public PyInstalledPackagesPanel(@NotNull Project project, @NotNull PackagesNotificationPanel area) {
     super(project, area);
   }
 
@@ -95,7 +99,7 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
       try {
         myHasManagement = PyPackageManager.getInstance(selectedSdk).hasManagement();
         if (!myHasManagement) {
-          throw new PyExecutionException("Python packaging tools not found", "pip", Collections.<String>emptyList(), "", "", 0,
+          throw new PyExecutionException("Python packaging tools not found", "pip", Collections.emptyList(), "", "", 0,
                                          ImmutableList.of(new PyInstallPackageManagementFix()));
         }
       }
@@ -147,9 +151,11 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
   protected boolean canUninstallPackage(InstalledPackage pkg) {
     if (!myHasManagement) return false;
 
-    if (!PyPackageUtil.packageManagementEnabled(getSelectedSdk())) return false;
+    final Sdk sdk = getSelectedSdk();
+    if (sdk == null) return false;
+    if (!PyPackageUtil.packageManagementEnabled(sdk)) return false;
 
-    if (PythonSdkType.isVirtualEnv(getSelectedSdk()) && pkg instanceof PyPackage) {
+    if (PythonSdkType.isVirtualEnv(sdk) && pkg instanceof PyPackage) {
       final String location = ((PyPackage)pkg).getLocation();
       if (location != null && location.startsWith(PySdkUtil.getUserSite())) {
         return false;
@@ -182,5 +188,50 @@ public class PyInstalledPackagesPanel extends InstalledPackagesPanel {
     if (!PyPackageUtil.packageManagementEnabled(getSelectedSdk())) return false;
 
     return myHasManagement && !PyCondaPackageManagerImpl.PYTHON.equals(pyPackage.getName());
+  }
+
+  @Override
+  @NotNull
+  protected ToggleActionButton[] getExtraActions() {
+    final ToggleActionButton useCondaButton = new ToggleActionButton("Use Conda Package Manager", PythonIcons.Python.Anaconda) {
+      @Override
+      public boolean isSelected(AnActionEvent e) {
+        final Sdk sdk = getSelectedSdk();
+        return sdk != null && PyPackageManager.getInstance(sdk) instanceof PyCondaPackageManagerImpl &&
+               ((PyCondaPackageManagerImpl)PyPackageManager.getInstance(sdk)).useConda();
+      }
+
+      @Override
+      public void setSelected(AnActionEvent e, boolean state) {
+        final Sdk sdk = getSelectedSdk();
+        if (sdk == null) return;
+        final PyPackageManager manager = PyPackageManager.getInstance(sdk);
+        if (manager instanceof PyCondaPackageManagerImpl) {
+          ((PyCondaPackageManagerImpl)manager).useConda(state);
+        }
+        updatePackages(myPackageManagementService);
+      }
+
+      @Override
+      public boolean isVisible() {
+        final Sdk sdk = getSelectedSdk();
+        return sdk != null && PythonSdkType.isConda(sdk);
+      }
+    };
+
+    final ToggleActionButton showEarlyReleasesButton = new ToggleActionButton("Show early releases", AllIcons.Actions.Show) {
+        @Override
+        public boolean isSelected(AnActionEvent e) {
+          return PyPackagingSettings.getInstance(myProject).earlyReleasesAsUpgrades;
+        }
+
+        @Override
+        public void setSelected(AnActionEvent e, boolean state) {
+          PyPackagingSettings.getInstance(myProject).earlyReleasesAsUpgrades = state;
+          updatePackages(myPackageManagementService);
+        }
+      };
+
+    return new ToggleActionButton[]{useCondaButton, showEarlyReleasesButton};
   }
 }

@@ -16,24 +16,20 @@
 package com.siyeh.ig.naming;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
 
 /**
  * @author Bas Leijdekkers
  */
-public class InstanceMethodNamingConventionInspectionTest extends LightInspectionTestCase {
-
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    final NativeMethodNamingConventionInspection inspection = new NativeMethodNamingConventionInspection();
-    inspection.m_minLength = 0;
-    myFixture.enableInspections(inspection);
-  }
+public class InstanceMethodNamingConventionInspectionTest extends AbstractMethodNamingConventionInspectionTest {
 
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new InstanceMethodNamingConventionInspection();
+    NewMethodNamingConventionInspection inspection = new NewMethodNamingConventionInspection();
+    inspection.setEnabled(true, new InstanceMethodNamingConvention().getShortName());
+    String nativeShortName = new NativeMethodNamingConvention().getShortName();
+    inspection.setEnabled(true, nativeShortName);
+    inspection.getNamingConventionBean(nativeShortName).m_minLength = 0;
+    return inspection;
   }
 
   public void testInstanceMethodNamingConvention() { doTest(); }

@@ -15,25 +15,29 @@
  */
 package com.intellij.openapi.externalSystem.service.execution;
 
+import com.intellij.build.BuildView;
 import com.intellij.debugger.impl.GenericDebuggerRunner;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.RemoteConnection;
 import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.configurations.RunProfileState;
 import com.intellij.execution.executors.DefaultDebugExecutor;
+import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.ui.ExecutionConsole;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.net.ServerSocket;
+
 /**
  * @author Denis Zhdanov
- * @since 6/7/13 11:18 AM
  */
 public class ExternalSystemTaskDebugRunner extends GenericDebuggerRunner {
-  private static final Logger LOG = Logger.getInstance(ExternalSystemTaskDebugRunner.class);
+  static final Logger LOG = Logger.getInstance(ExternalSystemTaskDebugRunner.class);
 
   @NotNull
   @Override
@@ -48,12 +52,21 @@ public class ExternalSystemTaskDebugRunner extends GenericDebuggerRunner {
 
   @Nullable
   @Override
-  protected RunContentDescriptor createContentDescriptor(@NotNull RunProfileState state, @NotNull ExecutionEnvironment environment) throws ExecutionException {
+  protected RunContentDescriptor createContentDescriptor(@NotNull RunProfileState state, @NotNull ExecutionEnvironment environment)
+    throws ExecutionException {
     if (state instanceof ExternalSystemRunConfiguration.MyRunnableState) {
-      int port = ((ExternalSystemRunConfiguration.MyRunnableState)state).getDebugPort();
+      ExternalSystemRunConfiguration.MyRunnableState myRunnableState = (ExternalSystemRunConfiguration.MyRunnableState)state;
+      int port = myRunnableState.getDebugPort();
       if (port > 0) {
-        RemoteConnection connection = new RemoteConnection(true, "127.0.0.1", String.valueOf(port), true);
-        return attachVirtualMachine(state, environment, connection, true);
+        RunContentDescriptor runContentDescriptor = doGetRunContentDescriptor(myRunnableState, environment, port);
+        if (runContentDescriptor == null) return null;
+
+        ProcessHandler processHandler = runContentDescriptor.getProcessHandler();
+        final ServerSocket socket = myRunnableState.getForkSocket();
+        if (socket != null && processHandler != null) {
+          new ForkedDebuggerThread(processHandler, runContentDescriptor, socket, environment.getProject()).start();
+        }
+        return runContentDescriptor;
       }
       else {
         LOG.warn("Can't attach debugger to external system task execution. Reason: target debug port is unknown");
@@ -67,5 +80,33 @@ public class ExternalSystemTaskDebugRunner extends GenericDebuggerRunner {
       ));
     }
     return null;
+  }
+
+  @Nullable
+  private RunContentDescriptor doGetRunContentDescriptor(@NotNull ExternalSystemRunConfiguration.MyRunnableState state,
+                                                         @NotNull ExecutionEnvironment environment,
+                                                         int port) throws ExecutionException {
+    RemoteConnection connection = new RemoteConnection(true, "127.0.0.1", String.valueOf(port), true);
+    RunContentDescriptor runContentDescriptor = attachVirtualMachine(state, environment, connection, true);
+    if (runContentDescriptor == null) return null;
+
+    state.setContentDescriptor(runContentDescriptor);
+
+    ExecutionConsole executionConsole = runContentDescriptor.getExecutionConsole();
+    if (executionConsole instanceof BuildView) {
+      return runContentDescriptor;
+    }
+    RunContentDescriptor descriptor =
+      new RunContentDescriptor(runContentDescriptor.getExecutionConsole(), runContentDescriptor.getProcessHandler(),
+                               runContentDescriptor.getComponent(), runContentDescriptor.getDisplayName(),
+                               runContentDescriptor.getIcon(), null,
+                               runContentDescriptor.getRestartActions()) {
+        @Override
+        public boolean isHiddenContent() {
+          return true;
+        }
+      };
+    descriptor.setRunnerLayoutUi(runContentDescriptor.getRunnerLayoutUi());
+    return descriptor;
   }
 }

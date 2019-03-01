@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -48,7 +48,7 @@ public class GrBreakStringOnLineBreaksIntention extends Intention {
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return element instanceof GrLiteral && !element.getText().equals(invokeImpl(element));
       }
     };
@@ -94,13 +94,13 @@ public class GrBreakStringOnLineBreaksIntention extends Intention {
         }
         for (int pos = value.indexOf("\\n"); pos >= 0; pos = value.indexOf("\\n", prev)) {
           int end = checkForR(value, pos);
-          buffer.append(value.substring(prev, end));
+          buffer.append(value, prev, end);
           prev = end;
           buffer.append(quote);
           buffer.append("+\n");
           buffer.append(quote);
         }
-        buffer.append(value.substring(prev, value.length()));
+        buffer.append(value.substring(prev));
         if (!isInjection(child.getTreeNext())) {
           buffer.append(quote);
         }
@@ -117,13 +117,13 @@ public class GrBreakStringOnLineBreaksIntention extends Intention {
     for (int pos = value.indexOf("\\n"); pos >= 0; pos = value.indexOf("\\n", prev)) {
       buffer.append(quote);
       int end = checkForR(value, pos);
-      buffer.append(value.substring(prev, end));
+      buffer.append(value, prev, end);
       prev = end;
       buffer.append(quote);
       buffer.append("+\n");
     }
     buffer.append(quote);
-    buffer.append(value.substring(prev, value.length()));
+    buffer.append(value.substring(prev));
     buffer.append(quote);
   }
 

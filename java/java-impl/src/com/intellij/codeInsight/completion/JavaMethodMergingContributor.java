@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,12 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.codeInsight.hint.ParameterInfoController;
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiType;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,11 +32,16 @@ import static com.intellij.util.ObjectUtils.assertNotNull;
  * @author peter
  */
 public class JavaMethodMergingContributor extends CompletionContributor {
+  static final Key<Boolean> MERGED_ELEMENT = Key.create("merged.element");
 
   @Override
   public AutoCompletionDecision handleAutoCompletionPossibility(@NotNull AutoCompletionContext context) {
     final CompletionParameters parameters = context.getParameters();
     if (parameters.getCompletionType() != CompletionType.SMART && parameters.getCompletionType() != CompletionType.BASIC) {
+      return null;
+    }
+
+    if (ParameterInfoController.areParameterTemplatesEnabledOnCompletion()) {
       return null;
     }
 
@@ -47,25 +55,34 @@ public class JavaMethodMergingContributor extends CompletionContributor {
           return AutoCompletionDecision.SHOW_LOOKUP;
         }
 
-        final PsiMethod method = (PsiMethod)o;
-        final JavaChainLookupElement chain = item.as(JavaChainLookupElement.CLASS_CONDITION_KEY);
-        final String name = method.getName() + "#" + (chain == null ? "" : chain.getQualifier().getLookupString());
+        String name = joinLookupStrings(item);
         if (commonName != null && !commonName.equals(name)) {
           return AutoCompletionDecision.SHOW_LOOKUP;
         }
 
         commonName = name;
-        allMethods.add(method);
+        allMethods.add((PsiMethod)o);
       }
 
       for (LookupElement item : items) {
         JavaCompletionUtil.putAllMethods(item, allMethods);
       }
 
-      return AutoCompletionDecision.insertItem(findBestOverload(items));
+      LookupElement best = findBestOverload(items);
+      markAsMerged(best);
+      return AutoCompletionDecision.insertItem(best);
     }
 
     return super.handleAutoCompletionPossibility(context);
+  }
+
+  private static void markAsMerged(LookupElement element) {
+    JavaMethodCallElement methodCallElement = element.as(JavaMethodCallElement.CLASS_CONDITION_KEY);
+    if (methodCallElement != null) methodCallElement.putUserData(MERGED_ELEMENT, Boolean.TRUE);
+  }
+
+  public static String joinLookupStrings(LookupElement item) {
+    return StreamEx.of(item.getAllLookupStrings()).sorted().joining("#");
   }
 
   public static LookupElement findBestOverload(LookupElement[] items) {
@@ -82,7 +99,7 @@ public class JavaMethodMergingContributor extends CompletionContributor {
   private static int getPriority(LookupElement element) {
     PsiMethod method = assertNotNull(getItemMethod(element));
     return (PsiType.VOID.equals(method.getReturnType()) ? 0 : 1) +
-           (method.getParameterList().getParametersCount() > 0 ? 2 : 0);
+           (method.getParameterList().isEmpty() ? 0 : 2);
   }
 
   @Nullable

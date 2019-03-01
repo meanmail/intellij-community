@@ -17,7 +17,6 @@ package org.jetbrains.jps.incremental.fs;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.io.FileSystemUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.MultiMap;
@@ -40,7 +39,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 12/16/11
  */
 public class BuildFSState {
   public static final int VERSION = 3;
@@ -53,7 +51,7 @@ public class BuildFSState {
   // alternatively, when false, after first scan will rely on external notifications about changes
   private final boolean myAlwaysScanFS;
   private final Set<BuildTarget<?>> myInitialScanPerformed = Collections.synchronizedSet(new HashSet<BuildTarget<?>>());
-  private final TObjectLongHashMap<File> myRegistrationStamps = new TObjectLongHashMap<File>(FileUtil.FILE_HASHING_STRATEGY);
+  private final TObjectLongHashMap<File> myRegistrationStamps = new TObjectLongHashMap<>(FileUtil.FILE_HASHING_STRATEGY);
   private final Map<BuildTarget<?>, FilesDelta> myDeltas = Collections.synchronizedMap(new HashMap<BuildTarget<?>, FilesDelta>());
 
   public BuildFSState(boolean alwaysScanFS) {
@@ -61,7 +59,7 @@ public class BuildFSState {
   }
 
   public void save(DataOutput out) throws IOException {
-    MultiMap<BuildTargetType<?>, BuildTarget<?>> targetsByType = new MultiMap<BuildTargetType<?>, BuildTarget<?>>();
+    MultiMap<BuildTargetType<?>, BuildTarget<?>> targetsByType = new MultiMap<>();
     for (BuildTarget<?> target : myInitialScanPerformed) {
       targetsByType.putValue(target.getTargetType(), target);
     }
@@ -144,7 +142,7 @@ public class BuildFSState {
       for (Set<File> files : delta.getSourcesToRecompile().values()) {
         files_loop:
         for (File file : files) {
-          if ((getEventRegistrationStamp(file) > targetBuildStart || FileSystemUtil.lastModified(file) > targetBuildStart) && scope.isAffected(target, file)) {
+          if ((getEventRegistrationStamp(file) > targetBuildStart || FSOperations.lastModified(file) > targetBuildStart) && scope.isAffected(target, file)) {
             for (BuildRootDescriptor rd : rootIndex.findAllParentDescriptors(file, context)) {
               if (rd.isGenerated()) { // do not send notification for generated sources
                 continue files_loop;
@@ -155,7 +153,7 @@ public class BuildFSState {
                         "; file: " + file.getPath() +
                         "; targetBuildStart=" + targetBuildStart +
                         "; eventRegistrationStamp=" + getEventRegistrationStamp(file) +
-                        "; lastModified=" + FileSystemUtil.lastModified(file)
+                        "; lastModified=" + FSOperations.lastModified(file)
               );
             }
             return true;
@@ -173,14 +171,22 @@ public class BuildFSState {
     myInitialScanPerformed.add(target);
   }
 
-  public void registerDeleted(BuildTarget<?> target, final File file, @Nullable Timestamps tsStorage) throws IOException {
-    registerDeleted(target, file);
+  public void registerDeleted(@Nullable CompileContext context, BuildTarget<?> target, final File file, @Nullable Timestamps tsStorage) throws IOException {
+    registerDeleted(context, target, file);
     if (tsStorage != null) {
       tsStorage.removeStamp(file, target);
     }
   }
 
-  public void registerDeleted(BuildTarget<?> target, File file) {
+  public void registerDeleted(@Nullable CompileContext context, BuildTarget<?> target, final File file) {
+    final FilesDelta currentDelta = getRoundDelta(CURRENT_ROUND_DELTA_KEY, context);
+    if (currentDelta != null) {
+      currentDelta.addDeleted(file);
+    }
+    final FilesDelta nextDelta = getRoundDelta(NEXT_ROUND_DELTA_KEY, context);
+    if (nextDelta != null) {
+      nextDelta.addDeleted(file);
+    }
     getDelta(target).addDeleted(file);
   }
 
@@ -285,7 +291,7 @@ public class BuildFSState {
     if (context == null) {
       return false;
     }
-    Set<? extends BuildTarget<?>> targets = CONTEXT_TARGETS_KEY.get(context, Collections.<BuildTarget<?>>emptySet());
+    Set<? extends BuildTarget<?>> targets = CONTEXT_TARGETS_KEY.get(context, Collections.emptySet());
     return targets.contains(rd.getTarget());
   }
 
@@ -333,7 +339,7 @@ public class BuildFSState {
     if (currentDelta == null) {
       // this is the initial round.
       // Need to make a snapshot of the FS state so that all builders in the chain see the same picture
-      final List<FilesDelta> deltas = new SmartList<FilesDelta>();
+      final List<FilesDelta> deltas = new SmartList<>();
       for (ModuleBuildTarget target : chunk.getTargets()) {
         deltas.add(getDelta(target));
       }
@@ -387,7 +393,7 @@ public class BuildFSState {
         CompileScope scope = context.getScope();
         for (File file : files) {
           if (scope.isAffected(target, file)) {
-            final long currentFileStamp = FileSystemUtil.lastModified(file);
+            final long currentFileStamp = FSOperations.lastModified(file);
             if (!rd.isGenerated() && (currentFileStamp > targetBuildStartStamp || getEventRegistrationStamp(file) > targetBuildStartStamp)) {
               // if the file was modified after the compilation had started,
               // do not save the stamp considering file dirty

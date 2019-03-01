@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,13 +17,11 @@ package com.jetbrains.python.testing;
 
 import com.intellij.execution.Executor;
 import com.intellij.execution.configurations.ModuleRunConfiguration;
-import com.intellij.execution.testframework.sm.runner.SMTRunnerConsoleProperties;
-import com.intellij.execution.testframework.sm.runner.SMTestLocator;
+import com.intellij.execution.testframework.sm.runner.*;
+import com.intellij.execution.testframework.sm.runner.events.TestDurationStrategy;
+import com.jetbrains.python.PyBundle;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * @author Roman.Chernyatchik
@@ -32,10 +30,18 @@ public class PythonTRunnerConsoleProperties extends SMTRunnerConsoleProperties {
   public static final String FRAMEWORK_NAME = "PythonUnitTestRunner";
 
   private final boolean myIsEditable;
+  private final SMTestLocator myLocator;
 
-  public PythonTRunnerConsoleProperties(@NotNull ModuleRunConfiguration config, @NotNull Executor executor, boolean editable) {
+  /**
+   * @param editable if user should have ability to print something to test stdin
+   */
+  public PythonTRunnerConsoleProperties(@NotNull ModuleRunConfiguration config,
+                                        @NotNull Executor executor,
+                                        boolean editable,
+                                        @Nullable SMTestLocator locator) {
     super(config, FRAMEWORK_NAME, executor);
     myIsEditable = editable;
+    myLocator = locator;
   }
 
   @Override
@@ -46,14 +52,49 @@ public class PythonTRunnerConsoleProperties extends SMTRunnerConsoleProperties {
   @Nullable
   @Override
   public SMTestLocator getTestLocator() {
-    final Map<String, SMTestLocator> locators = new HashMap<>();
+    return myLocator;
+  }
 
-    for (final PythonTestLocator locator : PythonTestLocator.EP_NAME.getExtensions()) {
-      locators.put(locator.getProtocolId(), locator);
+  /**
+   * Makes configuration id-based,
+   *
+   * @see GeneralIdBasedToSMTRunnerEventsConvertor
+   */
+  final void makeIdTestBased() {
+    setIdBasedTestTree(true);
+    getProject().getMessageBus().connect(this)
+      .subscribe(SMTRunnerEventsListener.TEST_STATUS, new MySMTRunnerEventsAdapter());
+  }
+
+  private static final class MySMTRunnerEventsAdapter extends SMTRunnerEventsAdapter {
+
+    private static final String EMPTY_SUITE = PyBundle.message("runcfg.tests.empty_suite");
+    private final long myStarted = System.currentTimeMillis();
+
+
+
+    @Override
+    public void onBeforeTestingFinished(@NotNull final SMTestProxy.SMRootTestProxy testsRoot) {
+      // manual duration for root means root must have wall time
+      if (testsRoot.getDurationStrategy() == TestDurationStrategy.MANUAL) {
+        testsRoot.setDuration(System.currentTimeMillis() - myStarted);
+      }
+      if (testsRoot.isEmptySuite()) {
+        testsRoot.setPresentation(EMPTY_SUITE);
+        testsRoot.setTestFailed(EMPTY_SUITE, null, false);
+      }
+      PySMTestProxyUtilsKt.calculateAndReturnMagnitude(testsRoot);
+      super.onBeforeTestingFinished(testsRoot);
     }
-    if (locators.isEmpty()) {
-      return null;
+
+    @Override
+    public void onTestFailed(@NotNull final SMTestProxy test) {
+      super.onTestFailed(test);
+      SMTestProxy currentTest = test.getParent();
+      while (currentTest != null && currentTest.getParent() != null) {
+        currentTest.setTestFailed(" ", null, false);
+        currentTest = currentTest.getParent();
+      }
     }
-    return new SMTestLocator.Composite(locators);
   }
 }

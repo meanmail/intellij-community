@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework;
 
 import com.intellij.analysis.AnalysisScope;
@@ -20,6 +6,7 @@ import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.InspectionEP;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.LocalInspectionEP;
+import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
 import com.intellij.codeInspection.ex.GlobalInspectionContextImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.codeInspection.ui.InspectionToolPresentation;
@@ -32,6 +19,7 @@ import com.intellij.util.ui.UIUtil;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.TestOnly;
 import org.junit.Assert;
 
 import java.io.CharArrayReader;
@@ -43,16 +31,16 @@ public class InspectionTestUtil {
   private InspectionTestUtil() {
   }
 
-  protected static void compareWithExpected(Document expectedDoc, Document doc, boolean checkRange) throws Exception {
+  public static void compareWithExpected(Document expectedDoc, Document doc, boolean checkRange) throws Exception {
     List<Element> expectedProblems = new ArrayList<>(expectedDoc.getRootElement().getChildren("problem"));
     List<Element> reportedProblems = new ArrayList<>(doc.getRootElement().getChildren("problem"));
 
-    Element[] expectedArray = expectedProblems.toArray(new Element[expectedProblems.size()]);
+    Element[] expectedArray = expectedProblems.toArray(new Element[0]);
     boolean failed = false;
 
-expected:
+    expected:
     for (Element expectedProblem : expectedArray) {
-      Element[] reportedArrayed = reportedProblems.toArray(new Element[reportedProblems.size()]);
+      Element[] reportedArrayed = reportedProblems.toArray(new Element[0]);
       for (Element reportedProblem : reportedArrayed) {
         if (compareProblemWithExpected(reportedProblem, expectedProblem, checkRange)) {
           expectedProblems.remove(expectedProblem);
@@ -62,13 +50,13 @@ expected:
       }
 
       Document missing = new Document(expectedProblem.clone());
-      System.out.println("The following haven't been reported as expected: " + new String(JDOMUtil.printDocument(missing, "\n")));
+      System.out.println("The following haven't been reported as expected: " + JDOMUtil.writeDocument(missing, "\n"));
       failed = true;
     }
 
     for (Element reportedProblem : reportedProblems) {
       Document extra = new Document(reportedProblem.clone());
-      System.out.println("The following has been unexpectedly reported: " + new String(JDOMUtil.printDocument(extra, "\n")));
+      System.out.println("The following has been unexpectedly reported: " + JDOMUtil.writeDocument(extra, "\n"));
       failed = true;
     }
 
@@ -136,23 +124,32 @@ expected:
   public static void compareToolResults(@NotNull GlobalInspectionContextImpl context,
                                         @NotNull InspectionToolWrapper toolWrapper,
                                         boolean checkRange,
-                                        String testDir) {
-    final Element root = new Element("problems");
-    final Document doc = new Document(root);
-    InspectionToolPresentation presentation = context.getPresentation(toolWrapper);
+                                        @NotNull String testDir) {
+    compareToolResults(context, checkRange, testDir, Collections.singletonList(toolWrapper));
+  }
 
-    presentation.updateContent();  //e.g. dead code need check for reachables
-    presentation.exportResults(root, x -> false, x -> false);
+  static void compareToolResults(@NotNull GlobalInspectionContextImpl context,
+                                 boolean checkRange,
+                                 @NotNull String testDir,
+                                 @NotNull Collection<? extends InspectionToolWrapper> toolWrappers) {
+    final Element root = new Element(GlobalInspectionContextBase.PROBLEMS_TAG_NAME);
 
-    File file = new File(testDir + "/expected.xml");
+    for (InspectionToolWrapper toolWrapper : toolWrappers) {
+      InspectionToolPresentation presentation = context.getPresentation(toolWrapper);
+      presentation.updateContent();  //e.g. dead code need check for reachables
+      presentation.exportResults(p -> root.addContent(p), x -> false, x -> false);
+    }
+
     try {
-      compareWithExpected(JDOMUtil.loadDocument(file), doc, checkRange);
+      File file = new File(testDir + "/expected.xml");
+      compareWithExpected(JDOMUtil.loadDocument(file), new Document(root), checkRange);
     }
     catch (Exception e) {
       throw new RuntimeException(e);
     }
   }
 
+  @TestOnly
   public static void runTool(@NotNull InspectionToolWrapper toolWrapper,
                              @NotNull final AnalysisScope scope,
                              @NotNull final GlobalInspectionContextForTests globalContext) {
@@ -172,6 +169,11 @@ expected:
   @NotNull
   public static <T extends InspectionProfileEntry> List<InspectionProfileEntry> instantiateTools(@NotNull Collection<Class<? extends T>> inspections) {
     Set<String> classNames = JBIterable.from(inspections).transform(Class::getName).toSet();
+    return instantiateTools(classNames);
+  }
+
+  @NotNull
+  public static List<InspectionProfileEntry> instantiateTools(Set<String> classNames) {
     List<InspectionProfileEntry> tools = JBIterable.of(LocalInspectionEP.LOCAL_INSPECTION, InspectionEP.GLOBAL_INSPECTION)
       .flatten((o) -> Arrays.asList(o.getExtensions()))
       .filter((o) -> classNames.contains(o.implementationClass))

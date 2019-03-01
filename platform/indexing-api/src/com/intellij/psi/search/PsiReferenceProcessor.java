@@ -16,15 +16,16 @@
 package com.intellij.psi.search;
 
 import com.intellij.psi.PsiReference;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 
-public interface PsiReferenceProcessor{
+public interface PsiReferenceProcessor {
   boolean execute(PsiReference element);
 
-  class CollectElements implements PsiReferenceProcessor{
+  class CollectElements implements PsiReferenceProcessor {
     private final Collection<PsiReference> myCollection;
 
     public CollectElements(Collection<PsiReference> collection) {
@@ -35,11 +36,13 @@ public interface PsiReferenceProcessor{
       this(new ArrayList<>());
     }
 
-    public PsiReference[] toArray(){
-      return myCollection.toArray(new PsiReference[myCollection.size()]);
+    @NotNull
+    public PsiReference[] toArray() {
+      return myCollection.toArray(PsiReference.EMPTY_ARRAY);
     }
 
-    public PsiReference[] toArray(PsiReference[] array){
+    @NotNull
+    public PsiReference[] toArray(PsiReference[] array) {
       return myCollection.toArray(array);
     }
 
@@ -47,24 +50,6 @@ public interface PsiReferenceProcessor{
     public boolean execute(PsiReference element) {
       myCollection.add(element);
       return true;
-    }
-  }
-
-  class FindElement implements PsiReferenceProcessor{
-    private volatile PsiReference myFoundElement;
-
-    public boolean isFound() {
-      return myFoundElement != null;
-    }
-
-    public PsiReference getFoundReference() {
-      return myFoundElement;
-    }
-
-    @Override
-    public boolean execute(PsiReference element) {
-      myFoundElement = element;
-      return false;
     }
   }
 }

@@ -49,11 +49,10 @@ public abstract class ErrorReporter {
       // do not log problems caused by malformed and/or ignored external resources
       return true;
     }
-
-    if (ex instanceof NullPointerException) {
-      return true; // workaround for NPE at org.apache.xerces.impl.dtd.XMLDTDProcessor.checkDeclaredElements
+    if (ex instanceof ArrayIndexOutOfBoundsException) {
+      // thrown by xerces on malformed xml
+      return true;
     }
-
     return false;
   }
 

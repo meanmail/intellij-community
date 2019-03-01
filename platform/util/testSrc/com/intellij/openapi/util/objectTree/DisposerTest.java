@@ -16,12 +16,15 @@
 package com.intellij.openapi.util.objectTree;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.diagnostic.DefaultLogger;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.util.IncorrectOperationException;
 import junit.framework.TestCase;
 import org.jetbrains.annotations.NonNls;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import static com.intellij.openapi.util.Disposer.newDisposable;
@@ -41,11 +44,7 @@ public class DisposerTest extends TestCase {
 
   @Override
   protected void setUp() throws Exception {
-    //if(!Disposer.getTree().isEmpty()) {
-    //  Disposer.assertIsEmpty();
-    //  fail("Clean leftovers from previous tests");
-    //  Disposer.getTree().clearAll();
-    //}
+    super.setUp();
     myRoot = new MyDisposable("root");
 
     myFolder1 = new MyDisposable("folder1");
@@ -59,12 +58,15 @@ public class DisposerTest extends TestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    Disposer.dispose(myRoot);
-    //assertTrue(Disposer.getTree().isEmpty());
-    super.tearDown();
+    try {
+      Disposer.dispose(myRoot);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
-  public void testDisposalAndAbsenceOfReferences() throws Exception {
+  public void testDisposalAndAbsenceOfReferences() {
     Disposer.register(myRoot, myFolder1);
     Disposer.register(myRoot, myFolder2);
     Disposer.register(myFolder1, myLeaf1);
@@ -82,28 +84,33 @@ public class DisposerTest extends TestCase {
     Disposer.dispose(myLeaf1);
   }
 
-  public void testDisposalOrder() throws Exception {
+  public void testDisposalOrder() {
     Disposer.register(myRoot, myFolder1);
     Disposer.register(myFolder1, myLeaf1);
     Disposer.register(myRoot, myFolder2);
 
     Disposer.dispose(myRoot);
 
-    List<MyDisposable> expected = new ArrayList<>();
-    expected.add(myFolder2);
-    expected.add(myLeaf1);
-    expected.add(myFolder1);
-    expected.add(myRoot);
-
-    assertEquals(expected, myDisposedObjects);
+    assertEquals(Arrays.asList(myFolder2, myLeaf1, myFolder1, myRoot), myDisposedObjects);
   }
 
-  public void testDirectCallOfDisposable() throws Exception {
-    SelDisposable selfDisposable = new SelDisposable("root");
+  public void testDisposalOrderNestedDispose() {
+    Disposer.register(myRoot, myFolder2);
+    //noinspection SSBasedInspection
+    Disposer.register(myRoot, () -> Disposer.dispose(myFolder2));
+
+    Disposer.dispose(myRoot);
+
+    assertEquals(Arrays.asList(myFolder2, myRoot), myDisposedObjects);
+  }
+
+  public void testDirectCallOfDisposable() {
+    SelDisposable selfDisposable = new SelDisposable("selfDisposable");
     Disposer.register(myRoot, selfDisposable);
     Disposer.register(selfDisposable, myFolder1);
     Disposer.register(myFolder1, myFolder2);
 
+    //noinspection SSBasedInspection
     selfDisposable.dispose();
 
     assertDisposed(selfDisposable);
@@ -113,23 +120,13 @@ public class DisposerTest extends TestCase {
     assertEquals(0, Disposer.getTree().getNodesInExecution().size());
   }
 
-  public void testDirectCallOfUnregisteredSelfDisposable() throws Exception {
+  public void testDirectCallOfUnregisteredSelfDisposable() {
     SelDisposable selfDisposable = new SelDisposable("root");
+    //noinspection SSBasedInspection
     selfDisposable.dispose();
   }
 
-  public void testDisposeAndReplace() throws Exception {
-    Disposer.register(myRoot, myFolder1);
-
-    Disposer.disposeChildAndReplace(myFolder1, myFolder2);
-    assertDisposed(myFolder1);
-
-    Disposer.dispose(myRoot);
-    assertDisposed(myRoot);
-    assertDisposed(myFolder2);
-  }
-
-  public void testPostponedParentRegistration() throws Exception {
+  public void testPostponedParentRegistration() {
     Disposer.register(myFolder1, myLeaf1);
     Disposer.register(myLeaf1, myLeaf2);
     Disposer.register(myRoot, myFolder1);
@@ -143,7 +140,7 @@ public class DisposerTest extends TestCase {
     assertDisposed(myLeaf2);
   }
 
-  public void testDisposalOfParentless() throws Throwable {
+  public void testDisposalOfParentless() {
     Disposer.register(myFolder1, myLeaf1);
     Disposer.register(myFolder1, myFolder2);
     Disposer.register(myFolder2, myLeaf2);
@@ -156,7 +153,7 @@ public class DisposerTest extends TestCase {
     assertDisposed(myLeaf2);
   }
 
-  public void testDisposalOfParentess2() throws Throwable {
+  public void testDisposalOfParentess2() {
     Disposer.register(myFolder1, myLeaf1);
     Disposer.register(myFolder2, myLeaf2);
     Disposer.register(myFolder1, myFolder2);
@@ -169,7 +166,7 @@ public class DisposerTest extends TestCase {
     assertDisposed(myLeaf2);
   }
 
-  public void testOverrideParentDisposable() throws Exception {
+  public void testOverrideParentDisposable() {
     Disposer.register(myFolder1, myLeaf1);
     Disposer.register(myFolder2, myFolder1);
     Disposer.register(myRoot, myFolder1);
@@ -185,7 +182,7 @@ public class DisposerTest extends TestCase {
     assertDisposed(myLeaf1);
   }
 
-  public void testDisposableParentNotify() throws Exception {
+  public void testDisposableParentNotify() {
     MyParentDisposable root = new MyParentDisposable("root");
     Disposer.register(root, myFolder1);
 
@@ -209,10 +206,8 @@ public class DisposerTest extends TestCase {
     assertEquals(toString(expected), toString(myDisposeActions));
   }
 
-
   private void assertDisposed(MyDisposable disposable) {
     assertTrue(disposable.isDisposed());
-    assertFalse(disposable.toString(), Disposer.getTree().containsKey(disposable));
 
     Disposer.getTree().assertNoReferenceKeptInTree(disposable);
   }
@@ -236,6 +231,7 @@ public class DisposerTest extends TestCase {
       return myDisposed;
     }
 
+    @Override
     public String toString() {
       return myName;
     }
@@ -302,13 +298,13 @@ public class DisposerTest extends TestCase {
 
 
   public void testMustNotRegisterWithAlreadyDisposed() {
-    Disposable disposable = Disposer.newDisposable();
+    Disposable disposable = newDisposable();
     Disposer.register(myRoot, disposable);
 
     Disposer.dispose(disposable);
 
     try {
-      Disposer.register(disposable, Disposer.newDisposable());
+      Disposer.register(disposable, newDisposable());
       fail("Must not be able to register with already disposed parent");
     }
     catch (IncorrectOperationException ignored) {
@@ -317,11 +313,60 @@ public class DisposerTest extends TestCase {
   }
 
   public void testRegisterThenDisposeThenRegisterAgain() {
-    Disposable disposable = Disposer.newDisposable();
+    Disposable disposable = newDisposable();
     Disposer.register(myRoot, disposable);
 
     Disposer.dispose(disposable);
     Disposer.register(myRoot, disposable);
-    Disposer.register(disposable, Disposer.newDisposable());
+    Disposer.register(disposable, newDisposable());
+  }
+
+  public void testDisposeDespiteExceptions() {
+    DefaultLogger.disableStderrDumping(myRoot);
+
+    Disposable parent = newDisposable();
+    Disposable first = newDisposable();
+    Disposable last = newDisposable();
+
+    Disposer.register(parent, first);
+    Disposer.register(parent, () -> { throw new AssertionError("Expected"); });
+    Disposer.register(parent, () -> { throw new ProcessCanceledException() {
+      @Override
+      public String getMessage() {
+        return "Expected";
+      }
+    }; });
+    Disposer.register(parent, last);
+
+    try {
+      Disposer.dispose(parent);
+      fail("Should throw");
+    }
+    catch (Throwable e) {
+      assertEquals("Expected", e.getMessage());
+    }
+    
+    assertTrue(Disposer.isDisposed(parent));
+    assertTrue(Disposer.isDisposed(first));
+    assertTrue(Disposer.isDisposed(last));
+  }
+
+  public void testMustNotAllowToRegisterDuringParentDisposal() {
+    DefaultLogger.disableStderrDumping(myRoot);
+    
+    Disposable parent = newDisposable("parent");
+    Disposable last = newDisposable("child");
+
+    Disposer.register(parent, () -> Disposer.register(parent, last));
+
+    try {
+      Disposer.dispose(parent);
+      fail("Must throw");
+    }
+    catch (Throwable e) {
+      assertEquals("Sorry but parent: parent is being disposed so the child: child will never be disposed", e.getMessage());
+    }
+
+    assertTrue(Disposer.isDisposed(parent));
   }
 }

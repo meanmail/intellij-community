@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.darcula.ui;
 
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.wm.impl.IdeFrameDecorator;
 import com.intellij.ui.Gray;
 import com.intellij.ui.ScreenUtil;
-import com.intellij.ui.WindowMoveListener;
-import com.intellij.ui.WindowResizeListener;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 
@@ -77,10 +62,10 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
 
   @Override
   public void installUI(JComponent c) {
+    myRootPane = (JRootPane)c;
     super.installUI(c);
 
     if (isCustomDecoration()) {
-      myRootPane = (JRootPane)c;
       int style = myRootPane.getWindowDecorationStyle();
       if (style != JRootPane.NONE) {
         installClientDecorations(myRootPane);
@@ -107,7 +92,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
   }
 
   private static boolean isCustomDecoration() {
-    return Registry.is("ide.win.frame.decoration");
+    return IdeFrameDecorator.isCustomDecoration();
   }
 
   public void installBorder(JRootPane root) {
@@ -127,53 +112,12 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
   }
 
   private void installWindowListeners(JRootPane root, Component parent) {
-    myWindow = parent == null ? null : UIUtil.getWindow(parent);
 
-    if (myWindow != null) {
-      if (myMouseInputListener == null) {
-        //noinspection UseDPIAwareInsets
-        myMouseInputListener = new WindowResizeListener(parent, JBUI.insets(11), null) {
-          @Override
-          protected Insets getResizeOffset(Component view) {
-            return getResizeBorder(view);
-          }
-        };
-      }
-      myWindow.addMouseListener(myMouseInputListener);
-      myWindow.addMouseMotionListener(myMouseInputListener);
-
-      if (myTitlePane != null) {
-        if (myTitleMouseInputListener == null) {
-          myTitleMouseInputListener = new WindowMoveListener(myTitlePane) {
-            @Override
-            protected boolean isDisabled(Component view) {
-              if (view instanceof RootPaneContainer) {
-                RootPaneContainer container = (RootPaneContainer)view;
-                JRootPane pane = container.getRootPane();
-                if (pane != null && JRootPane.NONE == pane.getWindowDecorationStyle()) return true;
-              }
-              return super.isDisabled(view);
-            }
-          };
-        }
-        myTitlePane.addMouseMotionListener(myTitleMouseInputListener);
-        myTitlePane.addMouseListener(myTitleMouseInputListener);
-      }
-      setMaximized();
-    }
   }
 
   private void uninstallWindowListeners(JRootPane root) {
-    if (myWindow != null) {
-      myWindow.removeMouseListener(myMouseInputListener);
-      myWindow.removeMouseMotionListener(myMouseInputListener);
-    }
-    if (myTitlePane != null) {
-      myTitlePane.removeMouseListener(myTitleMouseInputListener);
-      myTitlePane.removeMouseMotionListener(myTitleMouseInputListener);
-    }
-  }
 
+  }
   private void installLayout(JRootPane root) {
     if (myLayoutManager == null) {
       myLayoutManager = createLayoutManager();
@@ -187,6 +131,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
     super.installListeners(root);
 
     myHierarchyListener = new HierarchyListener() {
+      @Override
       public void hierarchyChanged(HierarchyEvent e) {
         Component parent = root.getParent();
         if (parent == null) {
@@ -308,7 +253,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
   }
 
   /**
-   * Uninstalls the previously installed <code>LayoutManager</code>.
+   * Uninstalls the previously installed {@code LayoutManager}.
    *
    * @param root Root pane.
    */
@@ -321,8 +266,8 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
 
   /**
    * Installs the necessary state onto the JRootPane to render client
-   * decorations. This is ONLY invoked if the <code>JRootPane</code> has a
-   * decoration style other than <code>JRootPane.NONE</code>.
+   * decorations. This is ONLY invoked if the {@code JRootPane} has a
+   * decoration style other than {@code JRootPane.NONE}.
    *
    * @param root Root pane.
    */
@@ -332,7 +277,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
     JComponent titlePane = createTitlePane(root);
 
     setTitlePane(root, titlePane);
-    installWindowListeners(root, root.getParent());
+    //installWindowListeners(root, root.getParent()); // installed on ancestor change
     installLayout(root);
     if (myWindow != null) {
       root.revalidate();
@@ -342,7 +287,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
 
   private void uninstallClientDecorations(JRootPane root) {
     uninstallBorder(root);
-    uninstallWindowListeners(root);
+    //uninstallWindowListeners(root);
     setTitlePane(root, null);
     uninstallLayout(root);
     int style = root.getWindowDecorationStyle();
@@ -423,15 +368,16 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
         installClientDecorations(root);
       }
     }
-    if (propertyName.equals("ancestor")) {
+/*    if (propertyName.equals("ancestor")) {
       uninstallWindowListeners(myRootPane);
-      if (((JRootPane)e.getSource()).getWindowDecorationStyle() != JRootPane.NONE) {
+      if (e.getNewValue() != null && ((JRootPane)e.getSource()).getWindowDecorationStyle() != JRootPane.NONE) {
         installWindowListeners(myRootPane, myRootPane.getParent());
       }
-    }
+    }*/
   }
 
-  protected class DarculaRootLayout implements LayoutManager2 {
+  protected static class DarculaRootLayout implements LayoutManager2 {
+    @Override
     public Dimension preferredLayoutSize(Container parent) {
       Dimension cpd, mbd, tpd;
       int cpWidth = 0;
@@ -477,6 +423,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
       return new Dimension(max(cpWidth, mbWidth, tpWidth) + i.left + i.right, cpHeight + mbHeight + tpHeight + i.top + i.bottom);
     }
 
+    @Override
     public Dimension minimumLayoutSize(Container parent) {
       Dimension cpd, mbd, tpd;
       int cpWidth = 0;
@@ -520,6 +467,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
       return new Dimension(max(cpWidth, mbWidth, tpWidth) + i.left + i.right, cpHeight + mbHeight + tpHeight + i.top + i.bottom);
     }
 
+    @Override
     public Dimension maximumLayoutSize(Container target) {
       Dimension cpd, mbd, tpd;
       int cpWidth = Integer.MAX_VALUE;
@@ -572,6 +520,7 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
       return new Dimension(maxWidth, maxHeight);
     }
 
+    @Override
     public void layoutContainer(Container parent) {
       JRootPane root = (JRootPane)parent;
       Rectangle b = root.getBounds();
@@ -609,23 +558,29 @@ public class DarculaRootPaneUI extends BasicRootPaneUI {
       }
     }
 
+    @Override
     public void addLayoutComponent(String name, Component comp) {
     }
 
+    @Override
     public void removeLayoutComponent(Component comp) {
     }
 
+    @Override
     public void addLayoutComponent(Component comp, Object constraints) {
     }
 
+    @Override
     public float getLayoutAlignmentX(Container target) {
       return 0.0f;
     }
 
+    @Override
     public float getLayoutAlignmentY(Container target) {
       return 0.0f;
     }
 
+    @Override
     public void invalidateLayout(Container target) {
     }
   }

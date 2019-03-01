@@ -1,25 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: Anna.Kozlova
- * Date: 13-Jul-2006
- * Time: 12:07:39
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.openapi.Disposable;
@@ -37,8 +16,8 @@ import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.ToolWindowEx;
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
-import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.content.*;
+import com.intellij.ui.content.impl.ContentImpl;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.containers.ContainerUtil;
@@ -50,10 +29,9 @@ import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.awt.event.InputEvent;
 import java.beans.PropertyChangeListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-@SuppressWarnings("ConstantConditions")
 public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
   private final Map<String, ToolWindow> myToolWindows = new HashMap<>();
   private final Project myProject;
@@ -151,7 +129,10 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
   @Override
   public void unregisterToolWindow(@NotNull String id) {
-    myToolWindows.remove(id);
+    ToolWindow toolWindow = myToolWindows.remove(id);
+    if (toolWindow != null) {
+      Disposer.dispose(((MockToolWindow)toolWindow).myContentManager);
+    }
   }
 
   @Override
@@ -175,7 +156,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
   }
 
   @Override
-  public ToolWindow getToolWindow(String id) {
+  public ToolWindow getToolWindow(@Nullable String id) {
     return myToolWindows.get(id);
   }
 
@@ -213,20 +194,6 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
   @Override
   public void initToolWindow(@NotNull ToolWindowEP bean) {
-
-  }
-
-  @Override
-  public void addToolWindowManagerListener(@NotNull ToolWindowManagerListener listener) {
-
-  }
-
-  @Override
-  public void addToolWindowManagerListener(@NotNull ToolWindowManagerListener listener, @NotNull Disposable parentDisposable) {
-  }
-
-  @Override
-  public void removeToolWindowManagerListener(@NotNull ToolWindowManagerListener listener) {
   }
 
   @Override
@@ -235,10 +202,11 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
   }
 
   @Override
-  public String getLastActiveToolWindowId(Condition<JComponent> condition) {
+  public String getLastActiveToolWindowId(Condition<? super JComponent> condition) {
     return null;
   }
 
+  @NotNull
   @Override
   public DesktopLayout getLayout() {
     return new DesktopLayout();
@@ -272,7 +240,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
   }
 
   public static class MockToolWindow implements ToolWindowEx {
-    ContentManager myContentManager = new MockContentManager();
+    final ContentManager myContentManager = new MockContentManager();
 
     public MockToolWindow(@NotNull Project project) {
       Disposer.register(project, myContentManager);
@@ -423,7 +391,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
     @Override
     public JComponent getComponent() {
-      return null;
+      return new JLabel();
     }
 
     @Override
@@ -447,11 +415,6 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
     @Override
     public void showContentPopup(InputEvent inputEvent) {
-    }
-
-    @Override
-    public ActionCallback getActivation() {
-      return ActionCallback.DONE;
     }
 
     @Override
@@ -485,6 +448,10 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     }
 
     @Override
+    public void setTabActions(AnAction... actions) {
+    }
+
+    @Override
     public void setUseLastFocusedOnActivation(boolean focus) {
     }
 
@@ -507,25 +474,19 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
 
     @Override
     public void addContent(@NotNull final Content content) {
-      myContents.add(content);
-      Disposer.register(this, content);
-      ContentManagerEvent e = new ContentManagerEvent(this, content, myContents.indexOf(content), ContentManagerEvent.ContentOperation.add);
-      myDispatcher.getMulticaster().contentAdded(e);
-      if (mySelected == null) setSelectedContent(content);
+      addContent(content, -1);
     }
 
     @Override
     public void addContent(@NotNull Content content, int order) {
-      myContents.add(order, content);
+      myContents.add(order == -1 ? myContents.size() : order, content);
+      if (content instanceof ContentImpl && content.getManager() == null) {
+        ((ContentImpl)content).setManager(this);
+      }
       Disposer.register(this, content);
       ContentManagerEvent e = new ContentManagerEvent(this, content, myContents.indexOf(content), ContentManagerEvent.ContentOperation.add);
       myDispatcher.getMulticaster().contentAdded(e);
       if (mySelected == null) setSelectedContent(content);
-    }
-
-    @Override
-    public void addContent(@NotNull final Content content, final Object constraints) {
-      addContent(content);
     }
 
     @Override
@@ -561,6 +522,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
       return null;
     }
 
+    @NotNull
     @Override
     public List<AnAction> getAdditionalPopupActions(@NotNull final Content content) {
       return Collections.emptyList();
@@ -597,7 +559,7 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     }
 
     @Override
-    public Content getContent(final JComponent component) {
+    public Content getContent(@NotNull final JComponent component) {
       Content[] contents = getContents();
       for (Content content : contents) {
         if (Comparing.equal(component, content.getComponent())) {
@@ -621,11 +583,11 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
     @Override
     @NotNull
     public Content[] getContents() {
-      return myContents.toArray(new Content[myContents.size()]);
+      return myContents.toArray(new Content[0]);
     }
 
     @Override
-    public int getIndexOfContent(final Content content) {
+    public int getIndexOfContent(@NotNull final Content content) {
       return myContents.indexOf(content);
     }
 
@@ -665,13 +627,18 @@ public class ToolWindowHeadlessManagerImpl extends ToolWindowManagerEx {
       ContentManagerEvent e = new ContentManagerEvent(this, content, oldIndex, ContentManagerEvent.ContentOperation.remove);
       myDispatcher.getMulticaster().contentRemoved(e);
       Content item = ContainerUtil.getFirstItem(myContents);
-      if (item != null) setSelectedContent(item);
+      if (item != null) {
+        setSelectedContent(item);
+      }
+      else {
+        mySelected = null;
+      }
       return result;
     }
 
     @NotNull
     @Override
-    public ActionCallback removeContent(@NotNull Content content, boolean dispose, boolean trackFocus, boolean implicitFocus) {
+    public ActionCallback removeContent(@NotNull Content content, boolean dispose, boolean requestFocus, boolean implicitFocus) {
       removeContent(content, dispose);
       return ActionCallback.DONE;
     }

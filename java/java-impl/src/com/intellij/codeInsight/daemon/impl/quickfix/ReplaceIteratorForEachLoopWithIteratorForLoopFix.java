@@ -15,16 +15,15 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
-import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.*;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.VariableNameGenerator;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
@@ -59,12 +58,11 @@ public class ReplaceIteratorForEachLoopWithIteratorForLoopFix implements Intenti
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return myStatement.isValid() && myStatement.getManager().isInProject(myStatement);
+    return myStatement.isValid() && BaseIntentionAction.canModify(myStatement);
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     final PsiExpression iteratedValue = myStatement.getIteratedValue();
     if (iteratedValue == null) {
       return;
@@ -80,9 +78,10 @@ public class ReplaceIteratorForEachLoopWithIteratorForLoopFix implements Intenti
     }
     final PsiStatement forEachBody = myStatement.getBody();
 
-    final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
     final JavaCodeStyleManager javaStyleManager = JavaCodeStyleManager.getInstance(project);
-    final String name = javaStyleManager.suggestUniqueVariableName("it", myStatement, true);
+    final String name = new VariableNameGenerator(myStatement, VariableKind.LOCAL_VARIABLE)
+      .byName("it", "iter", "iterator").generate(true);
     PsiForStatement newForLoop = (PsiForStatement)elementFactory.createStatementFromText(
       "for (Iterator " + name + " = initializer; " + name + ".hasNext();) { Object next = " + name + ".next(); }", myStatement);
 
@@ -102,8 +101,8 @@ public class ReplaceIteratorForEachLoopWithIteratorForLoopFix implements Intenti
     final PsiTypeElement newItemTypeElement = elementFactory.createTypeElement(iterationParameter.getType());
     newItemVariable.getTypeElement().replace(newItemTypeElement);
     newItemVariable.setName(iterationParameterName);
-    final CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(project);
-    if (codeStyleSettings.GENERATE_FINAL_LOCALS) {
+    final CodeStyleSettings codeStyleSettings = CodeStyle.getSettings(file);
+    if (codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).GENERATE_FINAL_LOCALS) {
       final PsiModifierList modifierList = newItemVariable.getModifierList();
       if (modifierList != null) modifierList.setModifierProperty(PsiModifier.FINAL, true);
     }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
@@ -20,13 +6,9 @@
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.ProjectTopics;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.application.WriteAction;
+import com.intellij.diagnostic.PluginException;
+import com.intellij.openapi.application.*;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.ExtensionException;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -36,10 +18,10 @@ import com.intellij.openapi.progress.util.ProgressWrapper;
 import com.intellij.openapi.project.*;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.startup.StartupManager;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.EmptyRunnable;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.newvfs.events.VFileCopyEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileCreateEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent;
@@ -71,13 +53,13 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
 
   public PushedFilePropertiesUpdaterImpl(final Project project) {
     myProject = project;
-    myPushers = Extensions.getExtensions(FilePropertyPusher.EP_NAME);
+    myPushers = FilePropertyPusher.EP_NAME.getExtensions();
     myFilePushers = ContainerUtil.findAllAsArray(myPushers, pusher -> !pusher.pushDirectoriesOnly());
 
     StartupManager.getInstance(project).registerPreStartupActivity(
-      () -> project.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+      () -> project.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
         @Override
-        public void rootsChanged(final ModuleRootEvent event) {
+        public void rootsChanged(@NotNull final ModuleRootEvent event) {
           for (FilePropertyPusher pusher : myPushers) {
             pusher.afterRootsChanged(project);
           }
@@ -89,7 +71,10 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
     boolean pushedSomething = false;
     List<Runnable> delayedTasks = ContainerUtil.newArrayList();
     for (VFileEvent event : events) {
-      final VirtualFile file = event.getFile();
+      VirtualFile file = event.getFile();
+      if (event instanceof VFileCopyEvent) {
+        file = ((VFileCopyEvent)event).getNewParent().findChild(((VFileCopyEvent)event).getNewChildName());
+      }
       if (file == null) continue;
 
       final FilePropertyPusher[] pushers = file.isDirectory() ? myPushers : myFilePushers;
@@ -105,8 +90,8 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
         else if (!ProjectUtil.isProjectOrWorkspaceFile(file)) {
           ContainerUtil.addIfNotNull(delayedTasks, createRecursivePushTask(file, pushers));
         }
-      } else if (event instanceof VFileMoveEvent) {
-        for (FilePropertyPusher pusher : pushers) {
+      } else if (event instanceof VFileMoveEvent || event instanceof VFileCopyEvent) {
+        for (FilePropertyPusher<?> pusher : pushers) {
           file.putUserData(pusher.getFileDataKey(), null);
         }
         // push synchronously to avoid entering dumb mode in the middle of a meaningful write action
@@ -132,7 +117,7 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
         }
 
         @Override
-        public void pushRecursively(VirtualFile file, Project project) {
+        public void pushRecursively(@NotNull VirtualFile file, @NotNull Project project) {
           queueTasks(ContainerUtil.createMaybeSingletonList(createRecursivePushTask(file, new FilePropertyPusher[]{pusher})));
         }
       });
@@ -154,12 +139,9 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
   }
 
   private void doPushRecursively(VirtualFile dir, final FilePropertyPusher[] pushers, ProjectFileIndex fileIndex) {
-    fileIndex.iterateContentUnderDirectory(dir, new ContentIterator() {
-      @Override
-      public boolean processFile(final VirtualFile fileOrDir) {
-        applyPushersToFile(fileOrDir, pushers, null);
-        return true;
-      }
+    fileIndex.iterateContentUnderDirectory(dir, fileOrDir -> {
+      applyPushersToFile(fileOrDir, pushers, null);
+      return true;
     });
   }
 
@@ -167,15 +149,15 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
     for (Runnable action : actions) {
       myTasks.offer(action);
     }
-    final DumbModeTask task = new DumbModeTask() {
+    DumbModeTask task = new DumbModeTask(this) {
       @Override
       public void performInDumbMode(@NotNull ProgressIndicator indicator) {
         performPushTasks();
       }
     };
-    myProject.getMessageBus().connect(task).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    myProject.getMessageBus().connect(task).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         DumbService.getInstance(myProject).cancelTask(task);
       }
     });
@@ -213,23 +195,38 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
     }
   }
 
-  private static <T> T findPusherValuesUpwards(Project project, VirtualFile dir, FilePropertyPusher<T> pusher, T moduleValue) {
+  @Override
+  public void filePropertiesChanged(@NotNull VirtualFile fileOrDir, @NotNull Condition<? super VirtualFile> acceptFileCondition) {
+    if (fileOrDir.isDirectory()) {
+      for (VirtualFile child : fileOrDir.getChildren()) {
+        if (!child.isDirectory() && acceptFileCondition.value(child)) {
+          filePropertiesChanged(child);
+        }
+      }
+    }
+    else if (acceptFileCondition.value(fileOrDir)) {
+      filePropertiesChanged(fileOrDir);
+    }
+  }
+
+  private static <T> T findPusherValuesUpwards(Project project, VirtualFile dir, FilePropertyPusher<? extends T> pusher, T moduleValue) {
     final T value = pusher.getImmediateValue(project, dir);
     if (value != null) return value;
     if (moduleValue != null) return moduleValue;
-    final VirtualFile parent = dir.getParent();
-    if (parent != null) return findPusherValuesUpwards(project, parent, pusher);
-    T projectValue = pusher.getImmediateValue(project, null);
-    return projectValue != null? projectValue : pusher.getDefaultValue();
+    return findPusherValuesFromParent(project, dir, pusher);
   }
 
-  private static <T> T findPusherValuesUpwards(Project project, VirtualFile dir, FilePropertyPusher<T> pusher) {
+  private static <T> T findPusherValuesUpwards(Project project, VirtualFile dir, FilePropertyPusher<? extends T> pusher) {
     final T userValue = dir.getUserData(pusher.getFileDataKey());
     if (userValue != null) return userValue;
     final T value = pusher.getImmediateValue(project, dir);
     if (value != null) return value;
+    return findPusherValuesFromParent(project, dir, pusher);
+  }
+
+  private static <T> T findPusherValuesFromParent(Project project, VirtualFile dir, FilePropertyPusher<? extends T> pusher) {
     final VirtualFile parent = dir.getParent();
-    if (parent != null) return findPusherValuesUpwards(project, parent, pusher);
+    if (parent != null && ProjectFileIndex.getInstance(project).isInContent(parent)) return findPusherValuesUpwards(project, parent, pusher);
     T projectValue = pusher.getImmediateValue(project, null);
     return projectValue != null ? projectValue : pusher.getDefaultValue();
   }
@@ -240,36 +237,25 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
   }
 
   private void doPushAll(final FilePropertyPusher[] pushers) {
-    Module[] modules = ApplicationManager.getApplication().runReadAction(new Computable<Module[]>() {
-      @Override
-      public Module[] compute() {
-        return ModuleManager.getInstance(myProject).getModules();
-      }
-    });
+    Module[] modules = ReadAction.compute(() -> ModuleManager.getInstance(myProject).getModules());
 
     List<Runnable> tasks = new ArrayList<>();
 
     for (final Module module : modules) {
-      Runnable iteration = ApplicationManager.getApplication().runReadAction(new Computable<Runnable>() {
-        @Override
-        public Runnable compute() {
-          if (module.isDisposed()) return EmptyRunnable.INSTANCE;
-          ProgressManager.checkCanceled();
+      Runnable iteration = ReadAction.compute(() -> {
+        if (module.isDisposed()) return EmptyRunnable.INSTANCE;
+        ProgressManager.checkCanceled();
 
-          final Object[] moduleValues = new Object[pushers.length];
-          for (int i = 0; i < moduleValues.length; i++) {
-            moduleValues[i] = pushers[i].getImmediateValue(module);
-          }
-
-          final ModuleFileIndex fileIndex = ModuleRootManager.getInstance(module).getFileIndex();
-          return () -> fileIndex.iterateContent(new ContentIterator() {
-            @Override
-            public boolean processFile(final VirtualFile fileOrDir) {
-              applyPushersToFile(fileOrDir, pushers, moduleValues);
-              return true;
-            }
-          });
+        final Object[] moduleValues = new Object[pushers.length];
+        for (int i = 0; i < moduleValues.length; i++) {
+          moduleValues[i] = pushers[i].getImmediateValue(module);
         }
+
+        final ModuleFileIndex fileIndex = ModuleRootManager.getInstance(module).getFileIndex();
+        return () -> fileIndex.iterateContent(fileOrDir -> {
+          applyPushersToFile(fileOrDir, pushers, moduleValues);
+          return true;
+        });
       });
       tasks.add(iteration);
     }
@@ -277,16 +263,15 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
     invokeConcurrentlyIfPossible(tasks);
   }
 
-  public static void invokeConcurrentlyIfPossible(final List<Runnable> tasks) {
+  public static void invokeConcurrentlyIfPossible(final List<? extends Runnable> tasks) {
     if (tasks.size() == 1 ||
-        ApplicationManager.getApplication().isWriteAccessAllowed() ||
-        !Registry.is("idea.concurrent.scanning.files.to.index")) {
+        ApplicationManager.getApplication().isWriteAccessAllowed()) {
       for(Runnable r:tasks) r.run();
       return;
     }
 
     final ProgressIndicator progress = ProgressManager.getInstance().getProgressIndicator();
-    
+
     final ConcurrentLinkedQueue<Runnable> tasksQueue = new ConcurrentLinkedQueue<>(tasks);
     List<Future<?>> results = ContainerUtil.newArrayList();
     if (tasks.size() > 1) {
@@ -326,14 +311,14 @@ public class PushedFilePropertiesUpdaterImpl extends PushedFilePropertiesUpdater
       for (int i = 0, pushersLength = pushers.length; i < pushersLength; i++) {
         //noinspection unchecked
         pusher = pushers[i];
-        if (!isDir && (pusher.pushDirectoriesOnly() || !pusher.acceptsFile(fileOrDir)) || isDir && !pusher.acceptsDirectory(fileOrDir, myProject)) {
+        if (!isDir && (pusher.pushDirectoriesOnly() || !pusher.acceptsFile(fileOrDir, myProject)) || isDir && !pusher.acceptsDirectory(fileOrDir, myProject)) {
           continue;
         }
         findAndUpdateValue(fileOrDir, pusher, moduleValues != null ? moduleValues[i] : null);
       }
     }
     catch (AbstractMethodError ame) { // acceptsDirectory is missed
-      if (pusher != null) throw new ExtensionException(pusher.getClass());
+      if (pusher != null) throw PluginException.createByClass("Failed to apply pusher " + pusher.getClass(), ame, pusher.getClass());
       throw ame;
     }
   }

@@ -15,6 +15,9 @@
  */
 package com.intellij.util.ui.tree;
 
+import com.intellij.openapi.Disposable;
+import org.jetbrains.annotations.NotNull;
+
 import javax.swing.event.TreeModelEvent;
 import javax.swing.event.TreeModelListener;
 import javax.swing.tree.TreeModel;
@@ -23,8 +26,15 @@ import javax.swing.tree.TreePath;
 /**
  * @author Sergey.Malenkov
  */
-public abstract class AbstractTreeModel implements TreeModel {
-  private final TreeModelListenerList listeners = new TreeModelListenerList();
+public abstract class AbstractTreeModel implements Disposable, TreeModel {
+  protected final TreeModelListenerList listeners = new TreeModelListenerList();
+  protected volatile boolean disposed;
+
+  @Override
+  public void dispose() {
+    disposed = true;
+    listeners.clear();
+  }
 
   /**
    * Notifies all added listeners that a tree hierarchy was changed.
@@ -81,8 +91,8 @@ public abstract class AbstractTreeModel implements TreeModel {
    * @param listener a listener to add
    */
   @Override
-  public void addTreeModelListener(TreeModelListener listener) {
-    listeners.add(listener);
+  public void addTreeModelListener(@NotNull TreeModelListener listener) {
+    if (!disposed) listeners.add(listener);
   }
 
   /**
@@ -91,7 +101,7 @@ public abstract class AbstractTreeModel implements TreeModel {
    * @param listener a listener to remove
    */
   @Override
-  public void removeTreeModelListener(TreeModelListener listener) {
-    listeners.remove(listener);
+  public void removeTreeModelListener(@NotNull TreeModelListener listener) {
+    if (!disposed) listeners.remove(listener);
   }
 }

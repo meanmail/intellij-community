@@ -29,6 +29,7 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
@@ -66,8 +67,10 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
   private static final UserDataCache<CachedValue<XmlAttlistDecl[]>,XmlElement, Object> myAttlistDeclCache = new UserDataCache<CachedValue<XmlAttlistDecl[]>,XmlElement, Object>() {
     @Override
     protected final CachedValue<XmlAttlistDecl[]> compute(final XmlElement owner, Object o) {
-      return CachedValuesManager.getManager(owner.getProject()).createCachedValue(
-        () -> new CachedValueProvider.Result<>(doCollectAttlistDeclarations(owner), owner));
+      return CachedValuesManager.getManager(owner.getProject()).createCachedValue(() -> {
+        XmlAttlistDecl[] decls = doCollectAttlistDeclarations(owner);
+        return new CachedValueProvider.Result<>(decls, (Object[])ArrayUtil.append(decls, owner, XmlElement.class));
+      });
     }
   };
 
@@ -92,9 +95,9 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
     myElementDecl = (XmlElementDecl) element;
   }
 
+  @NotNull
   @Override
-  @SuppressWarnings("SpellCheckingInspection")
-  public Object[] getDependences(){
+  public Object[] getDependencies(){
     return new Object[]{myElementDecl, ExternalResourceManager.getInstance()};
   }
 
@@ -154,7 +157,7 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
       }
     }, true, false, XmlUtil.getContainingFile(getDeclaration()));
 
-    return result.toArray(new XmlElementDescriptor[result.size()]);
+    return result.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   private static XmlElementDescriptor getElementDescriptor(final String text, final XmlNSDescriptor NSDescriptor) {
@@ -188,7 +191,7 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
         result.add((XmlAttributeDescriptor)psiMetaData);
       }
     }
-    return result.toArray(new XmlAttributeDescriptor[result.size()]);
+    return result.toArray(XmlAttributeDescriptor.EMPTY);
   }
 
   // Read-only calculation
@@ -212,7 +215,7 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
         result.add(declaration);
       }
     }
-    return result.toArray(new XmlAttlistDecl[result.size()]);
+    return result.toArray(XmlAttlistDecl.EMPTY_ARRAY);
   }
 
   private XmlAttlistDecl[] getAttlistDeclarations() {
@@ -229,7 +232,7 @@ public class XmlElementDescriptorImpl extends BaseXmlElementDescriptorImpl imple
   private static XmlAttlistDecl[] doCollectAttlistDeclarations(XmlElement xmlElement) {
     final List<XmlAttlistDecl> result = new ArrayList<>();
     XmlUtil.processXmlElements(xmlElement, new FilterElementProcessor(new ClassFilter(XmlAttlistDecl.class), result), false, false, XmlUtil.getContainingFile(xmlElement));
-    return result.toArray(new XmlAttlistDecl[result.size()]);
+    return result.toArray(XmlAttlistDecl.EMPTY_ARRAY);
   }
 
   @Override

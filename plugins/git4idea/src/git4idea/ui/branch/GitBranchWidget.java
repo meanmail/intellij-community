@@ -22,10 +22,12 @@ import com.intellij.openapi.ui.popup.ListPopup;
 import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.util.ObjectUtils;
 import git4idea.GitUtil;
+import git4idea.GitVcs;
 import git4idea.branch.GitBranchUtil;
 import git4idea.config.GitVcsSettings;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryChangeListener;
+import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,7 +38,7 @@ public class GitBranchWidget extends DvcsStatusWidget<GitRepository> {
   private final GitVcsSettings mySettings;
 
   public GitBranchWidget(@NotNull Project project) {
-    super(project, "Git");
+    super(project, GitVcs.NAME);
     mySettings = GitVcsSettings.getInstance(project);
   }
 
@@ -47,6 +49,7 @@ public class GitBranchWidget extends DvcsStatusWidget<GitRepository> {
 
   @Nullable
   @Override
+  @CalledInAwt
   protected GitRepository guessCurrentRepository(@NotNull Project project) {
     return DvcsUtil.guessCurrentRepositoryQuick(project, GitUtil.getRepositoryManager(project), mySettings.getRecentRootPath());
   }

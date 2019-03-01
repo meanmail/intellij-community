@@ -20,6 +20,7 @@ import com.intellij.openapi.util.Conditions;
 import com.intellij.vcs.log.graph.GraphCommit;
 import com.intellij.vcs.log.graph.PermanentGraph;
 import com.intellij.vcs.log.graph.VisibleGraph;
+import com.intellij.vcs.log.visible.EmptyVisibleGraph;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,8 +40,8 @@ public class EmptyPermanentGraph implements PermanentGraph<Integer> {
 
   @NotNull
   @Override
-  public VisibleGraph<Integer> createVisibleGraph(@NotNull SortType sortType, @Nullable Set<Integer> headsOfVisibleBranches,
-                                                  @Nullable Set<Integer> filter) {
+  public VisibleGraph<Integer> createVisibleGraph(@NotNull SortType sortType, @Nullable Set<? extends Integer> headsOfVisibleBranches,
+                                                  @Nullable Set<? extends Integer> filter) {
     return EmptyVisibleGraph.getInstance();
   }
 
@@ -64,7 +65,7 @@ public class EmptyPermanentGraph implements PermanentGraph<Integer> {
 
   @NotNull
   @Override
-  public Condition<Integer> getContainedInBranchCondition(@NotNull Collection<Integer> currentBranchHead) {
+  public Condition<Integer> getContainedInBranchCondition(@NotNull Collection<? extends Integer> currentBranchHead) {
     return Conditions.alwaysFalse();
   }
 }

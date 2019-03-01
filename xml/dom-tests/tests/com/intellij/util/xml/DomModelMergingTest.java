@@ -36,7 +36,7 @@ public class DomModelMergingTest extends DomTestCase {
     myMerger = new ModelMergerImpl();
   }
 
-  public void testVisitor() throws Throwable {
+  public void testVisitor() {
     final MyElement element1 = createElement("", MyElement.class);
     final MyElement foo1 = element1.getFoo();
     final MyElement bar1 = element1.addBar();
@@ -74,19 +74,16 @@ public class DomModelMergingTest extends DomTestCase {
     assertEquals(4, count[0]);
   }
 
-  public void testValidity() throws Throwable {
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        final MyElement element = createElement("", MyElement.class);
-        final MyElement bar1 = element.addBar();
-        final MyElement bar2 = element.addBar();
-        final MyElement merged = myMerger.mergeModels(MyElement.class, bar1, bar2);
-        assertTrue(merged.isValid());
-        bar2.undefine();
-        assertFalse(merged.isValid());
-      }
-    }.execute().throwException();
+  public void testValidity() {
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> {
+      final MyElement element = createElement("", MyElement.class);
+      final MyElement bar1 = element.addBar();
+      final MyElement bar2 = element.addBar();
+      final MyElement merged = myMerger.mergeModels(MyElement.class, bar1, bar2);
+      assertTrue(merged.isValid());
+      bar2.undefine();
+      assertFalse(merged.isValid());
+    });
   }
 
   public interface MyElement extends DomElement {

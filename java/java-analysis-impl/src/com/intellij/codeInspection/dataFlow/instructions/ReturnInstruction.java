@@ -14,26 +14,19 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Jan 28, 2002
- * Time: 10:05:49 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow.instructions;
 
-import com.intellij.codeInspection.dataFlow.*;
+import com.intellij.codeInspection.dataFlow.DfaControlTransferValue;
+import com.intellij.codeInspection.dataFlow.ExceptionTransfer;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class ReturnInstruction extends Instruction {
-  private final boolean isViaException;
+public class ReturnInstruction extends ControlTransferInstruction {
   private final PsiElement myAnchor;
 
-  public ReturnInstruction(boolean isViaException, @Nullable PsiElement anchor) {
-    this.isViaException = isViaException;
+  public ReturnInstruction(@NotNull DfaControlTransferValue transfer, @Nullable PsiElement anchor) {
+    super(transfer);
     myAnchor = anchor;
   }
 
@@ -43,15 +36,8 @@ public class ReturnInstruction extends Instruction {
   }
 
   public boolean isViaException() {
-    return isViaException;
+    DfaControlTransferValue transfer = getTransfer();
+    return transfer.getTarget() instanceof ExceptionTransfer;
   }
 
-  @Override
-  public DfaInstructionState[] accept(DataFlowRunner runner, DfaMemoryState stateBefore, InstructionVisitor visitor) {
-    return DfaInstructionState.EMPTY_ARRAY;
-  }
-
-  public String toString() {
-    return "RETURN";
-  }
 }

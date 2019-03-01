@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Eugene Zhuravlev
@@ -29,12 +15,14 @@ import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ex.IdeFocusTraversalPolicy;
 import com.intellij.ui.PopupHandler;
 import com.intellij.util.SingleAlarm;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.sun.jdi.VMDisconnectedException;
+import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
 
@@ -90,6 +78,14 @@ public abstract class DebuggerTreePanel extends UpdatableDebuggerView implements
   protected abstract DebuggerTree createTreeView();
 
   @Override
+  protected void changeEvent(DebuggerContextImpl newContext, DebuggerSession.Event event) {
+    super.changeEvent(newContext, event);
+    if (event == DebuggerSession.Event.DISPOSE) {
+      getTree().getNodeFactory().dispose();
+    }
+  }
+
+  @Override
   protected void rebuild(DebuggerSession.Event event) {
     myRebuildAlarm.cancelAndRequest();
   }
@@ -122,7 +118,7 @@ public abstract class DebuggerTreePanel extends UpdatableDebuggerView implements
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (DATA_KEY.is(dataId)) {
       return this;
     }
@@ -131,6 +127,6 @@ public abstract class DebuggerTreePanel extends UpdatableDebuggerView implements
 
   @Override
   public void requestFocus() {
-    getTree().requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(getTree(), true));
   }
 }

@@ -31,6 +31,8 @@ public abstract class FileTypeRegistry {
 
   public abstract boolean isFileIgnored(@NotNull VirtualFile file);
 
+  public abstract boolean isFileOfType(@NotNull VirtualFile file, @NotNull FileType type);
+
   public static FileTypeRegistry getInstance() {
     return ourInstanceGetter.get();
   }
@@ -40,6 +42,7 @@ public abstract class FileTypeRegistry {
    *
    * @return The list of file types.
    */
+  @NotNull
   public abstract FileType[] getRegisteredFileTypes();
 
   /**
@@ -54,8 +57,18 @@ public abstract class FileTypeRegistry {
   /**
    * Returns the file type for the specified file name.
    *
-   * @param fileName The file name for which the type is requested.
+   * @param fileNameSeq The file name for which the type is requested.
    * @return The file type instance, or {@link FileTypes#UNKNOWN} if not found.
+   */
+  @NotNull
+  public FileType getFileTypeByFileName(@NotNull @NonNls CharSequence fileNameSeq) {
+    return getFileTypeByFileName(fileNameSeq.toString());
+  }
+
+  /**
+   * Same as {@linkplain FileTypeRegistry#getFileTypeByFileName(CharSequence)} but receives String parameter.
+   *
+   * Consider to use the method above in case when you want to get VirtualFile's file type by file name.
    */
   @NotNull
   public abstract FileType getFileTypeByFileName(@NotNull @NonNls String fileName);
@@ -69,18 +82,6 @@ public abstract class FileTypeRegistry {
    */
   @NotNull
   public abstract FileType getFileTypeByExtension(@NonNls @NotNull String extension);
-
-  /**
-   * Tries to detect whether the file is text or not by analyzing its content.
-   * @param file to analyze
-   * @return {@link com.intellij.openapi.fileTypes.PlainTextFileType} if file looks like text,
-   *          or another file type if some file type detector identified the file
-   *          or the {@link UnknownFileType} if file is binary or we are unable to detect.
-   * @deprecated use {@link VirtualFile#getFileType()} instead
-   */
-  @NotNull
-  @Deprecated
-  public abstract FileType detectFileTypeFromContent(@NotNull VirtualFile file);
 
   /**
    * Finds a file type with the specified name.

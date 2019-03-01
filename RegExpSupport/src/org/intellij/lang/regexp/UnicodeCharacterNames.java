@@ -29,7 +29,7 @@ import java.util.function.Consumer;
  */
 public class UnicodeCharacterNames {
 
-  public static void iterate(Consumer<String> consumer) {
+  public static void iterate(Consumer<? super String> consumer) {
     try {
       final Class<?> aClass = Class.forName("java.lang.CharacterName");
       final Method initNamePool = ReflectionUtil.getDeclaredMethod(aClass, "initNamePool");
@@ -122,7 +122,7 @@ public class UnicodeCharacterNames {
     int index = name.lastIndexOf(' ');
     if (index != -1) {
       try {
-        int c = Integer.parseInt(name.substring(index + 1, name.length()), 16);
+        int c = Integer.parseInt(name.substring(index + 1), 16);
         if (Character.isValidCodePoint(c) && name.equals(Character.getName(c))) return c;
       }
       catch (NumberFormatException ignore) {

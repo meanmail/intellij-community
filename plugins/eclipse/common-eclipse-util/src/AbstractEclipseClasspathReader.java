@@ -28,10 +28,6 @@ import java.util.*;
 import java.util.jar.Manifest;
 import java.util.regex.PatternSyntaxException;
 
-/**
- * User: anna
- * Date: 10/29/12
- */
 public abstract class AbstractEclipseClasspathReader<T> {
   protected final String myRootPath;
   @Nullable protected final List<String> myCurrentRoots;
@@ -90,13 +86,11 @@ public abstract class AbstractEclipseClasspathReader<T> {
                                     final Set<String> libs) throws ConversionException {
     String kind = element.getAttributeValue(EclipseXml.KIND_ATTR);
     if (kind == null) {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Missing classpathentry/@kind");
     }
 
     String path = element.getAttributeValue(EclipseXml.PATH_ATTR);
     if (path == null) {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Missing classpathentry/@path");
     }
 
@@ -188,7 +182,6 @@ public abstract class AbstractEclipseClasspathReader<T> {
     else if (kind.equals(EclipseXml.VAR_KIND)) {
       int slash = path.indexOf("/");
       if (slash == 0) {
-        //noinspection SpellCheckingInspection
         throw new ConversionException("Incorrect 'classpathentry/var@path' format");
       }
 
@@ -241,12 +234,11 @@ public abstract class AbstractEclipseClasspathReader<T> {
           if (eclipseModuleManager != null) {
             eclipseModuleManager.registerUnknownCons(path);
           }
-          addNamedLibrary(rootModel, new ArrayList<String>(), exported, path, true);
+          addNamedLibrary(rootModel, new ArrayList<>(), exported, path, true);
         }
       }
     }
     else {
-      //noinspection SpellCheckingInspection
       throw new ConversionException("Unknown classpathentry/@kind: " + kind);
     }
   }
@@ -273,7 +265,7 @@ public abstract class AbstractEclipseClasspathReader<T> {
   }
 
   @NotNull
-  protected static String getPresentableName(@NotNull String path, Set<String> names) {
+  protected static String getPresentableName(@NotNull String path, Set<? super String> names) {
     String pathComponent = getLastPathComponent(path);
     if (pathComponent != null && names != null && !names.add(pathComponent)) {
       return path;

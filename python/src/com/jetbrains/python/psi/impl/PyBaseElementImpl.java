@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.extapi.psi.StubBasedPsiElementBase;
@@ -28,12 +14,13 @@ import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.PythonLanguage;
-import com.jetbrains.python.psi.PyElement;
-import com.jetbrains.python.psi.PyElementVisitor;
-import com.jetbrains.python.psi.PyReferenceOwner;
-import com.jetbrains.python.psi.PyUtil;
+import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
+import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.stubs.PyAnnotationOwnerStub;
+import com.jetbrains.python.psi.stubs.PyTypeCommentOwnerStub;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import com.jetbrains.python.pyi.PyiUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -70,6 +57,15 @@ public class PyBaseElementImpl<T extends StubElement> extends StubBasedPsiElemen
     return className;
   }
 
+  @NotNull
+  @Override
+  public PsiElement getNavigationElement() {
+    // TODO: Limit to classes, functions, targets?
+    final PsiElement element = PyiUtil.getOriginalElement(this);
+    return element != null ? element : super.getNavigationElement();
+  }
+
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
     PyUtil.verboseOnly(() -> PyPsiUtils.assertValid(this));
     if (visitor instanceof PyElementVisitor) {
@@ -167,7 +163,7 @@ public class PyBaseElementImpl<T extends StubElement> extends StubBasedPsiElemen
 
     if (referencesList.isEmpty()) return null;
     if (referencesList.size() == 1) return referencesList.get(0);
-    return new PsiMultiReference(referencesList.toArray(new PsiReference[referencesList.size()]),
+    return new PsiMultiReference(referencesList.toArray(PsiReference.EMPTY_ARRAY),
                                  referencesList.get(referencesList.size() - 1).getElement());
   }
 
@@ -176,7 +172,7 @@ public class PyBaseElementImpl<T extends StubElement> extends StubBasedPsiElemen
     final PsiReference[] references;
     if (element instanceof PyReferenceOwner) {
       final PsiPolyVariantReference reference = ((PyReferenceOwner)element).getReference(resolveContext);
-      references = reference == null ? PsiReference.EMPTY_ARRAY : new PsiReference[] {reference};
+      references = reference == null ? PsiReference.EMPTY_ARRAY : new PsiReference[]{reference};
     }
     else {
       references = element.getReferences();
@@ -189,5 +185,41 @@ public class PyBaseElementImpl<T extends StubElement> extends StubBasedPsiElemen
         }
       }
     }
+  }
+
+  @Nullable
+  protected static <T extends StubBasedPsiElement<? extends PyAnnotationOwnerStub> & PyAnnotationOwner>
+  String getAnnotationContentFromStubOrPsi(@NotNull T elem) {
+    final PyAnnotationOwnerStub stub = elem.getStub();
+    if (stub != null) {
+      return stub.getAnnotation();
+    }
+    return getAnnotationContentFromPsi(elem);
+  }
+
+  @Nullable
+  protected static <T extends PyAnnotationOwner> String getAnnotationContentFromPsi(@NotNull T elem) {
+    final PyAnnotation annotation = elem.getAnnotation();
+    if (annotation != null) {
+      final PyExpression annotationValue = annotation.getValue();
+      if (annotationValue != null) {
+        return annotationValue.getText();
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  protected static <T extends StubBasedPsiElement<? extends PyTypeCommentOwnerStub> & PyTypeCommentOwner>
+  String getTypeCommentAnnotationFromStubOrPsi(@NotNull T elem) {
+    final PyTypeCommentOwnerStub stub = elem.getStub();
+    if (stub != null) {
+      return stub.getTypeComment();
+    }
+    final PsiComment comment = elem.getTypeComment();
+    if (comment != null) {
+      return PyTypingTypeProvider.getTypeCommentValue(comment.getText());
+    }
+    return null;
   }
 }

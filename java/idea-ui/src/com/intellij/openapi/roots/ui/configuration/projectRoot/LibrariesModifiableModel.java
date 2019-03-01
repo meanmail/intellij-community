@@ -17,6 +17,7 @@
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectModelExternalSource;
 import com.intellij.openapi.roots.impl.libraries.LibraryImpl;
 import com.intellij.openapi.roots.impl.libraries.LibraryTableBase;
 import com.intellij.openapi.roots.libraries.Library;
@@ -33,16 +34,12 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
-/**
- * User: anna
- * Date: 04-Jun-2006
- */
 
 public class LibrariesModifiableModel implements LibraryTableBase.ModifiableModel {
   //todo[nik] remove LibraryImpl#equals method instead of using identity maps
   private final Map<Library, ExistingLibraryEditor> myLibrary2EditorMap =
-    ContainerUtil.<Library, ExistingLibraryEditor>newIdentityTroveMap();
-  private final Set<Library> myRemovedLibraries = ContainerUtil.<Library>newIdentityTroveSet();
+    ContainerUtil.newIdentityTroveMap();
+  private final Set<Library> myRemovedLibraries = ContainerUtil.newIdentityTroveSet();
 
   private LibraryTable.ModifiableModel myLibrariesModifiableModel;
   private final Project myProject;
@@ -55,15 +52,22 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
     myLibraryEditorListener = libraryEditorListener;
   }
 
+  @NotNull
   @Override
   public Library createLibrary(String name) {
     return createLibrary(name, null);
   }
 
+  @NotNull
   @Override
   public Library createLibrary(String name, @Nullable PersistentLibraryKind type) {
-    final Library library = getLibrariesModifiableModel().createLibrary(name, type);
-    //createLibraryEditor(library);                     \
+    return createLibrary(name, type, null);
+  }
+
+  @NotNull
+  @Override
+  public Library createLibrary(String name, @Nullable PersistentLibraryKind type, @Nullable ProjectModelExternalSource externalSource) {
+    final Library library = getLibrariesModifiableModel().createLibrary(name, type, externalSource);
     final BaseLibrariesConfigurable configurable = ProjectStructureConfigurable.getInstance(myProject).getConfigurableFor(library);
     configurable.createLibraryNode(library);
     return library;
@@ -82,9 +86,6 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
 
     if (existingLibrary == library) {
       myRemovedLibraries.add(library);
-    } else {
-      // dispose uncommitted library
-      Disposer.dispose(library);
     }
   }
 
@@ -141,10 +142,13 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
   }
 
   public ExistingLibraryEditor getLibraryEditor(Library library){
-    final Library source = ((LibraryImpl)library).getSource();
-    if (source != null) {
-      return getLibraryEditor(source);
+    if (library instanceof LibraryImpl) {
+      final Library source = ((LibraryImpl)library).getSource();
+      if (source != null) {
+        return getLibraryEditor(source);
+      }
     }
+
     ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
     if (libraryEditor == null){
       libraryEditor = createLibraryEditor(library);
@@ -183,22 +187,13 @@ public class LibrariesModifiableModel implements LibraryTableBase.ModifiableMode
       Disposer.dispose(myLibrariesModifiableModel);
       myLibrariesModifiableModel = null;
     }
-    disposeUncommittedLibraries();
+    disposeLibraryEditors();
   }
 
-  private void disposeUncommittedLibraries() {
-    for (final Library library : new ArrayList<>(myLibrary2EditorMap.keySet())) {
-      final Library existingLibrary = myTable.getLibraryByName(library.getName());
-      if (existingLibrary != library) {
-        Disposer.dispose(library);
-      }
-
-      final ExistingLibraryEditor libraryEditor = myLibrary2EditorMap.get(library);
-      if (libraryEditor != null) {
-        Disposer.dispose(libraryEditor);
-      }
+  private void disposeLibraryEditors() {
+    for (ExistingLibraryEditor libraryEditor : myLibrary2EditorMap.values()) {
+      Disposer.dispose(libraryEditor);
     }
-
     myLibrary2EditorMap.clear();
   }
 }

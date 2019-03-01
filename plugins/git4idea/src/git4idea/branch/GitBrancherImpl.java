@@ -27,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Kirill Likhodedov
@@ -53,6 +54,15 @@ class GitBrancherImpl implements GitBrancher {
 
   private GitBranchWorker newWorker(ProgressIndicator indicator) {
     return new GitBranchWorker(myProject, myGit, new GitBranchUiHandlerImpl(myProject, myGit, indicator));
+  }
+
+  @Override
+  public void createBranch(@NotNull String name, @NotNull Map<GitRepository, String> startPoints) {
+    new CommonBackgroundTask(myProject, "Creating branch " + name, null) {
+      @Override public void execute(@NotNull ProgressIndicator indicator) {
+        newWorker(indicator).createBranch(name, startPoints);
+      }
+    }.runInBackground();
   }
 
   @Override
@@ -154,6 +164,26 @@ class GitBrancherImpl implements GitBrancher {
       @Override
       void execute(@NotNull ProgressIndicator indicator) {
         newWorker(indicator).renameBranch(currentName, newName, repositories);
+      }
+    }.runInBackground();
+  }
+
+  @Override
+  public void deleteTag(@NotNull String name, @NotNull List<GitRepository> repositories) {
+    new CommonBackgroundTask(myProject, "Deleting tag " + name, null) {
+      @Override
+      public void execute(@NotNull ProgressIndicator indicator) {
+        newWorker(indicator).deleteTag(name, repositories);
+      }
+    }.runInBackground();
+  }
+
+  @Override
+  public void deleteRemoteTag(@NotNull String name, @NotNull Map<GitRepository, String> repositories) {
+    new CommonBackgroundTask(myProject, "Deleting tag " + name + " on remote", null) {
+      @Override
+      public void execute(@NotNull ProgressIndicator indicator) {
+        newWorker(indicator).deleteRemoteTag(name, repositories);
       }
     }.runInBackground();
   }

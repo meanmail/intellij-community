@@ -24,21 +24,21 @@ import java.lang.reflect.Method;
  *
  * @author yole
  */
-@SuppressWarnings("UnusedDeclaration")
 public class WindowsCommandLineProcessor {
   // The WindowsCommandLineProcessor class which is loaded in the main IDEA (non-bootstrap) classloader.
-  public static Class<?> ourMirrorClass = null;
+  public static Class<?> ourMirrorClass;
 
-  public static WindowsCommandLineListener LISTENER = null;
+  public static WindowsCommandLineListener LISTENER;
 
   /**
    * NOTE: This method is called through JNI by the Windows launcher. Please do not delete or rename it.
    */
-  public static void processWindowsLauncherCommandLine(final String currentDirectory, final String commandLine) {
+  @SuppressWarnings("unused")
+  public static void processWindowsLauncherCommandLine(final String currentDirectory, final String[] args) {
     if (ourMirrorClass != null) {
       try {
-        Method method = ourMirrorClass.getMethod("processWindowsLauncherCommandLine", String.class, String.class);
-        method.invoke(null, currentDirectory, commandLine);
+        Method method = ourMirrorClass.getMethod("processWindowsLauncherCommandLine", String.class, String[].class);
+        method.invoke(null, currentDirectory, args);
       }
       catch (NoSuchMethodException ignored) { }
       catch (InvocationTargetException ignored) { }
@@ -46,7 +46,7 @@ public class WindowsCommandLineProcessor {
     }
     else {
       if (LISTENER != null) {
-        LISTENER.processWindowsLauncherCommandLine(currentDirectory, commandLine);
+        LISTENER.processWindowsLauncherCommandLine(currentDirectory, args);
       }
     }
   }

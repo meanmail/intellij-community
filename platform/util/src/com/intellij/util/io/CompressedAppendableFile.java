@@ -35,6 +35,7 @@ import java.util.Arrays;
  */
 public class CompressedAppendableFile {
   private final File myBaseFile;
+  private final LowMemoryWatcher myLowMemoryWatcher;
 
   // force will clear the buffer and reset the position
   private byte[] myNextChunkBuffer;
@@ -46,48 +47,44 @@ public class CompressedAppendableFile {
   private static final int FACTOR = 32;
   private long [] myChunkOffsetTable; // one long offset per FACTOR compressed chunks
   private static final boolean doDebug = SystemProperties.getBooleanProperty("idea.compressed.file.self.check", false);
-  private TLongArrayList myCompressedChunksFileOffsets = doDebug ? new TLongArrayList() : null;
+  private final TLongArrayList myCompressedChunksFileOffsets = doDebug ? new TLongArrayList() : null;
+
+  public static final int PAGE_LENGTH = SystemProperties.getIntProperty("idea.compressed.file.page.length", 32768);
   private static final int MAX_PAGE_LENGTH = 0xFFFF;
 
   private long myFileLength;
   private long myUncompressedFileLength = -1;
 
-  protected final int myAppendBufferLength;
+  private final int myAppendBufferLength;
   private static final int myMinAppendBufferLength = 1024;
 
-  public static final String INCOMPLETE_CHUNK_LENGTH_FILE_EXTENSION = ".s";
-  private final LowMemoryWatcher myLowMemoryWatcher;
+  static final String INCOMPLETE_CHUNK_LENGTH_FILE_EXTENSION = ".s";
+
+  private static int ourFilesCount;
+  private final int myCount = ourFilesCount++;
 
   public CompressedAppendableFile(File file) {
-    this(file, PersistentBTreeEnumerator.PAGE_SIZE);
+    this(file, 32768);
   }
 
   private CompressedAppendableFile(File file, int bufferSize) {
     myBaseFile = file;
     myAppendBufferLength = bufferSize;
     assert bufferSize <= MAX_PAGE_LENGTH; // length of compressed buffer size should be in short range
-    myLowMemoryWatcher = LowMemoryWatcher.register(new Runnable() {
-      @Override
-      public void run() {
-        synchronized (CompressedAppendableFile.this) {
-          force();
-          myChunkLengthTable = null;
-          myChunkTableLength = 0;
-          myChunkOffsetTable = null;
-          myNextChunkBuffer = null;
-          myBufferPosition = 0;
-          if (doDebug) myCompressedChunksFileOffsets.clear();
-        }
+    file.getParentFile().mkdirs();
+    
+    myLowMemoryWatcher = LowMemoryWatcher.register(() -> {
+      dropCaches();
+
+      synchronized (ourDecompressedCache) {
+        ourDecompressedCache.clear();
       }
     });
   }
 
   public synchronized <Data> Data read(final long addr, KeyDescriptor<Data> descriptor) throws IOException {
-    DataInputStream stream = getStream(addr);
-    try {
+    try (DataInputStream stream = getStream(addr)) {
       return descriptor.read(stream);
-    } finally {
-      stream.close();
     }
   }
 
@@ -109,14 +106,13 @@ public class CompressedAppendableFile {
     File chunkLengthFile = getChunkLengthFile();
 
     if (chunkLengthFile.exists()) {
-      final DataInputStream chunkLengthStream = new DataInputStream(new BufferedInputStream(
+      try (DataInputStream chunkLengthStream = new DataInputStream(new BufferedInputStream(
         new LimitedInputStream(new FileInputStream(chunkLengthFile), (int)chunkLengthFile.length()) {
           @Override
-          public int available() throws IOException {
+          public int available() {
             return remainingLimit();
           }
-        }, 32768));
-      try{
+        }, 32768))) {
         short[] chunkLengthTable = new short[(int)(chunkLengthFile.length() / 2)];
         int chunkLengthTableLength = 0;
 
@@ -136,28 +132,25 @@ public class CompressedAppendableFile {
         if (myChunkTableLength >= FACTOR) {
           long[] chunkOffsetTable = new long[myChunkTableLength / FACTOR];
           long offset = 0;
-          for(int i = 0; i < chunkOffsetTable.length; ++i) {
+          for (int i = 0; i < chunkOffsetTable.length; ++i) {
             int start = i * FACTOR;
-            for(int j = 0; j < FACTOR; ++j) {
-              offset += (chunkLengthTable[start + j] & MAX_PAGE_LENGTH);
+            for (int j = 0; j < FACTOR; ++j) {
+              offset += chunkLengthTable[start + j] & MAX_PAGE_LENGTH;
             }
             chunkOffsetTable[i] = offset;
           }
           myChunkOffsetTable = chunkOffsetTable;
           if (doDebug) { // check all offsets
-            for(int i = 0; i < chunkLengthTableLength; ++i) {
+            for (int i = 0; i < chunkLengthTableLength; ++i) {
               calcOffsetOfPage(i);
             }
           }
-        } else {
+        }
+        else {
           myChunkOffsetTable = ArrayUtil.EMPTY_LONG_ARRAY;
         }
 
         myFileLength = calcOffsetOfPage(myChunkTableLength - 1);
-      } finally {
-        try {
-          chunkLengthStream.close();
-        } catch (IOException ignore) {}
       }
     }
     else {
@@ -180,13 +173,13 @@ public class CompressedAppendableFile {
 
   private static final FileChunkReadCache ourDecompressedCache = new FileChunkReadCache();
 
+  @NotNull
   private synchronized byte[] loadChunk(int chunkNumber) throws IOException {
     try {
       if (myChunkLengthTable == null) initChunkLengthTable();
       assert chunkNumber < myChunkTableLength;
 
-      final DataInputStream keysStream = getChunkStream(getChunksFile(), chunkNumber);
-      try {
+      try (DataInputStream keysStream = getChunkStream(getChunksFile(), chunkNumber)) {
         if (keysStream.available() > 0) {
           byte[] decompressedBytes = decompress(keysStream);
           if (decompressedBytes.length != myAppendBufferLength) {
@@ -194,19 +187,13 @@ public class CompressedAppendableFile {
           }
           return decompressedBytes;
         }
-      } finally {
-        try {
-          keysStream.close();
-        } catch (IOException ignore) {}
       }
 
       assert false:"data corruption detected:"+chunkNumber + "," + myChunkTableLength;
       return ArrayUtil.EMPTY_BYTE_ARRAY;
     }
-    catch (RuntimeException e) { // CorruptedException, ArrayIndexOutofBounds, etc
+    catch (RuntimeException | AssertionError e) { // CorruptedException, ArrayIndexOutofBounds, etc
       throw new IOException(e);
-    } catch(AssertionError ae) {
-      throw new IOException(ae);
     }
   }
 
@@ -229,11 +216,11 @@ public class CompressedAppendableFile {
   }
 
   private long calcOffsetOfPage(int pageNumber) {
-    final int calculatedOffset = ((pageNumber + 1) / FACTOR);
+    final int calculatedOffset = (pageNumber + 1) / FACTOR;
     long offset = calculatedOffset > 0 ? myChunkOffsetTable[calculatedOffset - 1]:0;
     final int baseOffset = calculatedOffset * FACTOR;
     for(int index = 0, len = (pageNumber + 1) % FACTOR; index < len; ++index) {
-      offset += (myChunkLengthTable[baseOffset + index] & MAX_PAGE_LENGTH);
+      offset += myChunkLengthTable[baseOffset + index] & MAX_PAGE_LENGTH;
     }
     if (doDebug) {
       assert myCompressedChunksFileOffsets.get(pageNumber) == offset;
@@ -249,10 +236,10 @@ public class CompressedAppendableFile {
     }
     return new BufferedInputStream(new LimitedInputStream(in, pageSize) {
       @Override
-      public int available() throws IOException {
+      public int available() {
         return remainingLimit();
       }
-    }, 32768);
+    }, pageSize);
   }
 
   public synchronized <Data> void append(Data value, KeyDescriptor<Data> descriptor) throws IOException {
@@ -264,16 +251,22 @@ public class CompressedAppendableFile {
     append(buffer, size);
   }
 
-  public synchronized void append(byte[] buffer, int size) throws IOException {
+  public void append(byte[] buffer, int size) throws IOException {
+    append(buffer, 0, size);
+  }
+
+  public synchronized void append(byte[] buffer, int offset, int size) throws IOException {
     if (size == 0) return;
 
     if (myNextChunkBuffer == null) loadAppendBuffer();
-    int newBufferSize = calcBufferSize(myBufferPosition + size);
-    if (newBufferSize != myNextChunkBuffer.length) {
-      myNextChunkBuffer = Arrays.copyOf(myNextChunkBuffer, newBufferSize);
+    if (myNextChunkBuffer.length != myAppendBufferLength && myBufferPosition + size >= myNextChunkBuffer.length) {
+      int newBufferSize = calcBufferSize(myBufferPosition + size);
+      if (newBufferSize != myNextChunkBuffer.length) {
+        myNextChunkBuffer = Arrays.copyOf(myNextChunkBuffer, newBufferSize);
+      }
     }
 
-    int bufferPosition = 0;
+    int bufferPosition = offset;
     int sizeToWrite = size;
 
     while (sizeToWrite > 0) {
@@ -285,28 +278,21 @@ public class CompressedAppendableFile {
       saveNextChunkIfNeeded();
     }
 
+    if (myUncompressedFileLength == -1) length();
     myUncompressedFileLength += size;
     myDirty = true;
   }
 
   private synchronized void loadAppendBuffer() throws IOException {
     if (myNextChunkBuffer != null) return;
-    myNextChunkBuffer = new byte[myAppendBufferLength];
+
     File tempAppendFile = getIncompleteChunkFile();
     if (tempAppendFile.exists()) {
       myBufferPosition = (int)tempAppendFile.length();
       myNextChunkBuffer = new byte[calcBufferSize(myBufferPosition)];
 
-      FileInputStream stream = new FileInputStream(tempAppendFile);
-      try {
+      try (FileInputStream stream = new FileInputStream(tempAppendFile)) {
         stream.read(myNextChunkBuffer, 0, myBufferPosition);
-      }
-      finally {
-        try {
-          stream.close();
-        }
-        catch (IOException ignore) {
-        }
       }
     }
     else {
@@ -356,6 +342,7 @@ public class CompressedAppendableFile {
     }
   }
 
+  @NotNull
   private static short[] reallocShortTable(short[] table) {
     short[] newTable = new short[Math.max(table.length * 8 / 5, table.length + 1)];
     System.arraycopy(table, 0, newTable, 0, table.length);
@@ -366,29 +353,19 @@ public class CompressedAppendableFile {
     return CompressionUtil.writeCompressedWithoutOriginalBufferLength(compressedDataOut, buffer, myAppendBufferLength);
   }
 
+  @NotNull
   protected byte[] decompress(DataInputStream keysStream) throws IOException {
-    return CompressionUtil.readCompressedWithoutOriginalBufferLength(keysStream);
+    return CompressionUtil.readCompressedWithoutOriginalBufferLength(keysStream, myAppendBufferLength);
   }
 
   protected void saveChunk(BufferExposingByteArrayOutputStream compressedChunk, long endOfFileOffset) throws IOException {
-    DataOutputStream stream =
-      new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getChunksFile(), true)));
-    try {
+    try (DataOutputStream stream = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getChunksFile(), true)))) {
       stream.write(compressedChunk.getInternalBuffer(), 0, compressedChunk.size());
-    } finally {
-      try {
-        stream.close();
-      } catch (IOException ignore) {}
     }
 
-    DataOutputStream chunkLengthStream =
-      new DataOutputStream(new BufferedOutputStream(new FileOutputStream(getChunkLengthFile(), true)));
-    try {
+    try (DataOutputStream chunkLengthStream = new DataOutputStream(
+      new BufferedOutputStream(new FileOutputStream(getChunkLengthFile(), true)))) {
       DataInputOutputUtil.writeINT(chunkLengthStream, compressedChunk.size());
-    } finally {
-      try {
-        chunkLengthStream.close();
-      } catch (IOException ignore) {}
     }
   }
 
@@ -398,24 +375,29 @@ public class CompressedAppendableFile {
   }
 
   private void saveIncompleteChunk() {
-    if (myNextChunkBuffer != null && myBufferPosition != 0 && myDirty) {
+    if (myNextChunkBuffer != null && myDirty) {
+      File incompleteChunkFile = getIncompleteChunkFile();
 
       try {
         saveNextChunkIfNeeded();
         if (myBufferPosition != 0) {
-          BufferedOutputStream stream =
-            new BufferedOutputStream(new FileOutputStream(getIncompleteChunkFile()));
-          try {
+          try (BufferedOutputStream stream = new BufferedOutputStream(new FileOutputStream(incompleteChunkFile))) {
             stream.write(myNextChunkBuffer, 0, myBufferPosition);
           }
-          finally {
-            try {
-              stream.close();
-            }
-            catch (IOException ignore) {
-            }
+        } else {
+          incompleteChunkFile.delete();
+        }
+      } catch (FileNotFoundException ex) {
+        File parentFile = incompleteChunkFile.getParentFile();
+        if (!parentFile.exists()) {
+          if(parentFile.mkdirs()) {
+            saveIncompleteChunk();
+            return;
+          } else {
+            throw new RuntimeException("Failed to write:"+incompleteChunkFile, ex);
           }
         }
+        throw new RuntimeException(ex);
       }
       catch (IOException ex) {
         throw new RuntimeException(ex);
@@ -429,13 +411,24 @@ public class CompressedAppendableFile {
     return new File(myBaseFile.getPath() + ".at");
   }
 
+  public synchronized void dropCaches() {
+    // TODO:
+    //force();
+    //myChunkLengthTable = null;
+    //myChunkTableLength = 0;
+    //myChunkOffsetTable = null;
+    //myNextChunkBuffer = null;
+    //myBufferPosition = 0;
+    //if (doDebug) myCompressedChunksFileOffsets.clear();
+  }
+
   public synchronized void force() {
     saveIncompleteChunk();
   }
 
   public synchronized void dispose() {
-    myLowMemoryWatcher.stop();
     force();
+    myLowMemoryWatcher.stop();
   }
 
   public synchronized long length() {
@@ -457,17 +450,9 @@ public class CompressedAppendableFile {
   }
 
   private static class FileChunkReadCache extends SLRUMap<FileChunkKey<CompressedAppendableFile>, byte[]> {
-    @SuppressWarnings("unused") private final LowMemoryWatcher myLowMemoryWatcher = LowMemoryWatcher.register(new Runnable() {
-      @Override
-      public void run() {
-        synchronized (FileChunkReadCache.this) {
-          clear();
-        }
-      }
-    });
-    private final FileChunkKey<CompressedAppendableFile> myKey = new FileChunkKey<CompressedAppendableFile>(null, 0);
+    private final FileChunkKey<CompressedAppendableFile> myKey = new FileChunkKey<>(null, 0);
 
-    public FileChunkReadCache() {
+    FileChunkReadCache() {
       super(64, 64);
     }
 
@@ -507,7 +492,7 @@ public class CompressedAppendableFile {
     private int myCurrentPageNumber;
     private int myPageOffset;
 
-    public SegmentedChunkInputStream(long addr, int chunkLengthTableSnapshotLength, byte[] tableRef, int position) {
+    SegmentedChunkInputStream(long addr, int chunkLengthTableSnapshotLength, byte[] tableRef, int position) {
       myAddr = addr;
       myChunkLengthTableSnapshotLength = chunkLengthTableSnapshotLength;
       myNextChunkBufferSnapshot = tableRef;
@@ -517,7 +502,7 @@ public class CompressedAppendableFile {
     }
 
     @Override
-    public int read(byte[] b, int off, int len) throws IOException {
+    public int read(@NotNull byte[] b, int off, int len) throws IOException {
       if (bytesFromCompressedBlock == null) {
         byte[] decompressedBytes = myCurrentPageNumber < myChunkLengthTableSnapshotLength ?
                                    ourDecompressedCache.get(CompressedAppendableFile.this, myCurrentPageNumber) : ArrayUtil.EMPTY_BYTE_ARRAY;
@@ -562,5 +547,10 @@ public class CompressedAppendableFile {
       if (read == -1) return -1;
       return buf[0] & 0xFF;
     }
+  }
+
+  @Override
+  public int hashCode() {
+    return myCount;
   }
 }

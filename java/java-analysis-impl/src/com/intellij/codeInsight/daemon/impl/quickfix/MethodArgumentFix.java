@@ -15,14 +15,13 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiTypesUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -33,7 +32,7 @@ public abstract class MethodArgumentFix implements IntentionAction {
 
   protected final PsiExpressionList myArgList;
   protected final int myIndex;
-  private final ArgumentFixerActionFactory myArgumentFixerActionFactory;
+  protected final ArgumentFixerActionFactory myArgumentFixerActionFactory;
   protected final PsiType myToType;
 
   protected MethodArgumentFix(@NotNull PsiExpressionList list, int i, @NotNull PsiType toType, @NotNull ArgumentFixerActionFactory fixerActionFactory) {
@@ -45,12 +44,11 @@ public abstract class MethodArgumentFix implements IntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return
-      myToType != null &&
-      myToType.isValid() &&
-      myArgList.getExpressions().length > myIndex &&
-      myArgList.getExpressions()[myIndex] != null &&
-      myArgList.getExpressions()[myIndex].isValid();
+    if (myToType != null && myToType.isValid() && myArgList.isValid() && PsiTypesUtil.allTypeParametersResolved(myArgList, myToType)) {
+      PsiExpression[] args = myArgList.getExpressions();
+      return args.length > myIndex && args[myIndex] != null && args[myIndex].isValid();
+    }
+    return false;
   }
 
   @Override
@@ -60,20 +58,13 @@ public abstract class MethodArgumentFix implements IntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     PsiExpression expression = myArgList.getExpressions()[myIndex];
 
-    try {
-      LOG.assertTrue(expression != null && expression.isValid());
-      PsiExpression modified = myArgumentFixerActionFactory.getModifiedArgument(expression, myToType);
-      LOG.assertTrue(modified != null, myArgumentFixerActionFactory);
-      expression.replace(modified);
-    }
-    catch (IncorrectOperationException e) {
-      LOG.error(e);
-    }
+    LOG.assertTrue(expression != null && expression.isValid());
+    PsiExpression modified = myArgumentFixerActionFactory.getModifiedArgument(expression, myToType);
+    LOG.assertTrue(modified != null, myArgumentFixerActionFactory);
+    expression.replace(modified);
   }
-
 
   @Override
   @NotNull

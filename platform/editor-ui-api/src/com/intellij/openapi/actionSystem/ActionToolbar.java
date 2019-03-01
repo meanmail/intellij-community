@@ -1,34 +1,20 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem;
 
-import com.intellij.ui.switcher.QuickActionProvider;
-import com.intellij.ui.switcher.SwitchProvider;
 import com.intellij.util.ui.JBUI;
+import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 /**
  * Represents a toolbar with a visual presentation.
  *
  * @see ActionManager#createActionToolbar(String, ActionGroup, boolean)
  */
-public interface ActionToolbar extends SwitchProvider, QuickActionProvider {
+public interface ActionToolbar {
   String ACTION_TOOLBAR_PROPERTY_KEY = "ACTION_TOOLBAR";
 
   /**
@@ -47,15 +33,20 @@ public interface ActionToolbar extends SwitchProvider, QuickActionProvider {
    */
   int AUTO_LAYOUT_POLICY = 2;
 
+
+  @MagicConstant(intValues = {NOWRAP_LAYOUT_POLICY, WRAP_LAYOUT_POLICY, AUTO_LAYOUT_POLICY})
+  @interface LayoutPolicy {
+  }
+
   /** This is default minimum size of the toolbar button */
-  Dimension DEFAULT_MINIMUM_BUTTON_SIZE = JBUI.size(25, 25);
+  Dimension DEFAULT_MINIMUM_BUTTON_SIZE = JBUI.size(22, 22);
 
   Dimension NAVBAR_MINIMUM_BUTTON_SIZE = JBUI.size(20, 20);
 
   /**
    * @return component which represents the tool bar on UI
    */
-  @Override
+  @NotNull
   JComponent getComponent();
 
   /**
@@ -63,16 +54,17 @@ public interface ActionToolbar extends SwitchProvider, QuickActionProvider {
    * @see #NOWRAP_LAYOUT_POLICY
    * @see #WRAP_LAYOUT_POLICY
    */
+  @LayoutPolicy
   int getLayoutPolicy();
 
   /**
    * Sets new component layout policy. Method accepts {@link #WRAP_LAYOUT_POLICY} and
    * {@link #NOWRAP_LAYOUT_POLICY} values.
    */
-  void setLayoutPolicy(int layoutPolicy);
+  void setLayoutPolicy(@LayoutPolicy int layoutPolicy);
 
   /**
-   * If the value is <code>true</code> then the all button on toolbar are
+   * If the value is {@code true} then the all button on toolbar are
    * the same size. It very useful when you create "Outlook" like toolbar.
    * Currently this method can be considered as hot fix.
    */
@@ -83,18 +75,18 @@ public interface ActionToolbar extends SwitchProvider, QuickActionProvider {
    * at toolbar has 25x25 pixels size.
    *
    * @throws IllegalArgumentException
-   *          if <code>size</code>
-   *          is <code>null</code>
+   *          if {@code size}
+   *          is {@code null}
    */
   void setMinimumButtonSize(@NotNull Dimension size);
 
   /**
    * Sets toolbar orientation
    *
-   * @see javax.swing.SwingConstants#HORIZONTAL
-   * @see javax.swing.SwingConstants#VERTICAL
+   * @see SwingConstants#HORIZONTAL
+   * @see SwingConstants#VERTICAL
    */
-  void setOrientation(int orientation);
+  void setOrientation(@MagicConstant(intValues = {SwingConstants.HORIZONTAL, SwingConstants.VERTICAL}) int orientation);
 
   /**
    * @return maximum button height
@@ -109,15 +101,27 @@ public interface ActionToolbar extends SwitchProvider, QuickActionProvider {
   boolean hasVisibleActions();
 
   /**
-   * @param component will be used for datacontext computations
+   * Will be used for data-context retrieval.
    */
-  void setTargetComponent(final JComponent component);
+  void setTargetComponent(JComponent component);
 
-  void setReservePlaceAutoPopupIcon(final boolean reserve);
+  void setReservePlaceAutoPopupIcon(boolean reserve);
 
-  void setSecondaryActionsTooltip(String secondaryActionsTooltip);
+  void setSecondaryActionsTooltip(@NotNull String secondaryActionsTooltip);
+
+  void setSecondaryActionsIcon(Icon icon);
+
+  @NotNull
+  List<AnAction> getActions();
 
   void setMiniMode(boolean minimalMode);
 
+  @NotNull
   DataContext getToolbarDataContext();
+
+  /**
+   * Enables showing titles of separators as labels in the toolbar (off by default).
+   */
+  default void setShowSeparatorTitles(boolean showSeparatorTitles) {
+  }
 }

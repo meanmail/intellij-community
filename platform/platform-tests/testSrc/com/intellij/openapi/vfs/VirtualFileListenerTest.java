@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.openapi.vfs;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.Ref;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
@@ -25,9 +24,6 @@ import org.junit.Rule;
 import org.junit.Test;
 
 import java.io.IOException;
-
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
 
 /**
  * @author nik
@@ -43,19 +39,14 @@ public class VirtualFileListenerTest extends BareTestFixtureTestCase {
 
     Ref<Boolean> eventFired = Ref.create(false);
 
-    VirtualFileManager.getInstance().addVirtualFileListener(new VirtualFileAdapter() {
+    VirtualFileManager.getInstance().addVirtualFileListener(new VirtualFileListener() {
       @Override
       public void fileCreated(@NotNull VirtualFileEvent event) {
         eventFired.set(true);
       }
     }, getTestRootDisposable());
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws IOException {
-        dir.createChildData(this, "x.txt");
-      }
-    }.execute();
+    WriteAction.computeAndWait(() -> dir.createChildData(this, "x.txt"));
 
     assertTrue(eventFired.get());
   }

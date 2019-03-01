@@ -1,5 +1,7 @@
-from pycharm_generator_utils.constants import *
+import ast
 import keyword
+
+from pycharm_generator_utils.constants import *
 
 try:
     import inspect
@@ -72,6 +74,42 @@ class __generator(object):
 
     def throw(self, type, value=None, traceback=None):
         '''Used to raise an exception inside the generator.'''
+        pass
+"""
+    return txt
+
+def create_async_generator():
+    # Fake <type 'asyncgenerator'>
+    txt = """
+class __asyncgenerator(object):
+    '''A mock class representing the async generator function type.'''
+    def __init__(self):
+        '''Create an async generator object.'''
+        self.__name__ = ''
+        self.__qualname__ = ''
+        self.ag_await = None
+        self.ag_frame = None
+        self.ag_running = False
+        self.ag_code = None
+
+    def __aiter__(self):
+        '''Defined to support iteration over container.'''
+        pass
+
+    def __anext__(self):
+        '''Returns an awaitable, that performs one asynchronous generator iteration when awaited.'''
+        pass
+
+    def aclose(self):
+        '''Returns an awaitable, that throws a GeneratorExit exception into generator.'''
+        pass
+
+    def asend(self, value):
+        '''Returns an awaitable, that pushes the value object in generator.'''
+        pass
+
+    def athrow(self, type, value=None, traceback=None):
+        '''Returns an awaitable, that throws an exception into generator.'''
         pass
 """
     return txt
@@ -154,9 +192,6 @@ class __coroutine(object):
     def __await__(self):
         return []
 
-    def __iter__(self):
-        return []
-
     def close(self):
         pass
 
@@ -203,7 +238,7 @@ def is_callable(x):
 
 
 def sorted_no_case(p_array):
-    """Sort an array case insensitevely, returns a sorted copy"""
+    """Sort an array case insensitively, returns a sorted copy"""
     p_array = list(p_array)
     p_array = sorted(p_array, key=lambda x: x.upper())
     return p_array
@@ -226,8 +261,18 @@ def cleanup(value):
         if replacement:
             result.append(value[prev:i])
             result.append(replacement)
+            prev = i + 1
         i += 1
+    result.append(value[prev:])
     return "".join(result)
+
+
+def is_valid_expr(s):
+    try:
+        compile(s, '<unknown>', 'eval', ast.PyCF_ONLY_AST)
+    except SyntaxError:
+        return False
+    return True
 
 
 _prop_types = [type(property())]
@@ -582,9 +627,14 @@ def action(msg, *data):
     CURRENT_ACTION = msg % data
     note(msg, *data)
 
+
+def set_verbose(verbose):
+    global _is_verbose
+    _is_verbose = verbose
+
+
 def note(msg, *data):
     """Say something at debug info level (stderr)"""
-    global _is_verbose
     if _is_verbose:
         sys.stderr.write(msg % data)
         sys.stderr.write("\n")
@@ -671,3 +721,28 @@ def build_output_name(dirname, qualified_name):
         os.makedirs(dirname)
 
     return fname
+
+
+def is_valid_implicit_namespace_package_name(s):
+    """
+    Checks whether provided string could represent implicit namespace package name.
+    :param s: string to check
+    :return: True if provided string could represent implicit namespace package name and False otherwise
+    """
+    return isidentifier(s) and not keyword.iskeyword(s)
+
+
+def isidentifier(s):
+    """
+    Checks whether provided string complies Python identifier syntax requirements.
+    :param s: string to check
+    :return: True if provided string comply Python identifier syntax requirements and False otherwise
+    """
+    if version[0] >= 3:
+        return s.isidentifier()
+    else:
+        # quick test on provided string to comply major Python identifier syntax requirements
+        return (s and
+                not s[:1].isdigit() and
+                "-" not in s and
+                " " not in s)

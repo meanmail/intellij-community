@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,11 @@
  */
 package com.intellij.psi;
 
+import com.intellij.lang.jvm.JvmTypeDeclaration;
+import com.intellij.lang.jvm.types.JvmReferenceType;
+import com.intellij.lang.jvm.types.JvmSubstitutor;
+import com.intellij.lang.jvm.types.JvmType;
+import com.intellij.lang.jvm.types.JvmTypeResolveResult;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -24,24 +29,20 @@ import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Arrays;
+
 /**
  * Represents a class type.
  *
  * @author max
  */
-public abstract class PsiClassType extends PsiType {
+public abstract class PsiClassType extends PsiType implements JvmReferenceType {
   public static final PsiClassType[] EMPTY_ARRAY = new PsiClassType[0];
-  public static final ArrayFactory<PsiClassType> ARRAY_FACTORY = new ArrayFactory<PsiClassType>() {
-    @NotNull
-    @Override
-    public PsiClassType[] create(int count) {
-      return new PsiClassType[count];
-    }
-  };
+  public static final ArrayFactory<PsiClassType> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PsiClassType[count];
 
   protected final LanguageLevel myLanguageLevel;
 
-  protected PsiClassType(LanguageLevel languageLevel) {
+  protected PsiClassType(@NotNull LanguageLevel languageLevel) {
     this(languageLevel, PsiAnnotation.EMPTY_ARRAY);
   }
 
@@ -66,6 +67,7 @@ public abstract class PsiClassType extends PsiType {
    *
    * @return the class instance, or null if the reference resolve failed.
    */
+  @Override
   @Nullable
   public abstract PsiClass resolve();
 
@@ -113,8 +115,7 @@ public abstract class PsiClassType extends PsiType {
       return aClass == otherClass;
     }
     return aClass.getManager().areElementsEquivalent(aClass, otherClass) &&
-           (PsiUtil.isRawSubstitutor(aClass, result.getSubstitutor()) ||
-            PsiUtil.equalOnEquivalentClasses(this, aClass, otherClassType, otherClass));
+           PsiUtil.equalOnEquivalentClasses(this, aClass, otherClassType, otherClass);
   }
 
   /**
@@ -249,6 +250,41 @@ public abstract class PsiClassType extends PsiType {
   @Contract(pure = true)
   public abstract PsiClassType setLanguageLevel(@NotNull LanguageLevel languageLevel);
 
+  @NotNull
+  @Override
+  public String getName() {
+    return getClassName();
+  }
+
+  @Nullable
+  @Override
+  public JvmTypeResolveResult resolveType() {
+    ClassResolveResult resolveResult = resolveGenerics();
+    PsiClass clazz = resolveResult.getElement();
+    return clazz == null ? null : new JvmTypeResolveResult() {
+
+      private final JvmSubstitutor mySubstitutor = new PsiJvmSubstitutor(clazz.getProject(), resolveResult.getSubstitutor());
+
+      @NotNull
+      @Override
+      public JvmTypeDeclaration getDeclaration() {
+        return clazz;
+      }
+
+      @NotNull
+      @Override
+      public JvmSubstitutor getSubstitutor() {
+        return mySubstitutor;
+      }
+    };
+  }
+
+  @NotNull
+  @Override
+  public Iterable<JvmType> typeArguments() {
+    return Arrays.asList(getParameters());
+  }
+
   /**
    * Represents the result of resolving a reference to a Java class.
    */
@@ -295,7 +331,7 @@ public abstract class PsiClassType extends PsiType {
     };
   }
 
-  public static abstract class Stub extends PsiClassType {
+  public abstract static class Stub extends PsiClassType {
     protected Stub(LanguageLevel languageLevel, @NotNull PsiAnnotation[] annotations) {
       super(languageLevel, annotations);
     }

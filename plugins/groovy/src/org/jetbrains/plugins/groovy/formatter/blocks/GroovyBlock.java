@@ -1,34 +1,22 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 package org.jetbrains.plugins.groovy.formatter.blocks;
 
-import com.intellij.diagnostic.LogMessageEx;
 import com.intellij.formatting.*;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiComment;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiErrorElement;
+import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.tree.ILazyParseableElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.formatter.FormattingContext;
 import org.jetbrains.plugins.groovy.formatter.processors.GroovyIndentProcessor;
 import org.jetbrains.plugins.groovy.formatter.processors.GroovySpacingProcessor;
-import org.jetbrains.plugins.groovy.formatter.processors.GroovySpacingProcessorBasic;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocComment;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocTag;
 import org.jetbrains.plugins.groovy.lang.lexer.TokenSets;
@@ -38,20 +26,17 @@ import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotationArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrBreakStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrContinueStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrReturnStatement;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrThrowStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseLabel;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.clauses.GrCaseSection;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrAssignmentExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrBinaryExpression;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCommandArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrConditionalExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameterList;
 
-import java.util.ArrayList;
 import java.util.List;
+
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.BLOCK_LAMBDA_BODY;
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.LAMBDA_EXPRESSION;
 
 /**
  * Block implementation for Groovy formatter
@@ -59,7 +44,6 @@ import java.util.List;
  * @author ilyas
  */
 public class GroovyBlock implements Block, ASTBlock {
-  private static final Logger LOG = Logger.getInstance(GroovyBlock.class);
 
   protected final ASTNode myNode;
   protected Alignment myAlignment = null;
@@ -97,21 +81,9 @@ public class GroovyBlock implements Block, ASTBlock {
   @Override
   public List<Block> getSubBlocks() {
     if (mySubBlocks == null) {
-      try {
-        mySubBlocks = new GroovyBlockGenerator(this).generateSubBlocks();
-      }
-      catch (AssertionError e) {
-        final PsiFile file = myNode.getPsi().getContainingFile();
-        LogMessageEx.error(LOG, "Formatting failed for file " + file.getName(), e, file.getText(), myNode.getText());
-        mySubBlocks = new ArrayList<>();
-      }
-      catch (RuntimeException e) {
-        final PsiFile file = myNode.getPsi().getContainingFile();
-        LogMessageEx.error(LOG, "Formatting failed for file " + file.getName(), e, file.getText(), myNode.getText());
-        mySubBlocks = new ArrayList<>();
-      }
+      mySubBlocks = new GroovyBlockGenerator(this).generateSubBlocks();
     }
-    return  mySubBlocks;
+    return mySubBlocks;
   }
 
   @Override
@@ -146,18 +118,7 @@ public class GroovyBlock implements Block, ASTBlock {
   @Override
   @Nullable
   public Spacing getSpacing(Block child1, @NotNull Block child2) {
-    if (child1 instanceof GroovyBlock && child2 instanceof GroovyBlock) {
-      if (((GroovyBlock)child1).getNode() == ((GroovyBlock)child2).getNode()) {
-        return Spacing.getReadOnlySpacing();
-      }
-
-      Spacing spacing = new GroovySpacingProcessor(((GroovyBlock)child1), (GroovyBlock)child2, myContext).getSpacing();
-      if (spacing != null) {
-        return spacing;
-      }
-      return GroovySpacingProcessorBasic.getSpacing(((GroovyBlock)child1), ((GroovyBlock)child2), myContext);
-    }
-    return null;
+    return GroovySpacingProcessor.getSpacing(child1, child2, myContext);
   }
 
   @Override
@@ -169,39 +130,22 @@ public class GroovyBlock implements Block, ASTBlock {
       return new ChildAttributes(Indent.getNoneIndent(), null);
     }
     if (psiParent instanceof GrSwitchStatement) {
-      List<Block> subBlocks = getSubBlocks();
-      if (newChildIndex > 0) {
-        Block block = subBlocks.get(newChildIndex - 1);
-        if (block instanceof GroovyBlock) {
-          PsiElement anchorPsi = ((GroovyBlock)block).getNode().getPsi();
-          if (anchorPsi instanceof GrCaseSection) {
-            for (GrStatement statement : ((GrCaseSection)anchorPsi).getStatements()) {
-              if (statement instanceof GrBreakStatement ||
-                  statement instanceof GrContinueStatement ||
-                  statement instanceof GrReturnStatement ||
-                  statement instanceof GrThrowStatement) {
-                final Indent indent = GroovyIndentProcessor.getSwitchCaseIndent(myContext.getSettings());
-                return new ChildAttributes(indent, null);
-              }
-            }
-
-            int indentSize = myContext.getSettings().getIndentOptions().INDENT_SIZE;
-            final int spaces = myContext.getSettings().INDENT_CASE_FROM_SWITCH
-                               ? 2 * indentSize
-                               : indentSize;
-            return new ChildAttributes(Indent.getSpaceIndent(spaces), null);
-          }
-        }
-      }
+      new ChildAttributes(Indent.getNoneIndent(), null);
     }
 
     if (psiParent instanceof GrCaseLabel) {
       return new ChildAttributes(GroovyIndentProcessor.getSwitchCaseIndent(getContext().getSettings()), null);
     }
     if (psiParent instanceof GrCaseSection) {
-      return getSwitchIndent((GrCaseSection)psiParent, newChildIndex);
+      return GroovyIndentProcessor.getChildSwitchIndent((GrCaseSection)psiParent, newChildIndex);
     }
 
+    if (astNode.getElementType() == LAMBDA_EXPRESSION) {
+      return new ChildAttributes(Indent.getNormalIndent(), null);
+    }
+    if (astNode.getElementType() == BLOCK_LAMBDA_BODY) {
+      return new ChildAttributes(Indent.getNormalIndent(), null);
+    }
     if (TokenSets.BLOCK_SET.contains(astNode.getElementType()) || GroovyElementTypes.SWITCH_STATEMENT.equals(astNode.getElementType())) {
       return new ChildAttributes(Indent.getNormalIndent(), null);
     }
@@ -210,7 +154,6 @@ public class GroovyBlock implements Block, ASTBlock {
     }
     if (psiParent instanceof GrBinaryExpression ||
         psiParent instanceof GrConditionalExpression ||
-        psiParent instanceof GrCommandArgumentList ||
         psiParent instanceof GrArgumentList ||
         psiParent instanceof GrParameterList ||
         psiParent instanceof GrListOrMap ||
@@ -233,23 +176,6 @@ public class GroovyBlock implements Block, ASTBlock {
     }
     return new ChildAttributes(Indent.getNoneIndent(), null);
   }
-
-  private ChildAttributes getSwitchIndent(GrCaseSection psiParent, int newIndex) {
-    final GrStatement[] statements = psiParent.getStatements();
-    newIndex--;
-    for (int i = 0; i < statements.length && i < newIndex; i++) {
-      GrStatement statement = statements[i];
-      if (statement instanceof GrBreakStatement ||
-          statement instanceof GrContinueStatement ||
-          statement instanceof GrReturnStatement ||
-          statement instanceof GrThrowStatement) {
-        return new ChildAttributes(Indent.getNoneIndent(), null);
-      }
-    }
-    final Indent indent = GroovyIndentProcessor.getSwitchCaseIndent(getContext().getSettings());
-    return new ChildAttributes(indent, null);
-  }
-
 
   @Override
   public boolean isIncomplete() {

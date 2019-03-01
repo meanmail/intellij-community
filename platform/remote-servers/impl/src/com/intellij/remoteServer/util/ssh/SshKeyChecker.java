@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package com.intellij.remoteServer.util.ssh;
 
 import com.intellij.execution.filters.HyperlinkInfo;
-import com.intellij.internal.statistic.UsageTrigger;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
 import com.intellij.openapi.options.ConfigurationException;
@@ -36,7 +35,6 @@ import com.intellij.remoteServer.runtime.log.LoggingHandler;
 import com.intellij.remoteServer.runtime.ui.RemoteServersView;
 import com.intellij.remoteServer.util.*;
 import com.intellij.ui.HyperlinkLabel;
-import com.intellij.util.ParameterizedRunnable;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.event.HyperlinkEvent;
@@ -80,15 +78,14 @@ public class SshKeyChecker {
     new ConfigurableHandler<>(label, serverConfigurable, serverConfiguration, serverType);
   }
 
-  private class ServerHandler extends HandlerBase {
-
+  private static class ServerHandler extends HandlerBase {
     private final CloudNotifier myNotifier;
     private final Project myProject;
     private final CloudConnectionTask myConnectionTask;
 
     private Notification myErrorNotification;
 
-    public ServerHandler(CloudNotifier notifier, Project project, CloudConnectionTask connectionTask) {
+    ServerHandler(CloudNotifier notifier, Project project, CloudConnectionTask connectionTask) {
       myNotifier = notifier;
       myProject = project;
       myConnectionTask = connectionTask;
@@ -145,7 +142,7 @@ public class SshKeyChecker {
     }
   }
 
-  private class DeploymentHandler extends HandlerBase {
+  private static class DeploymentHandler extends HandlerBase {
 
     private final SshKeyAwareServerRuntime myServerRuntime;
     private final DeploymentTask myDeploymentTask;
@@ -216,18 +213,11 @@ public class SshKeyChecker {
       final RemoteServersView view = RemoteServersView.getInstance(myDeploymentTask.getProject());
       view.showServerConnection(connection);
 
-      connection.deploy(myDeploymentTask,
-                        new ParameterizedRunnable<String>() {
-
-                          @Override
-                          public void run(String s) {
-                            view.showDeployment(connection, s);
-                          }
-                        });
+      connection.deploy(myDeploymentTask, s -> view.showDeployment(connection, (String)s));
     }
   }
 
-  private class ConfigurableHandler<C extends ServerConfiguration> extends HandlerBase implements HyperlinkListener {
+  private static class ConfigurableHandler<C extends ServerConfiguration> extends HandlerBase implements HyperlinkListener {
 
     private final UnnamedConfigurable myServerConfigurable;
     private final C myServerConfiguration;
@@ -235,7 +225,7 @@ public class SshKeyChecker {
 
     private final HyperlinkLabel myLabel;
 
-    public ConfigurableHandler(HyperlinkLabel label,
+    ConfigurableHandler(HyperlinkLabel label,
                                final UnnamedConfigurable serverConfigurable,
                                C serverConfiguration,
                                ServerType<C> serverType) {
@@ -255,7 +245,6 @@ public class SshKeyChecker {
 
     @Override
     protected void uploadKey(final File sskKey) {
-      UsageTrigger.trigger(CloudsTriggerKeys.UPLOAD_SSH_KEY);
       try {
         myServerConfigurable.apply();
       }

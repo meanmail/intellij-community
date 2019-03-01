@@ -61,7 +61,7 @@ public class ArrayCreationWithoutNewKeywordInspection extends BaseInspection {
     public void visitArrayInitializerExpression(PsiArrayInitializerExpression expression) {
       super.visitArrayInitializerExpression(expression);
       final PsiType type = expression.getType();
-      if (type == null || !(type instanceof PsiArrayType)) {
+      if (!(type instanceof PsiArrayType)) {
         return;
       }
       final PsiElement parent = expression.getParent();
@@ -75,7 +75,7 @@ public class ArrayCreationWithoutNewKeywordInspection extends BaseInspection {
   private static class ArrayCreationExpressionFix extends InspectionGadgetsFix {
     private final String myType;
 
-    public ArrayCreationExpressionFix(String type) {
+    ArrayCreationExpressionFix(String type) {
       myType = type;
     }
 

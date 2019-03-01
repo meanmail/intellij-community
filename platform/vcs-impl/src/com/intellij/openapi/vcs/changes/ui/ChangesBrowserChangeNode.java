@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.ui;
 
@@ -25,7 +11,6 @@ import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vcs.changes.issueLinks.TreeLinkMouseListener;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.SimpleTextAttributes;
-import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,16 +20,18 @@ import static com.intellij.util.FontUtil.spaceAndThinSpace;
 
 public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> implements TreeLinkMouseListener.HaveTooltip {
 
-  @NotNull private final Project myProject;
+  @Nullable private final Project myProject;
   @Nullable private final ChangeNodeDecorator myDecorator;
 
-  protected ChangesBrowserChangeNode(@NotNull Project project, @NotNull Change userObject, @Nullable ChangeNodeDecorator decorator) {
+  protected ChangesBrowserChangeNode(@Nullable Project project, @NotNull Change userObject, @Nullable ChangeNodeDecorator decorator) {
     super(userObject);
     myProject = project;
     myDecorator = decorator;
-    if (!ChangesUtil.getFilePath(userObject).isDirectory()) {
-      myCount = 1;
-    }
+  }
+
+  @Override
+  protected boolean isFile() {
+    return !isDirectory();
   }
 
   @Override
@@ -70,41 +57,30 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
     }
 
     if (renderer.isShowFlatten()) {
-      FilePath parentPath = filePath.getParentPath();
-      if (parentPath != null) {
-        renderer.append(spaceAndThinSpace() + FileUtil.getLocationRelativeToUserHome(parentPath.getPath()),
-                        SimpleTextAttributes.GRAYED_ATTRIBUTES);
-      }
-      appendSwitched(renderer, file);
-    }
-    else if (getCount() != 1 || getDirectoryCount() != 0) {
-      appendSwitched(renderer, file);
-      appendCount(renderer);
-    }
-    else {
-      appendSwitched(renderer, file);
+      appendParentPath(renderer, filePath.getParentPath());
     }
 
-    renderer.setIcon(getIcon(change, filePath));
+    appendSwitched(renderer, file);
+
+    if (!renderer.isShowFlatten() && getFileCount() != 1 || getDirectoryCount() != 0) {
+      appendCount(renderer);
+    }
+
+    Icon additionalIcon = change.getAdditionalIcon();
+    if (additionalIcon != null) {
+      renderer.setIcon(additionalIcon);
+    }
+    else {
+      renderer.setIcon(filePath.getFileType(), filePath.isDirectory() || !isLeaf());
+    }
 
     if (myDecorator != null) {
       myDecorator.decorate(change, renderer, renderer.isShowFlatten());
     }
   }
 
-  @Nullable
-  private Icon getIcon(@NotNull Change change, @NotNull FilePath filePath) {
-    Icon result = change.getAdditionalIcon();
-
-    if (result == null) {
-      result = filePath.isDirectory() || !isLeaf() ? PlatformIcons.DIRECTORY_CLOSED_ICON : filePath.getFileType().getIcon();
-    }
-
-    return result;
-  }
-
   private void appendSwitched(@NotNull ChangesBrowserNodeRenderer renderer, @Nullable VirtualFile file) {
-    if (file != null && !myProject.isDefault()) {
+    if (file != null && myProject != null && !myProject.isDefault()) {
       String branch = ChangeListManager.getInstance(myProject).getSwitchedBranch(file);
       if (branch != null) {
         renderer.append(spaceAndThinSpace() + "[switched to " + branch + "]", SimpleTextAttributes.REGULAR_ATTRIBUTES);
@@ -112,6 +88,7 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
     }
   }
 
+  @Override
   public String getTooltip() {
     return getUserObject().getDescription();
   }
@@ -126,14 +103,13 @@ public class ChangesBrowserChangeNode extends ChangesBrowserNode<Change> impleme
     return FileUtil.toSystemDependentName(ChangesUtil.getFilePath(getUserObject()).getPath());
   }
 
+  @Override
   public int getSortWeight() {
-    return 6;
+    return CHANGE_SORT_WEIGHT;
   }
 
-  public int compareUserObjects(final Object o2) {
-    if (o2 instanceof Change) {
-      return ChangesUtil.getFilePath(getUserObject()).getName().compareToIgnoreCase(ChangesUtil.getFilePath((Change)o2).getName());
-    }
-    return 0;
+  @Override
+  public int compareUserObjects(final Change o2) {
+    return ChangesComparator.getInstance(true).compare(getUserObject(), o2);
   }
 }

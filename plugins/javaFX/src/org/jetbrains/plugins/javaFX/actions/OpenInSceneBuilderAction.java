@@ -27,21 +27,18 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.JavaFxFileTypeFactory;
 import org.jetbrains.plugins.javaFX.sceneBuilder.SceneBuilderInfo;
 
 import java.io.File;
 
-/**
- * User: anna
- * Date: 2/14/13
- */
 public class OpenInSceneBuilderAction extends AnAction {
-  private static final Logger LOG = Logger.getInstance("#" + OpenInSceneBuilderAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(OpenInSceneBuilderAction.class);
   public static final String OLD_LAUNCHER = "scenebuilder-launcher.sh";
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final VirtualFile virtualFile = e.getData(CommonDataKeys.VIRTUAL_FILE);
     LOG.assertTrue(virtualFile != null);
     final String path = virtualFile.getPath();
@@ -75,7 +72,7 @@ public class OpenInSceneBuilderAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     presentation.setEnabled(false);
     presentation.setVisible(false);

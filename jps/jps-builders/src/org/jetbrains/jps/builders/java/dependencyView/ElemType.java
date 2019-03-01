@@ -42,15 +42,16 @@ public enum ElemType {
   
   /**
    * Type parameter declaration
-   *
-   * @since 1.8
    */
   TYPE_PARAMETER,
 
   /**
    * Use of a type
-   *
-   * @since 1.8
    */
-  TYPE_USE
+  TYPE_USE,
+
+  /**
+   * Module declaration.
+   */
+  MODULE
 }

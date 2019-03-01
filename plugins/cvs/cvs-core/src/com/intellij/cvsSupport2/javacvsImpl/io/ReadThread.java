@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.cvsSupport2.javacvsImpl.io;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -70,6 +56,7 @@ public class ReadThread implements Runnable {
            ", exception: " + myException + ", closed: " + myIsClosed;
   }
 
+  @Override
   public void run() {
     Thread.currentThread().setPriority(Thread.MAX_PRIORITY);
     try {
@@ -111,7 +98,7 @@ public class ReadThread implements Runnable {
     return internalRead();
   }
 
-  public synchronized int read(byte b[], int off, int len) throws IOException {
+  public synchronized int read(byte[] b, int off, int len) throws IOException {
     int result = waitForAvailableBytes();
     if (result == END_OF_STREAM) return END_OF_STREAM;
     return internalRead(b, off, len);
@@ -161,7 +148,7 @@ public class ReadThread implements Runnable {
   private synchronized void detectEndAndNotify() {
     if (!myAtEndOfStream) {
       myAtEndOfStream = true;
-      notify();      
+      notify();
     }
     executionCompleted();
   }
@@ -182,7 +169,7 @@ public class ReadThread implements Runnable {
     myStarted.up();
     if (myAtEndOfStream || (myException != null)) {
       return;
-    }    
+    }
     wait();
   }
 
@@ -195,7 +182,7 @@ public class ReadThread implements Runnable {
     return myLastIndex - myFirstIndex;
   }
 
-  public synchronized void close() throws IOException {
+  public synchronized void close() {
     myIsClosed = true;
     if (myAtEndOfStream) return;
     myAtEndOfStream = true;
@@ -213,7 +200,7 @@ public class ReadThread implements Runnable {
     }
   }
 
-  private synchronized int internalRead(byte b[], int off, int len) {
+  private synchronized int internalRead(byte[] b, int off, int len) {
     int result = Math.min(len, size());
     System.arraycopy(myBuffer, myFirstIndex, b, off, result);
     myFirstIndex += result;

@@ -15,18 +15,17 @@
  */
 package com.intellij.openapi.vcs.ui;
 
-import com.intellij.openapi.editor.impl.ComplementaryFontsRegistry;
+import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorFontType;
+import com.intellij.openapi.editor.impl.FontFallbackIterator;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
+import sun.java2d.SunGraphics2D;
 
 import java.awt.*;
+import java.awt.font.FontRenderContext;
 
 public class FontUtil {
-  @NotNull
-  public static Font getFontAbleToDisplay(char c, int size, int style, @NotNull String family) {
-    return ComplementaryFontsRegistry.getFontAbleToDisplay(c, size, style, family).getFont();
-  }
-
   @NotNull
   public static String getHtmlWithFonts(@NotNull String input) {
     Font font = UIUtil.getLabelFont();
@@ -38,27 +37,51 @@ public class FontUtil {
     int start = baseFont.canDisplayUpTo(input);
     if (start == -1) return input;
 
-    Font font = null;
     StringBuilder result = new StringBuilder();
-    for (int i = start; i < input.length(); i++) {
-      char c = input.charAt(i);
-      if (baseFont.canDisplay(c)) {
-        if (font != null) result.append("</font>");
-        result.append(c);
-        font = null;
+
+    FontFallbackIterator it = new FontFallbackIterator();
+    it.setPreferredFont(baseFont.getFamily(), baseFont.getSize());
+    it.setFontStyle(style);
+
+    it.start(input, 0, input.length());
+    while (!it.atEnd()) {
+      Font font = it.getFont();
+
+      boolean insideFallbackBlock = !font.getFamily().equals(baseFont.getFamily());
+      if (insideFallbackBlock) {
+        result.append("<font face=\"").append(font.getFamily()).append("\">");
       }
-      else if (font != null && font.canDisplay(c)) {
-        result.append(c);
+
+      result.append(input, it.getStart(), it.getEnd());
+
+      if (insideFallbackBlock) {
+        result.append("</font>");
       }
-      else {
-        if (font != null) result.append("</font>");
-        font = getFontAbleToDisplay(c, baseFont.getSize(), style, baseFont.getFamily());
-        if (font != baseFont) result.append("<font face=\"").append(font.getFamily()).append("\">");
-        result.append(c);
-      }
+
+      it.advance();
     }
-    if (font != null) result.append("</font>");
 
     return result.toString();
+  }
+
+  @NotNull
+  public static Font getEditorFont() {
+    return EditorColorsManager.getInstance().getGlobalScheme().getFont(EditorFontType.PLAIN);
+  }
+
+  @NotNull
+  public static Font getCommitMessageFont() {
+    return getEditorFont();
+  }
+
+  public static Font getCommitMetadataFont() {
+    return UIUtil.getLabelFont();
+  }
+
+  public static int getStandardAscent(@NotNull Font font, @NotNull Graphics g) {
+    FontRenderContext context = ((Graphics2D)g).getFontRenderContext();
+    char[] chars = {'G', 'l', 'd', 'h', 'f'};
+    double y = font.layoutGlyphVector(context, chars, 0, chars.length, Font.LAYOUT_LEFT_TO_RIGHT).getVisualBounds().getY();
+    return Math.toIntExact(Math.round(Math.ceil(-y)));
   }
 }

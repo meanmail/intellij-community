@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl;
 
 import com.intellij.ide.DataManager;
@@ -22,9 +8,8 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
-import com.intellij.openapi.options.BaseConfigurable;
-import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
@@ -37,8 +22,8 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.labels.ActionLink;
 import com.intellij.util.net.NetUtils;
 import com.intellij.util.text.DateFormatUtil;
+import com.intellij.util.ui.JBEmptyBorder;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.List;
@@ -46,7 +31,7 @@ import java.util.List;
 /**
  * @author pti
  */
-public class UpdateSettingsConfigurable extends BaseConfigurable implements SearchableConfigurable, Configurable.NoScroll {
+public class UpdateSettingsConfigurable implements SearchableConfigurable {
   private final UpdateSettings mySettings;
   private final boolean myCheckNowEnabled;
   private UpdatesSettingsPanel myPanel;
@@ -149,25 +134,32 @@ public class UpdateSettingsConfigurable extends BaseConfigurable implements Sear
     private JLabel myLastCheckedDate;
     @SuppressWarnings("unused") private ActionLink myIgnoredBuildsLink;
 
-    public UpdatesSettingsPanel(boolean checkNowEnabled) {
+    UpdatesSettingsPanel(boolean checkNowEnabled) {
       mySettings = UpdateSettings.getInstance();
 
-      ApplicationInfo appInfo = ApplicationInfo.getInstance();
-      String majorVersion = appInfo.getMajorVersion();
-      String versionNumber = "";
-      if (majorVersion != null && majorVersion.trim().length() > 0) {
-        String minorVersion = appInfo.getMinorVersion();
-        if (minorVersion != null && minorVersion.trim().length() > 0) {
-          versionNumber = majorVersion + "." + minorVersion;
-        }
-        else {
-          versionNumber = majorVersion + ".0";
-        }
-      }
-      myVersionNumber.setText(appInfo.getVersionName() + " " + versionNumber);
-      myBuildNumber.setText(appInfo.getBuild().asString());
+      ChannelStatus current = mySettings.getSelectedActiveChannel();
+      myUpdateChannels.setModel(new CollectionComboBoxModel<>(mySettings.getActiveChannels(), current));
 
-      LabelTextReplacingUtil.replaceText(myPanel);
+      ExternalUpdateManager manager = ExternalUpdateManager.ACTUAL;
+      if (manager != null) {
+        myCheckForUpdates.setText(IdeBundle.message("updates.settings.checkbox.external"));
+        myUpdateChannels.setVisible(false);
+        myChannelWarning.setText(IdeBundle.message("updates.settings.external", manager.toolName));
+        myChannelWarning.setForeground(JBColor.GRAY);
+        myChannelWarning.setVisible(true);
+        myChannelWarning.setBorder(new JBEmptyBorder(0, 0, 10, 0));
+      }
+      else if (ApplicationInfoEx.getInstanceEx().isMajorEAP() && UpdateStrategyCustomization.getInstance().forceEapUpdateChannelForEapBuilds()) {
+        myUpdateChannels.setEnabled(false);
+        myUpdateChannels.setToolTipText(IdeBundle.message("updates.settings.channel.locked"));
+      }
+      else {
+        myUpdateChannels.addActionListener(e -> {
+          boolean lessStable = current.compareTo(getSelectedChannelType()) > 0;
+          myChannelWarning.setVisible(lessStable);
+        });
+        myChannelWarning.setForeground(JBColor.RED);
+      }
 
       if (checkNowEnabled) {
         myCheckNow.addActionListener(e -> {
@@ -184,21 +176,15 @@ public class UpdateSettingsConfigurable extends BaseConfigurable implements Sear
         myCheckNow.setVisible(false);
       }
 
-      UpdateStrategyCustomization tweaker = UpdateStrategyCustomization.getInstance();
-      ChannelStatus current = mySettings.getSelectedActiveChannel();
-      myUpdateChannels.setModel(new CollectionComboBoxModel<>(mySettings.getActiveChannels(), current));
-      myUpdateChannels.setEnabled(!ApplicationInfoEx.getInstanceEx().isEAP() || !tweaker.forceEapUpdateChannelForEapBuilds());
-      myUpdateChannels.addActionListener(e -> {
-        boolean lessStable = current.compareTo(getSelectedChannelType()) > 0;
-        myChannelWarning.setVisible(lessStable);
-      });
-      myChannelWarning.setForeground(JBColor.RED);
+      ApplicationInfo appInfo = ApplicationInfo.getInstance();
+      myVersionNumber.setText(ApplicationNamesInfo.getInstance().getFullProductName() + ' ' + appInfo.getFullVersion());
+      myBuildNumber.setText(appInfo.getBuild().asString());
     }
 
     private void createUIComponents() {
       myIgnoredBuildsLink = new ActionLink(IdeBundle.message("updates.settings.ignored"), new AnAction() {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           List<String> buildNumbers = mySettings.getIgnoredBuildNumbers();
           String text = StringUtil.join(buildNumbers, "\n");
           String result = Messages.showMultilineInputDialog(null, null, IdeBundle.message("updates.settings.ignored.title"), text, null, null);
@@ -212,7 +198,13 @@ public class UpdateSettingsConfigurable extends BaseConfigurable implements Sear
 
     private void updateLastCheckedLabel() {
       long time = mySettings.getLastTimeChecked();
-      myLastCheckedDate.setText(time == 0 ? IdeBundle.message("updates.last.check.never") : DateFormatUtil.formatPrettyDateTime(time));
+      if (time <= 0) {
+        myLastCheckedDate.setText(IdeBundle.message("updates.last.check.never"));
+      }
+      else {
+        myLastCheckedDate.setText(DateFormatUtil.formatPrettyDateTime(time));
+        myLastCheckedDate.setToolTipText(DateFormatUtil.formatDate(time) + ' ' + DateFormatUtil.formatTimeWithSeconds(time));
+      }
     }
 
     public ChannelStatus getSelectedChannelType() {

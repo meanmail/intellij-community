@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,6 @@ import java.util.regex.Pattern;
  * Thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 7/10/12 8:06 AM
  */
 public class DocPreviewUtil {
 
@@ -59,9 +58,9 @@ public class DocPreviewUtil {
   }
 
   /**
-   * We shorten links text from fully qualified name to short names (e.g. from <code>'java.lang.String'</code> to <code>'String'</code>).
+   * We shorten links text from fully qualified name to short names (e.g. from {@code 'java.lang.String'} to {@code 'String'}).
    * There is a possible situation then that we have two replacements where one key is a simple name and another one is a fully qualified
-   * one. We want to apply <code>'from fully qualified name'</code> replacement first then.
+   * one. We want to apply {@code 'from fully qualified name'} replacement first then.
    */
   private static final Comparator<String> REPLACEMENTS_COMPARATOR = new Comparator<String>() {
     @Override
@@ -136,12 +135,7 @@ public class DocPreviewUtil {
     StringBuilder buffer = new StringBuilder(header);
     replace(buffer, "\n", "<br/>", modifiedRanges);
     for (String replaceFrom : sortedReplacements) {
-      String visibleName = replaceFrom;
-      int i = visibleName.lastIndexOf('.');
-      if (i > 0 && i < visibleName.length() - 1) {
-        visibleName = visibleName.substring(i + 1);
-      }
-      replace(buffer, replaceFrom, String.format("<a href=\"%s\">%s</a>", links.get(replaceFrom), visibleName), modifiedRanges);
+      replace(buffer, replaceFrom, String.format("<a href=\"%s\">%s</a>", links.get(replaceFrom), replaceFrom), modifiedRanges);
     }
     return buffer.toString();
   }
@@ -152,7 +146,7 @@ public class DocPreviewUtil {
    * Example: return {@code 'String'} for a given {@code 'java.lang.String'}.
    * 
    * @param name  name to process
-   * @return      short name derived from the given full name if possible; <code>null</code> otherwise
+   * @return      short name derived from the given full name if possible; {@code null} otherwise
    */
   @Nullable
   private static String parseShortName(@NotNull String name) {
@@ -167,7 +161,7 @@ public class DocPreviewUtil {
    * 
    * @param shortName   short name to process
    * @param address     address to process
-   * @return            long name derived from the given arguments (if any); <code>null</code> otherwise
+   * @return            long name derived from the given arguments (if any); {@code null} otherwise
    */
   @Nullable
   private static String parseLongName(@NotNull String shortName, @NotNull String address) {
@@ -185,7 +179,7 @@ public class DocPreviewUtil {
                               @NotNull String replaceTo,
                               @NotNull List<TextRange> readOnlyChanges)
   {
-    for (int i = text.indexOf(replaceFrom); i >= 0 && i < text.length() - 1; i = text.indexOf(replaceFrom, i + 1)) {
+    for (int i = text.indexOf(replaceFrom); i >= 0; i = text.indexOf(replaceFrom, i + 1)) {
       int end = i + replaceFrom.length();
       if (intersects(readOnlyChanges, i, end)) {
         continue;
@@ -213,7 +207,7 @@ public class DocPreviewUtil {
     }
   }
   
-  private static boolean intersects(@NotNull List<TextRange> ranges, int start, int end) {
+  private static boolean intersects(@NotNull List<? extends TextRange> ranges, int start, int end) {
     for (TextRange range : ranges) {
       if (range.intersectsStrict(start, end)) {
         return true;
@@ -224,7 +218,6 @@ public class DocPreviewUtil {
 
   private enum State {TEXT, INSIDE_OPEN_TAG, INSIDE_CLOSE_TAG}
   
-  @SuppressWarnings("AssignmentToForLoopParameter")
   private static int process(@NotNull String text, @NotNull Callback callback) {
     State state = State.TEXT;
     int dataStartOffset = 0;
@@ -298,7 +291,7 @@ public class DocPreviewUtil {
     }
 
     if (dataStartOffset < text.length()) {
-      callback.onText(text.substring(dataStartOffset, text.length()).replace("&nbsp;", " "));
+      callback.onText(text.substring(dataStartOffset).replace("&nbsp;", " "));
     }
     
     return i;

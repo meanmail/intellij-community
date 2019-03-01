@@ -69,7 +69,7 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   }
 
   @Override
-  public void registerFileType(@NotNull FileType type, @NotNull List<FileNameMatcher> defaultAssociations) {
+  public void registerFileType(@NotNull FileType type, @NotNull List<? extends FileNameMatcher> defaultAssociations) {
   }
 
   @Override
@@ -129,13 +129,8 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   }
 
   @Override
-  public FileType getKnownFileTypeOrAssociate(@NotNull VirtualFile file) {
-    return file.getFileType();
-  }
-
-  @Override
   public FileType getKnownFileTypeOrAssociate(@NotNull VirtualFile file, @NotNull Project project) {
-    return getKnownFileTypeOrAssociate(file);
+    return file.getFileType();
   }
 
   @Override
@@ -155,8 +150,9 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   @Override
   @NotNull
   public FileType getStdFileType(@NotNull @NonNls final String fileTypeName) {
-    if ("ARCHIVE".equals(fileTypeName) || "CLASS".equals(fileTypeName)) return UnknownFileType.INSTANCE;
+    if ("ARCHIVE".equals(fileTypeName)) return UnknownFileType.INSTANCE;
     if ("PLAIN_TEXT".equals(fileTypeName)) return PlainTextFileType.INSTANCE;
+    if ("CLASS".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.ide.highlighter.JavaClassFileType", fileTypeName);
     if ("JAVA".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.ide.highlighter.JavaFileType", fileTypeName);
     if ("XML".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.ide.highlighter.XmlFileType", fileTypeName);
     if ("DTD".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.ide.highlighter.DTDFileType", fileTypeName);
@@ -166,6 +162,7 @@ public class MockFileTypeManager extends FileTypeManagerEx {
     if ("XHTML".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.ide.highlighter.XHtmlFileType", fileTypeName);
     if ("JavaScript".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.lang.javascript.JavaScriptFileType", fileTypeName);
     if ("Properties".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.lang.properties.PropertiesFileType", fileTypeName);
+    if ("GUI_DESIGNER_FORM".equals(fileTypeName)) return loadFileTypeSafe("com.intellij.uiDesigner.GuiFormFileType", fileTypeName);
     return new MockLanguageFileType(PlainTextLanguage.INSTANCE, fileTypeName.toLowerCase());
   }
 
@@ -181,12 +178,6 @@ public class MockFileTypeManager extends FileTypeManagerEx {
   @Override
   public boolean isFileOfType(@NotNull VirtualFile file, @NotNull FileType type) {
    return false;
-  }
-
-  @NotNull
-  @Override
-  public FileType detectFileTypeFromContent(@NotNull VirtualFile file) {
-    return UnknownFileType.INSTANCE;
   }
 
   @Nullable

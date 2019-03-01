@@ -1,118 +1,131 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.net.URLClassLoader;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Locale;
+import java.net.*;
+import java.util.*;
+import java.util.jar.JarEntry;
+import java.util.jar.JarInputStream;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class Bootstrap {
-  private static final String IJ_PLATFORM_UPDATER = "ijPlatformUpdater";
+  /**
+   * This property allows applying patches without creating backups. In this case a callee is responsible for that.
+   * Example: JetBrains Toolbox App copies a tool it wants to update and then applies the patch.
+   */
+  private static final String NO_BACKUP_PROPERTY = "no.backup";
 
-  public static void main(String[] args) throws
-                                         URISyntaxException,
-                                         IOException, ClassNotFoundException, NoSuchMethodException,
-                                         InvocationTargetException, IllegalAccessException, InterruptedException {
-    if (args.length != 1) return;
+  public static void main(String[] args) {
+    try {
+      mainNoExceptionsCatch(args);
+    }
+    catch (Throwable t) {
+      //noinspection CallToPrintStackTrace
+      t.printStackTrace();
+      System.exit(1);
+    }
+  }
+
+  private static void mainNoExceptionsCatch(String[] args) throws Exception {
+    if (args.length != 1) throw new Exception("Expected one argument: path to application installation");
+
     String path = args[0].endsWith("\\") || args[0].endsWith("/") ? args[0] : args[0] + File.separator;
     if (isMac() && path.endsWith(".app/")) {
-      final File file = new File(path + "Contents");
+      File file = new File(path + "Contents");
       if (file.exists() && file.isDirectory()) {
         path += "Contents/";
       }
     }
 
-    cleanUp();
+    ClassLoader cl = Bootstrap.class.getClassLoader();
+    URL dependenciesTxt = cl.getResource("dependencies.txt");
+    if (dependenciesTxt == null) throw new Exception("Missing dependencies.txt file in classpath");
 
-    List<URL> urls = new ArrayList<>();
-    final List<File> files = new ArrayList<>();
+    Map<String, byte[]> classes = new HashMap<>();
+    for (File dependencyFile : readDependenciesTxt(path, dependenciesTxt)) {
+      // Load dependency JARs in memory not to lock them on disk
+      collectClassesFromJar(dependencyFile, classes);
+    }
 
-    try (InputStream stream = Bootstrap.class.getClassLoader().getResourceAsStream("dependencies.txt")) {
-      try (BufferedReader br = new BufferedReader(new InputStreamReader(stream))) {
-        String line;
-        while ((line = br.readLine()) != null) {
-          final File file = new File(path + line);
-          final Path tmp = Files.createTempFile(IJ_PLATFORM_UPDATER + file.getName(), "");
-          Files.copy(file.toPath(), Files.newOutputStream(tmp));
-          urls.add(tmp.toFile().toURI().toURL());
-          files.add(tmp.toFile());
+    URL jarsInMemoryUrl = createInMemoryUrlClassesRoot(classes);
+    URL updaterUrl = Bootstrap.class.getProtectionDomain().getCodeSource().getLocation();
+
+    try (URLClassLoader loader = new URLClassLoader(new URL[]{updaterUrl, jarsInMemoryUrl}, null)) {
+      Class<?> runner = loader.loadClass("com.intellij.updater.Runner");
+      Method main = runner.getMethod("main", String[].class);
+
+      List<String> runnerArgs = new ArrayList<>();
+      runnerArgs.add("apply");
+      runnerArgs.add(args[0]);
+      runnerArgs.add("--toolbox-ui");
+      if (Boolean.getBoolean(NO_BACKUP_PROPERTY)) {
+        runnerArgs.add("--no-backup");
+      }
+
+      //noinspection SSBasedInspection
+      main.invoke(null, (Object)runnerArgs.toArray(new String[0]));
+    }
+  }
+
+  private static void collectClassesFromJar(File jarFile, Map<String, byte[]> classes) throws IOException {
+    byte[] buffer = new byte[1024];
+
+    try (InputStream fileInputStream = new FileInputStream(jarFile);
+         JarInputStream is = new JarInputStream(fileInputStream)) {
+      JarEntry nextEntry;
+      while ((nextEntry = is.getNextJarEntry()) != null) {
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream(Math.max((int)nextEntry.getSize(), 1024));
+
+        int len;
+        while ((len = is.read(buffer)) > 0) {
+          outputStream.write(buffer, 0, len);
         }
+
+        classes.put("/" + nextEntry.getName(), outputStream.toByteArray());
+      }
+    }
+  }
+
+  private static URL createInMemoryUrlClassesRoot(Map<String, byte[]> classes) throws MalformedURLException {
+    return new URL("x-in-memory", null, -1, "/", new URLStreamHandler() {
+      @Override
+      protected URLConnection openConnection(URL u) throws IOException {
+        final byte[] data = classes.get(u.getFile());
+        if (data == null) {
+          throw new FileNotFoundException(u.getFile());
+        }
+
+        return new URLConnection(u) {
+          @Override
+          public void connect() {
+          }
+
+          @Override
+          public InputStream getInputStream() {
+            return new ByteArrayInputStream(data);
+          }
+        };
+      }
+    });
+  }
+
+  private static List<File> readDependenciesTxt(String basePath, URL dependenciesTxtUrl) throws Exception {
+    List<File> files = new ArrayList<>();
+
+    try (BufferedReader br = new BufferedReader(new InputStreamReader(dependenciesTxtUrl.openStream()))) {
+      String line;
+      while ((line = br.readLine()) != null) {
+        File file = new File(basePath + line);
+        if (!file.exists()) throw new Exception("File from dependencies.txt is not found: " + file);
+
+        files.add(file);
       }
     }
 
-    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-      log(System.getProperty("os.name"));
-      try {
-        for (File file : files) {
-          log("Deleting " + file.getName() + " - " + (file.delete() ? "OK" : "FAIL"));
-        }
-      } catch (Exception e) {
-        log(e);
-      }
-    }));
-    for (URL url : urls) {
-      URLClassLoader classLoader = (URLClassLoader) ClassLoader.getSystemClassLoader();
-      Method method = URLClassLoader.class.getDeclaredMethod("addURL", URL.class);
-      method.setAccessible(true);
-      method.invoke(classLoader, url);
-    }
-
-    final Class<?> runner = Bootstrap.class.getClassLoader().loadClass("com.intellij.updater.Runner");
-    final Method main = runner.getMethod("main", String[].class);
-    main.invoke(null, (Object)new String[]{"apply", args[0]});
-  }
-
-  private static void cleanUp() {
-    log("Cleaning up...");
-    try {
-      final Path file = Files.createTempFile("", "");
-      Files.list(file.getParent()).forEach((p) -> {
-        if (!p.toFile().isDirectory() && p.toFile().getName().startsWith(IJ_PLATFORM_UPDATER)) try {
-          log("Deleting " + p.toString());
-          Files.delete(p);
-        } catch (IOException e) {
-          log("Can't delete " + p.toString());
-          log(e);
-        }
-      });
-      Files.delete(file);
-    } catch (IOException e) {
-      log(e);
-    }
-  }
-
-  private static void log(String msg) {
-    //noinspection UseOfSystemOutOrSystemErr
-    System.out.println(msg);
-  }
-
-  private static void log(Throwable ex) {
-    //noinspection CallToPrintStackTrace
-    ex.printStackTrace();
+    return files;
   }
 
   private static boolean isMac() {

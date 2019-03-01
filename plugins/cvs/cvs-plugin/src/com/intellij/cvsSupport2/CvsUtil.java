@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.cvsSupport2;
 
 import com.intellij.CvsBundle;
-import com.intellij.codeStyle.CodeStyleFacade;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.cvsSupport2.application.CvsEntriesManager;
 import com.intellij.cvsSupport2.application.CvsInfo;
 import com.intellij.cvsSupport2.config.CvsApplicationLevelConfiguration;
@@ -43,7 +29,6 @@ import org.netbeans.lib.cvsclient.admin.Entry;
 
 import javax.swing.*;
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.text.SimpleDateFormat;
@@ -55,11 +40,11 @@ import java.util.regex.Pattern;
  */
 public class CvsUtil {
 
-  private static final SyncDateFormat DATE_FORMATTER = new SyncDateFormat(new SimpleDateFormat(Entry.getLastModifiedDateFormatter().toPattern(), Locale.US));
-
+  private static final SyncDateFormat DATE_FORMATTER;
   static {
-    //noinspection HardCodedStringLiteral
-    DATE_FORMATTER.setTimeZone(TimeZone.getTimeZone("GMT+0000"));
+    SimpleDateFormat delegate = new SimpleDateFormat(Entry.getLastModifiedDateFormatter().toPattern(), Locale.US);
+    delegate.setTimeZone(TimeZone.getTimeZone("GMT+0000"));
+    DATE_FORMATTER = new SyncDateFormat(delegate);
   }
 
   @NonNls public static final String CVS_IGNORE_FILE = ".cvsignore";
@@ -183,6 +168,7 @@ public class CvsUtil {
 
   private static FileCondition fileIsUnderCvsCondition() {
     return new FileCondition() {
+      @Override
       public boolean verify(File file) {
         return fileIsUnderCvs(file);
       }
@@ -202,6 +188,7 @@ public class CvsUtil {
 
   public static boolean filesHaveParentUnderCvs(File[] files) {
     return allSatisfy(files, new FileCondition() {
+      @Override
       public boolean verify(File file) {
         return fileHasParentUnderCvs(file);
       }
@@ -273,7 +260,7 @@ public class CvsUtil {
   }
 
   private static String getLineSeparator() {
-    return CodeStyleFacade.getInstance().getLineSeparator();
+    return CodeStyle.getDefaultSettings().getLineSeparator();
   }
 
   public static boolean fileIsLocallyRemoved(File file) {
@@ -435,6 +422,7 @@ public class CvsUtil {
 
   public static boolean filesExistInCvs(File[] files) {
     return allSatisfy(files, new FileCondition() {
+      @Override
       public boolean verify(File file) {
         return fileIsUnderCvs(file) && !fileIsLocallyAdded(file);
       }
@@ -443,6 +431,7 @@ public class CvsUtil {
 
   public static boolean filesAreNotDeleted(File[] files) {
     return allSatisfy(files, new FileCondition() {
+      @Override
       public boolean verify(File file) {
         return fileIsUnderCvs(file)
                && !fileIsLocallyAdded(file)
@@ -738,17 +727,18 @@ public class CvsUtil {
     return dirTag.startsWith(STICKY_BRANCH_TAG_PREFIX) || dirTag.startsWith(STICKY_NON_BRANCH_TAG_PREFIX);
   }
 
-  private static interface FileCondition {
+  private interface FileCondition {
     boolean verify(File file);
   }
 
   private static class ReverseFileCondition implements FileCondition {
     private final FileCondition myCondition;
 
-    public ReverseFileCondition(FileCondition condition) {
+    ReverseFileCondition(FileCondition condition) {
       myCondition = condition;
     }
 
+    @Override
     public boolean verify(File file) {
       return !myCondition.verify(file);
     }
@@ -776,10 +766,10 @@ public class CvsUtil {
     }
 
     public String toString() {
-      StringBuffer result = new StringBuffer();
+      StringBuilder result = new StringBuilder();
       result.append(myName);
       result.append(DELIM);
-      result.append(String.valueOf(myPreviousTime));
+      result.append(myPreviousTime);
       result.append(DELIM);
       for (int i = 0; i < myRevisions.size(); i++) {
         if (i > 0) {
@@ -840,7 +830,7 @@ public class CvsUtil {
   }
 
   private static class Conflicts {
-    private final Map<String, Conflict> myNameToConflict = new com.intellij.util.containers.HashMap<>();
+    private final Map<String, Conflict> myNameToConflict = new HashMap<>();
 
     @NotNull
     public static Conflicts readFrom(File file) throws IOException {

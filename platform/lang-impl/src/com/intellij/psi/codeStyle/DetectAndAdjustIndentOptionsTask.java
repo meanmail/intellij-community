@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.codeStyle;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
@@ -22,6 +23,7 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
 import com.intellij.openapi.progress.util.ReadTask;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.EmptyRunnable;
@@ -36,31 +38,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.concurrent.ExecutorService;
 
-import static com.intellij.openapi.progress.util.ProgressIndicatorUtils.scheduleWithWriteActionPriority;
-
-
-class TimeStampedIndentOptions extends IndentOptions {
-  private long myTimeStamp;
-  private int myOriginalIndentOptionsHash;
-
-  public TimeStampedIndentOptions(IndentOptions toCopyFrom, long timeStamp) {
-    copyFrom(toCopyFrom);
-    myTimeStamp = timeStamp;
-  }
-  
-  void setTimeStamp(long timeStamp) {
-    myTimeStamp = timeStamp;
-  }
-
-  public void setOriginalIndentOptionsHash(int originalIndentOptionsHash) {
-    myOriginalIndentOptionsHash = originalIndentOptionsHash;
-  }
-
-  public boolean isOutdated(@NotNull Document document, @NotNull IndentOptions defaultForFile) {
-    return document.getModificationStamp() != myTimeStamp 
-           || defaultForFile.hashCode() != myOriginalIndentOptionsHash;
-  }
-}
 
 class DetectAndAdjustIndentOptionsTask extends ReadTask {
   private static final Logger LOG = Logger.getInstance(DetectAndAdjustIndentOptionsTask.class);
@@ -68,14 +45,14 @@ class DetectAndAdjustIndentOptionsTask extends ReadTask {
 
   private final Document myDocument;
   private final Project myProject;
-  private final IndentOptions myOptionsToAdjust;
+  private final TimeStampedIndentOptions myOptionsToAdjust;
   private final ExecutorService myExecutor;
   
   private volatile long myComputationStarted = 0;
 
-  public DetectAndAdjustIndentOptionsTask(@NotNull Project project, 
+  DetectAndAdjustIndentOptionsTask(@NotNull Project project,
                                           @NotNull Document document, 
-                                          @NotNull IndentOptions toAdjust,
+                                          @NotNull TimeStampedIndentOptions toAdjust,
                                           @NotNull ExecutorService executor) {
     myProject = project;
     myDocument = document;
@@ -119,10 +96,13 @@ class DetectAndAdjustIndentOptionsTask extends ReadTask {
     myOptionsToAdjust.copyFrom(currentDefault);
 
     adjuster.adjust(myOptionsToAdjust);
-    if (myOptionsToAdjust instanceof TimeStampedIndentOptions) {
-      TimeStampedIndentOptions cachedInDocument = (TimeStampedIndentOptions)myOptionsToAdjust;
-      cachedInDocument.setTimeStamp(myDocument.getModificationStamp());
-      cachedInDocument.setOriginalIndentOptionsHash(currentDefault.hashCode());
+    myOptionsToAdjust.setTimeStamp(myDocument.getModificationStamp());
+    myOptionsToAdjust.setOriginalIndentOptionsHash(currentDefault.hashCode());
+
+    if (!currentDefault.equals(myOptionsToAdjust)) {
+      myOptionsToAdjust.setDetected(true);
+      myOptionsToAdjust.setOverrideLanguageOptions(true);
+      CodeStyleSettingsManager.getInstance(myProject).fireCodeStyleSettingsChanged(file);
     }
   }
 
@@ -139,7 +119,7 @@ class DetectAndAdjustIndentOptionsTask extends ReadTask {
   private void logTooLongComputation() {
     PsiFile file = getFile();
     String fileName = file != null ? file.getName() : "";
-    LOG.warn("Indent detection is too long for: " + fileName);
+    LOG.debug("Indent detection is too long for: " + fileName);
   }
 
   private boolean isComputingForTooLong() {
@@ -158,16 +138,15 @@ class DetectAndAdjustIndentOptionsTask extends ReadTask {
     }
     else {
       PsiDocumentManager manager = PsiDocumentManager.getInstance(myProject);
-      manager.performForCommittedDocument(myDocument, () -> scheduleWithWriteActionPriority(myExecutor, this));
+      manager.performForCommittedDocument(myDocument, () -> ProgressIndicatorUtils.scheduleWithWriteActionPriority(myExecutor, this));
     }
   }
 
   @NotNull
   public static TimeStampedIndentOptions getDefaultIndentOptions(@NotNull PsiFile file, @NotNull Document document) {
-    Project project = file.getProject();
     FileType fileType = file.getFileType();
-    CodeStyleSettings manager = CodeStyleSettingsManager.getSettings(project);
-    return new TimeStampedIndentOptions(manager.getIndentOptions(fileType), document.getModificationStamp());
+    CodeStyleSettings settings = CodeStyle.getSettings(file);
+    return new TimeStampedIndentOptions(settings.getIndentOptions(fileType), document.getModificationStamp());
   }
 
   

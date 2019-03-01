@@ -31,6 +31,7 @@ import org.jetbrains.idea.maven.execution.*;
 import org.jetbrains.idea.maven.project.MavenGeneralSettings;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
+import org.jetbrains.idea.maven.statistics.MavenActionsUsagesCollector;
 import org.jetbrains.idea.maven.utils.MavenSettings;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
@@ -48,7 +49,7 @@ public class MavenExecuteGoalAction extends DumbAwareAction {
   @Override
   public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
-
+    MavenActionsUsagesCollector.trigger(project, this, e);
     ExecuteMavenGoalHistoryService historyService = ExecuteMavenGoalHistoryService.getInstance(project);
 
     MavenExecuteGoalDialog dialog = new MavenExecuteGoalDialog(project, historyService.getHistory());
@@ -107,7 +108,7 @@ public class MavenExecuteGoalAction extends DumbAwareAction {
     }
 
     MavenRunnerParameters parameters =
-      new MavenRunnerParameters(true, workDirectory, Arrays.asList(ParametersList.parse(goals)), Collections.<String>emptyList());
+      new MavenRunnerParameters(true, workDirectory, (String)null, Arrays.asList(ParametersList.parse(goals)), Collections.emptyList());
 
     MavenGeneralSettings generalSettings = new MavenGeneralSettings();
     generalSettings.setMavenHome(mavenHome.getPath());

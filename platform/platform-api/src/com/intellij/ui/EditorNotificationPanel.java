@@ -22,10 +22,13 @@ import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorBundle;
+import com.intellij.openapi.editor.colors.ColorKey;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
+import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.Weighted;
@@ -54,7 +57,19 @@ import java.util.List;
 public class EditorNotificationPanel extends JPanel implements IntentionActionProvider, Weighted {
   protected final JLabel myLabel = new JLabel();
   protected final JLabel myGearLabel = new JLabel();
-  protected final JPanel myLinksPanel = new NonOpaquePanel(new HorizontalLayout(JBUI.scale(5)));
+  protected final JPanel myLinksPanel = new NonOpaquePanel(new HorizontalLayout(JBUI.scale(16)));
+  protected Color myBackgroundColor;
+  protected ColorKey myBackgroundColorKey;
+
+  public EditorNotificationPanel(@Nullable Color backgroundColor) {
+    this();
+    myBackgroundColor = backgroundColor;
+  }
+
+  public EditorNotificationPanel(@Nullable ColorKey backgroundColorKey) {
+    this();
+    myBackgroundColorKey = backgroundColorKey;
+  }
 
   public EditorNotificationPanel() {
     super(new BorderLayout());
@@ -68,6 +83,10 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
     add(BorderLayout.CENTER, panel);
     add(BorderLayout.EAST, myGearLabel);
     setBorder(JBUI.Borders.empty(0, 10));
+  }
+
+  public static Color getToolbarBackground() {
+    return UIUtil.getPanelBackground();
   }
 
   public void setText(String text) {
@@ -86,8 +105,14 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
 
   @Override
   public Color getBackground() {
-    Color color = EditorColorsManager.getInstance().getGlobalScheme().getColor(EditorColors.NOTIFICATION_BACKGROUND);
-    return color == null ? UIUtil.getToolTipBackground() : color;
+    EditorColorsScheme globalScheme = EditorColorsManager.getInstance().getGlobalScheme();
+    if (myBackgroundColor != null) return myBackgroundColor;
+    if (myBackgroundColorKey != null) {
+      Color color = globalScheme.getColor(myBackgroundColorKey);
+      if (color != null) return color;
+    }
+    Color color = globalScheme.getColor(EditorColors.NOTIFICATION_BACKGROUND);
+    return color != null ? color : UIUtil.getToolTipBackground();
   }
 
   public HyperlinkLabel createActionLabel(final String text, @NonNls final String actionId) {
@@ -108,14 +133,22 @@ public class EditorNotificationPanel extends JPanel implements IntentionActionPr
 
   protected void executeAction(final String actionId) {
     final AnAction action = ActionManager.getInstance().getAction(actionId);
-    final AnActionEvent event = AnActionEvent.createFromAnAction(action, null, ActionPlaces.UNKNOWN,
+    final AnActionEvent event = AnActionEvent.createFromAnAction(action, null, getActionPlace(),
                                                                  DataManager.getInstance().getDataContext(this));
     action.beforeActionPerformedUpdate(event);
     action.update(event);
 
     if (event.getPresentation().isEnabled() && event.getPresentation().isVisible()) {
+      ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
+      actionManager.fireBeforeActionPerformed(action, event.getDataContext(), event);
       action.actionPerformed(event);
+      actionManager.fireAfterActionPerformed(action, event.getDataContext(), event);
     }
+  }
+
+  @NotNull
+  protected String getActionPlace() {
+    return ActionPlaces.UNKNOWN;
   }
 
   @Nullable

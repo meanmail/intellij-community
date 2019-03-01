@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,25 +14,18 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 06.08.2002
- * Time: 17:17:27
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.inheritanceToDelegation;
 
+import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.jsp.jspJava.JspClass;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
@@ -46,11 +39,13 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
-public class InheritanceToDelegationHandler implements RefactoringActionHandler {
+public class InheritanceToDelegationHandler implements RefactoringActionHandler, ContextAwareActionHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.inheritanceToDelegation.InheritanceToDelegationHandler");
+
   public static final String REFACTORING_NAME = RefactoringBundle.message("replace.inheritance.with.delegation.title");
 
   private static final MemberInfo.Filter<PsiMember> MEMBER_INFO_FILTER = new MemberInfo.Filter<PsiMember>() {
+    @Override
     public boolean includeMember(PsiMember element) {
       if (element instanceof PsiMethod) {
         final PsiMethod method = (PsiMethod)element;
@@ -64,7 +59,12 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler 
     }
   };
 
+  @Override
+  public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    return !PsiUtil.isModuleFile(file);
+  }
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
     int offset = editor.getCaretModel().getOffset();
@@ -84,6 +84,7 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler 
     }
   }
 
+  @Override
   public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
     if (elements.length != 1) return;
 
@@ -122,7 +123,7 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler 
 
     final Set<PsiClass> baseClasses = basesToMemberInfos.keySet();
     new InheritanceToDelegationDialog(project, aClass,
-                                      baseClasses.toArray(new PsiClass[baseClasses.size()]), basesToMemberInfos).show();
+                                      baseClasses.toArray(PsiClass.EMPTY_ARRAY), basesToMemberInfos).show();
   }
 
   private static List<MemberInfo> createBaseClassMemberInfos(PsiClass baseClass) {
@@ -131,12 +132,9 @@ public class InheritanceToDelegationHandler implements RefactoringActionHandler 
 
     final MemberInfoStorage memberInfoStorage = new MemberInfoStorage(baseClass, MEMBER_INFO_FILTER);
 
-    ArrayList<MemberInfo> memberInfoList = new ArrayList<>(memberInfoStorage.getClassMemberInfos(deepestBase));
-    List<MemberInfo> memberInfos = memberInfoStorage.getIntermediateMemberInfosList(deepestBase);
-    for (final MemberInfo memberInfo : memberInfos) {
-      memberInfoList.add(memberInfo);
-    }
-
+    List<MemberInfo> memberInfoList = new ArrayList<>();
+    memberInfoList.addAll(memberInfoStorage.getClassMemberInfos(deepestBase));
+    memberInfoList.addAll(memberInfoStorage.getIntermediateMemberInfosList(deepestBase));
     return memberInfoList;
   }
 }

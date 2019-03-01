@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase;
 
 import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.CharsetToolkit;
@@ -121,7 +106,7 @@ public class GitRebaseUtils {
     GitRebaseSpec spec = GitUtil.getRepositoryManager(project).getOngoingRebaseSpec();
     if (spec != null) {
       new GitAbortRebaseProcess(project, spec.getOngoingRebase(), spec.getHeadPositionsToRollback(), spec.getInitialBranchNames(),
-                                indicator, spec.getSaver()).abortWithConfirmation();
+                                indicator, spec.getSaver(), true).abortWithConfirmation();
     }
     else {
       LOG.warn("Refusing to abort: no rebase spec");
@@ -133,8 +118,8 @@ public class GitRebaseUtils {
    * Abort the ongoing rebase process in the given repository.
    */
   public static void abort(@NotNull final Project project, @Nullable final GitRepository repository, @NotNull ProgressIndicator indicator) {
-    new GitAbortRebaseProcess(project, repository, Collections.<GitRepository, String>emptyMap(),
-                              Collections.<GitRepository, String>emptyMap(), indicator, null).abortWithConfirmation();
+    new GitAbortRebaseProcess(project, repository, Collections.emptyMap(),
+                              Collections.emptyMap(), indicator, null, true).abortWithConfirmation();
   }
 
   private static boolean isRebaseAllowed(@NotNull Project project, @NotNull Collection<GitRepository> repositories) {
@@ -193,7 +178,7 @@ public class GitRebaseUtils {
    * @return the rebase directory or null if it does not exist.
    */
   @Nullable
-  private static File getRebaseDir(@NotNull Project project, @NotNull VirtualFile root) {
+  public static File getRebaseDir(@NotNull Project project, @NotNull VirtualFile root) {
     GitRepository repository = assertNotNull(GitUtil.getRepositoryManager(project).getRepositoryForRoot(root));
     File f = repository.getRepositoryFiles().getRebaseApplyDir();
     if (f.exists()) {
@@ -204,6 +189,11 @@ public class GitRebaseUtils {
       return f;
     }
     return null;
+  }
+
+  public static boolean isInteractiveRebaseInProgress(@NotNull GitRepository repository) {
+    File rebaseDir = getRebaseDir(repository.getProject(), repository.getRoot());
+    return rebaseDir != null && new File(rebaseDir, "interactive").exists();
   }
 
   /**
@@ -233,24 +223,18 @@ public class GitRebaseUtils {
     File commitFile = new File(rebaseDir, String.format("%04d", next));
     String hash = null;
     String subject = null;
-    try {
-      BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(commitFile), CharsetToolkit.UTF8_CHARSET));
-      try {
-        String line;
-        while ((line = in.readLine()) != null) {
-          if (line.startsWith("From ")) {
-            hash = line.substring(5, 5 + 40);
-          }
-          if (line.startsWith("Subject: ")) {
-            subject = line.substring("Subject: ".length());
-          }
-          if (hash != null && subject != null) {
-            break;
-          }
+    try (BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(commitFile), CharsetToolkit.UTF8_CHARSET))) {
+      String line;
+      while ((line = in.readLine()) != null) {
+        if (line.startsWith("From ")) {
+          hash = line.substring(5, 5 + 40);
         }
-      }
-      finally {
-        in.close();
+        if (line.startsWith("Subject: ")) {
+          subject = line.substring("Subject: ".length());
+        }
+        if (hash != null && subject != null) {
+          break;
+        }
       }
     }
     catch (Exception e) {
@@ -267,7 +251,7 @@ public class GitRebaseUtils {
   @NotNull
   static String mentionLocalChangesRemainingInStash(@Nullable GitChangesSaver saver) {
     return saver != null && saver.wereChangesSaved() ?
-           "<br/>Note that some local changes were <a href='stash'>" + toPast(saver.getOperationName()) + "</a> before rebase." :
+           "<br/>Local changes were " + toPast(saver.getOperationName()) + " before rebase." :
            "";
   }
 
@@ -278,12 +262,7 @@ public class GitRebaseUtils {
 
   @NotNull
   public static Collection<GitRepository> getRebasingRepositories(@NotNull Project project) {
-    return ContainerUtil.filter(GitUtil.getRepositories(project), new Condition<GitRepository>() {
-      @Override
-      public boolean value(@NotNull GitRepository repository) {
-        return repository.getState() == Repository.State.REBASING;
-      }
-    });
+    return ContainerUtil.filter(GitUtil.getRepositories(project), repository -> repository.getState() == Repository.State.REBASING);
   }
 
   /**

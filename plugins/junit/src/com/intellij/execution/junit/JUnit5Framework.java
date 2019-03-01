@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.junit;
 
-import com.intellij.CommonBundle;
 import com.intellij.codeInsight.AnnotationUtil;
 import com.intellij.codeInsight.intention.AddAnnotationFix;
+import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
@@ -26,7 +12,6 @@ import com.intellij.openapi.roots.ExternalLibraryDescriptor;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.testIntegration.JavaTestFramework;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -35,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 public class JUnit5Framework extends JavaTestFramework {
+  @Override
   @NotNull
   public String getName() {
     return "JUnit5";
@@ -46,6 +32,7 @@ public class JUnit5Framework extends JavaTestFramework {
     return AllIcons.RunConfigurations.Junit;
   }
 
+  @Override
   protected String getMarkerClassFQName() {
     return JUnitUtil.TEST5_ANNOTATION;
   }
@@ -56,21 +43,23 @@ public class JUnit5Framework extends JavaTestFramework {
     return JUnitExternalLibraryDescriptor.JUNIT5;
   }
 
+  @Override
   @Nullable
   public String getDefaultSuperClass() {
     return null;
   }
 
+  @Override
   public boolean isTestClass(PsiClass clazz, boolean canBePotential) {
     if (canBePotential) return isUnderTestSources(clazz);
-    return JUnitUtil.isJUnit5TestClass(clazz, true);
+    return JUnitUtil.isJUnit5TestClass(clazz, false);
   }
 
   @Nullable
   @Override
   protected PsiMethod findSetUpMethod(@NotNull PsiClass clazz) {
     for (PsiMethod each : clazz.getMethods()) {
-      if (AnnotationUtil.isAnnotated(each, JUnitUtil.BEFORE_EACH_ANNOTATION_NAME, false)) return each;
+      if (AnnotationUtil.isAnnotated(each, JUnitUtil.BEFORE_EACH_ANNOTATION_NAME, 0)) return each;
     }
     return null;
   }
@@ -79,7 +68,7 @@ public class JUnit5Framework extends JavaTestFramework {
   @Override
   protected PsiMethod findTearDownMethod(@NotNull PsiClass clazz) {
     for (PsiMethod each : clazz.getMethods()) {
-      if (AnnotationUtil.isAnnotated(each, JUnitUtil.AFTER_EACH_ANNOTATION_NAME, false)) return each;
+      if (AnnotationUtil.isAnnotated(each, JUnitUtil.AFTER_EACH_ANNOTATION_NAME, 0)) return each;
     }
     return null;
   }
@@ -96,11 +85,11 @@ public class JUnit5Framework extends JavaTestFramework {
     method = createSetUpPatternMethod(factory);
     PsiMethod existingMethod = clazz.findMethodBySignature(method, false);
     if (existingMethod != null) {
-      if (AnnotationUtil.isAnnotated(existingMethod, JUnitUtil.BEFORE_ALL_ANNOTATION_NAME, false)) return existingMethod;
+      if (AnnotationUtil.isAnnotated(existingMethod, JUnitUtil.BEFORE_ALL_ANNOTATION_NAME, 0)) return existingMethod;
       int exit = ApplicationManager.getApplication().isUnitTestMode() ?
                  Messages.OK :
                        Messages.showOkCancelDialog("Method setUp already exist but is not annotated as @BeforeEach. Annotate?",
-                                                   CommonBundle.getWarningTitle(),
+                                                   "Create SetUp",
                                                    Messages.getWarningIcon());
       if (exit == Messages.OK) {
         new AddAnnotationFix(JUnitUtil.BEFORE_EACH_ANNOTATION_NAME, existingMethod).invoke(existingMethod.getProject(), null, existingMethod.getContainingFile());
@@ -121,12 +110,12 @@ public class JUnit5Framework extends JavaTestFramework {
   @Override
   public boolean isIgnoredMethod(PsiElement element) {
     final PsiMethod testMethod = element instanceof PsiMethod ? JUnitUtil.getTestMethod(element) : null;
-    return testMethod != null && AnnotationUtil.isAnnotated(testMethod, JUnitUtil.IGNORE_ANNOTATION, false);
+    return testMethod != null && AnnotationUtil.isAnnotated(testMethod, JUnitUtil.IGNORE_ANNOTATION, 0);
   }
 
   @Override
-  public boolean isTestMethod(PsiElement element) {
-    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element) != null;
+  public boolean isTestMethod(PsiElement element, boolean checkAbstract) {
+    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element, checkAbstract) != null;
   }
 
   @Override
@@ -135,18 +124,27 @@ public class JUnit5Framework extends JavaTestFramework {
   }
 
   @Override
+  public boolean isMyConfigurationType(ConfigurationType type) {
+    return type instanceof JUnitConfigurationType;
+  }
+
+  @Override
   public boolean acceptNestedClasses() {
     return true;
   }
 
+  @Override
   public FileTemplateDescriptor getSetUpMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit5 SetUp Method.java");
   }
 
+  @Override
   public FileTemplateDescriptor getTearDownMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit5 TearDown Method.java");
   }
 
+  @Override
+  @NotNull
   public FileTemplateDescriptor getTestMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit5 Test Method.java");
   }

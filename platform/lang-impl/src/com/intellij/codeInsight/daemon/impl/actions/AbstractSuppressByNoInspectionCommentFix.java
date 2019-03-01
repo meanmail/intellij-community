@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 package com.intellij.codeInsight.daemon.impl.actions;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.SuppressIntentionAction;
 import com.intellij.codeInspection.SuppressionUtil;
@@ -28,7 +28,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -40,7 +39,9 @@ import java.util.List;
 /**
  * @author Roman.Chernyatchik
  * @date Aug 13, 2009
+ * @deprecated use {@link AbstractBatchSuppressByNoInspectionCommentFix} and {@link com.intellij.codeInspection.SuppressIntentionActionFromFix}
  */
+@Deprecated
 public abstract class AbstractSuppressByNoInspectionCommentFix extends SuppressIntentionAction {
   @NotNull protected final String myID;
   private final boolean myReplaceOtherSuppressionIds;
@@ -80,15 +81,13 @@ public abstract class AbstractSuppressByNoInspectionCommentFix extends SuppressI
 
   @Override
   public boolean isAvailable(@NotNull final Project project, final Editor editor, @NotNull final PsiElement context) {
-    return context.isValid() && context.getManager().isInProject(context) && getContainer(context) != null;
+    return context.isValid() && BaseIntentionAction.canModify(context) && getContainer(context) != null;
   }
 
   @Override
   public void invoke(@NotNull final Project project, @Nullable Editor editor, @NotNull final PsiElement element) throws IncorrectOperationException {
     PsiElement container = getContainer(element);
     if (container == null) return;
-
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(container)) return;
 
     final List<? extends PsiElement> comments = getCommentsFor(container);
     if (comments != null) {
@@ -119,7 +118,7 @@ public abstract class AbstractSuppressByNoInspectionCommentFix extends SuppressI
 
   @Nullable
   protected List<? extends PsiElement> getCommentsFor(@NotNull final PsiElement container) {
-    final PsiElement prev = PsiTreeUtil.skipSiblingsBackward(container, PsiWhiteSpace.class);
+    final PsiElement prev = PsiTreeUtil.skipWhitespacesBackward(container);
     if (prev == null) {
       return null;
     }

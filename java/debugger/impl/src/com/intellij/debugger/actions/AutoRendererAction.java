@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.debugger.actions;
 
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.JavaValue;
+import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.events.DebuggerContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -26,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.List;
 
 public class AutoRendererAction extends AnAction{
+  @Override
   public void actionPerformed(@NotNull final AnActionEvent e) {
     final DebuggerContextImpl debuggerContext = DebuggerAction.getDebuggerContext(e.getDataContext());
 
@@ -34,7 +36,8 @@ public class AutoRendererAction extends AnAction{
       final List<JavaValue> selectedValues = ViewAsGroup.getSelectedValues(e);
       if (!selectedValues.isEmpty()) {
         debugProcess.getManagerThread().schedule(new DebuggerContextCommandImpl(debuggerContext) {
-            public void threadAction() {
+          @Override
+          public void threadAction(@NotNull SuspendContextImpl suspendContext) {
               for (JavaValue selectedValue : selectedValues) {
                 selectedValue.getDescriptor().setRenderer(null);
               }

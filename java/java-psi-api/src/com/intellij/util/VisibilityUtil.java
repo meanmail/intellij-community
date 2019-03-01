@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 07.06.2002
- * Time: 18:48:01
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.util;
 
 import com.intellij.openapi.project.Project;
@@ -143,7 +135,7 @@ public class VisibilityUtil  {
     }
   }
 
-  public static void setVisibility(PsiModifierList modifierList, @PsiModifier.ModifierConstant String newVisibility) throws IncorrectOperationException {
+  public static void setVisibility(@NotNull PsiModifierList modifierList, @PsiModifier.ModifierConstant @NotNull String newVisibility) throws IncorrectOperationException {
     modifierList.setModifierProperty(newVisibility, true);
   }
 

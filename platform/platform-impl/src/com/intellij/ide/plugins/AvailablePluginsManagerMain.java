@@ -36,27 +36,22 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.util.List;
 import java.util.Locale;
 import java.util.TreeSet;
 
-/**
- * User: anna
- */
 public class AvailablePluginsManagerMain extends PluginManagerMain {
   public static final String MANAGE_REPOSITORIES = "Manage repositories...";
-  public static final String N_A = "N/A";
+  static final String N_A = "N/A";
 
   private static final InstalledPluginsState ourState = InstalledPluginsState.getInstance();
 
   private final PluginManagerMain installed;
   private final String myVendorFilter;
 
-  public AvailablePluginsManagerMain(PluginManagerMain installed, PluginManagerUISettings uiSettings, String vendorFilter) {
+  AvailablePluginsManagerMain(PluginManagerMain installed, PluginManagerUISettings uiSettings, String vendorFilter) {
     super(uiSettings);
     this.installed = installed;
     myVendorFilter = vendorFilter;
@@ -64,28 +59,22 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     final JButton manageRepositoriesBtn = new JButton(MANAGE_REPOSITORIES);
     if (myVendorFilter == null) {
       manageRepositoriesBtn.setMnemonic('m');
-      manageRepositoriesBtn.addActionListener(new ActionListener() {
-        @Override
-        public void actionPerformed(@NotNull ActionEvent e) {
-          if (ShowSettingsUtil.getInstance().editConfigurable(myActionsPanel, new PluginHostsConfigurable())) {
-            final List<String> pluginHosts = UpdateSettings.getInstance().getPluginHosts();
-            if (!pluginHosts.contains(((AvailablePluginsTableModel)pluginsModel).getRepository())) {
-              ((AvailablePluginsTableModel)pluginsModel).setRepository(AvailablePluginsTableModel.ALL, myFilter.getFilter().toLowerCase(Locale.ENGLISH));
-            }
-            loadAvailablePlugins();
+      manageRepositoriesBtn.addActionListener(__ -> {
+        if (ShowSettingsUtil.getInstance().editConfigurable(myActionsPanel, new PluginHostsConfigurable())) {
+          final List<String> pluginHosts = UpdateSettings.getInstance().getPluginHosts();
+          if (!pluginHosts.contains(((AvailablePluginsTableModel)pluginsModel).getRepository())) {
+            ((AvailablePluginsTableModel)pluginsModel).setRepository(AvailablePluginsTableModel.ALL, myFilter.getFilter().toLowerCase(Locale.ENGLISH));
           }
+          loadAvailablePlugins();
         }
       });
       myActionsPanel.add(manageRepositoriesBtn, BorderLayout.EAST);
     }
 
     final JButton httpProxySettingsButton = new JButton(IdeBundle.message("button.http.proxy.settings"));
-    httpProxySettingsButton.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(@NotNull ActionEvent e) {
-        if (HttpConfigurable.editConfigurable(getMainPanel())) {
-          loadAvailablePlugins();
-        }
+    httpProxySettingsButton.addActionListener(__ -> {
+      if (HttpConfigurable.editConfigurable(getMainPanel())) {
+        loadAvailablePlugins();
       }
     });
     myActionsPanel.add(httpProxySettingsButton, BorderLayout.WEST);
@@ -118,12 +107,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     }.installOn(pluginTable);
     
     pluginTable.registerKeyboardAction(
-      new ActionListener() {
-        @Override
-        public void actionPerformed(@NotNull ActionEvent e) {
-          installSelected(pluginTable);
-        }
-      },
+      __ -> installSelected(pluginTable),
       KeyStroke.getKeyStroke(KeyEvent.VK_SPACE, 0),
       JComponent.WHEN_FOCUSED
     );
@@ -169,6 +153,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     return installed;
   }
 
+  @NotNull
   @Override
   protected ActionGroup getActionGroup(boolean inToolbar) {
     DefaultActionGroup actionGroup = new DefaultActionGroup();
@@ -207,7 +192,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
 
   private class MyFilterCategoryAction extends ComboBoxAction implements DumbAware{
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       super.update(e);
       String category = ((AvailablePluginsTableModel)pluginsModel).getCategory();
       if (category == null) {
@@ -235,7 +220,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     private AnAction createFilterByCategoryAction(final String availableCategory) {
       return new DumbAwareAction(availableCategory) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           final String filter = myFilter.getFilter().toLowerCase(Locale.ENGLISH);
           ((AvailablePluginsTableModel)pluginsModel).setCategory(availableCategory, filter);
         }
@@ -248,7 +233,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     private static final int LENGTH = 15;
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       super.update(e);
       boolean empty = UpdateSettings.getInstance().getPluginHosts().isEmpty();
       e.getPresentation().setVisible(!empty || ApplicationInfoEx.getInstanceEx().getBuiltinPluginsUrl() != null);
@@ -278,7 +263,7 @@ public class AvailablePluginsManagerMain extends PluginManagerMain {
     private AnAction createFilterByRepositoryAction(final String host) {
       return new DumbAwareAction(host) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           final String filter = myFilter.getFilter().toLowerCase(Locale.ENGLISH);
           ((AvailablePluginsTableModel)pluginsModel).setRepository(host, filter);
           TableUtil.ensureSelectionExists(getPluginTable());

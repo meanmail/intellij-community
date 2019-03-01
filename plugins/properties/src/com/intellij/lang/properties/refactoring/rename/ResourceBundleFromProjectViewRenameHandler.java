@@ -16,7 +16,7 @@
 package com.intellij.lang.properties.refactoring.rename;
 
 import com.intellij.lang.properties.ResourceBundle;
-import com.intellij.lang.properties.editor.*;
+import com.intellij.lang.properties.editor.ResourceBundleUtil;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
@@ -34,7 +34,7 @@ import org.jetbrains.annotations.NotNull;
 public class ResourceBundleFromProjectViewRenameHandler implements RenameHandler {
 
   @Override
-  public boolean isAvailableOnDataContext(DataContext dataContext) {
+  public boolean isAvailableOnDataContext(@NotNull DataContext dataContext) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
       return false;
@@ -43,11 +43,11 @@ public class ResourceBundleFromProjectViewRenameHandler implements RenameHandler
     if (bundle == null || bundle.getPropertiesFiles().size() < 2) {
       return false;
     }
-    return PlatformDataKeys.FILE_EDITOR.getData(dataContext) == null && CommonDataKeys.VIRTUAL_FILE.getData(dataContext) == null;
+    return PlatformDataKeys.FILE_EDITOR.getData(dataContext) == null;
   }
 
   @Override
-  public boolean isRenaming(DataContext dataContext) {
+  public boolean isRenaming(@NotNull DataContext dataContext) {
     return isAvailableOnDataContext(dataContext);
   }
 

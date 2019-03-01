@@ -25,7 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.io.IOException;
 
 /**
  * @author Konstantin Bulenkov
@@ -68,13 +67,13 @@ public class DiffErrorElement extends DiffElement {
   }
 
   @Override
-  public DiffElement[] getChildren() throws IOException {
+  public DiffElement[] getChildren() {
     return EMPTY_ARRAY;
   }
 
   @Nullable
   @Override
-  public byte[] getContent() throws IOException {
+  public byte[] getContent() {
     return null;
   }
 
@@ -88,6 +87,7 @@ public class DiffErrorElement extends DiffElement {
     return PlatformIcons.ERROR_INTRODUCTION_ICON;
   }
 
+  @Override
   @NotNull
   public DiffContent createDiffContent(@Nullable Project project, @NotNull ProgressIndicator indicator)
     throws DiffRequestProducerException, ProcessCanceledException {

@@ -28,26 +28,26 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.text.DateFormatUtil;
 
-import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Date;
 
 public class FileHistoryDialogTest extends LocalHistoryUITestCase {
-  public void testDialogWorks() throws IOException {
+  public void testDialogWorks() {
     VirtualFile file = createChildData(myRoot, "f.txt");
 
     FileHistoryDialog d = new FileHistoryDialog(myProject, myGateway, file);
     Disposer.dispose(d);
   }
 
-  public void testTitles() throws IOException {
+  public void testTitles() {
     long leftTime = new Date(2001 - 1900, 1, 3, 12, 0).getTime();
     long rightTime = new Date(2002 - 1900, 2, 4, 14, 0).getTime();
 
     VirtualFile f = createChildData(myRoot, "old.txt");
-    setBinaryContent(f, "old".getBytes(), -1, leftTime, this);
+    setBinaryContent(f, "old".getBytes(StandardCharsets.UTF_8), -1, leftTime, this);
 
     rename(f, "new.txt");
-    setBinaryContent(f, "new".getBytes(), -1, rightTime, this);
+    setBinaryContent(f, "new".getBytes(StandardCharsets.UTF_8), -1, rightTime, this);
 
     byte[] content = new byte[0];
     setBinaryContent(f, content);
@@ -55,37 +55,37 @@ public class FileHistoryDialogTest extends LocalHistoryUITestCase {
     FileHistoryDialogModel m = createFileModelAndSelectRevisions(f, 0, 2);
     assertEquals(FileUtil.toSystemDependentName(f.getPath()), m.getDifferenceModel().getTitle());
 
-    assertEquals(DateFormatUtil.formatPrettyDateTime(leftTime) + " - old.txt",
+    assertEquals(DateFormatUtil.formatDateTime(leftTime) + " - old.txt",
                  m.getDifferenceModel().getLeftTitle(new NullRevisionsProgress()));
-    assertEquals(DateFormatUtil.formatPrettyDateTime(rightTime) + " - new.txt",
+    assertEquals(DateFormatUtil.formatDateTime(rightTime) + " - new.txt",
                  m.getDifferenceModel().getRightTitle(new NullRevisionsProgress()));
   }
 
-  public void testContent() throws IOException {
+  public void testContent() {
     VirtualFile f = createChildData(myRoot, "f.txt");
-    setBinaryContent(f, "old".getBytes());
-    setBinaryContent(f, "new".getBytes());
-    setBinaryContent(f, "current".getBytes());
+    setBinaryContent(f, "old".getBytes(StandardCharsets.UTF_8));
+    setBinaryContent(f, "new".getBytes(StandardCharsets.UTF_8));
+    setBinaryContent(f, "current".getBytes(StandardCharsets.UTF_8));
 
     FileHistoryDialogModel m = createFileModelAndSelectRevisions(f, 0, 1);
 
     assertDiffContents("old", "new", m);
   }
 
-  public void testContentWhenOnlyOneRevisionSelected() throws IOException {
+  public void testContentWhenOnlyOneRevisionSelected() {
     VirtualFile f = createChildData(myRoot, "f.txt");
-    setBinaryContent(f, "old".getBytes());
-    setBinaryContent(f, "new".getBytes());
+    setBinaryContent(f, "old".getBytes(StandardCharsets.UTF_8));
+    setBinaryContent(f, "new".getBytes(StandardCharsets.UTF_8));
 
     FileHistoryDialogModel m = createFileModelAndSelectRevisions(f, 0, 0);
 
     assertDiffContents("old", "new", m);
   }
 
-  public void testContentForCurrentRevision() throws IOException {
+  public void testContentForCurrentRevision() {
     VirtualFile f = createChildData(myRoot, "f.txt");
-    setBinaryContent(f, "old".getBytes());
-    setBinaryContent(f, "current".getBytes());
+    setBinaryContent(f, "old".getBytes(StandardCharsets.UTF_8));
+    setBinaryContent(f, "current".getBytes(StandardCharsets.UTF_8));
 
     FileHistoryDialogModel m = createFileModelAndSelectRevisions(f, 0, 0);
 
@@ -107,7 +107,7 @@ public class FileHistoryDialogTest extends LocalHistoryUITestCase {
     assertEquals("newDir", dir.getName());
   }
 
-  private void assertDiffContents(String leftContent, String rightContent, FileHistoryDialogModel m) throws IOException {
+  private void assertDiffContents(String leftContent, String rightContent, FileHistoryDialogModel m) {
     DiffContent left = getLeftDiffContent(m);
     DiffContent right = getRightDiffContent(m);
 

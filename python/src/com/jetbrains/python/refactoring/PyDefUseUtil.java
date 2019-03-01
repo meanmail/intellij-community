@@ -42,7 +42,13 @@ public class PyDefUseUtil {
   @NotNull
   public static List<Instruction> getLatestDefs(ScopeOwner block, String varName, PsiElement anchor, boolean acceptTypeAssertions,
                                                 boolean acceptImplicitImports) {
-    final ControlFlow controlFlow = ControlFlowCache.getControlFlow(block);
+    return getLatestDefs(ControlFlowCache.getControlFlow(block), varName, anchor, acceptTypeAssertions, acceptImplicitImports);
+  }
+
+
+  @NotNull
+  public static List<Instruction> getLatestDefs(ControlFlow controlFlow, String varName, PsiElement anchor, boolean acceptTypeAssertions,
+                                                boolean acceptImplicitImports) {
     final Instruction[] instructions = controlFlow.getInstructions();
     final PyAugAssignmentStatement augAssignment = PyAugAssignmentStatementNavigator.getStatementByTarget(anchor);
     if (augAssignment != null) {
@@ -96,8 +102,8 @@ public class PyDefUseUtil {
     if (element instanceof PyImportElement) {
       return ((PyImportElement) element).getVisibleName();
     }
-    if (element instanceof PyReferenceExpression) {
-      final QualifiedName qname = ((PyReferenceExpression)element).asQualifiedName();
+    if (element instanceof PyReferenceExpression || element instanceof PyTargetExpression) {
+      final QualifiedName qname = ((PyQualifiedExpression)element).asQualifiedName();
       if (qname != null) {
         return qname.toString();
       }
@@ -118,7 +124,7 @@ public class PyDefUseUtil {
     for (Instruction instruction : instructions[instr].allSucc()) {
       getPostRefs(var, instructions, instruction.num(), visited, result);
     }
-    return result.toArray(new PyElement[result.size()]);
+    return result.toArray(PyElement.EMPTY_ARRAY);
   }
 
   private static void getPostRefs(PyTargetExpression var,

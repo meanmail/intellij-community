@@ -19,7 +19,6 @@ package org.intellij.plugins.intelliLang;
 import com.intellij.ide.util.ClassFilter;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
-import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
@@ -27,11 +26,9 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.ReferenceEditorWithBrowseButton;
-import com.intellij.util.Function;
 import org.intellij.plugins.intelliLang.util.PsiUtilEx;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
@@ -52,6 +49,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     myConfiguration = configuration.getAdvancedConfiguration();
   }
 
+  @Override
   public JComponent createComponent() {
     myPanel = new AdvancedSettingsPanel();
     return myPanel.myRoot;
@@ -72,15 +70,18 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     myPanel.reset();
   }
 
+  @Override
   public void disposeUIResources() {
     myPanel = null;
   }
 
+  @Override
   @Nls
   public String getDisplayName() {
     return "Advanced";
   }
 
+  @Override
   public String getHelpTopic() {
     return "reference.settings.injection.advanced";
   }
@@ -100,6 +101,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
       myField = annotationField;
     }
 
+    @Override
     public void actionPerformed(ActionEvent e) {
       final TreeClassChooserFactory factory = TreeClassChooserFactory.getInstance(myProject);
 
@@ -107,6 +109,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
       final PsiClass aClass = JavaPsiFacade.getInstance(myProject).findClass(myField.getText(), scope);
       final TreeClassChooser chooser =
         factory.createNoInnerClassesScopeChooser("Select Annotation Class", scope, new ClassFilter() {
+          @Override
           public boolean isAccepted(PsiClass aClass) {
             return aClass.isAnnotationType();
           }
@@ -121,7 +124,7 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
   }
 
   public class AdvancedSettingsPanel {
-    @SuppressWarnings({"UnusedDeclaration", "FieldCanBeLocal"})
+    @SuppressWarnings({"UnusedDeclaration"})
     private JPanel myRoot;
 
     private JRadioButton myNoInstrumentation;
@@ -176,7 +179,6 @@ public class AdvancedSettingsUI implements SearchableConfigurable {
     }
 
 
-    @SuppressWarnings({"SimplifiableIfStatement"})
     public boolean isModified() {
       if (getInstrumentation() != myConfiguration.getInstrumentation()) {
         return true;

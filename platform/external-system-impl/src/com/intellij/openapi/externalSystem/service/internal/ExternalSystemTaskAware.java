@@ -12,7 +12,6 @@ import java.util.Set;
  * Represents a service that exposes information about the tasks being processed. 
  * 
  * @author Denis Zhdanov
- * @since 2/8/12 1:46 PM
  */
 public interface ExternalSystemTaskAware {
 
@@ -20,8 +19,8 @@ public interface ExternalSystemTaskAware {
    * Allows to check if current service executes the target task.
    *
    * @param id  target task's id
-   * @return    <code>true</code> if a task with the given id is executed at the moment by the current service;
-   *            <code>false</code> otherwise
+   * @return    {@code true} if a task with the given id is executed at the moment by the current service;
+   *            {@code false} otherwise
    * @throws RemoteException      as required by RMI
    */
   boolean isTaskInProgress(@NotNull ExternalSystemTaskId id) throws RemoteException;
@@ -31,8 +30,8 @@ public interface ExternalSystemTaskAware {
    *
    *
    * @param id  target task's id
-   * @return    <code>true</code> if a task was successfully canceled;
-   *            <code>false</code> otherwise
+   * @return    {@code true} if a task was successfully canceled;
+   *            {@code false} otherwise
    * @throws RemoteException      as required by RMI
    */
   boolean cancelTask(@NotNull ExternalSystemTaskId id) throws RemoteException;

@@ -15,6 +15,7 @@
  */
 package com.intellij.vcs.log.graph.impl.facade;
 
+import com.intellij.util.Function;
 import com.intellij.vcs.log.graph.api.elements.GraphElement;
 import com.intellij.vcs.log.graph.api.permanent.PermanentGraphInfo;
 import com.intellij.vcs.log.graph.impl.print.elements.PrintElementWithGraphElement;
@@ -23,10 +24,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public abstract class CascadeController implements LinearGraphController {
-  @Nullable private final CascadeController myDelegateController;
+  @Nullable private final LinearGraphController myDelegateController;
   @NotNull protected final PermanentGraphInfo myPermanentGraphInfo;
 
-  protected CascadeController(@Nullable CascadeController delegateController, @NotNull PermanentGraphInfo permanentGraphInfo) {
+  protected CascadeController(@Nullable LinearGraphController delegateController, @NotNull PermanentGraphInfo permanentGraphInfo) {
     myDelegateController = delegateController;
     myPermanentGraphInfo = permanentGraphInfo;
   }
@@ -45,6 +46,20 @@ public abstract class CascadeController implements LinearGraphController {
   }
 
   @Nullable
+  GraphChanges<Integer> performAction(@NotNull Function<CascadeController, GraphChanges<Integer>> action) {
+    GraphChanges<Integer> graphChanges = action.fun(this);
+    if (graphChanges != null) return graphChanges;
+
+    if (myDelegateController instanceof CascadeController) {
+      GraphChanges<Integer> result = ((CascadeController)myDelegateController).performAction(action);
+      if (result != null) {
+        return delegateGraphChanged(new LinearGraphController.LinearGraphAnswer(result)).getGraphChanges();
+      }
+    }
+    return null;
+  }
+
+  @Nullable
   private PrintElementWithGraphElement convertToDelegate(@Nullable PrintElementWithGraphElement element) {
     if (element == null) return null;
     GraphElement convertedGraphElement = convertToDelegate(element.getGraphElement());
@@ -58,7 +73,7 @@ public abstract class CascadeController implements LinearGraphController {
   }
 
   @NotNull
-  protected CascadeController getDelegateController() {
+  protected LinearGraphController getDelegateController() {
     assert myDelegateController != null;
     return myDelegateController;
   }

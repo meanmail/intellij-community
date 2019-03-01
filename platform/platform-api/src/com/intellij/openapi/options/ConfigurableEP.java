@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options;
 
 import com.intellij.AbstractBundle;
@@ -20,12 +6,14 @@ import com.intellij.CommonBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.AbstractExtensionPointBean;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Attribute;
 import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.util.xmlb.annotations.XCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.picocontainer.PicoContainer;
@@ -67,10 +55,17 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   public String bundle;
 
   public String getDisplayName() {
-    if (displayName != null) return displayName;
-    LOG.assertTrue(bundle != null, "Bundle missed for " + instanceClass);
-    final ResourceBundle resourceBundle = AbstractBundle.getResourceBundle(bundle, myPluginDescriptor.getPluginClassLoader());
-    return displayName = CommonBundle.message(resourceBundle, key);
+    if (displayName == null) {
+      if (bundle != null) {
+        ResourceBundle resourceBundle = AbstractBundle.getResourceBundle(bundle, myPluginDescriptor.getPluginClassLoader());
+        displayName = CommonBundle.message(resourceBundle, key);
+      }
+      else {
+        displayName = providerClass != null ? providerClass : instanceClass != null ? instanceClass : implementationClass;
+        LOG.warn("Bundle missed for " + displayName);
+      }
+    }
+    return displayName;
   }
 
   /**
@@ -83,7 +78,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   }
 
   @Property(surroundWithTag = false)
-  @AbstractCollection(surroundWithTag = false)
+  @XCollection
   public ConfigurableEP[] children;
 
   /**
@@ -184,7 +179,7 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   public boolean nonDefaultProject;
 
   public boolean isAvailable() {
-    return !nonDefaultProject || !(myProject != null  && myProject.isDefault());
+    return !nonDefaultProject || !(myProject != null && myProject.isDefault());
   }
 
   /**
@@ -219,7 +214,10 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   @Attribute("provider")
   public String providerClass;
 
-  private final AtomicNotNullLazyValue<ObjectProducer> myProducer;
+  @Attribute("treeRenderer")
+  public String treeRendererClass;
+
+  private final AtomicNotNullLazyValue<ObjectProducer> myProducer = AtomicNotNullLazyValue.createValue(this::createProducer);
   private PicoContainer myPicoContainer;
   private Project myProject;
 
@@ -228,41 +226,33 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
   }
 
   @SuppressWarnings("UnusedDeclaration")
-  public ConfigurableEP(Project project) {
+  public ConfigurableEP(@NotNull Project project) {
     this(project.getPicoContainer(), project);
   }
 
-  protected ConfigurableEP(PicoContainer picoContainer, @Nullable Project project) {
+  protected ConfigurableEP(@NotNull PicoContainer picoContainer, @Nullable Project project) {
     myProject = project;
     myPicoContainer = picoContainer;
-    myProducer = new AtomicNotNullLazyValue<ObjectProducer>() {
-      @NotNull
-      @Override
-      protected ObjectProducer compute() {
-        try {
-          if (providerClass != null) {
-            return new ProviderProducer((ConfigurableProvider)instantiate(providerClass, myPicoContainer));
-          }
-          if (instanceClass != null) {
-            return new ClassProducer(myPicoContainer, findClass(instanceClass));
-          }
-          if (implementationClass != null) {
-            return new ClassProducer(myPicoContainer, findClass(implementationClass));
-          }
-          throw new RuntimeException("configurable class name is not set");
-        }
-        catch (AssertionError error) {
-          LOG.error(error);
-        }
-        catch (LinkageError error) {
-          LOG.error(error);
-        }
-        catch (Exception exception) {
-          LOG.error(exception);
-        }
-        return new ObjectProducer();
+  }
+
+  @NotNull
+  protected ObjectProducer createProducer() {
+    try {
+      if (providerClass != null) {
+        return new ProviderProducer(instantiate(providerClass, myPicoContainer));
       }
-    };
+      if (instanceClass != null) {
+        return new ClassProducer(myPicoContainer, findClass(instanceClass));
+      }
+      if (implementationClass != null) {
+        return new ClassProducer(myPicoContainer, findClass(implementationClass));
+      }
+      throw new RuntimeException("configurable class name is not set");
+    }
+    catch (AssertionError | Exception | LinkageError error) {
+      LOG.error(error);
+    }
+    return new ObjectProducer();
   }
 
   @Nullable
@@ -272,6 +262,23 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
       @SuppressWarnings("unchecked")
       T configurable = (T)producer.createElement();
       return configurable;
+    }
+    return null;
+  }
+
+  @Nullable
+  public ConfigurableTreeRenderer createTreeRenderer() {
+    if (treeRendererClass == null) {
+      return null;
+    }
+    try {
+      return instantiate(findClass(treeRendererClass), myPicoContainer);
+    }
+    catch (ProcessCanceledException exception) {
+      throw exception;
+    }
+    catch (AssertionError | LinkageError | Exception e) {
+      LOG.error(e);
     }
     return null;
   }
@@ -300,16 +307,16 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
     return myProducer.getValue().getType();
   }
 
-  private static class ObjectProducer {
-    Object createElement() {
+  protected static class ObjectProducer {
+    protected Object createElement() {
       return null;
     }
 
-    boolean canCreateElement() {
+    protected boolean canCreateElement() {
       return false;
     }
 
-    Class<?> getType() {
+    protected Class<?> getType() {
       return null;
     }
   }
@@ -322,12 +329,12 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
     }
 
     @Override
-    Object createElement() {
+    protected Object createElement() {
       return myProvider == null ? null : myProvider.createConfigurable();
     }
 
     @Override
-    boolean canCreateElement() {
+    protected boolean canCreateElement() {
       return myProvider != null && myProvider.canCreateConfigurable();
     }
   }
@@ -342,28 +349,29 @@ public class ConfigurableEP<T extends UnnamedConfigurable> extends AbstractExten
     }
 
     @Override
-    Object createElement() {
+    protected Object createElement() {
       try {
-        return instantiate(myType, myContainer, true);
+        return instantiate(myType, myContainer);
       }
-      catch (AssertionError error) {
-        LOG.error(error);
+      catch (ProcessCanceledException exception) {
+        throw exception;
       }
-      catch (LinkageError error) {
-        LOG.error(error);
+      catch (ExtensionNotApplicableException ignore) {
+        return null;
       }
-      catch (Exception exception) {
-        LOG.error(exception);
+      catch (AssertionError | LinkageError | Exception e) {
+        LOG.error(e);
       }
       return null;
     }
 
     @Override
-    boolean canCreateElement() {
+    protected boolean canCreateElement() {
       return myType != null;
     }
 
-    Class<?> getType() {
+    @Override
+    protected Class<?> getType() {
       return myType;
     }
   }

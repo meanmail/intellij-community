@@ -15,12 +15,13 @@
  */
 package com.intellij.openapi.compiler;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.roots.CompilerModuleExtension;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
@@ -28,24 +29,48 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class DummyCompileContext implements CompileContext {
-  protected DummyCompileContext() {
+  private final Project myProject;
+
+  /**
+   * @deprecated use {@link #create(Project)} instead
+   */
+  @Deprecated
+  public DummyCompileContext() {
+    this(ProjectManager.getInstance().getDefaultProject());
   }
 
-  private static final DummyCompileContext OUR_INSTANCE = new DummyCompileContext();
+  protected DummyCompileContext(Project project) {
+    myProject = project;
+  }
 
+  /**
+   * @deprecated use {@link #create(Project)} instead
+   * @return
+   */
+  @Deprecated
+  @NotNull
   public static DummyCompileContext getInstance() {
-    return OUR_INSTANCE;
+    return new DummyCompileContext(ProjectManager.getInstance().getDefaultProject());
   }
 
+  @NotNull
+  public static DummyCompileContext create(@NotNull Project project) {
+    return new DummyCompileContext(project);
+  }
+
+  @NotNull
+  @Override
   public Project getProject() {
-    return null;
+    return myProject;
   }
 
-  public void addMessage(CompilerMessageCategory category, String message, String url, int lineNum, int columnNum) {
+  @Override
+  public void addMessage(@NotNull CompilerMessageCategory category, String message, String url, int lineNum, int columnNum) {
   }
 
 
-  public void addMessage(CompilerMessageCategory category,
+  @Override
+  public void addMessage(@NotNull CompilerMessageCategory category,
                          String message,
                          @Nullable String url,
                          int lineNum,
@@ -53,66 +78,78 @@ public class DummyCompileContext implements CompileContext {
                          Navigatable navigatable) {
   }
 
-  public CompilerMessage[] getMessages(CompilerMessageCategory category) {
+  @Override
+  @NotNull
+  public CompilerMessage[] getMessages(@NotNull CompilerMessageCategory category) {
     return CompilerMessage.EMPTY_ARRAY;
   }
 
+  @Override
   public int getMessageCount(CompilerMessageCategory category) {
     return 0;
   }
 
+  @Override
   @NotNull
   public ProgressIndicator getProgressIndicator() {
-    return null;
+    return DumbProgressIndicator.INSTANCE;
   }
 
+  @Override
   public CompileScope getCompileScope() {
     return null;
   }
 
+  @Override
   public CompileScope getProjectCompileScope() {
     return null;
   }
 
+  @Override
   public void requestRebuildNextTime(String message) {
   }
 
+  @Override
   public boolean isRebuildRequested() {
     return false;
   }
 
+  @Override
   @Nullable
   public String getRebuildReason() {
     return null;
   }
 
-  public Module getModuleByFile(VirtualFile file) {
+  @Override
+  public Module getModuleByFile(@NotNull VirtualFile file) {
     return null;
   }
 
+  @Override
   public boolean isAnnotationProcessorsEnabled() {
     return false;
   }
 
-  public VirtualFile getModuleOutputDirectory(final Module module) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<VirtualFile>() {
-      public VirtualFile compute() {
-        return CompilerModuleExtension.getInstance(module).getCompilerOutputPath();
-      }
-    });
+  @Override
+  public VirtualFile getModuleOutputDirectory(@NotNull final Module module) {
+    return ReadAction.compute(() -> CompilerModuleExtension.getInstance(module).getCompilerOutputPath());
   }
 
+  @Override
   public VirtualFile getModuleOutputDirectoryForTests(Module module) {
     return null;
   }
 
+  @Override
   public <T> T getUserData(@NotNull Key<T> key) {
     return null;
   }
 
+  @Override
   public <T> void putUserData(@NotNull Key<T> key, T value) {
   }
 
+  @Override
   public boolean isMake() {
     return false; // stub implementation
   }
@@ -122,6 +159,7 @@ public class DummyCompileContext implements CompileContext {
     return false;
   }
 
+  @Override
   public boolean isRebuild() {
     return false;
   }

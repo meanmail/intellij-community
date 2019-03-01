@@ -1,36 +1,22 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.impl;
 
-import com.intellij.ide.IdeBundle;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
+import com.intellij.openapi.fileEditor.impl.text.FileDropHandler;
 import com.intellij.openapi.keymap.Keymap;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapManagerListener;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.*;
@@ -43,12 +29,13 @@ import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.FrameTitleBuilder;
 import com.intellij.openapi.wm.impl.IdeBackgroundUtil;
 import com.intellij.openapi.wm.impl.IdePanePanel;
+import com.intellij.testFramework.LightVirtualFileBase;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.OnePixelSplitter;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.docking.DockManager;
 import com.intellij.ui.tabs.JBTabs;
-import com.intellij.ui.tabs.impl.JBTabsImpl;
+import com.intellij.ui.tabs.newImpl.JBTabsImpl;
 import com.intellij.util.Alarm;
 import com.intellij.util.containers.ArrayListSet;
 import com.intellij.util.containers.ContainerUtil;
@@ -60,16 +47,15 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.Transferable;
 import java.awt.event.ContainerEvent;
+import java.beans.PropertyChangeListener;
 import java.io.File;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-
-/**
- * Author: msk
- */
 public class EditorsSplitters extends IdePanePanel implements UISettingsListener, Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileEditor.impl.EditorsSplitters");
   private static final String PINNED = "pinned";
@@ -89,9 +75,22 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   EditorsSplitters(final FileEditorManagerImpl manager, DockManager dockManager, boolean createOwnDockableContainer) {
     super(new BorderLayout());
+
+    setBackground(JBColor.namedColor("Editor.background", IdeBackgroundUtil.getIdeBackgroundColor()));
+    PropertyChangeListener l = e -> {
+      String propName = e.getPropertyName();
+      if ("Editor.background".equals(propName) || "Editor.foreground".equals(propName) || "Editor.shortcutForeground".equals(propName)) {
+        repaint();
+      }
+    };
+
+    UIManager.getDefaults().addPropertyChangeListener(l);
+    Disposer.register(manager.getProject(), () -> UIManager.getDefaults().removePropertyChangeListener(l));
+
     myManager = manager;
     myFocusWatcher = new MyFocusWatcher();
     setFocusTraversalPolicy(new MyFocusTraversalPolicy());
+    setTransferHandler(new MyTransferHandler());
     clear();
 
     if (createOwnDockableContainer) {
@@ -99,16 +98,16 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
       Disposer.register(manager.getProject(), dockable);
       dockManager.register(dockable);
     }
-    KeymapManagerListener keymapListener = new KeymapManagerListener() {
+
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(KeymapManagerListener.TOPIC, new KeymapManagerListener() {
       @Override
-      public void activeKeymapChanged(Keymap keymap) {
+      public void activeKeymapChanged(@Nullable Keymap keymap) {
         invalidate();
         repaint();
       }
-    };
-    KeymapManager.getInstance().addKeymapManagerListener(keymapListener, this);
+    });
   }
-  
+
   public FileEditorManagerImpl getManager() {
     return myManager;
   }
@@ -160,29 +159,36 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     }
   }
 
-  public void writeExternal(final Element element) {
-    if (getComponentCount() != 0) {
-      final Component comp = getComponent(0);
-      LOG.assertTrue(comp instanceof JPanel);
-      final JPanel panel = (JPanel)comp;
-      if (panel.getComponentCount() != 0) {
-        element.addContent(writePanel(panel));
+  public void writeExternal(@NotNull Element element) {
+    if (getComponentCount() == 0) {
+      return;
+    }
+
+    JPanel panel = (JPanel)getComponent(0);
+    if (panel.getComponentCount() != 0) {
+      try {
+        element.addContent(writePanel(panel.getComponent(0)));
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
+      }
+      catch (Throwable e) {
+        LOG.error(e);
       }
     }
   }
 
   @SuppressWarnings("HardCodedStringLiteral")
-  private Element writePanel(final JPanel panel) {
-    final Component comp = panel.getComponent(0);
+  private Element writePanel(@NotNull Component comp) {
     if (comp instanceof Splitter) {
       final Splitter splitter = (Splitter)comp;
       final Element res = new Element("splitter");
       res.setAttribute("split-orientation", splitter.getOrientation() ? "vertical" : "horizontal");
       res.setAttribute("split-proportion", Float.toString(splitter.getProportion()));
       final Element first = new Element("split-first");
-      first.addContent(writePanel((JPanel)splitter.getFirstComponent()));
+      first.addContent(writePanel(splitter.getFirstComponent().getComponent(0)));
       final Element second = new Element("split-second");
-      second.addContent(writePanel((JPanel)splitter.getSecondComponent()));
+      second.addContent(writePanel(splitter.getSecondComponent().getComponent(0)));
       res.addContent(first);
       res.addContent(second);
       return res;
@@ -204,7 +210,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
       return res;
     }
     else {
-      LOG.error(comp != null ? comp.getClass().getName() : null);
+      LOG.error(comp.getClass().getName());
       return null;
     }
   }
@@ -222,7 +228,6 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
   @NotNull
   private Element writeComposite(VirtualFile file, EditorWithProviderComposite composite, boolean pinned, EditorWithProviderComposite selectedEditor) {
     Element fileElement = new Element("file");
-    fileElement.setAttribute("leaf-file-name", file.getName()); // TODO: all files
     composite.currentStateAsHistoryEntry().writeExternal(fileElement, getManager().getProject());
     fileElement.setAttribute(PINNED, Boolean.toString(pinned));
     fileElement.setAttribute(CURRENT_IN_TAB, Boolean.toString(composite.equals(selectedEditor)));
@@ -231,33 +236,18 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   public void openFiles() {
     if (mySplittersElement != null) {
-      initializeProgress();
       final JPanel comp = myUIBuilder.process(mySplittersElement, getTopPanel());
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          if (comp != null) {
-            removeAll();
-            add(comp, BorderLayout.CENTER);
-            mySplittersElement = null;
-          }
-          // clear empty splitters
-          for (EditorWindow window : getWindows()) {
-            if (window.getEditors().length == 0) {
-              for (EditorWindow sibling : window.findSiblings()) {
-                sibling.unsplit(false);
-              }
-            }
-          }
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+        if (comp != null) {
+          removeAll();
+          add(comp, BorderLayout.CENTER);
+          mySplittersElement = null;
+        }
+        // clear empty splitters
+        for (EditorWindow window : getWindows()) {
+          if (window.getTabCount() == 0) window.removeFromSplitter();
         }
       });
-    }
-  }
-
-  private static void initializeProgress() {
-    ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
-    if (indicator != null) {
-      indicator.setText(IdeBundle.message("loading.editors"));
     }
   }
 
@@ -271,7 +261,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   private void updateProgress() {
     ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
-    if (indicator != null) {
+    if (indicator != null && !indicator.isIndeterminate()) {
       indicator.setFraction(indicator.getFraction() + myProgressStep);
     }
   }
@@ -279,7 +269,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
   private static int countFiles(Element element) {
     Integer value = new ConfigTreeReader<Integer>() {
       @Override
-      protected Integer processFiles(@NotNull List<Element> fileElements, @Nullable Integer context) {
+      protected Integer processFiles(@NotNull List<? extends Element> fileElements, Element parent, @Nullable Integer context) {
         return fileElements.size();
       }
 
@@ -297,23 +287,19 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     mySplittersElement = element;
   }
 
-  @NotNull public VirtualFile[] getOpenFiles() {
-    final Set<VirtualFile> files = new ArrayListSet<>();
-    for (final EditorWindow myWindow : myWindows) {
-      final EditorWithProviderComposite[] editors = myWindow.getEditors();
-      for (final EditorWithProviderComposite editor : editors) {
-        VirtualFile file = editor.getFile();
-        // background thread may call this method when invalid file is being removed
-        // do not return it here as it will quietly drop out soon
-        if (file.isValid()) {
-          files.add(file);
-        }
+  @NotNull
+  public VirtualFile[] getOpenFiles() {
+    Set<VirtualFile> files = new ArrayListSet<>();
+    for (EditorWindow myWindow : myWindows) {
+      for (EditorWithProviderComposite editor : myWindow.getEditors()) {
+        files.add(editor.getFile());
       }
     }
     return VfsUtilCore.toVirtualFileArray(files);
   }
 
-  @NotNull public VirtualFile[] getSelectedFiles() {
+  @NotNull
+  public VirtualFile[] getSelectedFiles() {
     final Set<VirtualFile> files = new ArrayListSet<>();
     for (final EditorWindow window : myWindows) {
       final VirtualFile file = window.getSelectedFile();
@@ -337,19 +323,19 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   @NotNull
   public FileEditor[] getSelectedEditors() {
-    List<FileEditor> editors = new ArrayList<>();
     Set<EditorWindow> windows = new THashSet<>(myWindows);
     final EditorWindow currentWindow = getCurrentWindow();
     if (currentWindow != null) {
       windows.add(currentWindow);
     }
+    List<FileEditor> editors = new ArrayList<>();
     for (final EditorWindow window : windows) {
       final EditorWithProviderComposite composite = window.getSelectedEditor();
       if (composite != null) {
         editors.add(composite.getSelectedEditor());
       }
     }
-    return editors.toArray(new FileEditor[editors.size()]);
+    return editors.toArray(new FileEditor[0]);
   }
 
   public void updateFileIcon(@NotNull final VirtualFile file) {
@@ -389,7 +375,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   public void trimToSize(final int editor_tab_limit) {
     for (final EditorWindow window : myWindows) {
-      window.trimToSize(editor_tab_limit, null, true);
+      window.trimToSize(editor_tab_limit, window.getSelectedFile(), true);
     }
   }
 
@@ -407,27 +393,25 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     }
   }
 
-  void updateFileName(@Nullable final VirtualFile updatedFile) {
-    final EditorWindow[] windows = getWindows();
-    for (int i = 0; i != windows.length; ++ i) {
-      for (VirtualFile file : windows[i].getFiles()) {
+  void updateFileName(@Nullable VirtualFile updatedFile) {
+    for (EditorWindow window : getWindows()) {
+      for (VirtualFile file : window.getFiles()) {
         if (updatedFile == null || file.getName().equals(updatedFile.getName())) {
-          windows[i].updateFileName(file);
+          window.updateFileName(file);
         }
       }
     }
 
     Project project = myManager.getProject();
-
-    final IdeFrame frame = getFrame(project);
+    IdeFrame frame = getFrame(project);
     if (frame != null) {
-      VirtualFile file = getCurrentFile();
-
-      File ioFile = file == null ? null : new File(file.getPresentableUrl());
       String fileTitle = null;
+      File ioFile = null;
+
+      VirtualFile file = getCurrentFile();
       if (file != null) {
-        fileTitle = DumbService.isDumb(project) ? file.getName()
-                                                : FrameTitleBuilder.getInstance().getFileTitle(project, file);
+        ioFile = file instanceof LightVirtualFileBase ? null : new File(file.getPresentableUrl());
+        fileTitle = FrameTitleBuilder.getInstance().getFileTitle(project, file);
       }
 
       frame.setFileTitle(fileTitle, ioFile);
@@ -479,10 +463,10 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     return 0;
   }
 
-  protected void afterFileClosed(VirtualFile file) {
+  protected void afterFileClosed(@NotNull VirtualFile file) {
   }
 
-  protected void afterFileOpen(VirtualFile file) {
+  protected void afterFileOpen(@NotNull VirtualFile file) {
   }
 
   @Nullable
@@ -525,19 +509,20 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
 
   void closeFile(VirtualFile file, boolean moveFocus) {
     final List<EditorWindow> windows = findWindows(file);
+    boolean isProjectOpen = myManager.getProject().isOpen();
     if (!windows.isEmpty()) {
       final VirtualFile nextFile = findNextFile(file);
       for (final EditorWindow window : windows) {
         LOG.assertTrue(window.getSelectedEditor() != null);
         window.closeFile(file, false, moveFocus);
-        if (window.getTabCount() == 0 && nextFile != null && myManager.getProject().isOpen()) {
+        if (window.getTabCount() == 0 && nextFile != null && isProjectOpen) {
           EditorWithProviderComposite newComposite = myManager.newEditorComposite(nextFile);
           window.setEditor(newComposite, moveFocus); // newComposite can be null
         }
       }
       // cleanup windows with no tabs
       for (final EditorWindow window : windows) {
-        if (window.isDisposed()) {
+        if (!isProjectOpen || window.isDisposed()) {
           // call to window.unsplit() which might make its sibling disposed
           continue;
         }
@@ -665,7 +650,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
       final EditorWithProviderComposite[] editors = myWindow.getEditors();
       ContainerUtil.addAll(res, editors);
     }
-    return res.toArray(new EditorWithProviderComposite[res.size()]);
+    return res.toArray(new EditorWithProviderComposite[0]);
   }
 
   //---------------------------------------------------------
@@ -694,7 +679,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
   }
 
   @NotNull public EditorWindow [] getWindows() {
-    return myWindows.toArray(new EditorWindow [myWindows.size()]);
+    return myWindows.toArray(new EditorWindow[0]);
   }
 
   @NotNull
@@ -730,7 +715,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     }
 
     LOG.assertTrue(res.size() == myWindows.size());
-    return res.toArray(new EditorWindow [res.size()]);
+    return res.toArray(new EditorWindow[0]);
   }
 
   @Nullable
@@ -772,6 +757,24 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
     }
   }
 
+  private final class MyTransferHandler extends TransferHandler {
+    private final FileDropHandler myFileDropHandler = new FileDropHandler(null);
+
+    @Override
+    public boolean importData(JComponent comp, Transferable t) {
+      if (myFileDropHandler.canHandleDrop(t.getTransferDataFlavors())) {
+        myFileDropHandler.handleDrop(t, myManager.getProject(), myCurrentWindow);
+        return true;
+      }
+      return false;
+    }
+
+    @Override
+    public boolean canImport(JComponent comp, DataFlavor[] transferFlavors) {
+      return myFileDropHandler.canHandleDrop(transferFlavors);
+    }
+  }
+
   private abstract static class ConfigTreeReader<T> {
     @Nullable
     public T process(@Nullable Element element, @Nullable T context) {
@@ -794,7 +797,7 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
       final List<Element> children = new ArrayList<>(fileElements.size());
 
       // trim to EDITOR_TAB_LIMIT, ignoring CLOSE_NON_MODIFIED_FILES_FIRST policy
-      int toRemove = fileElements.size() - UISettings.getInstance().EDITOR_TAB_LIMIT;
+      int toRemove = fileElements.size() - UISettings.getInstance().getEditorTabLimit();
       for (Element fileElement : fileElements) {
         if (toRemove <= 0 || Boolean.valueOf(fileElement.getAttributeValue(PINNED)).booleanValue()) {
           children.add(fileElement);
@@ -804,26 +807,21 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
         }
       }
 
-      return processFiles(children, context);
+      return processFiles(children, leaf, context);
     }
 
     @Nullable
-    protected abstract T processFiles(@NotNull List<Element> fileElements, @Nullable T context);
+    abstract T processFiles(@NotNull List<? extends Element> fileElements, Element parent, @Nullable T context);
     @Nullable
-    protected abstract T processSplitter(@NotNull Element element, @Nullable Element firstChild, @Nullable Element secondChild, @Nullable T context);
+    abstract T processSplitter(@NotNull Element element, @Nullable Element firstChild, @Nullable Element secondChild, @Nullable T context);
   }
 
   private class UIBuilder extends ConfigTreeReader<JPanel> {
 
     @Override
-    protected JPanel processFiles(@NotNull List<Element> fileElements, final JPanel context) {
+    protected JPanel processFiles(@NotNull List<? extends Element> fileElements, Element parent, final JPanel context) {
       final Ref<EditorWindow> windowRef = new Ref<>();
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          windowRef.set(context == null ? createEditorWindow() : findWindowWith(context));
-        }
-      });
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> windowRef.set(context == null ? createEditorWindow() : findWindowWith(context)));
       final EditorWindow window = windowRef.get();
       LOG.assertTrue(window != null);
       VirtualFile focusedFile = null;
@@ -833,14 +831,14 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
         if (i == 0) {
           EditorTabbedContainer tabbedPane = window.getTabbedPane();
           if (tabbedPane != null) {
-            try {
-              int limit =
-                Integer.parseInt(file.getParentElement().getAttributeValue(JBTabsImpl.SIDE_TABS_SIZE_LIMIT_KEY.toString(),
-                                                                           String.valueOf(JBTabsImpl.DEFAULT_MAX_TAB_WIDTH)));
-              UIUtil.putClientProperty(tabbedPane.getComponent(), JBTabsImpl.SIDE_TABS_SIZE_LIMIT_KEY, limit);
-            }
-            catch (NumberFormatException e) {
-              //ignore
+            String limitValue = parent.getAttributeValue(JBTabsImpl.SIDE_TABS_SIZE_LIMIT_KEY.toString());
+            if (limitValue != null) {
+              try {
+                int limit = Integer.parseInt(limitValue);
+                UIUtil.invokeAndWaitIfNeeded((Runnable)() -> UIUtil.putClientProperty(tabbedPane.getComponent(),
+                                                                                      JBTabsImpl.SIDE_TABS_SIZE_LIMIT_KEY, limit));
+              }
+              catch (NumberFormatException ignored) {}
             }
           }
         }
@@ -850,15 +848,10 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
           final HistoryEntry entry = HistoryEntry.createLight(fileEditorManager.getProject(), historyElement);
           final VirtualFile virtualFile = entry.getFile();
           if (virtualFile == null) throw new InvalidDataException("No file exists: " + entry.getFilePointer().getUrl());
-          Document document = ApplicationManager.getApplication().runReadAction(new Computable<Document>() {
-            @Override
-            public Document compute() {
-              return virtualFile.isValid() ? FileDocumentManager.getInstance().getDocument(virtualFile) : null;
-            }
-          });
+          Document document = ReadAction.compute(() -> virtualFile.isValid() ? FileDocumentManager.getInstance().getDocument(virtualFile) : null);
           final boolean isCurrentInTab = Boolean.valueOf(file.getAttributeValue(CURRENT_IN_TAB)).booleanValue();
           Boolean pin = Boolean.valueOf(file.getAttributeValue(PINNED));
-          fileEditorManager.openFileImpl4(window, virtualFile, entry, isCurrentInTab, isCurrentInTab, pin, i);
+          fileEditorManager.openFileImpl4(window, virtualFile, entry, false, false, pin, i, false);
           if (isCurrentInTab) {
             focusedFile = virtualFile;
           }
@@ -878,6 +871,13 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
       }
       if (focusedFile != null) {
         getManager().addSelectionRecord(focusedFile, window);
+        VirtualFile finalFocusedFile = focusedFile;
+        UIUtil.invokeLaterIfNeeded(()->{
+          EditorWithProviderComposite editor = window.findFileComposite(finalFocusedFile);
+          if (editor != null) {
+            window.setEditor(editor, true, true);
+          }
+        });
       }
       return window.myPanel;
     }
@@ -890,34 +890,28 @@ public class EditorsSplitters extends IdePanePanel implements UISettingsListener
         final JPanel firstComponent = process(firstChild, null);
         final JPanel secondComponent = process(secondChild, null);
         final Ref<JPanel> panelRef = new Ref<>();
-        UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-          @Override
-          public void run() {
-            JPanel panel = new JPanel(new BorderLayout());
-            panel.setOpaque(false);
-            Splitter splitter = new OnePixelSplitter(orientation, proportion, 0.1f, 0.9f);
-            panel.add(splitter, BorderLayout.CENTER);
-            splitter.setFirstComponent(firstComponent);
-            splitter.setSecondComponent(secondComponent);
-            panelRef.set(panel);
-          }
+        UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+          JPanel panel = new JPanel(new BorderLayout());
+          panel.setOpaque(false);
+          Splitter splitter = new OnePixelSplitter(orientation, proportion, 0.1f, 0.9f);
+          panel.add(splitter, BorderLayout.CENTER);
+          splitter.setFirstComponent(firstComponent);
+          splitter.setSecondComponent(secondComponent);
+          panelRef.set(panel);
         });
         return panelRef.get();
       }
       final Ref<JPanel> firstComponent = new Ref<>();
       final Ref<JPanel> secondComponent = new Ref<>();
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          if (context.getComponent(0) instanceof Splitter) {
-            Splitter splitter = (Splitter)context.getComponent(0);
-            firstComponent.set((JPanel)splitter.getFirstComponent());
-            secondComponent.set((JPanel)splitter.getSecondComponent());
-          }
-          else {
-            firstComponent.set(context);
-            secondComponent.set(context);
-          }
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+        if (context.getComponent(0) instanceof Splitter) {
+          Splitter splitter = (Splitter)context.getComponent(0);
+          firstComponent.set((JPanel)splitter.getFirstComponent());
+          secondComponent.set((JPanel)splitter.getSecondComponent());
+        }
+        else {
+          firstComponent.set(context);
+          secondComponent.set(context);
         }
       });
       process(firstChild, firstComponent.get());

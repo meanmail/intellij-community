@@ -16,6 +16,7 @@
 package com.intellij.vcs.log.data;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.impl.ProgressManagerImpl;
@@ -33,6 +34,7 @@ import com.intellij.vcs.log.graph.GraphCommit;
 import com.intellij.vcs.log.impl.*;
 import com.intellij.vcs.test.VcsPlatformTest;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -61,8 +63,8 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
   public void setUp() throws Exception {
     super.setUp();
 
-    myLogProvider = new TestVcsLogProvider(myProjectRoot);
-    myLogProviders = Collections.singletonMap(myProjectRoot, myLogProvider);
+    myLogProvider = new TestVcsLogProvider(projectRoot);
+    myLogProviders = Collections.singletonMap(projectRoot, myLogProvider);
 
     myCommits = Arrays.asList("3|-a2|-a1", "2|-a1|-a", "1|-a|-");
     myLogProvider.appendHistory(log(myCommits));
@@ -81,6 +83,9 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
         fail("Only one refresh should have happened, an error happened instead: " + myDataWaiter.getExceptionText());
       }
     }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
     finally {
       super.tearDown();
     }
@@ -94,21 +99,23 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
   }
 
   public void test_initialize_shows_short_history() throws InterruptedException, ExecutionException, TimeoutException {
+    myLogProvider.blockFullLog();
     DataPack result = myLoader.readFirstBlock();
+    myLogProvider.unblockFullLog();
     assertNotNull(result);
     assertDataPack(log(myCommits.subList(0, 2)), result.getPermanentGraph().getAllCommits());
     waitForBackgroundTasksToComplete();
     myDataWaiter.get();
   }
 
-  public void test_first_refresh_reports_full_history() throws InterruptedException, ExecutionException, TimeoutException {
+  public void test_first_refresh_reports_full_history() throws InterruptedException {
     myLoader.readFirstBlock();
 
     DataPack result = myDataWaiter.get();
     assertDataPack(log(myCommits), result.getPermanentGraph().getAllCommits());
   }
 
-  public void test_first_refresh_waits_for_full_log() throws InterruptedException, ExecutionException, TimeoutException {
+  public void test_first_refresh_waits_for_full_log() throws InterruptedException {
     myLogProvider.blockFullLog();
     myLoader.readFirstBlock();
     assertTimeout("Refresh waiter should have failed on the timeout");
@@ -123,7 +130,7 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
 
     String newCommit = "4|-a3|-a2";
     myLogProvider.appendHistory(log(newCommit));
-    myLoader.refresh(Collections.singletonList(myProjectRoot));
+    myLoader.refresh(Collections.singletonList(projectRoot));
     DataPack result = myDataWaiter.get();
 
     List<String> allCommits = ContainerUtil.newArrayList();
@@ -136,7 +143,7 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
     initAndWaitForFirstRefresh();
 
     myLogProvider.resetReadFirstBlockCounter();
-    myLoader.refresh(Collections.singletonList(myProjectRoot));
+    myLoader.refresh(Collections.singletonList(projectRoot));
     myDataWaiter.get();
     assertEquals("Unexpected first block read count", 1, myLogProvider.getReadFirstBlockCounter());
   }
@@ -146,7 +153,7 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
 
     // initiate the refresh and make it hang
     myLogProvider.blockRefresh();
-    myLoader.refresh(Collections.singletonList(myProjectRoot));
+    myLoader.refresh(Collections.singletonList(projectRoot));
 
     // initiate reinitialize; the full log will await because the Task is busy waiting for the refresh
     myLoader.readFirstBlock();
@@ -173,8 +180,8 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
     throws InterruptedException, ExecutionException, TimeoutException {
     initAndWaitForFirstRefresh();
     myLogProvider.blockRefresh();
-    myLoader.refresh(Collections.singletonList(myProjectRoot)); // this refresh hangs in VcsLogProvider.readFirstBlock()
-    myLoader.refresh(Collections.singletonList(myProjectRoot)); // this refresh is queued
+    myLoader.refresh(Collections.singletonList(projectRoot)); // this refresh hangs in VcsLogProvider.readFirstBlock()
+    myLoader.refresh(Collections.singletonList(projectRoot)); // this refresh is queued
     myLogProvider.unblockRefresh(); // this will make the first one complete, and then perform the second as well
 
     myDataWaiter.get();
@@ -189,32 +196,48 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
     assertNoMoreResultsArrive();
   }
 
-  private void assertTimeout(@NotNull String message) throws InterruptedException, ExecutionException {
+  private void assertTimeout(@NotNull String message) throws InterruptedException {
     assertNull(message, myDataWaiter.myQueue.poll(500, TimeUnit.MILLISECONDS));
   }
 
-  private VcsLogRefresherImpl createLoader(Consumer<DataPack> dataPackConsumer) {
-    myLogData = new VcsLogData(myProject, myLogProviders, (source, exception) -> LOG.error(exception));
-    Disposer.register(myProject, myLogData);
-    return new VcsLogRefresherImpl(myProject, myLogData.getHashMap(), myLogProviders, myLogData.getUserRegistry(), myLogData.getIndex(),
-                                   myLogData.getTopCommitsCache(), dataPackConsumer, FAILING_EXCEPTION_HANDLER, RECENT_COMMITS_COUNT,
-                                   myLogData) {
+  private VcsLogRefresherImpl createLoader(Consumer<? super DataPack> dataPackConsumer) {
+    myLogData = new VcsLogData(myProject, myLogProviders, new FatalErrorHandler() {
       @Override
-      protected void startNewBackgroundTask(@NotNull final Task.Backgroundable refreshTask) {
-        LOG.debug("Starting a background task...");
-        myStartedTasks.add(((ProgressManagerImpl)ProgressManager.getInstance()).runProcessWithProgressAsynchronously(refreshTask));
-        LOG.debug(myStartedTasks.size() + " started tasks");
+      public void consume(@Nullable Object source, @NotNull Throwable throwable) {
+        LOG.error(throwable);
       }
-    };
+
+      @Override
+      public void displayFatalErrorMessage(@NotNull String message) {
+        LOG.error(message);
+      }
+    }, myProject);
+    VcsLogRefresherImpl refresher =
+      new VcsLogRefresherImpl(myProject, myLogData.getStorage(), myLogProviders, myLogData.getUserRegistry(),
+                              myLogData.getModifiableIndex(),
+                              new VcsLogProgress(myProject, myLogData),
+                              myLogData.getTopCommitsCache(), dataPackConsumer, FAILING_EXCEPTION_HANDLER, RECENT_COMMITS_COUNT
+      ) {
+        @Override
+        protected SingleTaskController.SingleTask startNewBackgroundTask(@NotNull final Task.Backgroundable refreshTask) {
+          LOG.debug("Starting a background task...");
+          Future<?> future = ((ProgressManagerImpl)ProgressManager.getInstance()).runProcessWithProgressAsynchronously(refreshTask);
+          myStartedTasks.add(future);
+          LOG.debug(myStartedTasks.size() + " started tasks");
+          return new SingleTaskController.SingleTaskImpl(future, new EmptyProgressIndicator());
+        }
+      };
+    Disposer.register(myLogData, refresher);
+    return refresher;
   }
 
-  private void assertDataPack(@NotNull List<TimedVcsCommit> expectedLog, @NotNull List<GraphCommit<Integer>> actualLog) {
+  private void assertDataPack(@NotNull List<TimedVcsCommit> expectedLog, @NotNull List<? extends GraphCommit<Integer>> actualLog) {
     List<TimedVcsCommit> convertedActualLog = convert(actualLog);
     assertOrderedEquals(convertedActualLog, expectedLog);
   }
 
   @NotNull
-  private List<TimedVcsCommit> convert(@NotNull List<GraphCommit<Integer>> actualLog) {
+  private List<TimedVcsCommit> convert(@NotNull List<? extends GraphCommit<Integer>> actualLog) {
     return ContainerUtil.map(actualLog, commit -> {
       Function<Integer, Hash> convertor = integer -> myLogData.getCommitId(integer).getHash();
       return new TimedVcsCommitImpl(convertor.fun(commit.getId()), ContainerUtil.map(commit.getParents(), convertor),
@@ -224,7 +247,7 @@ public class VcsLogRefresherTest extends VcsPlatformTest {
 
   @NotNull
   private VcsRefImpl createBranchRef(@NotNull String name, @NotNull String commit) {
-    return new VcsRefImpl(HashImpl.build(commit), name, TestVcsLogProvider.BRANCH_TYPE, myProjectRoot);
+    return new VcsRefImpl(HashImpl.build(commit), name, TestVcsLogProvider.BRANCH_TYPE, projectRoot);
   }
 
   private static class DataWaiter implements Consumer<DataPack> {

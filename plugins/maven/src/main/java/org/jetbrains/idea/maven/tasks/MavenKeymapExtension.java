@@ -30,8 +30,8 @@ import com.intellij.openapi.options.ex.Settings;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.SystemInfoRt;
 import icons.MavenIcons;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.idea.maven.execution.MavenRunConfigurationType;
 import org.jetbrains.idea.maven.execution.MavenRunnerParameters;
@@ -84,7 +84,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
           int index1 = projectGoals.indexOf(goal1);
           int index2 = projectGoals.indexOf(goal2);
           if (index1 == index2) return goal1.compareToIgnoreCase(goal2);
-          return (index1 < index2 ? -1 : 1);
+          return index1 < index2 ? -1 : 1;
         });
         projectToActionsMapping.put(mavenProject, actions);
       }
@@ -98,7 +98,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
       }
     }
 
-    Icon icon = SystemInfoRt.isMac ? AllIcons.ToolbarDecorator.Mac.Add : AllIcons.ToolbarDecorator.Add;
+    Icon icon = AllIcons.General.Add;
     ((Group)result).addHyperlink(new Hyperlink(icon, "Choose a phase/goal to assign a shortcut") {
       @Override
       public void onClick(MouseEvent e) {
@@ -136,8 +136,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
     if (anAction instanceof MavenGoalAction) {
       return (MavenGoalAction)anAction;
     }
-    manager.unregisterAction(actionId);
-    manager.registerAction(actionId, mavenGoalAction);
+    manager.replaceAction(actionId, mavenGoalAction);
     return mavenGoalAction;
   }
 
@@ -149,9 +148,11 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
       String actionIdPrefix = getActionPrefix(project, eachProject);
       for (MavenGoalAction eachAction : collectActions(eachProject)) {
         String id = actionIdPrefix + eachAction.getGoal();
-        actionManager.unregisterAction(id);
         if(shortcutsManager.hasShortcuts(eachProject, eachAction.getGoal())) {
-          actionManager.registerAction(id, eachAction);
+          actionManager.replaceAction(id, eachAction);
+        }
+        else {
+          actionManager.unregisterAction(id);
         }
       }
     }
@@ -173,7 +174,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
     }
   }
 
-  public static void clearActions(Project project, List<MavenProject> mavenProjects) {
+  public static void clearActions(Project project, List<? extends MavenProject> mavenProjects) {
     ActionManager manager = ActionManager.getInstance();
     for (MavenProject eachProject : mavenProjects) {
       //noinspection TestOnlyProblems
@@ -184,8 +185,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
   }
 
   private static List<String> collectGoals(MavenProject project) {
-    LinkedHashSet<String> result = new LinkedHashSet<>(); // may contains similar plugins or somethig
-    result.addAll(MavenConstants.PHASES);
+    LinkedHashSet<String> result = new LinkedHashSet<>(MavenConstants.PHASES); // may contains similar plugins or something
 
     for (MavenPlugin each : project.getDeclaredPlugins()) {
       collectGoals(project.getLocalRepository(), each, result);
@@ -213,7 +213,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
     private final MavenProject myMavenProject;
     private final String myGoal;
 
-    public MavenGoalAction(MavenProject mavenProject, String goal) {
+    MavenGoalAction(MavenProject mavenProject, String goal) {
       myMavenProject = mavenProject;
       myGoal = goal;
       Presentation template = getTemplatePresentation();
@@ -221,7 +221,8 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
       template.setIcon(MavenIcons.Phase);
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final DataContext context = e.getDataContext();
       final Project project = MavenActionUtil.getProject(context);
       if (project == null) return;
@@ -231,6 +232,7 @@ public class MavenKeymapExtension implements ExternalSystemKeymapExtension.Actio
       MavenExplicitProfiles explicitProfiles = projectsManager.getExplicitProfiles();
       MavenRunnerParameters params = new MavenRunnerParameters(true,
                                                                myMavenProject.getDirectory(),
+                                                               myMavenProject.getFile().getName(),
                                                                Collections.singletonList(myGoal),
                                                                explicitProfiles.getEnabledProfiles(),
                                                                explicitProfiles.getDisabledProfiles());

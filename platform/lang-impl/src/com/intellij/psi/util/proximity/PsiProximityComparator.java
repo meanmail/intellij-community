@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Jul 13, 2007
- * Time: 2:09:28 PM
- */
 package com.intellij.psi.util.proximity;
 
 import com.intellij.extapi.psi.MetadataPsiElementBase;
@@ -35,31 +29,28 @@ import com.intellij.psi.statistics.StatisticsInfo;
 import com.intellij.psi.statistics.StatisticsManager;
 import com.intellij.psi.util.ProximityLocation;
 import com.intellij.util.ProcessingContext;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FactoryMap;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
+import java.util.Map;
 
 public class PsiProximityComparator implements Comparator<Object> {
   public static final Key<ProximityStatistician> STATISTICS_KEY = Key.create("proximity");
   public static final Key<ProximityWeigher> WEIGHER_KEY = Key.create("proximity");
-  @SuppressWarnings("unchecked") private static final Weigher<PsiElement, ProximityLocation>[] PROXIMITY_WEIGHERS = ContainerUtil.toArray(WeighingService.getWeighers(WEIGHER_KEY), new Weigher[0]);
+  @SuppressWarnings("unchecked") private static final Weigher<PsiElement, ProximityLocation>[] PROXIMITY_WEIGHERS =
+    WeighingService.getWeighers(WEIGHER_KEY).toArray(new Weigher[0]);
   private static final Key<Module> MODULE_BY_LOCATION = Key.create("ModuleByLocation");
-
-  @SuppressWarnings("MismatchedQueryAndUpdateOfCollection") private final FactoryMap<PsiElement, WeighingComparable<PsiElement, ProximityLocation>> myProximities = new FactoryMap<PsiElement, WeighingComparable<PsiElement, ProximityLocation>>() {
-    @Override
-    protected WeighingComparable<PsiElement, ProximityLocation> create(final PsiElement key) {
-      return getProximity(key, myContext);
-    }
-  };
-
   private final PsiElement myContext;
+
+  private final Map<PsiElement, WeighingComparable<PsiElement, ProximityLocation>> myProximities;
+
   private final Module myContextModule;
 
   public PsiProximityComparator(@Nullable PsiElement context) {
     myContext = context;
     myContextModule = context == null ? null : ModuleUtilCore.findModuleForPsiElement(context);
+    myProximities = FactoryMap.create(key -> getProximity(key, myContext));
   }
 
   @Override
@@ -95,15 +86,17 @@ public class PsiProximityComparator implements Comparator<Object> {
   @Nullable
   public static WeighingComparable<PsiElement, ProximityLocation> getProximity(final PsiElement element, final PsiElement context) {
     if (element == null) return null;
+    //noinspection deprecation,ScheduledForRemoval
     if (element instanceof MetadataPsiElementBase) return null;
     final Module contextModule = context != null ? ModuleUtilCore.findModuleForPsiElement(context) : null;
     return WeighingService.weigh(WEIGHER_KEY, element, new ProximityLocation(context, contextModule));
   }
 
   @Nullable
-  public static WeighingComparable<PsiElement, ProximityLocation> getProximity(final Computable<PsiElement> elementComputable, final PsiElement context, ProcessingContext processingContext) {
+  public static WeighingComparable<PsiElement, ProximityLocation> getProximity(final Computable<? extends PsiElement> elementComputable, final PsiElement context, ProcessingContext processingContext) {
     PsiElement element = elementComputable.compute();
     if (element == null) return null;
+    //noinspection deprecation,ScheduledForRemoval
     if (element instanceof MetadataPsiElementBase) return null;
     if (context == null) return null;
     Module contextModule = processingContext.get(MODULE_BY_LOCATION);
@@ -111,8 +104,6 @@ public class PsiProximityComparator implements Comparator<Object> {
       contextModule = ModuleUtilCore.findModuleForPsiElement(context);
       processingContext.put(MODULE_BY_LOCATION, contextModule);
     }
-
-    if (contextModule == null) return null;
 
     return new WeighingComparable<>(elementComputable,
                                     new ProximityLocation(context, contextModule, processingContext),

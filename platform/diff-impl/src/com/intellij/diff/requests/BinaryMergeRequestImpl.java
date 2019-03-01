@@ -47,7 +47,7 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
   @Nullable private final String myTitle;
   @NotNull private final List<String> myTitles;
 
-  @Nullable private final Consumer<MergeResult> myApplyCallback;
+  @Nullable private final Consumer<? super MergeResult> myApplyCallback;
 
   public BinaryMergeRequestImpl(@Nullable Project project,
                                 @NotNull FileContent file,
@@ -56,7 +56,7 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
                                 @NotNull List<byte[]> byteContents,
                                 @Nullable String title,
                                 @NotNull List<String> contentTitles,
-                                @Nullable Consumer<MergeResult> applyCallback) {
+                                @Nullable Consumer<? super MergeResult> applyCallback) {
     assert byteContents.size() == 3;
     assert contents.size() == 3;
     assert contentTitles.size() == 3;
@@ -127,20 +127,17 @@ public class BinaryMergeRequestImpl extends BinaryMergeRequest {
       }
 
       if (applyContent != null) {
-        new WriteCommandAction.Simple(null) {
-          @Override
-          protected void run() throws Throwable {
-            try {
-              VirtualFile file = myFile.getFile();
-              if (!DiffUtil.makeWritable(myProject, file)) throw new IOException("File is read-only: " + file.getPresentableName());
-              file.setBinaryContent(applyContent);
-            }
-            catch (IOException e) {
-              LOG.error(e);
-              Messages.showErrorDialog(myProject, "Can't apply result", CommonBundle.getErrorTitle());
-            }
+        WriteCommandAction.writeCommandAction(null).run(() -> {
+          try {
+            VirtualFile file = myFile.getFile();
+            if (!DiffUtil.makeWritable(myProject, file)) throw new IOException("File is read-only: " + file.getPresentableName());
+            file.setBinaryContent(applyContent);
           }
-        }.execute();
+          catch (IOException e) {
+            LOG.error(e);
+            Messages.showErrorDialog(myProject, "Can't apply result", CommonBundle.getErrorTitle());
+          }
+        });
       }
 
       if (myApplyCallback != null) myApplyCallback.consume(result);

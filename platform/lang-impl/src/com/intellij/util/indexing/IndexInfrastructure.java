@@ -31,7 +31,7 @@ import com.intellij.psi.stubs.StubIndexKey;
 import com.intellij.psi.stubs.StubUpdatingIndex;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.ThrowableRunnable;
-import com.intellij.util.concurrency.BoundedTaskExecutor;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,7 +46,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
-@SuppressWarnings({"HardCodedStringLiteral"})
+@SuppressWarnings("HardCodedStringLiteral")
 public class IndexInfrastructure {
   private static final boolean ourUnitTestMode = ApplicationManager.getApplication().isUnitTestMode();
   private static final String STUB_VERSIONS = ".versions";
@@ -54,7 +54,8 @@ public class IndexInfrastructure {
   private static final boolean ourDoParallelIndicesInitialization = SystemProperties
     .getBooleanProperty("idea.parallel.indices.initialization", false);
   public static final boolean ourDoAsyncIndicesInitialization = SystemProperties.getBooleanProperty("idea.async.indices.initialization", true);
-  private static final ExecutorService ourGenesisExecutor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("IndexInfrastructure pool");
+  private static final ExecutorService ourGenesisExecutor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor(
+    "IndexInfrastructure Pool");
 
   private IndexInfrastructure() {
   }
@@ -66,7 +67,7 @@ public class IndexInfrastructure {
 
   @NotNull
   public static File getStorageFile(@NotNull ID<?, ?> indexName) {
-    return new File(getIndexRootDir(indexName), indexName.toString());
+    return new File(getIndexRootDir(indexName), indexName.getName());
   }
 
   @NotNull
@@ -97,7 +98,7 @@ public class IndexInfrastructure {
 
   @NotNull
   private static File getIndexDirectory(@NotNull ID<?, ?> indexName, boolean forVersion, String relativePath) {
-    final String dirName = indexName.toString().toLowerCase(Locale.US);
+    final String dirName = indexName.getName().toLowerCase(Locale.US);
     File indexDir;
 
     if (indexName instanceof StubIndexKey) {
@@ -154,7 +155,7 @@ public class IndexInfrastructure {
     return ourGenesisExecutor.submit(action);
   }
 
-  public static abstract class DataInitialization<T> implements Callable<T> {
+  public abstract static class DataInitialization<T> implements Callable<T> {
     private final List<ThrowableRunnable> myNestedInitializationTasks = new ArrayList<>();
 
     @Override
@@ -164,7 +165,8 @@ public class IndexInfrastructure {
         prepare();
         runParallelNestedInitializationTasks();
         return finish();
-      } finally {
+      }
+      finally {
         Logger.getInstance(getClass().getName()).info("Initialization done:" + (System.nanoTime() - started) / 1000000);
       }
     }
@@ -174,9 +176,9 @@ public class IndexInfrastructure {
     }
 
     protected void prepare() {}
-    protected abstract void onThrowable(Throwable t);
+    protected abstract void onThrowable(@NotNull Throwable t);
 
-    public void addNestedInitializationTask(ThrowableRunnable nestedInitializationTask) {
+    protected void addNestedInitializationTask(ThrowableRunnable nestedInitializationTask) {
       myNestedInitializationTasks.add(nestedInitializationTask);
     }
 
@@ -187,16 +189,18 @@ public class IndexInfrastructure {
       CountDownLatch proceedLatch = new CountDownLatch(numberOfTasksToExecute);
 
       if (ourDoParallelIndicesInitialization) {
-        BoundedTaskExecutor taskExecutor = new BoundedTaskExecutor("IndexInfrastructure.DataInitialization.runParallelNestedInitializationTasks", PooledThreadExecutor.INSTANCE,
-                                                                   CacheUpdateRunner.indexingThreadCount());
+        ExecutorService taskExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor(
+          "IndexInfrastructure.DataInitialization.RunParallelNestedInitializationTasks", PooledThreadExecutor.INSTANCE,
+          CacheUpdateRunner.indexingThreadCount());
 
         for (ThrowableRunnable callable : myNestedInitializationTasks) {
-          taskExecutor.submit(() -> executeNestedInitializationTask(callable, proceedLatch));
+          taskExecutor.execute(() -> executeNestedInitializationTask(callable, proceedLatch));
         }
 
         proceedLatch.await();
         taskExecutor.shutdown();
-      } else {
+      }
+      else {
         for (ThrowableRunnable callable : myNestedInitializationTasks) {
           executeNestedInitializationTask(callable, proceedLatch);
         }
@@ -205,15 +209,23 @@ public class IndexInfrastructure {
 
     private void executeNestedInitializationTask(ThrowableRunnable callable, CountDownLatch proceedLatch) {
       Application app = ApplicationManager.getApplication();
-      if (app.isDisposed() || app.isDisposeInProgress()) return;
-
       try {
+        // To correctly apply file removals in indices's shutdown hook we should process all initialization tasks
+        // Todo: make processing removed files more robust because ignoring 'dispose in progress' delays application exit and
+        // may cause memory leaks IDEA-183718, IDEA-169374,
+        if (app.isDisposed() /*|| app.isDisposeInProgress()*/) return;
         callable.run();
-      } catch(Throwable t) {
+      }
+      catch (Throwable t) {
         onThrowable(t);
-      } finally {
+      }
+      finally {
         proceedLatch.countDown();
       }
     }
+  }
+
+  public static boolean hasIndices() {
+    return !SystemProperties.is("idea.skip.indices.initialization");
   }
 }

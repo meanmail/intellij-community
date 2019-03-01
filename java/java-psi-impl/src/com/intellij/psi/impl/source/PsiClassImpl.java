@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,6 +36,7 @@ import com.intellij.psi.impl.source.tree.CompositeElement;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.search.SearchScope;
+import com.intellij.psi.stub.JavaStubImplUtil;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.PsiFileStub;
 import com.intellij.psi.stubs.StubElement;
@@ -50,7 +51,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 
-public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements PsiExtensibleClass, PsiQualifiedNamedElement, Queryable {
+public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements PsiExtensibleClass, Queryable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.PsiClassImpl");
 
   private final ClassInnerStuffCache myInnersCache = new ClassInnerStuffCache(this);
@@ -106,14 +107,10 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
 
   @Override
   public PsiElement getOriginalElement() {
-    return CachedValuesManager.getCachedValue(this, new CachedValueProvider<PsiClass>() {
-      @Nullable
-      @Override
-      public Result<PsiClass> compute() {
-        final JavaPsiImplementationHelper helper = JavaPsiImplementationHelper.getInstance(getProject());
-        final PsiClass result = helper != null ? helper.getOriginalClass(PsiClassImpl.this) : PsiClassImpl.this;
-        return Result.create(result, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
-      }
+    return CachedValuesManager.getCachedValue(this, () -> {
+      final JavaPsiImplementationHelper helper = JavaPsiImplementationHelper.getInstance(getProject());
+      final PsiClass result = helper != null ? helper.getOriginalClass(this) : this;
+      return CachedValueProvider.Result.create(result, PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT);
     });
   }
 
@@ -173,12 +170,12 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
 
     PsiElement parent = getParent();
     if (parent instanceof PsiJavaFile) {
-      return StringUtil.getQualifiedName(((PsiJavaFile)parent).getPackageName(), getName());
+      return StringUtil.getQualifiedName(((PsiJavaFile)parent).getPackageName(), StringUtil.notNullize(getName()));
     }
     if (parent instanceof PsiClass) {
       String parentQName = ((PsiClass)parent).getQualifiedName();
       if (parentQName == null) return null;
-      return StringUtil.getQualifiedName(parentQName, getName());
+      return StringUtil.getQualifiedName(parentQName, StringUtil.notNullize(getName()));
     }
 
     return null;
@@ -222,6 +219,7 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     return PsiClassImplUtil.getSuperClass(this);
   }
 
+  @NotNull
   @Override
   public PsiClass[] getInterfaces() {
     return PsiClassImplUtil.getInterfaces(this);
@@ -412,16 +410,14 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
 
   @Override
   public boolean isDeprecated() {
-    final PsiClassStub stub = getGreenStub();
-    if (stub != null) {
-      return stub.isDeprecated() || stub.hasDeprecatedAnnotation() && PsiImplUtil.isDeprecatedByAnnotation(this);
-    }
-
-    return PsiImplUtil.isDeprecatedByDocTag(this) || PsiImplUtil.isDeprecatedByAnnotation(this);
+    return JavaStubImplUtil.isMemberDeprecated(this, getGreenStub());
   }
 
   @Override
   public PsiDocComment getDocComment(){
+    PsiClassStub<?> stub = getGreenStub();
+    if (stub != null && !stub.hasDocComment()) return null;
+
     return (PsiDocComment)getNode().findChildByRoleAsPsiElement(ChildRole.DOC_COMMENT);
   }
 
@@ -477,6 +473,7 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     }
   }
 
+  @Override
   public String toString(){
     return "PsiClass:" + getName();
   }
@@ -506,8 +503,8 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     }
 
     // rename constructors
-    for (PsiMethod method : getConstructors()) {
-      if (method.getName().equals(oldName)) {
+    for (PsiMethod method : getMethods()) {
+      if (method.isConstructor() && method.getName().equals(oldName)) {
         method.setName(newName);
       }
     }
@@ -557,11 +554,11 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
   }
 
   @Nullable
-  private static PsiElement calcBasesResolveContext(PsiElement scope,
+  private static PsiElement calcBasesResolveContext(@NotNull PsiElement scope,
                                                     String baseClassName,
                                                     boolean isInitialClass,
                                                     final PsiElement defaultResolveContext) {
-    final StubElement stub = ((StubBasedPsiElementBase<?>)scope).getStub();
+    final StubElement stub = scope instanceof StubBasedPsiElementBase ? ((StubBasedPsiElementBase<?>)scope).getStub() : null;
     if (stub == null || stub instanceof PsiClassStub && ((PsiClassStub)stub).isAnonymousInQualifiedNew()) {
       return scope.getParent();
     }
@@ -579,7 +576,6 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
     final StubElement parentStub = stub.getParentStub();
     PsiElement psi = parentStub.getPsi();
     if (!(psi instanceof StubBasedPsiElementBase)) {
-      LOG.error(stub + " parent is " + parentStub);
       return null;
     }
 
@@ -587,11 +583,11 @@ public class PsiClassImpl extends JavaStubPsiElement<PsiClassStub<?>> implements
       return scope.getParent();
     }
 
-    if (psi instanceof PsiClass || psi instanceof PsiFunctionalExpression) {
-      return calcBasesResolveContext(psi, baseClassName, false, defaultResolveContext);
-    }
     if (psi instanceof PsiMember) {
-      return calcBasesResolveContext(((PsiMember)psi).getContainingClass(), baseClassName, false, defaultResolveContext);
+      return psi;
+    }
+    if (psi instanceof PsiFunctionalExpression) {
+      return calcBasesResolveContext(psi, baseClassName, false, defaultResolveContext);
     }
     LOG.error(parentStub);
     return psi;

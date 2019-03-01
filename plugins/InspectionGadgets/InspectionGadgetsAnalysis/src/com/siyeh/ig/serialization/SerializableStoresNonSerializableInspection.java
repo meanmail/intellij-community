@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,30 +74,29 @@ public class SerializableStoresNonSerializableInspection extends BaseInspection 
         return;
       }
       final LocalVariableReferenceFinder visitor = new LocalVariableReferenceFinder(aClass);
-      aClass.accept(visitor);
+      PsiElement child = aClass.getLBrace();
+      while (child != null) {
+        child.accept(visitor);
+        child = child.getNextSibling();
+      }
     }
 
     @Override
     public void visitLambdaExpression(PsiLambdaExpression lambda) {
       super.visitLambdaExpression(lambda);
       final PsiType type = lambda.getFunctionalInterfaceType();
-      if (!(type instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)type;
-      final PsiClass aClass = classType.resolve();
+      final PsiClass aClass = PsiUtil.resolveClassInClassTypeOnly(type);
       if (!SerializationUtils.isSerializable(aClass)) {
         return;
       }
-      final LocalVariableReferenceFinder visitor = new LocalVariableReferenceFinder(lambda);
-      lambda.accept(visitor);
+      lambda.accept(new LocalVariableReferenceFinder(lambda));
     }
 
     private class LocalVariableReferenceFinder extends JavaRecursiveElementWalkingVisitor {
       @NotNull
       private final PsiElement myClassOrLambda;
 
-      public LocalVariableReferenceFinder(@NotNull PsiElement classOrLambda) {
+      LocalVariableReferenceFinder(@NotNull PsiElement classOrLambda) {
         myClassOrLambda = classOrLambda;
       }
 

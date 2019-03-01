@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
 import com.intellij.codeInsight.hint.HintManager;
@@ -20,7 +6,6 @@ import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.NoDataException;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.DebugProcessImpl;
-import com.intellij.debugger.engine.LambdaMethodFilter;
 import com.intellij.debugger.engine.PositionManagerImpl;
 import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
@@ -30,14 +15,13 @@ import com.intellij.execution.filters.LineNumbersMapping;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -46,10 +30,11 @@ import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import com.sun.jdi.*;
 import one.util.streamex.IntStreamEx;
 import one.util.streamex.StreamEx;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
 import java.util.List;
@@ -72,13 +57,9 @@ public class SourceCodeChecker {
       return;
     }
     suspendContext.getDebugProcess().getManagerThread().schedule(new SuspendContextCommandImpl(suspendContext) {
-      @Override
-      public Priority getPriority() {
-        return Priority.LOW;
-      }
 
       @Override
-      public void contextAction() throws Exception {
+      public void contextAction(@NotNull SuspendContextImpl suspendContext) {
         try {
           StackFrameProxyImpl frameProxy = debuggerContext.getFrameProxy();
           if (frameProxy == null) {
@@ -91,29 +72,28 @@ public class SourceCodeChecker {
         catch (EvaluateException e) {
           LOG.info(e);
         }
-        catch (AbsentInformationException ignore) {
-        }
       }
     });
   }
 
-  private static ThreeState check(Location location, SourcePosition position, Project project) throws AbsentInformationException {
-    Method method = location.method();
+  private static ThreeState check(Location location, SourcePosition position, Project project) {
+    Method method = DebuggerUtilsEx.getMethod(location);
     // for now skip constructors, bridges, lambdas etc.
-    if (method.isConstructor() ||
+    if (method == null ||
+        method.isConstructor() ||
         method.isSynthetic() ||
         method.isBridge() ||
         method.isStaticInitializer() ||
         (method.declaringType() instanceof ClassType && ((ClassType)method.declaringType()).isEnum()) ||
-        LambdaMethodFilter.isLambdaName(method.name())) {
+        DebuggerUtilsEx.isLambda(method)) {
       return ThreeState.UNSURE;
     }
-    List<Location> locations = method.allLineLocations();
+    List<Location> locations = DebuggerUtilsEx.allLineLocations(method);
     if (ContainerUtil.isEmpty(locations)) {
       return ThreeState.UNSURE;
     }
     if (position != null) {
-      return ApplicationManager.getApplication().runReadAction((Computable<ThreeState>)() -> {
+      return ReadAction.compute(() -> {
         PsiFile psiFile = position.getFile();
         if (!psiFile.getLanguage().isKindOf(JavaLanguage.INSTANCE)) { // only for java for now
           return ThreeState.UNSURE;
@@ -146,16 +126,21 @@ public class SourceCodeChecker {
           LOG.debug("Source check failed: method " + method.name() + " not found in sources");
         }
         if (!res) {
-          FileEditor editor = FileEditorManager.getInstance(project).getSelectedEditor(position.getFile().getVirtualFile());
-          if (editor instanceof TextEditor) {
-            AppUIUtil.invokeOnEdt(() -> HintManager.getInstance().showErrorHint(((TextEditor)editor).getEditor(),
-                                                                                DebuggerBundle.message("warning.source.code.not.match")));
-          }
-          else {
-            XDebugSessionImpl.NOTIFICATION_GROUP
-              .createNotification(DebuggerBundle.message("warning.source.code.not.match"), NotificationType.WARNING)
-              .notify(project);
-          }
+          VirtualFile virtualFile = position.getFile().getVirtualFile();
+          AppUIUtil.invokeOnEdt(() -> {
+            if (!project.isDisposed()) {
+              FileEditor editor = FileEditorManager.getInstance(project).getSelectedEditor(virtualFile);
+              if (editor instanceof TextEditor) {
+                HintManager.getInstance().showErrorHint(((TextEditor)editor).getEditor(),
+                                                        DebuggerBundle.message("warning.source.code.not.match"));
+              }
+              else {
+                XDebuggerManagerImpl.NOTIFICATION_GROUP
+                  .createNotification(DebuggerBundle.message("warning.source.code.not.match"), NotificationType.WARNING)
+                  .notify(project);
+              }
+            }
+          });
           return ThreeState.NO;
         }
         return ThreeState.YES;
@@ -167,7 +152,7 @@ public class SourceCodeChecker {
   private static IntStreamEx getLinesStream(List<Location> locations, PsiFile psiFile) {
     IntStreamEx stream = StreamEx.of(locations).mapToInt(Location::lineNumber);
     if (psiFile instanceof PsiCompiledFile) {
-      stream = stream.map(line -> DebuggerUtilsEx.bytecodeToSourceLine(psiFile, line));
+      stream = stream.map(line -> DebuggerUtilsEx.bytecodeToSourceLine(psiFile, line) + 1);
     }
     return stream.filter(line -> line > 0);
   }
@@ -187,7 +172,7 @@ public class SourceCodeChecker {
       try {
         for (Location loc : type.allLineLocations()) {
           SourcePosition position =
-            ApplicationManager.getApplication().runReadAction((Computable<SourcePosition>)() -> {
+            ReadAction.compute(() -> {
               try {
                 return positionManager.getSourcePosition(loc);
               }

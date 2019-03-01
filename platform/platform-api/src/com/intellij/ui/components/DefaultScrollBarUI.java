@@ -16,7 +16,6 @@
 package com.intellij.ui.components;
 
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.ui.components.JBScrollPane.Alignment;
 import com.intellij.util.ui.JBInsets;
 import com.intellij.util.ui.JBUI;
@@ -39,39 +38,27 @@ import static java.awt.Adjustable.VERTICAL;
  * @author Sergey.Malenkov
  */
 class DefaultScrollBarUI extends ScrollBarUI {
-  static final Key<RegionPainter<Object>> LEADING_AREA = Key.create("PLAIN_SCROLL_BAR_UI_LEADING_AREA");//TODO:support
+  static final Key<Component> LEADING = Key.create("JB_SCROLL_BAR_LEADING_COMPONENT");
+  static final Key<Component> TRAILING = Key.create("JB_SCROLL_BAR_TRAILING_COMPONENT");
 
   private final Listener myListener = new Listener();
   private final Timer myScrollTimer = UIUtil.createNamedTimer("ScrollBarThumbScrollTimer", 60, myListener);
 
-  final TwoWayAnimator myTrackAnimator = new TwoWayAnimator("ScrollBarTrack", 11, 150, 125, 300, 125) {
-    @Override
-    void onValueUpdate() {
-      repaint();
-    }
-  };
-  final TwoWayAnimator myThumbAnimator = new TwoWayAnimator("ScrollBarThumb", 11, 150, 125, 300, 125) {
-    @Override
-    void onValueUpdate() {
-      repaint();
-    }
-  };
-
-  private final Rectangle myThumbBounds = new Rectangle();
-  private final Rectangle myTrackBounds = new Rectangle();
-  private final Rectangle myLeadingBounds = new Rectangle();
   private final int myThickness;
   private final int myThicknessMax;
   private final int myThicknessMin;
 
   JScrollBar myScrollBar;
 
+  final ScrollBarPainter.Track myTrack = new ScrollBarPainter.Track(() -> myScrollBar);
+  final ScrollBarPainter.Thumb myThumb = new ScrollBarPainter.Thumb(() -> myScrollBar, false);
+
   private boolean isValueCached;
   private int myCachedValue;
   private int myOldValue;
 
   DefaultScrollBarUI() {
-    this(13, 14, 10);
+    this(ScrollSettings.isThumbSmallIfOpaque() ? 13 : 10, 14, 10);
   }
 
   DefaultScrollBarUI(int thickness, int thicknessMax, int thicknessMin) {
@@ -81,23 +68,26 @@ class DefaultScrollBarUI extends ScrollBarUI {
   }
 
   int getThickness() {
-    return scale(myScrollBar == null || myScrollBar.isOpaque() ? myThickness : myThicknessMax);
+    return scale(myScrollBar == null || isOpaque(myScrollBar) ? myThickness : myThicknessMax);
   }
 
   int getMinimalThickness() {
-    return scale(myThicknessMin);
+    return scale(myScrollBar == null || isOpaque(myScrollBar) ? myThickness : myThicknessMin);
+  }
+
+  static boolean isOpaque(Component c) {
+    if (c.isOpaque()) return true;
+    Container parent = c.getParent();
+    // do not allow non-opaque scroll bars, because default layout does not support them
+    return parent instanceof JScrollPane && parent.getLayout() instanceof ScrollPaneLayout.UIResource;
   }
 
   boolean isAbsolutePositioning(MouseEvent event) {
     return SwingUtilities.isMiddleMouseButton(event);
   }
 
-  boolean isBorderNeeded(JComponent c) {
-    return false;
-  }
-
   boolean isTrackClickable() {
-    return myScrollBar.isOpaque() || myTrackAnimator.myValue > 0;
+    return isOpaque(myScrollBar) || myTrack.animator.myValue > 0;
   }
 
   boolean isTrackExpandable() {
@@ -105,64 +95,65 @@ class DefaultScrollBarUI extends ScrollBarUI {
   }
 
   boolean isTrackContains(int x, int y) {
-    return myTrackBounds.contains(x, y);
+    return myTrack.bounds.contains(x, y);
   }
 
   boolean isThumbContains(int x, int y) {
-    return myThumbBounds.contains(x, y);
+    return myThumb.bounds.contains(x, y);
   }
 
   void onTrackHover(boolean hover) {
-    myTrackAnimator.start(hover);
+    myTrack.animator.start(hover);
   }
 
   void onThumbHover(boolean hover) {
-    myThumbAnimator.start(hover);
+    myThumb.animator.start(hover);
   }
 
-  void paintTrack(Graphics2D g, int x, int y, int width, int height, JComponent c) {
-    RegionPainter<Float> p = ScrollColorProducer.isDark(c) ? ScrollPainter.Track.DARCULA : ScrollPainter.Track.DEFAULT;
-    paint(p, g, x, y, width, height, c, myTrackAnimator.myValue, false);
+  void paintTrack(Graphics2D g, JComponent c) {
+    paint(myTrack, g, c, false);
   }
 
-  void paintThumb(Graphics2D g, int x, int y, int width, int height, JComponent c) {
-    RegionPainter<Float> p = ScrollColorProducer.isDark(c) ? ScrollPainter.Thumb.DARCULA : ScrollPainter.Thumb.DEFAULT;
-    paint(p, g, x, y, width, height, c, myThumbAnimator.myValue, true);
+  void paintThumb(Graphics2D g, JComponent c) {
+    paint(myThumb, g, c, ScrollSettings.isThumbSmallIfOpaque() && isOpaque(c));
   }
 
   void onThumbMove() {
   }
 
-  void paint(RegionPainter<Float> p, Graphics2D g, int x, int y, int width, int height, JComponent c, float value, boolean small) {
-    if (!c.isOpaque()) {
-      Alignment alignment = Alignment.get(c);
-      if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
-        int offset = getTrackOffset(width - getMinimalThickness());
-        if (offset > 0) {
-          width -= offset;
-          if (alignment == Alignment.RIGHT) x += offset;
-        }
-      }
-      else {
-        int offset = getTrackOffset(height - getMinimalThickness());
-        if (offset > 0) {
-          height -= offset;
-          if (alignment == Alignment.BOTTOM) y += offset;
-        }
+  void paint(ScrollBarPainter p, Graphics2D g, JComponent c, boolean small) {
+    int x = p.bounds.x;
+    int y = p.bounds.y;
+    int width = p.bounds.width;
+    int height = p.bounds.height;
+
+    Alignment alignment = Alignment.get(c);
+    if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
+      int offset = getTrackOffset(width - getMinimalThickness());
+      if (offset > 0) {
+        width -= offset;
+        if (alignment == Alignment.RIGHT) x += offset;
       }
     }
-    else if (small) {
+    else {
+      int offset = getTrackOffset(height - getMinimalThickness());
+      if (offset > 0) {
+        height -= offset;
+        if (alignment == Alignment.BOTTOM) y += offset;
+      }
+    }
+    if (small) {
       x += 1;
       y += 1;
       width -= 2;
       height -= 2;
     }
-    p.paint(g, x, y, width, height, value);
+    p.paint(g, x, y, width, height, p.animator.myValue);
   }
 
   private int getTrackOffset(int offset) {
     if (!isTrackExpandable()) return offset;
-    float value = myTrackAnimator.myValue;
+    float value = myTrack.animator.myValue;
     if (value <= 0) return offset;
     if (value >= 1) return 0;
     return (int)(.5f + offset * (1 - value));
@@ -193,8 +184,8 @@ class DefaultScrollBarUI extends ScrollBarUI {
   @Override
   public void installUI(JComponent c) {
     myScrollBar = (JScrollBar)c;
-    ScrollColorProducer.setBackground(c);
-    ScrollColorProducer.setForeground(c);
+    ScrollBarPainter.setBackground(c);
+    myScrollBar.setOpaque(false);
     myScrollBar.setFocusable(false);
     myScrollBar.addMouseListener(myListener);
     myScrollBar.addMouseMotionListener(myListener);
@@ -207,8 +198,8 @@ class DefaultScrollBarUI extends ScrollBarUI {
   @Override
   public void uninstallUI(JComponent c) {
     myScrollTimer.stop();
-    myTrackAnimator.stop();
-    myThumbAnimator.stop();
+    myTrack.animator.stop();
+    myThumb.animator.stop();
     myScrollBar.removeFocusListener(myListener);
     myScrollBar.removePropertyChangeListener(myListener);
     myScrollBar.getModel().removeChangeListener(myListener);
@@ -223,81 +214,103 @@ class DefaultScrollBarUI extends ScrollBarUI {
   public Dimension getPreferredSize(JComponent c) {
     int thickness = getThickness();
     Alignment alignment = Alignment.get(c);
-    return alignment == Alignment.LEFT || alignment == Alignment.RIGHT
-           ? new Dimension(thickness, thickness * 2)
-           : new Dimension(thickness * 2, thickness);
+    Dimension preferred = new Dimension(thickness, thickness);
+    if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
+      preferred.height += preferred.height;
+      addPreferredHeight(preferred, UIUtil.getClientProperty(myScrollBar, LEADING));
+      addPreferredHeight(preferred, UIUtil.getClientProperty(myScrollBar, TRAILING));
+    }
+    else {
+      preferred.width += preferred.width;
+      addPreferredWidth(preferred, UIUtil.getClientProperty(myScrollBar, LEADING));
+      addPreferredWidth(preferred, UIUtil.getClientProperty(myScrollBar, TRAILING));
+    }
+    return preferred;
+  }
+
+  private static void addPreferredWidth(Dimension preferred, Component component) {
+    if (component != null) {
+      Dimension size = component.getPreferredSize();
+      preferred.width += size.width;
+      if (preferred.height < size.height) preferred.height = size.height;
+    }
+  }
+
+  private static void addPreferredHeight(Dimension preferred, Component component) {
+    if (component != null) {
+      Dimension size = component.getPreferredSize();
+      preferred.height += size.height;
+      if (preferred.width < size.width) preferred.width = size.width;
+    }
   }
 
   @Override
   public void paint(Graphics g, JComponent c) {
     Alignment alignment = Alignment.get(c);
     if (alignment != null && g instanceof Graphics2D) {
-      Container parent = c.getParent();
-      Color background = !c.isOpaque() ? null : c.getBackground();
+      Color background = !isOpaque(c) ? null : c.getBackground();
       if (background != null) {
         g.setColor(background);
         g.fillRect(0, 0, c.getWidth(), c.getHeight());
       }
       Rectangle bounds = new Rectangle(c.getWidth(), c.getHeight());
       JBInsets.removeFrom(bounds, c.getInsets());
-      if (parent instanceof JScrollPane) {
-        Color foreground = c.getForeground();
-        if (foreground != null && !foreground.equals(background) && isBorderNeeded(c)) {
-          g.setColor(foreground);
-          switch (alignment) {
-            case TOP:
-              bounds.height--;
-              g.drawLine(bounds.x, bounds.y + bounds.height, bounds.x + bounds.width, bounds.y + bounds.height);
-              break;
-            case LEFT:
-              bounds.width--;
-              g.drawLine(bounds.x + bounds.width, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height);
-              break;
-            case RIGHT:
-              g.drawLine(bounds.x, bounds.y, bounds.x, bounds.y + bounds.height);
-              bounds.width--;
-              bounds.x++;
-              break;
-            case BOTTOM:
-              g.drawLine(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y);
-              bounds.height--;
-              bounds.y++;
-              break;
-          }
+      // process an area before the track
+      Component leading = UIUtil.getClientProperty(c, LEADING);
+      if (leading != null) {
+        if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
+          int size = leading.getPreferredSize().height;
+          leading.setBounds(bounds.x, bounds.y, bounds.width, size);
+          bounds.height -= size;
+          bounds.y += size;
+        }
+        else {
+          int size = leading.getPreferredSize().width;
+          leading.setBounds(bounds.x, bounds.y, size, bounds.height);
+          bounds.width -= size;
+          bounds.x += size;
         }
       }
-      if (!c.isOpaque() && myTrackAnimator.myValue > 0) {
-        paintTrack((Graphics2D)g, bounds.x, bounds.y, bounds.width, bounds.height, c);
+      // process an area after the track
+      Component trailing = UIUtil.getClientProperty(c, TRAILING);
+      if (trailing != null) {
+        if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
+          int size = trailing.getPreferredSize().height;
+          bounds.height -= size;
+          trailing.setBounds(bounds.x, bounds.y + bounds.height, bounds.width, size);
+        }
+        else {
+          int size = trailing.getPreferredSize().width;
+          bounds.width -= size;
+          trailing.setBounds(bounds.x + bounds.width, bounds.y, size, bounds.height);
+        }
       }
-      // process a square area before the track
-      RegionPainter<Object> leading = UIUtil.getClientProperty(c, LEADING_AREA);
-      if (leading == null) {
-        myLeadingBounds.setSize(0, 0);
-      }
-      else if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
-        int size = bounds.width;
-        myLeadingBounds.setBounds(bounds.x, bounds.y, size, size);
-        leading.paint((Graphics2D)g, bounds.x, bounds.y, size, size, null);
-        bounds.height -= size;
-        bounds.y += size;
+      // do not set track size bigger that expected thickness
+      if (alignment == Alignment.LEFT || alignment == Alignment.RIGHT) {
+        int offset = bounds.width - getThickness();
+        if (offset > 0) {
+          bounds.width -= offset;
+          if (alignment == Alignment.RIGHT) bounds.x += offset;
+        }
       }
       else {
-        int size = bounds.height;
-        myLeadingBounds.setBounds(bounds.x, bounds.y, size, size);
-        leading.paint((Graphics2D)g, bounds.x, bounds.y, size, size, null);
-        bounds.width -= size;
-        bounds.x += size;
+        int offset = bounds.height - getThickness();
+        if (offset > 0) {
+          bounds.height -= offset;
+          if (alignment == Alignment.BOTTOM) bounds.y += offset;
+        }
       }
-      myTrackBounds.setBounds(bounds);
+      myTrack.bounds.setBounds(bounds);
       updateThumbBounds();
+      paintTrack((Graphics2D)g, c);
       // process additional drawing on the track
       RegionPainter<Object> track = UIUtil.getClientProperty(c, JBScrollBar.TRACK);
-      if (track != null && myTrackBounds.width > 0 && myTrackBounds.height > 0) {
-        track.paint((Graphics2D)g, myTrackBounds.x, myTrackBounds.y, myTrackBounds.width, myTrackBounds.height, null);
+      if (track != null && myTrack.bounds.width > 0 && myTrack.bounds.height > 0) {
+        track.paint((Graphics2D)g, myTrack.bounds.x, myTrack.bounds.y, myTrack.bounds.width, myTrack.bounds.height, null);
       }
       // process drawing the thumb
-      if (myThumbBounds.width > 0 && myThumbBounds.height > 0) {
-        paintThumb((Graphics2D)g, myThumbBounds.x, myThumbBounds.y, myThumbBounds.width, myThumbBounds.height, c);
+      if (myThumb.bounds.width > 0 && myThumb.bounds.height > 0) {
+        paintThumb((Graphics2D)g, c);
       }
     }
   }
@@ -308,34 +321,34 @@ class DefaultScrollBarUI extends ScrollBarUI {
     int max = myScrollBar.getMaximum();
     int range = max - min;
     if (range <= 0) {
-      myThumbBounds.setBounds(0, 0, 0, 0);
+      myThumb.bounds.setBounds(0, 0, 0, 0);
     }
     else if (VERTICAL == myScrollBar.getOrientation()) {
       int extent = myScrollBar.getVisibleAmount();
-      int height = Math.max(convert(myTrackBounds.height, extent, range), 2 * getThickness());
-      if (myTrackBounds.height <= height) {
-        myThumbBounds.setBounds(0, 0, 0, 0);
+      int height = Math.max(convert(myTrack.bounds.height, extent, range), 2 * getThickness());
+      if (myTrack.bounds.height <= height) {
+        myThumb.bounds.setBounds(0, 0, 0, 0);
       }
       else {
         value = getValue();
-        int maxY = myTrackBounds.y + myTrackBounds.height - height;
-        int y = (value < max - extent) ? convert(myTrackBounds.height - height, value - min, range - extent) : maxY;
-        myThumbBounds.setBounds(myTrackBounds.x, adjust(y, myTrackBounds.y, maxY), myTrackBounds.width, height);
+        int maxY = myTrack.bounds.y + myTrack.bounds.height - height;
+        int y = (value < max - extent) ? convert(myTrack.bounds.height - height, value - min, range - extent) : maxY;
+        myThumb.bounds.setBounds(myTrack.bounds.x, adjust(y, myTrack.bounds.y, maxY), myTrack.bounds.width, height);
         if (myOldValue != value) onThumbMove();
       }
     }
     else {
       int extent = myScrollBar.getVisibleAmount();
-      int width = Math.max(convert(myTrackBounds.width, extent, range), 2 * getThickness());
-      if (myTrackBounds.width <= width) {
-        myThumbBounds.setBounds(0, 0, 0, 0);
+      int width = Math.max(convert(myTrack.bounds.width, extent, range), 2 * getThickness());
+      if (myTrack.bounds.width <= width) {
+        myThumb.bounds.setBounds(0, 0, 0, 0);
       }
       else {
         value = getValue();
-        int maxX = myTrackBounds.x + myTrackBounds.width - width;
-        int x = (value < max - extent) ? convert(myTrackBounds.width - width, value - min, range - extent) : maxX;
-        if (!myScrollBar.getComponentOrientation().isLeftToRight()) x = myTrackBounds.x - x + maxX;
-        myThumbBounds.setBounds(adjust(x, myTrackBounds.x, maxX), myTrackBounds.y, width, myTrackBounds.height);
+        int maxX = myTrack.bounds.x + myTrack.bounds.width - width;
+        int x = (value < max - extent) ? convert(myTrack.bounds.width - width, value - min, range - extent) : maxX;
+        if (!myScrollBar.getComponentOrientation().isLeftToRight()) x = myTrack.bounds.x - x + maxX;
+        myThumb.bounds.setBounds(adjust(x, myTrack.bounds.x, maxX), myTrack.bounds.y, width, myTrack.bounds.height);
         if (myOldValue != value) onThumbMove();
       }
     }
@@ -389,9 +402,19 @@ class DefaultScrollBarUI extends ScrollBarUI {
       if (parent instanceof JScrollPane) {
         JScrollPane pane = (JScrollPane)parent;
         Component view = pane.getViewport().getView();
-        if (view != null) view.dispatchEvent(MouseEventAdapter.convert(event, view));
+        if (view != null) {
+          Point point = event.getLocationOnScreen();
+          SwingUtilities.convertPointFromScreen(point, view);
+          Component target = SwingUtilities.getDeepestComponentAt(view, point.x, point.y);
+          if (target != null) target.dispatchEvent(MouseEventAdapter.convert(event, target));
+        }
       }
       return true;
+    }
+
+    @Override
+    public void mouseClicked(MouseEvent e) {
+      if (myScrollBar != null && myScrollBar.isEnabled()) redispatchIfTrackNotClickable(e);
     }
 
     @Override
@@ -410,13 +433,13 @@ class DefaultScrollBarUI extends ScrollBarUI {
       boolean vertical = VERTICAL == myScrollBar.getOrientation();
       if (isThumbContains(myMouseX, myMouseY)) {
         // pressed on the thumb
-        myOffset = vertical ? (myMouseY - myThumbBounds.y) : (myMouseX - myThumbBounds.x);
+        myOffset = vertical ? (myMouseY - myThumb.bounds.y) : (myMouseX - myThumb.bounds.x);
         isDragging = true;
       }
       else if (isTrackContains(myMouseX, myMouseY)) {
         // pressed on the track
         if (isAbsolutePositioning(event)) {
-          myOffset = (vertical ? myThumbBounds.height : myThumbBounds.width) / 2;
+          myOffset = (vertical ? myThumb.bounds.height : myThumb.bounds.width) / 2;
           isDragging = true;
           setValueFrom(event);
         }
@@ -424,11 +447,11 @@ class DefaultScrollBarUI extends ScrollBarUI {
           myScrollTimer.stop();
           isDragging = false;
           if (VERTICAL == myScrollBar.getOrientation()) {
-            int y = myThumbBounds.isEmpty() ? myScrollBar.getHeight() / 2 : myThumbBounds.y;
+            int y = myThumb.bounds.isEmpty() ? myScrollBar.getHeight() / 2 : myThumb.bounds.y;
             isReversed = myMouseY < y;
           }
           else {
-            int x = myThumbBounds.isEmpty() ? myScrollBar.getWidth() / 2 : myThumbBounds.x;
+            int x = myThumb.bounds.isEmpty() ? myScrollBar.getWidth() / 2 : myThumb.bounds.x;
             isReversed = myMouseX < x;
             if (!myScrollBar.getComponentOrientation().isLeftToRight()) {
               isReversed = !isReversed;
@@ -458,7 +481,7 @@ class DefaultScrollBarUI extends ScrollBarUI {
     @Override
     public void mouseDragged(MouseEvent event) {
       if (myScrollBar == null || !myScrollBar.isEnabled()) return;
-      if (myThumbBounds.isEmpty() || SwingUtilities.isRightMouseButton(event)) return;
+      if (myThumb.bounds.isEmpty() || SwingUtilities.isRightMouseButton(event)) return;
       if (isDragging) {
         setValueFrom(event);
       }
@@ -490,7 +513,7 @@ class DefaultScrollBarUI extends ScrollBarUI {
       }
       else {
         scroll(isReversed);
-        if (!myThumbBounds.isEmpty()) {
+        if (!myThumb.bounds.isEmpty()) {
           if (isReversed ? !isMouseBeforeThumb() : !isMouseAfterThumb()) {
             myScrollTimer.stop();
           }
@@ -533,10 +556,10 @@ class DefaultScrollBarUI extends ScrollBarUI {
         repaint();
       }
       if ("opaque" == name || "visible" == name) {
-        myTrackAnimator.rewind(false);
-        myThumbAnimator.rewind(false);
-        myTrackBounds.setBounds(0, 0, 0, 0);
-        myThumbBounds.setBounds(0, 0, 0, 0);
+        myTrack.animator.rewind(false);
+        myThumb.animator.rewind(false);
+        myTrack.bounds.setBounds(0, 0, 0, 0);
+        myThumb.bounds.setBounds(0, 0, 0, 0);
       }
     }
 
@@ -546,27 +569,27 @@ class DefaultScrollBarUI extends ScrollBarUI {
 
       int thumbMin, thumbMax, thumbPos;
       if (VERTICAL == myScrollBar.getOrientation()) {
-        thumbMin = myTrackBounds.y;
-        thumbMax = myTrackBounds.y + myTrackBounds.height - myThumbBounds.height;
+        thumbMin = myTrack.bounds.y;
+        thumbMax = myTrack.bounds.y + myTrack.bounds.height - myThumb.bounds.height;
         thumbPos = Math.min(thumbMax, Math.max(thumbMin, (y - myOffset)));
-        if (myThumbBounds.y != thumbPos) {
-          int minY = Math.min(myThumbBounds.y, thumbPos);
-          int maxY = Math.max(myThumbBounds.y, thumbPos) + myThumbBounds.height;
-          myThumbBounds.y = thumbPos;
+        if (myThumb.bounds.y != thumbPos) {
+          int minY = Math.min(myThumb.bounds.y, thumbPos);
+          int maxY = Math.max(myThumb.bounds.y, thumbPos) + myThumb.bounds.height;
+          myThumb.bounds.y = thumbPos;
           onThumbMove();
-          repaint(myThumbBounds.x, minY, myThumbBounds.width, maxY - minY);
+          repaint(myThumb.bounds.x, minY, myThumb.bounds.width, maxY - minY);
         }
       }
       else {
-        thumbMin = myTrackBounds.x;
-        thumbMax = myTrackBounds.x + myTrackBounds.width - myThumbBounds.width;
+        thumbMin = myTrack.bounds.x;
+        thumbMax = myTrack.bounds.x + myTrack.bounds.width - myThumb.bounds.width;
         thumbPos = Math.min(thumbMax, Math.max(thumbMin, (x - myOffset)));
-        if (myThumbBounds.x != thumbPos) {
-          int minX = Math.min(myThumbBounds.x, thumbPos);
-          int maxX = Math.max(myThumbBounds.x, thumbPos) + myThumbBounds.width;
-          myThumbBounds.x = thumbPos;
+        if (myThumb.bounds.x != thumbPos) {
+          int minX = Math.min(myThumb.bounds.x, thumbPos);
+          int maxX = Math.max(myThumb.bounds.x, thumbPos) + myThumb.bounds.width;
+          myThumb.bounds.x = thumbPos;
           onThumbMove();
-          repaint(minX, myThumbBounds.y, maxX - minX, myThumbBounds.height);
+          repaint(minX, myThumb.bounds.y, maxX - minX, myThumb.bounds.height);
         }
       }
       int valueMin = myScrollBar.getMinimum();
@@ -615,19 +638,19 @@ class DefaultScrollBarUI extends ScrollBarUI {
     }
 
     private boolean isMouseOnTop() {
-      return myMouseY < myThumbBounds.y;
+      return myMouseY < myThumb.bounds.y;
     }
 
     private boolean isMouseOnLeft() {
-      return myMouseX < myThumbBounds.x;
+      return myMouseX < myThumb.bounds.x;
     }
 
     private boolean isMouseOnRight() {
-      return myMouseX > myThumbBounds.x + myThumbBounds.width;
+      return myMouseX > myThumb.bounds.x + myThumb.bounds.width;
     }
 
     private boolean isMouseOnBottom() {
-      return myMouseY > myThumbBounds.y + myThumbBounds.height;
+      return myMouseY > myThumb.bounds.y + myThumb.bounds.height;
     }
 
     private void scroll(boolean reversed) {

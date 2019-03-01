@@ -48,12 +48,13 @@ public class MergeUtil {
   public static Action createSimpleResolveAction(@NotNull MergeResult result,
                                                  @NotNull MergeRequest request,
                                                  @NotNull MergeContext context,
-                                                 @NotNull MergeViewer viewer) {
+                                                 @NotNull MergeViewer viewer,
+                                                 boolean contentWasModified) {
     String caption = getResolveActionTitle(result, request, context);
     return new AbstractAction(caption) {
       @Override
       public void actionPerformed(ActionEvent e) {
-        if (result == MergeResult.CANCEL && !showExitWithoutApplyingChangesDialog(viewer, request, context)) {
+        if (result == MergeResult.CANCEL && !showExitWithoutApplyingChangesDialog(viewer, request, context, contentWasModified)) {
           return;
         }
         context.finishMerge(result);
@@ -83,9 +84,9 @@ public class MergeUtil {
 
   @NotNull
   public static List<String> notNullizeContentTitles(@NotNull List<String> mergeContentTitles) {
-    String left = StringUtil.notNullize(ThreeSide.LEFT.select(mergeContentTitles), "Your Version");
-    String base = StringUtil.notNullize(ThreeSide.BASE.select(mergeContentTitles), "Base Version");
-    String right = StringUtil.notNullize(ThreeSide.RIGHT.select(mergeContentTitles), "Server Version");
+    String left = StringUtil.notNullize(ThreeSide.LEFT.select(mergeContentTitles), DiffBundle.message("merge.version.title.our"));
+    String base = StringUtil.notNullize(ThreeSide.BASE.select(mergeContentTitles), DiffBundle.message("merge.version.title.base"));
+    String right = StringUtil.notNullize(ThreeSide.RIGHT.select(mergeContentTitles), DiffBundle.message("merge.version.title.their"));
     return ContainerUtil.list(left, base, right);
   }
 
@@ -108,13 +109,13 @@ public class MergeUtil {
     }
 
     @Override
-    public boolean isFocused() {
-      return myMergeContext.isFocused();
+    public boolean isFocusedInWindow() {
+      return myMergeContext.isFocusedInWindow();
     }
 
     @Override
-    public void requestFocus() {
-      myMergeContext.requestFocus();
+    public void requestFocusInWindow() {
+      myMergeContext.requestFocusInWindow();
     }
 
     @Nullable
@@ -131,13 +132,14 @@ public class MergeUtil {
 
   public static boolean showExitWithoutApplyingChangesDialog(@NotNull MergeViewer viewer,
                                                              @NotNull MergeRequest request,
-                                                             @NotNull MergeContext context) {
+                                                             @NotNull MergeContext context,
+                                                             boolean contentWasModified) {
     Condition<MergeViewer> customHandler = DiffUtil.getUserData(request, context, DiffUserDataKeysEx.MERGE_CANCEL_HANDLER);
     if (customHandler != null) {
       return customHandler.value(viewer);
     }
 
-    return showExitWithoutApplyingChangesDialog(viewer.getComponent(), request, context);
+    return !contentWasModified || showExitWithoutApplyingChangesDialog(viewer.getComponent(), request, context);
   }
 
   public static boolean showExitWithoutApplyingChangesDialog(@NotNull JComponent component,

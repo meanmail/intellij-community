@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,35 +14,32 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Maxim.Mossienko
- * Date: Jul 13, 2006
- * Time: 12:55:30 AM
- */
 package com.intellij.lang.ant;
 
 import com.intellij.codeInsight.daemon.DaemonAnalyzerTestCase;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.analysis.XmlPathReferenceInspection;
 import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.idea.HardwareAgentRequired;
 import com.intellij.lang.ant.dom.AntResolveInspection;
 import com.intellij.lang.ant.validation.AntDuplicateTargetsInspection;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.testFramework.TestDataFile;
-import com.intellij.util.ThrowableRunnable;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  */
 @SuppressWarnings({"HardCodedStringLiteral"})
+@HardwareAgentRequired
 public class AntHighlightingTest extends DaemonAnalyzerTestCase {
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return PluginPathManager.getPluginHomePath("ant") + "/tests/data/highlighting/";
@@ -112,12 +109,14 @@ public class AntHighlightingTest extends DaemonAnalyzerTestCase {
     doTest();
   }
 
-  public void testBigFile() throws Exception {
+  public void testBigFilePerformance() throws IOException {
     configureByFiles(null, getVirtualFile(getTestName(false) + ".xml"), getVirtualFile("buildserver.xml"), getVirtualFile("buildserver.properties"));
 
     try {
       myIgnoreInfos = true;
-      PlatformTestUtil.startPerformanceTest("Should be quite performant !", 25000, () -> doDoTest(true, false)).cpuBound().useLegacyScaling().assertTiming();
+      PlatformTestUtil.startPerformanceTest("Big ant file highlighting", 15_000, () -> doDoTest(true, false))
+        .setup(getPsiManager()::dropPsiCaches)
+        .assertTiming();
     }
     finally {
       myIgnoreInfos = false;

@@ -1,4 +1,4 @@
-<idea-plugin version="2">
+<idea-plugin>
   <extensions defaultExtensionNs="com.intellij">
 
     <lang.fileViewProviderFactory language="ReST"
@@ -26,4 +26,8 @@
     </action>
 
   </actions>
+
+  <extensions defaultExtensionNs="restructured.text">
+    <html.preview.provider implementation="com.jetbrains.rest.RestPythonPreviewProvider" />
+  </extensions>
 </idea-plugin>

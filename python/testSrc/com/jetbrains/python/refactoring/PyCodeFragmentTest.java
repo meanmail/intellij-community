@@ -40,9 +40,9 @@ public class PyCodeFragmentTest extends LightMarkedTestCase {
     return PythonTestUtil.getTestDataPath() + "/codeInsight/codefragment/";
   }
 
-  final private String BEGIN_MARKER = "<begin>";
-  final private String END_MARKER = "<end>";
-  final private String RESULT_MARKER = "<result>";
+  static final private String BEGIN_MARKER = "<begin>";
+  static final private String END_MARKER = "<end>";
+  static final private String RESULT_MARKER = "<result>";
 
   private void doTest(Pair<String, String>... files2Create) throws Exception {
     final String testName = getTestName(false).toLowerCase();
@@ -59,9 +59,9 @@ public class PyCodeFragmentTest extends LightMarkedTestCase {
     assertTrue(resultMarker != -1);
 
     final StringBuilder builder = new StringBuilder();
-    builder.append(fileText.substring(0, beginMarker));
-    builder.append(fileText.substring(beginMarker + BEGIN_MARKER.length(), endMarker));
-    builder.append((fileText.substring(endMarker + END_MARKER.length(), resultMarker)));
+    builder.append(fileText, 0, beginMarker);
+    builder.append(fileText, beginMarker + BEGIN_MARKER.length(), endMarker);
+    builder.append(fileText, endMarker + END_MARKER.length(), resultMarker);
 
     final String result = fileText.substring(resultMarker + RESULT_MARKER.length());
 
@@ -81,7 +81,7 @@ public class PyCodeFragmentTest extends LightMarkedTestCase {
     if (!(context instanceof ScopeOwner)) {
       context = PsiTreeUtil.getParentOfType(context, ScopeOwner.class);
     }
-    final StringBuffer buffer = new StringBuffer();
+    final StringBuilder buffer = new StringBuilder();
     try {
       final CodeFragment fragment = PyCodeFragmentUtil.createCodeFragment((ScopeOwner)context, startElement, endElement);
       if (fragment.isReturnInstructionInside()) {

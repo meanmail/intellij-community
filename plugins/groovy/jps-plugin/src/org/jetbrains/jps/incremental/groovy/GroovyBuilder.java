@@ -61,6 +61,7 @@ public class GroovyBuilder extends ModuleLevelBuilder {
     JavaBuilder.registerClassPostProcessor(new RecompileStubSources());
   }
 
+  @Override
   public ModuleLevelBuilder.ExitCode build(final CompileContext context,
                                            final ModuleChunk chunk,
                                            DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder,
@@ -108,7 +109,7 @@ public class GroovyBuilder extends ModuleLevelBuilder {
 
   @Nullable
   static Map<ModuleBuildTarget, String> getCanonicalModuleOutputs(CompileContext context, ModuleChunk chunk, Builder builder) {
-    Map<ModuleBuildTarget, String> finalOutputs = new LinkedHashMap<ModuleBuildTarget, String>();
+    Map<ModuleBuildTarget, String> finalOutputs = new LinkedHashMap<>();
     for (ModuleBuildTarget target : chunk.getTargets()) {
       File moduleOutputDir = target.getOutputDir();
       if (moduleOutputDir == null) {
@@ -131,8 +132,8 @@ public class GroovyBuilder extends ModuleLevelBuilder {
   static List<String> getGroovyRtRoots() {
     File rt = ClasspathBootstrap.getResourceFile(GroovyBuilder.class);
     File constants = ClasspathBootstrap.getResourceFile(GroovyRtConstants.class);
-    return Arrays.asList(new File(rt.getParentFile(), rt.isFile() ? "groovy_rt.jar" : "groovy_rt").getPath(),
-                         new File(constants.getParentFile(), constants.isFile() ? "groovy-rt-constants.jar" : "groovy-rt-constants").getPath());
+    return Arrays.asList(new File(rt.getParentFile(), rt.isFile() ? "groovy_rt.jar" : "intellij.groovy.rt").getPath(),
+                         new File(constants.getParentFile(), constants.isFile() ? "groovy-rt-constants.jar" : "intellij.groovy.constants.rt").getPath());
   }
 
   public static boolean isGroovyFile(String path) {
@@ -150,13 +151,20 @@ public class GroovyBuilder extends ModuleLevelBuilder {
     return myBuilderName;
   }
 
+  @Override
   @NotNull
   public String getPresentableName() {
     return myBuilderName;
   }
 
+  @Override
+  public long getExpectedBuildTime() {
+    return 100;
+  }
+
   private static class RecompileStubSources implements ClassPostProcessor {
 
+    @Override
     public void process(CompileContext context, OutputFileObject out) {
       Map<String, String> stubToSrc = STUB_TO_SRC.get(context);
       if (stubToSrc == null) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.SystemIndependent;
 import org.picocontainer.PicoContainer;
 
 /**
@@ -55,13 +56,8 @@ public class MockProject extends MockComponentManager implements Project {
 
   @NotNull
   @Override
-  public Condition getDisposed() {
-    return new Condition() {
-      @Override
-      public boolean value(final Object o) {
-        return isDisposed();
-      }
-    };
+  public Condition<?> getDisposed() {
+    return (Condition)o -> isDisposed();
   }
 
   @Override
@@ -86,13 +82,6 @@ public class MockProject extends MockComponentManager implements Project {
   }
 
   @Override
-  @Nullable
-  @NonNls
-  public String getPresentableUrl() {
-    return null;
-  }
-
-  @Override
   @NotNull
   @NonNls
   public String getLocationHash() {
@@ -101,6 +90,7 @@ public class MockProject extends MockComponentManager implements Project {
 
   @Override
   @Nullable
+  @SystemIndependent
   public String getProjectFilePath() {
     return null;
   }
@@ -121,6 +111,7 @@ public class MockProject extends MockComponentManager implements Project {
   }
 
   @Nullable
+  @SystemIndependent
   @Override
   public String getBasePath() {
     return null;

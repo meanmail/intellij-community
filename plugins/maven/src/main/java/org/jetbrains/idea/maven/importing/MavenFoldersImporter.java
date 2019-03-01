@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,27 +17,32 @@ package org.jetbrains.idea.maven.importing;
 
 import com.intellij.ide.util.projectWizard.importSources.JavaModuleSourceRoot;
 import com.intellij.ide.util.projectWizard.importSources.JavaSourceRootDetectionUtil;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProviderImpl;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
+import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.roots.impl.ModifiableModelCommitter;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.PairConsumer;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.LinkedMultiMap;
 import com.intellij.util.containers.MultiMap;
+import com.intellij.util.containers.NotNullList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.model.MavenResource;
 import org.jetbrains.idea.maven.project.MavenImportingSettings;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
+import org.jetbrains.idea.maven.utils.MavenUtil;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 import org.jetbrains.jps.model.java.JavaResourceRootType;
 import org.jetbrains.jps.model.java.JavaSourceRootProperties;
@@ -45,9 +50,8 @@ import org.jetbrains.jps.model.java.JavaSourceRootType;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
+import java.net.URL;
+import java.util.*;
 
 public class MavenFoldersImporter {
   private final MavenProject myMavenProject;
@@ -58,8 +62,7 @@ public class MavenFoldersImporter {
     final MavenProjectsManager manager = MavenProjectsManager.getInstance(project);
     final MavenImportingSettings settings = manager.getImportingSettings();
 
-    AccessToken accessToken = WriteAction.start();
-    try {
+    WriteAction.run(() -> {
       List<ModifiableRootModel> rootModels = new ArrayList<>();
       for (Module each : ModuleManager.getInstance(project).getModules()) {
         MavenProject mavenProject = manager.findProject(each);
@@ -78,18 +81,12 @@ public class MavenFoldersImporter {
       }
 
       if (!rootModels.isEmpty()) {
-        ModifiableRootModel[] modelsArray = rootModels.toArray(new ModifiableRootModel[rootModels.size()]);
-        if (modelsArray.length > 0) {
-          ModifiableModelCommitter.multiCommit(modelsArray, ModuleManager.getInstance(modelsArray[0].getProject()).getModifiableModel());
-        }
+        ModifiableModelCommitter.multiCommit(rootModels, ModuleManager.getInstance(rootModels.get((0)).getProject()).getModifiableModel());
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
-  public MavenFoldersImporter(MavenProject mavenProject, MavenImportingSettings settings, MavenRootModelAdapter model) {
+  public MavenFoldersImporter(@NotNull MavenProject mavenProject, @NotNull MavenImportingSettings settings, MavenRootModelAdapter model) {
     myMavenProject = mavenProject;
     myImportingSettings = settings;
     myModel = model;
@@ -107,7 +104,17 @@ public class MavenFoldersImporter {
       configSourceFolders();
       configOutputFolders();
     }
-    configGeneratedAndExcludedFolders();
+    configGeneratedFolders();
+    if (!updateTargetFoldersOnly) {
+      if (!FileUtil.namesEqual("pom", myMavenProject.getFile().getNameWithoutExtension()) &&
+          MavenUtil.streamPomFiles(myModel.getModule().getProject(), myMavenProject.getDirectoryFile()).skip(1).findAny().isPresent()) {
+        generateNewContentRoots(false);
+      }
+      else {
+        generateNewContentRoots(true);
+      }
+    }
+    configExcludedFolders();
   }
 
   private void configSourceFolders() {
@@ -130,10 +137,15 @@ public class MavenFoldersImporter {
     addBuilderHelperPaths("add-source", roots.getModifiable(JavaSourceRootType.SOURCE));
     addBuilderHelperPaths("add-test-source", roots.getModifiable(JavaSourceRootType.TEST_SOURCE));
 
+    addBuilderHelperResourcesPaths("add-resource", roots.getModifiable(JavaResourceRootType.RESOURCE));
+    addBuilderHelperResourcesPaths("add-test-resource", roots.getModifiable(JavaResourceRootType.TEST_RESOURCE));
+
     List<String> addedPaths = new ArrayList<>();
     for (JpsModuleSourceRootType<?> type : roots.keySet()) {
       for (String path : roots.get(type)) {
-        addSourceFolderIfNotOverlap(path, type, addedPaths);
+        if (path != null) {
+          addSourceFolderIfNotOverlap(path, type, addedPaths);
+        }
       }
     }
   }
@@ -145,6 +157,19 @@ public class MavenFoldersImporter {
       if (sourcesElement != null) {
         for (Element element : sourcesElement.getChildren()) {
           folders.add(element.getTextTrim());
+        }
+      }
+    }
+  }
+
+  private void addBuilderHelperResourcesPaths(String goal, Collection<String> folders) {
+    final Element configurationElement = myMavenProject.getPluginGoalConfiguration("org.codehaus.mojo", "build-helper-maven-plugin", goal);
+    if (configurationElement != null) {
+      final Element sourcesElement = configurationElement.getChild("resources");
+      if (sourcesElement != null) {
+        for (Element element : sourcesElement.getChildren()) {
+          Element directory = element.getChild("directory");
+          if (directory != null) folders.add(directory.getTextTrim());
         }
       }
     }
@@ -181,7 +206,7 @@ public class MavenFoldersImporter {
     }
   }
 
-  private void configGeneratedAndExcludedFolders() {
+  private void configGeneratedFolders() {
     File targetDir = new File(myMavenProject.getBuildDirectory());
 
     String generatedDir = myMavenProject.getGeneratedSourcesDirectory(false);
@@ -206,7 +231,88 @@ public class MavenFoldersImporter {
         else if (FileUtil.pathsEqual(generatedDirTest, f.getPath())) {
           configGeneratedSourceFolder(f, JavaSourceRootType.TEST_SOURCE);
         }
-        else {
+      }
+    }
+  }
+
+  private void generateNewContentRoots(boolean orphansOnly) {
+    Map<String, SourceFolder> sourceFoldersMap = new TreeMap<>(FileUtil::comparePaths);
+    for (String sourceRootUrl : myModel.getSourceRootUrls(true)) {
+      String sourceRootPath = FileUtil.toSystemDependentName(VfsUtil.urlToPath(sourceRootUrl));
+      SourceFolder sourceFolder = myModel.getSourceFolder(new File(sourceRootPath));
+      if (sourceFolder != null) {
+        sourceFoldersMap.put(sourceRootUrl, sourceFolder);
+      }
+    }
+
+    ModifiableRootModel rootModel = myModel.getRootModel();
+
+    if (orphansOnly) {
+      for (ContentEntry contentEntry : rootModel.getContentEntries()) {
+        sourceFoldersMap.keySet().removeIf(root -> FileUtil.isAncestor(contentEntry.getUrl(), root, false));
+      }
+    }
+    else {
+      for (ContentEntry contentEntry : rootModel.getContentEntries()) {
+        rootModel.removeContentEntry(contentEntry);
+      }
+    }
+
+    Set<String> topLevelSourceFolderUrls = ContainerUtil.newHashSet();
+    for (String sourceRoot : sourceFoldersMap.keySet()) {
+      if (topLevelSourceFolderUrls.stream().noneMatch(root -> FileUtil.isAncestor(root, sourceRoot, false))) {
+        topLevelSourceFolderUrls.add(sourceRoot);
+      }
+    }
+
+    for (String sourceFolderUrl : topLevelSourceFolderUrls) {
+      if (isAlreadyContentRoot(sourceFolderUrl, rootModel.getProject())) continue;
+
+      ContentEntry contentEntry = rootModel.addContentEntry(sourceFolderUrl);
+      for (Map.Entry<String, SourceFolder> entry : sourceFoldersMap.entrySet()) {
+        if (FileUtil.isAncestor(sourceFolderUrl, entry.getKey(), false)) {
+          SourceFolder oldSourceFolder = entry.getValue();
+          SourceFolder newSourceFolder = contentEntry.addSourceFolder(oldSourceFolder.getUrl(), oldSourceFolder.getRootType());
+          newSourceFolder.setPackagePrefix(oldSourceFolder.getPackagePrefix());
+        }
+      }
+    }
+  }
+
+  private static boolean isAlreadyContentRoot(String sourceFolderUrl, Project project) {
+    URL url = VfsUtilCore.convertToURL(sourceFolderUrl);
+    if (url == null) return false;
+
+    VirtualFile sourceFolder = VfsUtil.findFileByURL(url);
+    if (sourceFolder == null) return false;
+
+    MavenProjectsManager mavenProjectsManager = MavenProjectsManager.getInstance(project);
+    MavenProject containingProject = mavenProjectsManager.findContainingProject(sourceFolder);
+    if (containingProject != null) {
+      Module module = mavenProjectsManager.findModule(containingProject);
+      if (module == null) return false;
+
+      for (ContentEntry contentEntry : ModuleRootManager.getInstance(module).getContentEntries()) {
+        if (contentEntry.getUrl().equals(sourceFolderUrl)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private void configExcludedFolders() {
+    File targetDir = new File(myMavenProject.getBuildDirectory());
+
+    String generatedDir = myMavenProject.getGeneratedSourcesDirectory(false);
+    String generatedDirTest = myMavenProject.getGeneratedSourcesDirectory(true);
+
+    File[] targetChildren = targetDir.listFiles();
+    if (targetChildren != null) {
+      for (File f : targetChildren) {
+        if (!f.isDirectory()) continue;
+
+        if (!FileUtil.pathsEqual(generatedDir, f.getPath()) && !FileUtil.pathsEqual(generatedDirTest, f.getPath())) {
           if (myImportingSettings.isExcludeTargetFolder()) {
             if (myModel.hasRegisteredSourceSubfolder(f)) continue;
             if (myModel.isAlreadyExcluded(f)) continue;
@@ -216,7 +322,7 @@ public class MavenFoldersImporter {
       }
     }
 
-    List<String> facetExcludes = new ArrayList<>();
+    List<String> facetExcludes = new NotNullList<>();
     for (MavenImporter each : MavenImporter.getSuitableImporters(myMavenProject)) {
       each.collectExcludedFolders(myMavenProject, facetExcludes);
     }
@@ -226,9 +332,7 @@ public class MavenFoldersImporter {
     }
 
     if (myImportingSettings.isExcludeTargetFolder()) {
-      if (!myModel.hasRegisteredSourceSubfolder(targetDir)) {
         myModel.addExcludedFolder(targetDir.getPath());
-      }
     }
   }
 

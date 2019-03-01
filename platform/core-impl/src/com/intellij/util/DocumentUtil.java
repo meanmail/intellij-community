@@ -33,8 +33,8 @@ public final class DocumentUtil {
    * Ensures that given task is executed when given document is at the given 'in bulk' mode.
    * 
    * @param document       target document
-   * @param executeInBulk  <code>true</code> to force given document to be in bulk mode when given task is executed;
-   *                       <code>false</code> to force given document to be <b>not</b> in bulk mode when given task is executed
+   * @param executeInBulk  {@code true} to force given document to be in bulk mode when given task is executed;
+   *                       {@code false} to force given document to be <b>not</b> in bulk mode when given task is executed
    * @param task           task to execute
    */
   public static void executeInBulk(@NotNull Document document, final boolean executeInBulk, @NotNull Runnable task) {
@@ -59,12 +59,7 @@ public final class DocumentUtil {
   }
 
   public static void writeInRunUndoTransparentAction(@NotNull final Runnable runnable) {
-    CommandProcessor.getInstance().runUndoTransparentAction(new Runnable() {
-      @Override
-      public void run() {
-        ApplicationManager.getApplication().runWriteAction(runnable);
-      }
-    });
+    CommandProcessor.getInstance().runUndoTransparentAction(() -> ApplicationManager.getApplication().runWriteAction(runnable));
   }
 
   public static int getFirstNonSpaceCharOffset(@NotNull Document document, int line) {
@@ -111,5 +106,58 @@ public final class DocumentUtil {
 
   public static boolean isAtLineStart(int offset, @NotNull Document document) {
     return offset >= 0 && offset <= document.getTextLength() && offset == document.getLineStartOffset(document.getLineNumber(offset));
+  }
+
+  public static boolean isAtLineEnd(int offset, @NotNull Document document) {
+    return offset >= 0 && offset <= document.getTextLength() && offset == document.getLineEndOffset(document.getLineNumber(offset));
+  }
+
+  public static int alignToCodePointBoundary(@NotNull Document document, int offset) {
+    return isInsideSurrogatePair(document, offset) ? offset - 1 : offset;
+  }
+
+  public static boolean isSurrogatePair(@NotNull Document document, int offset) {
+    CharSequence text = document.getImmutableCharSequence();
+    if (offset < 0 || (offset + 1) >= text.length()) return false;
+    return Character.isSurrogatePair(text.charAt(offset), text.charAt(offset + 1));
+  }
+
+  public static boolean isInsideSurrogatePair(@NotNull Document document, int offset) {
+    return isSurrogatePair(document, offset - 1);
+  }
+
+  public static int getPreviousCodePointOffset(@NotNull Document document, int offset) {
+    return offset - (isSurrogatePair(document, offset - 2) ? 2 : 1);
+  }
+
+  public static int getNextCodePointOffset(@NotNull Document document, int offset) {
+    return offset + (isSurrogatePair(document, offset) ? 2 : 1);
+  }
+
+  public static boolean isLineEmpty(@NotNull Document document, final int line) {
+    final CharSequence chars = document.getCharsSequence();
+    int start = document.getLineStartOffset(line);
+    int end = Math.min(document.getLineEndOffset(line), document.getTextLength() - 1);
+    for (int i = start; i <= end; i++) {
+      if (!Character.isWhitespace(chars.charAt(i))) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Calculates indent of the line containing {@code offset}
+   * @return Whitespaces at the beginning of the line
+   */
+  public static CharSequence getIndent(@NotNull Document document, int offset) {
+    int lineOffset = getLineStartOffset(offset, document);
+    int result = 0;
+    while (lineOffset + result < document.getTextLength() &&
+           Character.isWhitespace(document.getCharsSequence().charAt(lineOffset + result))) {
+      result++;
+    }
+    if (result + lineOffset > document.getTextLength()) {
+      result--;
+    }
+    return document.getCharsSequence().subSequence(lineOffset, lineOffset + Math.max(result, 0));
   }
 }

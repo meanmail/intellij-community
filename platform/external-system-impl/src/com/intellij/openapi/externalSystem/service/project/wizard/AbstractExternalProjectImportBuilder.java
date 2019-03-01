@@ -5,19 +5,16 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.internal.InternalExternalProjectInfo;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
+import com.intellij.openapi.externalSystem.service.execution.ExternalSystemJdkUtil;
 import com.intellij.openapi.externalSystem.service.execution.ProgressExecutionMode;
-import com.intellij.openapi.externalSystem.service.project.ExternalProjectRefreshCallback;
-import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
-import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProviderImpl;
-import com.intellij.openapi.externalSystem.service.project.IdeUIModifiableModelsProvider;
-import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager;
-import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataManager;
+import com.intellij.openapi.externalSystem.service.project.*;
 import com.intellij.openapi.externalSystem.service.settings.AbstractImportFromExternalSystemControl;
 import com.intellij.openapi.externalSystem.service.ui.ExternalProjectDataSelectorDialog;
 import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
@@ -31,51 +28,68 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.projectRoots.Sdk;
+import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ui.configuration.ModulesConfigurator;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
 import com.intellij.openapi.startup.StartupManager;
-import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.packaging.artifacts.ModifiableArtifactModel;
 import com.intellij.projectImport.ProjectImportBuilder;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.ContainerUtilRt;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
- * GoF builder for gradle-backed projects.
+ * GoF builder for external system backed projects.
  * 
  * @author Denis Zhdanov
- * @since 8/1/11 1:29 PM
  */
-@SuppressWarnings("MethodMayBeStatic")
 public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImportFromExternalSystemControl>
   extends ProjectImportBuilder<DataNode<ProjectData>>
 {
 
-  private static final Logger LOG = Logger.getInstance("#" + AbstractExternalProjectImportBuilder.class.getName());
+  private static final Logger LOG = Logger.getInstance(AbstractExternalProjectImportBuilder.class);
 
-  @NotNull private final ProjectDataManager            myProjectDataManager;
-  @NotNull private final C                             myControl;
-  @NotNull private final ProjectSystemId               myExternalSystemId;
+  @NotNull private final ProjectDataManager myProjectDataManager;
+  @NotNull private final NotNullLazyValue<C> myControlValue;
+  @NotNull private final ProjectSystemId myExternalSystemId;
 
   private DataNode<ProjectData> myExternalProjectNode;
 
+  /**
+   * @deprecated use {@link AbstractExternalProjectImportBuilder#AbstractExternalProjectImportBuilder(ProjectDataManager, NotNullFactory, ProjectSystemId)}
+   */
+  @Deprecated
+  public AbstractExternalProjectImportBuilder(@NotNull com.intellij.openapi.externalSystem.service.project.manage.ProjectDataManager projectDataManager,
+                                              @NotNull C control,
+                                              @NotNull ProjectSystemId externalSystemId) {
+    this((ProjectDataManager)projectDataManager, control, externalSystemId);
+  }
+
+  /**
+   * @deprecated use {@link AbstractExternalProjectImportBuilder#AbstractExternalProjectImportBuilder(ProjectDataManager, NotNullFactory, ProjectSystemId)}
+   */
+  @Deprecated
   public AbstractExternalProjectImportBuilder(@NotNull ProjectDataManager projectDataManager,
                                               @NotNull C control,
-                                              @NotNull ProjectSystemId externalSystemId)
-  {
+                                              @NotNull ProjectSystemId externalSystemId) {
     myProjectDataManager = projectDataManager;
-    myControl = control;
+    myControlValue = NotNullLazyValue.createValue(() -> control);
+    myExternalSystemId = externalSystemId;
+  }
+
+  public AbstractExternalProjectImportBuilder(@NotNull ProjectDataManager projectDataManager,
+                                              @NotNull NotNullFactory<? extends C> controlFactory,
+                                              @NotNull ProjectSystemId externalSystemId) {
+    myProjectDataManager = projectDataManager;
+    myControlValue = NotNullLazyValue.createValue(controlFactory);
     myExternalSystemId = externalSystemId;
   }
 
@@ -90,7 +104,7 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
   }
 
   @Override
-  public void setList(List<DataNode<ProjectData>> gradleProjects) {
+  public void setList(List<DataNode<ProjectData>> externalSystemProjects) {
   }
 
   @Override
@@ -99,16 +113,31 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
 
   @NotNull
   public C getControl(@Nullable Project currentProject) {
-    myControl.setCurrentProject(currentProject);
-    return myControl;
+    C control = getControl();
+    control.setCurrentProject(currentProject);
+    return control;
   }
 
   public void prepare(@NotNull WizardContext context) {
-    myControl.setShowProjectFormatPanel(context.isCreatingNewProject());
-    myControl.reset();
+    if (context.getProjectJdk() == null) {
+      context.setProjectJdk(resolveProjectJdk(context));
+    }
+    C control = getControl();
+    control.setShowProjectFormatPanel(context.isCreatingNewProject());
+    control.reset(context, null);
     String pathToUse = getFileToImport();
-    myControl.setLinkedProjectPath(pathToUse);
+    control.setLinkedProjectPath(pathToUse);
     doPrepare(context);
+  }
+
+  @Nullable
+  protected Sdk resolveProjectJdk(@NotNull WizardContext context) {
+    Project project = context.getProject() != null ? context.getProject() : ProjectManager.getInstance().getDefaultProject();
+    final Pair<String, Sdk> sdkPair = ExternalSystemJdkUtil.getAvailableJdk(project);
+    if (!ExternalSystemJdkUtil.USE_INTERNAL_JAVA.equals(sdkPair.first)) {
+      return sdkPair.second;
+    }
+    return null;
   }
 
   protected abstract void doPrepare(@NotNull WizardContext context);
@@ -128,24 +157,41 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
     final boolean isFromUI = model != null;
 
     final List<Module> modules = ContainerUtil.newSmartList();
+    final Map<ModifiableRootModel, Module> moduleMap = ContainerUtil.newIdentityHashMap();
     final IdeModifiableModelsProvider modelsProvider = isFromUI ? new IdeUIModifiableModelsProvider(
       project, model, (ModulesConfigurator)modulesProvider, artifactModel) {
-      @NotNull
+
       @Override
-      public Module newModule(@NotNull @NonNls String filePath,
-                              String moduleTypeId) {
-        final Module module = super.newModule(filePath, moduleTypeId);
-        modules.add(module);
-        return module;
+      protected ModifiableRootModel doGetModifiableRootModel(Module module) {
+        ModifiableRootModel modifiableRootModel = super.doGetModifiableRootModel(module);
+        moduleMap.put(modifiableRootModel, module);
+        return modifiableRootModel;
+      }
+
+      @Override
+      public void commit() {
+        super.commit();
+        for (Map.Entry<ModifiableRootModel, Module> moduleEntry : moduleMap.entrySet()) {
+          modules.add(moduleEntry.getValue());
+        }
       }
     } : new IdeModifiableModelsProviderImpl(project){
       @NotNull
       @Override
-      public Module newModule(@NotNull @NonNls String filePath,
-                              String moduleTypeId) {
-        final Module module = super.newModule(filePath, moduleTypeId);
-        modules.add(module);
-        return module;
+      protected ModifiableRootModel doGetModifiableRootModel(@NotNull Module module) {
+        ModifiableRootModel modifiableRootModel = super.doGetModifiableRootModel(module);
+        moduleMap.put(modifiableRootModel, module);
+        return modifiableRootModel;
+      }
+
+      @Override
+      public void commit() {
+        super.commit();
+        for (Map.Entry<ModifiableRootModel, Module> moduleEntry : moduleMap.entrySet()) {
+          if (!moduleEntry.getKey().isWritable()) {
+            modules.add(moduleEntry.getValue());
+          }
+        }
       }
     };
     AbstractExternalSystemSettings systemSettings = ExternalSystemApiUtil.getSettings(project, myExternalSystemId);
@@ -158,18 +204,18 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
     projects.add(projectSettings);
 
     //noinspection unchecked
-    systemSettings.copyFrom(myControl.getSystemSettings());
+    systemSettings.copyFrom(getControl().getSystemSettings());
     //noinspection unchecked
     systemSettings.setLinkedProjectsSettings(projects);
 
     if (externalProjectNode != null) {
-      if(!ApplicationManager.getApplication().isHeadlessEnvironment()) {
+      if (systemSettings.showSelectiveImportDialogOnInitialImport() && !ApplicationManager.getApplication().isHeadlessEnvironment()) {
         ExternalProjectDataSelectorDialog dialog = new ExternalProjectDataSelectorDialog(
           project, new InternalExternalProjectInfo(myExternalSystemId, projectSettings.getExternalProjectPath(), externalProjectNode));
         if (dialog.hasMultipleDataToSelect()) {
           dialog.showAndGet();
         } else {
-          dialog.dispose();
+          Disposer.dispose(dialog.getDisposable());
         }
       }
 
@@ -192,8 +238,8 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
 
     // resolve dependencies
     final Runnable resolveDependenciesTask = () -> ExternalSystemUtil.refreshProject(
-      project, myExternalSystemId, projectSettings.getExternalProjectPath(), false,
-      ProgressExecutionMode.IN_BACKGROUND_ASYNC);
+      project, myExternalSystemId, projectSettings.getExternalProjectPath(),
+      createFinalImportCallback(project, projectSettings), false, ProgressExecutionMode.IN_BACKGROUND_ASYNC, true);
     if (!isFromUI) {
       resolveDependenciesTask.run();
     }
@@ -204,22 +250,26 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
         if (ContainerUtil.list(committedModules).containsAll(modules)) {
           resolveDependenciesTask.run();
         }
-        else {
-          ExternalSystemApiUtil.getLocalSettings(project, myExternalSystemId).forgetExternalProjects(
-            Collections.singleton(projectSettings.getExternalProjectPath()));
-          ExternalSystemApiUtil.getSettings(project, myExternalSystemId).unlinkExternalProject(
-            projectSettings.getExternalProjectPath());
-
-          ExternalProjectsManager.getInstance(project).forgetExternalProjectData(
-            myExternalSystemId, projectSettings.getExternalProjectPath());
-        }
       });
     }
   }
 
+  protected ExternalProjectRefreshCallback createFinalImportCallback(@NotNull Project project,
+                                                                     @NotNull ExternalProjectSettings projectSettings) {
+    return new ExternalProjectRefreshCallback() {
+      @Override
+      public void onSuccess(@Nullable final DataNode<ProjectData> externalProject) {
+        if (externalProject == null) {
+          return;
+        }
+        ServiceManager.getService(ProjectDataManager.class).importData(externalProject, project, false);
+      }
+    };
+  }
+
   @NotNull
   private ExternalProjectSettings getCurrentExternalProjectSettings() {
-    ExternalProjectSettings result = myControl.getProjectSettings().clone();
+    ExternalProjectSettings result = getControl().getProjectSettings().clone();
     File externalProjectConfigFile = getExternalProjectConfigToUse(new File(result.getExternalProjectPath()));
     final String linkedProjectPath = FileUtil.toCanonicalPath(externalProjectConfigFile.getPath());
     assert linkedProjectPath != null;
@@ -231,7 +281,7 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
 
   @Nullable
   private File getProjectFile() {
-    String path = myControl.getProjectSettings().getExternalProjectPath();
+    String path = getControl().getProjectSettings().getExternalProjectPath();
     return path == null ? null : new File(path);
   }
 
@@ -239,9 +289,8 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
    * Asks current builder to ensure that target external project is defined.
    *
    * @param wizardContext             current wizard context
-   * @throws ConfigurationException   if gradle project is not defined and can't be constructed
+   * @throws ConfigurationException   if external project is not defined and can't be constructed
    */
-  @SuppressWarnings("unchecked")
   public void ensureProjectIsDefined(@NotNull WizardContext wizardContext) throws ConfigurationException {
     final String externalSystemName = myExternalSystemId.getReadableName();
     File projectFile = getProjectFile();
@@ -309,9 +358,12 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
     if (systemSettings instanceof PersistentStateComponent) {
       systemStateToRestore = ((PersistentStateComponent)systemSettings).getState();
     }
-    systemSettings.copyFrom(myControl.getSystemSettings());
+    systemSettings.copyFrom(getControl().getSystemSettings());
     Collection projectSettingsToRestore = systemSettings.getLinkedProjectsSettings();
-    systemSettings.setLinkedProjectsSettings(Collections.singleton(getCurrentExternalProjectSettings()));
+    Set<ExternalProjectSettings> projects = ContainerUtilRt.newHashSet(systemSettings.getLinkedProjectsSettings());
+    projects.add(getCurrentExternalProjectSettings());
+    systemSettings.setLinkedProjectsSettings(projects);
+
     try {
       task.run();
     }
@@ -375,4 +427,20 @@ public abstract class AbstractExternalProjectImportBuilder<C extends AbstractImp
     }
     return result;
   }
+
+  @Nullable
+  @Override
+  public Project createProject(String name, String path) {
+    Project project = super.createProject(name, path);
+    if (project != null) {
+      project.putUserData(ExternalSystemDataKeys.NEWLY_CREATED_PROJECT, Boolean.TRUE);
+    }
+    return project;
+  }
+
+  @NotNull
+  private C getControl() {
+    return myControlValue.getValue();
+  }
+
 }

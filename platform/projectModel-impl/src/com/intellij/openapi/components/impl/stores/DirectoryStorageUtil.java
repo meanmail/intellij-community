@@ -1,28 +1,14 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.components.impl.stores;
 
 import com.intellij.application.options.PathMacrosCollector;
+import com.intellij.openapi.components.PathMacroSubstitutor;
 import com.intellij.openapi.components.StateSplitterEx;
 import com.intellij.openapi.components.TrackingPathMacroSubstitutor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.StringInterner;
 import gnu.trove.THashMap;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -36,12 +22,11 @@ public class DirectoryStorageUtil {
   private static final Logger LOG = Logger.getInstance(DirectoryStorageUtil.class);
 
   @NotNull
-  public static Map<String, Element> loadFrom(@Nullable VirtualFile dir, @Nullable TrackingPathMacroSubstitutor pathMacroSubstitutor) {
+  public static Map<String, Element> loadFrom(@Nullable VirtualFile dir, @Nullable PathMacroSubstitutor pathMacroSubstitutor) {
     if (dir == null || !dir.exists()) {
       return Collections.emptyMap();
     }
 
-    StringInterner interner = new StringInterner();
     Map<String, Element> fileToState = new THashMap<>();
     for (VirtualFile file : dir.getChildren()) {
       // ignore system files like .DS_Store on Mac
@@ -71,18 +56,20 @@ public class DirectoryStorageUtil {
           continue;
         }
 
-        Element state = (Element)elementChildren.get(0).detach();
+        Element state = elementChildren.get(0).detach();
         if (JDOMUtil.isEmpty(state)) {
           continue;
         }
 
-        JDOMUtil.internElement(state, interner);
         if (pathMacroSubstitutor != null) {
           pathMacroSubstitutor.expandPaths(state);
-          pathMacroSubstitutor.addUnknownMacros(componentName, PathMacrosCollector.getMacroNames(state));
+          if (pathMacroSubstitutor instanceof TrackingPathMacroSubstitutor) {
+            ((TrackingPathMacroSubstitutor)pathMacroSubstitutor).addUnknownMacros(componentName, PathMacrosCollector.getMacroNames(state));
+          }
         }
 
-        fileToState.put(file.getName(), state);
+        Element newState = JDOMUtil.internElement(state);
+        fileToState.put(file.getName(), newState);
       }
       catch (Throwable e) {
         LOG.warn("Unable to load state", e);

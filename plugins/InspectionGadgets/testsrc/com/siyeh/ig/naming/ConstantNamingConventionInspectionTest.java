@@ -1,10 +1,9 @@
 package com.siyeh.ig.naming;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
-import com.siyeh.ig.LightInspectionTestCase;
 import org.jetbrains.annotations.Nullable;
 
-public class ConstantNamingConventionInspectionTest extends LightInspectionTestCase {
+public class ConstantNamingConventionInspectionTest extends AbstractFieldNamingConventionInspectionTest {
 
   public void testConstantNamingConvention() {
     doTest();
@@ -13,6 +12,8 @@ public class ConstantNamingConventionInspectionTest extends LightInspectionTestC
   @Nullable
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new ConstantNamingConventionInspection();
+    FieldNamingConventionInspection inspection = new FieldNamingConventionInspection();
+    inspection.setEnabled(true,new ConstantNamingConvention().getShortName());
+    return inspection;
   }
 }

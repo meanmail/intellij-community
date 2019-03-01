@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.descriptors;
 
 import com.intellij.codeInsight.daemon.impl.analysis.JavaGenericsUtil;
@@ -10,7 +11,6 @@ import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlElementsGroup;
@@ -25,10 +25,6 @@ import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 1/10/13
- */
 public class JavaFxPropertyTagDescriptor implements XmlElementDescriptor {
   private final PsiClass myPsiClass;
   private final String myName;
@@ -176,7 +172,7 @@ public class JavaFxPropertyTagDescriptor implements XmlElementDescriptor {
   public PsiElement getDeclaration() {
     if (myPsiClass == null) return null;
     if (myStatic) return JavaFxPsiUtil.findStaticPropertySetter(myName, myPsiClass);
-    return JavaFxPsiUtil.collectWritableProperties(myPsiClass).get(myName);
+    return JavaFxPsiUtil.getWritableProperties(myPsiClass).get(myName);
   }
 
   @Override
@@ -187,18 +183,13 @@ public class JavaFxPropertyTagDescriptor implements XmlElementDescriptor {
   @Override
   public String getName() {
     if (myPsiClass != null && myStatic) {
-      return StringUtil.getQualifiedName(myPsiClass.getName(), myName);
+      return StringUtil.getQualifiedName(myPsiClass.getName(), StringUtil.notNullize(myName));
     }
     return myName;
   }
 
   @Override
   public void init(PsiElement element) {}
-
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
 
   @Override
   public String toString() {

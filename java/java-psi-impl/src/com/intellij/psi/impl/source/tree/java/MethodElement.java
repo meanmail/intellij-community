@@ -75,6 +75,9 @@ public class MethodElement extends CompositeElement implements Constants {
       LeafElement semicolon = Factory.createSingleLeafElement(SEMICOLON, ";", 0, 1, treeCharTab, getManager());
       addInternal(semicolon, semicolon, null, Boolean.TRUE);
     }
+    else if (child.getElementType() == PARAMETER_LIST) {
+      throw new IllegalArgumentException("Deleting parameter list is prohibited");
+    }
     else {
       super.deleteChildInternal(child);
     }
@@ -120,7 +123,7 @@ public class MethodElement extends CompositeElement implements Constants {
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == JavaDocElementType.DOC_COMMENT) {

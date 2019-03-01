@@ -1,6 +1,6 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.JavaPsiFacade;
@@ -14,16 +14,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: db
- * Date: Sep 28, 2004
- * Time: 7:13:53 PM
- * To change this template use File | Settings | File Templates.
- */
 public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
-  private static final Logger LOG = Logger.getInstance("#" + TypeConversionDescriptor.class.getName());
-
   private String myStringToReplace = null;
   private String myReplaceByString = "$";
   private PsiExpression myExpression;
@@ -80,9 +71,15 @@ public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
   }
 
   @Override
-  public PsiExpression replace(PsiExpression expression, TypeEvaluator evaluator) {
+  public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) {
     if (getExpression() != null) expression = getExpression();
+    expression = adjustExpressionBeforeReplacement(expression);
     return replaceExpression(expression, getStringToReplace(), getReplaceByString());
+  }
+
+  @NotNull
+  protected PsiExpression adjustExpressionBeforeReplacement(@NotNull PsiExpression expression) {
+    return expression;
   }
 
   @NotNull
@@ -93,10 +90,9 @@ public class TypeConversionDescriptor extends TypeConversionDescriptorBase {
     final ReplaceOptions options = new ReplaceOptions();
     final MatchOptions matchOptions = options.getMatchOptions();
     matchOptions.setFileType(StdFileTypes.JAVA);
-    final Replacer replacer = new Replacer(project, null);
-    final String replacement = replacer.testReplace(expression.getText(), stringToReplace, replaceByString, options);
+    final String replacement = Replacer.testReplace(expression.getText(), stringToReplace, replaceByString, options, project);
     return (PsiExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(expression.replace(
-      JavaPsiFacade.getInstance(project).getElementFactory().createExpressionFromText(replacement, expression)));
+      JavaPsiFacade.getElementFactory(project).createExpressionFromText(replacement, expression)));
   }
 
   @Override

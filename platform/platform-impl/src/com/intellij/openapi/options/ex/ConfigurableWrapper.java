@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.ex;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -31,17 +17,21 @@ import java.util.*;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 9/17/12
  */
 public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
   private static final Logger LOG = Logger.getInstance(ConfigurableWrapper.class);
 
   @Nullable
   public static <T extends UnnamedConfigurable> T wrapConfigurable(@NotNull ConfigurableEP<T> ep) {
+    return wrapConfigurable(ep, false);
+  }
+
+  @Nullable
+  public static <T extends UnnamedConfigurable> T wrapConfigurable(@NotNull ConfigurableEP<T> ep, boolean settings) {
     if (!ep.canCreateConfigurable()) {
       return null;
     }
-    if (ep.displayName != null || ep.key != null || ep.parentId != null || ep.groupId != null) {
+    if (settings || ep.displayName != null || ep.key != null || ep.parentId != null || ep.groupId != null) {
       //noinspection unchecked
       return (T)(!ep.dynamic && ep.children == null && ep.childrenEPName == null ? new ConfigurableWrapper(ep) : new CompositeWrapper(ep));
     }
@@ -105,7 +95,13 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
     myWeight = ep.groupWeight;
   }
 
+  @Nullable
   private UnnamedConfigurable myConfigurable;
+
+  @Nullable
+  public UnnamedConfigurable getRawConfigurable() {
+    return myConfigurable;
+  }
 
   public UnnamedConfigurable getConfigurable() {
     if (myConfigurable == null) {
@@ -176,7 +172,10 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
 
   @Override
   public void disposeUIResources() {
-    getConfigurable().disposeUIResources();
+    UnnamedConfigurable configurable = myConfigurable;
+    if (configurable != null) {
+      configurable.disposeUIResources();
+    }
   }
 
   @NotNull
@@ -194,9 +193,12 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
       }
       return id;
     }
-    return myEp.instanceClass != null
-           ? myEp.instanceClass
-           : myEp.providerClass;
+    // order from #ConfigurableEP(PicoContainer, Project)
+    return myEp.providerClass != null
+           ? myEp.providerClass
+           : myEp.instanceClass != null
+             ? myEp.instanceClass
+             : myEp.implementationClass;
   }
 
   @NotNull
@@ -224,6 +226,15 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
     return configurable instanceof SearchableConfigurable ? ((SearchableConfigurable)configurable).enableSearch(option) : null;
   }
 
+  @NotNull
+  @Override
+  public Class<?> getOriginalClass() {
+    final UnnamedConfigurable configurable = getConfigurable();
+    return configurable instanceof SearchableConfigurable
+           ? ((SearchableConfigurable)configurable).getOriginalClass()
+           : configurable.getClass();
+  }
+
   private static class CompositeWrapper extends ConfigurableWrapper implements Configurable.Composite {
 
     private Configurable[] myKids;
@@ -235,9 +246,11 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
       myKids = kids;
     }
 
+    @NotNull
     @Override
     public Configurable[] getConfigurables() {
       if (!isInitialized) {
+        long time = System.currentTimeMillis();
         ArrayList<Configurable> list = new ArrayList<>();
         if (super.myEp.dynamic) {
           Composite composite = cast(Composite.class, this);
@@ -279,8 +292,9 @@ public class ConfigurableWrapper implements SearchableConfigurable, Weighted {
             }
           }
         }
-        myKids = ArrayUtil.toObjectArray(list, Configurable.class);
+        myKids = list.toArray(new Configurable[0]);
         isInitialized = true;
+        ConfigurableCardPanel.warn(this, "children", time);
       }
       return myKids;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,66 +23,41 @@ import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
+import com.intellij.psi.PsiReferenceService.Hints;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
-import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.tree.TokenSet;
+import com.intellij.psi.util.CachedValueProvider.Result;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.codeInsight.regexp.PythonVerboseRegexpLanguage;
-import com.jetbrains.python.lexer.PyStringLiteralLexer;
 import com.jetbrains.python.lexer.PythonHighlightingLexer;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.TypeEvalContext;
+import one.util.streamex.StreamEx;
 import org.intellij.lang.regexp.DefaultRegExpPropertiesProvider;
 import org.intellij.lang.regexp.RegExpLanguageHost;
-import org.intellij.lang.regexp.psi.RegExpChar;
-import org.intellij.lang.regexp.psi.RegExpGroup;
-import org.intellij.lang.regexp.psi.RegExpNamedGroupRef;
+import org.intellij.lang.regexp.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.List;
 
-public class PyStringLiteralExpressionImpl extends PyElementImpl implements PyStringLiteralExpression, RegExpLanguageHost {
-  public static final Pattern PATTERN_ESCAPE = Pattern
-      .compile("\\\\(\n|\\\\|'|\"|a|b|f|n|r|t|v|([0-7]{1,3})|x([0-9a-fA-F]{1,2})" + "|N(\\{.*?\\})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8}))");
-         //        -> 1                        ->   2      <-->     3          <-     ->   4     <-->    5      <-   ->  6           <-<-
+public class PyStringLiteralExpressionImpl extends PyElementImpl implements PyStringLiteralExpression, RegExpLanguageHost, PsiLiteralValue {
 
-  private enum EscapeRegexGroup {
-    WHOLE_MATCH,
-    ESCAPED_SUBSTRING,
-    OCTAL,
-    HEXADECIMAL,
-    UNICODE_NAMED,
-    UNICODE_16BIT,
-    UNICODE_32BIT
-  }
-
-  private static final Map<String, String> escapeMap = initializeEscapeMap();
-  private String stringValue;
-  private List<TextRange> valueTextRanges;
-  @Nullable private List<Pair<TextRange, String>> myDecodedFragments;
+  @Nullable private volatile String myStringValue;
+  @Nullable private volatile List<TextRange> myValueTextRanges;
+  @Nullable private volatile List<Pair<TextRange, String>> myDecodedFragments;
   private final DefaultRegExpPropertiesProvider myPropertiesProvider;
-
-  private static Map<String, String> initializeEscapeMap() {
-    Map<String, String> map = new HashMap<>();
-    map.put("\n", "\n");
-    map.put("\\", "\\");
-    map.put("'", "'");
-    map.put("\"", "\"");
-    map.put("a", "\001");
-    map.put("b", "\b");
-    map.put("f", "\f");
-    map.put("n", "\n");
-    map.put("r", "\r");
-    map.put("t", "\t");
-    map.put("v", "\013");
-    return map;
-  }
 
   public PyStringLiteralExpressionImpl(ASTNode astNode) {
     super(astNode);
@@ -94,99 +69,47 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     pyVisitor.visitPyStringLiteralExpression(this);
   }
 
+  @Override
   public void subtreeChanged() {
     super.subtreeChanged();
-    stringValue = null;
-    valueTextRanges = null;
+    myStringValue = null;
+    myValueTextRanges = null;
     myDecodedFragments = null;
   }
 
+  @Override
+  @NotNull
   public List<TextRange> getStringValueTextRanges() {
-    if (valueTextRanges == null) {
-      int elStart = getTextRange().getStartOffset();
-      List<TextRange> ranges = new ArrayList<>();
-      for (ASTNode node : getStringNodes()) {
-        TextRange range = getNodeTextRange(node.getText());
-        int nodeOffset = node.getStartOffset() - elStart;
-        ranges.add(TextRange.from(nodeOffset + range.getStartOffset(), range.getLength()));
-      }
-      valueTextRanges = Collections.unmodifiableList(ranges);
+    List<TextRange> result = myValueTextRanges;
+    if (result == null) {
+      final int elementStart = getTextRange().getStartOffset();
+      final List<TextRange> ranges = StreamEx.of(getStringElements())
+        .map(node -> {
+          final int nodeRelativeOffset = node.getTextRange().getStartOffset() - elementStart;
+          return node.getContentRange().shiftRight(nodeRelativeOffset);
+        })
+        .toList();
+      myValueTextRanges = result = Collections.unmodifiableList(ranges);
     }
-    return valueTextRanges;
-  }
-
-  public static TextRange getNodeTextRange(final String text) {
-    int startOffset = getPrefixLength(text);
-    int delimiterLength = 1;
-    final String afterPrefix = text.substring(startOffset);
-    if (afterPrefix.startsWith("\"\"\"") || afterPrefix.startsWith("'''")) {
-      delimiterLength = 3;
-    }
-    final String delimiter = text.substring(startOffset, startOffset + delimiterLength);
-    startOffset += delimiterLength;
-    int endOffset = text.length();
-    if (text.substring(startOffset).endsWith(delimiter)) {
-      endOffset -= delimiterLength;
-    }
-    return new TextRange(startOffset, endOffset);
-  }
-
-  public static int getPrefixLength(String text) {
-    int startOffset = 0;
-    startOffset = PyStringLiteralLexer.skipEncodingPrefix(text, startOffset);
-    startOffset = PyStringLiteralLexer.skipRawPrefix(text, startOffset);
-    startOffset = PyStringLiteralLexer.skipFormattedPrefix(text, startOffset);
-    startOffset = PyStringLiteralLexer.skipEncodingPrefix(text, startOffset);
-    startOffset = PyStringLiteralLexer.skipRawPrefix(text, startOffset);
-    return startOffset;
-  }
-
-  private static boolean isRaw(String text) {
-    int startOffset = PyStringLiteralLexer.skipEncodingPrefix(text, 0);
-    return PyStringLiteralLexer.skipRawPrefix(text, startOffset) > startOffset;
-  }
-
-  private static boolean isUnicode(String text) {
-    return text.length() > 0 && Character.toUpperCase(text.charAt(0)) == 'U';                       //TODO[ktisha]
-  }
-
-  private boolean isUnicodeByDefault() {
-    if (LanguageLevel.forElement(this).isAtLeast(LanguageLevel.PYTHON30)) {
-      return true;
-    }
-    final PsiFile file = getContainingFile();
-    if (file instanceof PyFile) {
-      final PyFile pyFile = (PyFile)file;
-      return pyFile.hasImportFromFuture(FutureFeature.UNICODE_LITERALS);
-    }
-    return false;
-  }
-
-  private static boolean isBytes(String text) {
-    return text.length() > 0 && Character.toUpperCase(text.charAt(0)) == 'B';
-  }
-
-  private static boolean isChar(String text) {
-    return text.length() > 0 && Character.toUpperCase(text.charAt(0)) == 'C';
+    return result;
   }
 
   @Override
   @NotNull
   public List<Pair<TextRange, String>> getDecodedFragments() {
-    if (myDecodedFragments == null) {
-      final List<Pair<TextRange, String>> result = new ArrayList<>();
-      final int elementStart = getTextRange().getStartOffset();
-      final boolean unicodeByDefault = isUnicodeByDefault();
-      for (ASTNode node : getStringNodes()) {
-        final String text = node.getText();
-        final TextRange textRange = getNodeTextRange(text);
-        final int offset = node.getTextRange().getStartOffset() - elementStart + textRange.getStartOffset();
-        final String encoded = textRange.substring(text);
-        result.addAll(getDecodedFragments(encoded, offset, isRaw(text), unicodeByDefault || isUnicode(text)));
-      }
-      myDecodedFragments = result;
+    final int elementStart = getTextRange().getStartOffset();
+    List<Pair<TextRange, String>> result = myDecodedFragments;
+    if (result == null) {
+      final List<Pair<TextRange, String>> combined = StreamEx.of(getStringElements())
+        .flatMap(node -> StreamEx.of(node.getDecodedFragments())
+          .map(pair -> {
+            final int nodeRelativeOffset = node.getTextRange().getStartOffset() - elementStart;
+            return Pair.create(pair.getFirst().shiftRight(nodeRelativeOffset), pair.getSecond());
+          }))
+        .toList();
+      myDecodedFragments = result = Collections.unmodifiableList(combined);
     }
-    return myDecodedFragments;
+    return result;
   }
 
   @Override
@@ -195,89 +118,42 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return stringNodes.size() == 1 && stringNodes.get(0).getElementType() == PyTokenTypes.DOCSTRING;
   }
 
+  @Override
   @NotNull
-  private static List<Pair<TextRange, String>> getDecodedFragments(@NotNull String encoded, int offset, boolean raw, boolean unicode) {
-    final List<Pair<TextRange, String>> result = new ArrayList<>();
-    final Matcher escMatcher = PATTERN_ESCAPE.matcher(encoded);
-    int index = 0;
-    while (escMatcher.find(index)) {
-      if (index < escMatcher.start()) {
-        final TextRange range = TextRange.create(index, escMatcher.start());
-        final TextRange offsetRange = range.shiftRight(offset);
-        result.add(Pair.create(offsetRange, range.substring(encoded)));
-      }
-
-      final String octal = escapeRegexGroup(escMatcher, EscapeRegexGroup.OCTAL);
-      final String hex = escapeRegexGroup(escMatcher, EscapeRegexGroup.HEXADECIMAL);
-      // TODO: Implement unicode character name escapes: EscapeRegexGroup.UNICODE_NAMED
-      final String unicode16 = escapeRegexGroup(escMatcher, EscapeRegexGroup.UNICODE_16BIT);
-      final String unicode32 = escapeRegexGroup(escMatcher, EscapeRegexGroup.UNICODE_32BIT);
-      final String wholeMatch = escapeRegexGroup(escMatcher, EscapeRegexGroup.WHOLE_MATCH);
-
-      final boolean escapedUnicode = raw && unicode || !raw;
-
-      final String str;
-      if (!raw && octal != null) {
-        str = new String(new char[]{(char)Integer.parseInt(octal, 8)});
-      }
-      else if (!raw && hex != null) {
-        str = new String(new char[]{(char)Integer.parseInt(hex, 16)});
-      }
-      else if (escapedUnicode && unicode16 != null) {
-        str = unicode ? new String(new char[]{(char)Integer.parseInt(unicode16, 16)}) : wholeMatch;
-      }
-      else if (escapedUnicode && unicode32 != null) {
-        String s = wholeMatch;
-        if (unicode) {
-          try {
-            s = new String(Character.toChars((int)Long.parseLong(unicode32, 16)));
-          }
-          catch (IllegalArgumentException ignored) {
-          }
-        }
-        str = s;
-      }
-      else if (raw) {
-        str = wholeMatch;
-      }
-      else {
-        final String toReplace = escapeRegexGroup(escMatcher, EscapeRegexGroup.ESCAPED_SUBSTRING);
-        str = escapeMap.get(toReplace);
-      }
-
-      if (str != null) {
-        final TextRange wholeMatchRange = TextRange.create(escMatcher.start(), escMatcher.end());
-        result.add(Pair.create(wholeMatchRange.shiftRight(offset), str));
-      }
-
-      index = escMatcher.end();
-    }
-    final TextRange range = TextRange.create(index, encoded.length());
-    final TextRange offRange = range.shiftRight(offset);
-    result.add(Pair.create(offRange, range.substring(encoded)));
-    return result;
-  }
-
-  @Nullable
-  private static String escapeRegexGroup(@NotNull Matcher matcher, EscapeRegexGroup group) {
-    return matcher.group(group.ordinal());
-  }
-
   public List<ASTNode> getStringNodes() {
-    return Arrays.asList(getNode().getChildren(PyTokenTypes.STRING_NODES));
+    final TokenSet stringNodeTypes = TokenSet.orSet(PyTokenTypes.STRING_NODES, TokenSet.create(PyElementTypes.FSTRING_NODE));
+    return Arrays.asList(getNode().getChildren(stringNodeTypes));
   }
 
+  @NotNull
+  @Override
+  public List<PyStringElement> getStringElements() {
+    return StreamEx.of(getStringNodes())
+      .map(ASTNode::getPsi)
+      .select(PyStringElement.class)
+      .toList();
+  }
+
+  @NotNull
+  @Override
   public String getStringValue() {
     //ASTNode child = getNode().getFirstChildNode();
     //assert child != null;
-    if (stringValue == null) {
+    String result = myStringValue;
+    if (result == null) {
       final StringBuilder out = new StringBuilder();
       for (Pair<TextRange, String> fragment : getDecodedFragments()) {
         out.append(fragment.getSecond());
       }
-      stringValue = out.toString();
+      myStringValue = result = out.toString();
     }
-    return stringValue;
+    return result;
+  }
+
+  @Nullable
+  @Override
+  public Object getValue() {
+    return getStringValue();
   }
 
   @Override
@@ -302,15 +178,21 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return true;
   }
 
+  @Override
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
-    final List<ASTNode> nodes = getStringNodes();
-    if (nodes.size() > 0) {
-      String text = getStringNodes().get(0).getText();
+    final ASTNode firstNode = ContainerUtil.getFirstItem(getStringNodes());
+    if (firstNode != null) {
+      if (firstNode.getElementType() == PyElementTypes.FSTRING_NODE) {
+        // f-strings can't have "b" prefix so they are always unicode 
+        return PyBuiltinCache.getInstance(this).getUnicodeType(LanguageLevel.forElement(this));
+      }
 
       PyFile file = PsiTreeUtil.getParentOfType(this, PyFile.class);
       if (file != null) {
-        IElementType type = PythonHighlightingLexer.convertStringType(getStringNodes().get(0).getElementType(), text,
-                                                LanguageLevel.forElement(this), file.hasImportFromFuture(FutureFeature.UNICODE_LITERALS));
+        IElementType type = PythonHighlightingLexer.convertStringType(firstNode.getElementType(), 
+                                                                      firstNode.getText(),
+                                                                      LanguageLevel.forElement(this),
+                                                                      file.hasImportFromFuture(FutureFeature.UNICODE_LITERALS));
         if (PyTokenTypes.UNICODE_NODES.contains(type)) {
           return PyBuiltinCache.getInstance(this).getUnicodeType(LanguageLevel.forElement(this));
         }
@@ -319,9 +201,12 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return PyBuiltinCache.getInstance(this).getBytesType(LanguageLevel.forElement(this));
   }
 
+  @Override
   @NotNull
-  public PsiReference[] getReferences() {
-    return ReferenceProvidersRegistry.getReferencesFromProviders(this, PsiReferenceService.Hints.NO_HINTS);
+  public final PsiReference[] getReferences() {
+    return CachedValuesManager.getCachedValue(this, () -> Result.create(
+      ReferenceProvidersRegistry.getReferencesFromProviders(this, Hints.NO_HINTS),
+      PsiModificationTracker.MODIFICATION_COUNT));
   }
 
   @Override
@@ -336,7 +221,8 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
       @Nullable
       @Override
       public String getLocationString() {
-        return "(" + PyElementPresentation.getPackageForFile(getContainingFile()) + ")";
+        String packageForFile = PyElementPresentation.getPackageForFile(getContainingFile());
+        return packageForFile != null ? String.format("(%s)", packageForFile) : null;
       }
 
       @Nullable
@@ -347,14 +233,12 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     };
   }
 
+  @Override
   public PsiLanguageInjectionHost updateText(@NotNull String text) {
-    // TODO is this the correct implementation? most likely not
-    ASTNode valueNode = getNode().getFirstChildNode();
-    assert valueNode instanceof LeafElement;
-    ((LeafElement)valueNode).replaceWithText(text);
-    return this;
+    return ElementManipulators.handleContentChange(this, text);
   }
 
+  @Override
   @NotNull
   public LiteralTextEscaper<? extends PsiLanguageInjectionHost> createLiteralTextEscaper() {
     return new StringLiteralTextEscaper(this);
@@ -376,7 +260,7 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
         if (intersection != null && !intersection.isEmpty()) {
           final String value = fragment.getSecond();
           final String intersectedValue;
-          if (value.length() == 1 || value.length() == intersection.getLength()) {
+          if (value.codePointCount(0, value.length()) == 1 || value.length() == intersection.getLength()) {
             intersectedValue = value;
           }
           else {
@@ -392,7 +276,7 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
 
     @Override
     public int getOffsetInHost(final int offsetInDecoded, @NotNull final TextRange rangeInsideHost) {
-      int offset = 0;
+      int offset = 0; // running offset in the decoded fragment
       int endOffset = -1;
       for (Pair<TextRange, String> fragment : myHost.getDecodedFragments()) {
         final TextRange encodedTextRange = fragment.getFirst();
@@ -404,13 +288,15 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
           if (valueLength == 0) {
             return -1;
           }
-          else if (valueLength == 1) {
+          // A long unicode escape of form \U01234567 can be decoded into a surrogate pair
+          else if (value.codePointCount(0, valueLength) == 1) {
             if (offset == offsetInDecoded) {
               return intersection.getStartOffset();
             }
-            offset++;
+            offset += valueLength;
           }
           else {
+            // Literal fragment without escapes: it's safe to use intersection length instead of value length
             if (offset + intersectionLength >= offsetInDecoded) {
               final int delta = offsetInDecoded - offset;
               return intersection.getStartOffset() + delta;
@@ -430,7 +316,7 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
 
     @Override
     public boolean isOneLine() {
-      return false;
+      return true;
     }
   }
 
@@ -439,6 +325,7 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return createLiteralTextEscaper().getOffsetInHost(valueOffset, getStringValueTextRange());
   }
 
+  @Override
   public boolean characterNeedsEscaping(char c) {
     if (c == '#') {
       return isVerboseInjection();
@@ -447,7 +334,7 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
   }
 
   private boolean isVerboseInjection() {
-    List<Pair<PsiElement,TextRange>> files = InjectedLanguageManager.getInstance(getProject()).getInjectedPsiFiles(this);
+    List<Pair<PsiElement, TextRange>> files = InjectedLanguageManager.getInstance(getProject()).getInjectedPsiFiles(this);
     if (files != null) {
       for (Pair<PsiElement, TextRange> file : files) {
         Language language = file.getFirst().getLanguage();
@@ -459,20 +346,24 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return false;
   }
 
+  @Override
   public boolean supportsPerl5EmbeddedComments() {
     return true;
   }
 
+  @Override
   public boolean supportsPossessiveQuantifiers() {
     return false;
   }
 
+  @Override
   public boolean supportsPythonConditionalRefs() {
     return true;
   }
 
+  @Override
   public boolean supportsNamedGroupSyntax(RegExpGroup group) {
-    return group.isPythonNamedGroup();
+    return group.getType() == RegExpGroup.Type.PYTHON_NAMED_GROUP;
   }
 
   @Override
@@ -480,9 +371,32 @@ public class PyStringLiteralExpressionImpl extends PyElementImpl implements PySt
     return ref.isPythonNamedGroupRef();
   }
 
+  @NotNull
+  @Override
+  public EnumSet<RegExpGroup.Type> getSupportedNamedGroupTypes(RegExpElement context) {
+    return EnumSet.of(RegExpGroup.Type.PYTHON_NAMED_GROUP);
+  }
+
   @Override
   public boolean supportsExtendedHexCharacter(RegExpChar regExpChar) {
     return false;
+  }
+
+  @Override
+  public Lookbehind supportsLookbehind(@NotNull RegExpGroup lookbehindGroup) {
+    return Lookbehind.FIXED_LENGTH_ALTERNATION;
+  }
+
+  @Override
+  public Long getQuantifierValue(@NotNull RegExpNumber number) {
+    try {
+      final long result = Long.parseLong(number.getText());
+      if (result >= 0xFFFFFFFFL /* max unsigned int 32 bits */) return null;
+      return result;
+    }
+    catch (NumberFormatException e) {
+      return null;
+    }
   }
 
   @Override

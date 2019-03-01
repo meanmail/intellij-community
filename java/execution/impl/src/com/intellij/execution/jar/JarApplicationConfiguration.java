@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.jar;
 
 import com.intellij.diagnostic.logging.LogConfigurationPanel;
@@ -22,13 +8,14 @@ import com.intellij.execution.configurations.*;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.util.JavaParametersUtil;
 import com.intellij.execution.util.ProgramParametersUtil;
-import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.options.SettingsEditorGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
@@ -44,11 +31,18 @@ import java.util.Map;
 /**
  * @author nik
  */
-public class JarApplicationConfiguration extends LocatableConfigurationBase implements CommonJavaRunConfigurationParameters, SearchScopeProvidingRunProfile {
+public class JarApplicationConfiguration extends LocatableConfigurationBase implements CommonJavaRunConfigurationParameters, SearchScopeProvidingRunProfile, InputRedirectAware {
   private static final SkipDefaultValuesSerializationFilters SERIALIZATION_FILTERS = new SkipDefaultValuesSerializationFilters();
   private JarApplicationConfigurationBean myBean = new JarApplicationConfigurationBean();
   private Map<String, String> myEnvs = new LinkedHashMap<>();
   private JavaRunConfigurationModule myConfigurationModule;
+  private InputRedirectAware.InputRedirectOptionsImpl myInputRedirectOptions = new InputRedirectOptionsImpl();
+
+  @NotNull
+  @Override
+  public InputRedirectOptions getInputRedirectOptions() {
+    return myInputRedirectOptions;
+  }
 
   public JarApplicationConfiguration(Project project, ConfigurationFactory factory, String name) {
     super(project, factory, name);
@@ -66,13 +60,13 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
-    PathMacroManager.getInstance(getProject()).expandPaths(element);
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().readExternal(this, element);
     XmlSerializer.deserializeInto(myBean, element);
     EnvironmentVariablesComponent.readExternal(element, getEnvs());
     myConfigurationModule.readExternal(element);
+    myInputRedirectOptions.readExternal(element);
   }
 
   @Override
@@ -82,6 +76,7 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
     clone.myConfigurationModule = new JavaRunConfigurationModule(getProject(), true);
     clone.myConfigurationModule.setModule(myConfigurationModule.getModule());
     clone.myBean = XmlSerializerUtil.createCopy(myBean);
+    clone.myInputRedirectOptions = myInputRedirectOptions.copy();
     return clone;
   }
 
@@ -94,7 +89,7 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().writeExternal(this, element);
     XmlSerializer.serializeInto(myBean, element, SERIALIZATION_FILTERS);
@@ -102,6 +97,7 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
     if (myConfigurationModule.getModule() != null) {
       myConfigurationModule.writeExternal(element);
     }
+    myInputRedirectOptions.writeExternal(element);
   }
 
   @Override
@@ -123,7 +119,7 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
 
   @Nullable
   @Override
-  public GlobalSearchScope getScope() {
+  public GlobalSearchScope getSearchScope() {
     return SearchScopeProvider.createSearchScope(getModules());
   }
 
@@ -142,7 +138,7 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
   }
 
   @Override
-  public void setVMParameters(String value) {
+  public void setVMParameters(@Nullable String value) {
     myBean.VM_PARAMETERS = value;
   }
 
@@ -226,6 +222,16 @@ public class JarApplicationConfiguration extends LocatableConfigurationBase impl
   @Override
   public boolean isPassParentEnvs() {
     return myBean.PASS_PARENT_ENVS;
+  }
+
+  @Override
+  public void onNewConfigurationCreated() {
+    super.onNewConfigurationCreated();
+
+    if (StringUtil.isEmpty(getWorkingDirectory())) {
+      String baseDir = FileUtil.toSystemIndependentName(StringUtil.notNullize(getProject().getBasePath()));
+      setWorkingDirectory(baseDir);
+    }
   }
 
   private static class JarApplicationConfigurationBean {

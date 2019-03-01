@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -145,11 +145,12 @@ public class ConvertToJavaProcessor extends BaseRefactoringProcessor {
     String fileName = prefix + ".java";
     int index = 1;
     while (fileNames.contains(fileName)) {
-      fileName = prefix + index + ".java";
+      fileName = prefix + (index++) + ".java";
     }
     return fileName;
   }
 
+  @NotNull
   @Override
   protected String getCommandName() {
     return GroovyRefactoringBundle.message("converting.files.to.java");

@@ -15,6 +15,7 @@
  */
 package com.intellij.util.containers;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
@@ -23,28 +24,25 @@ public class ComparatorUtil {
   private ComparatorUtil() {
   }
 
-  public static <Type, Aspect> Comparator<Type> compareBy(final Convertor<Type, Aspect> aspect, final Comparator<Aspect> comparator) {
-    return new Comparator<Type>() {
-      @Override
-      public int compare(Type element1, Type element2) {
-        return comparator.compare(aspect.convert(element1), aspect.convert(element2));
-      }
-    };
+  @NotNull
+  public static <Type, Aspect> Comparator<Type> compareBy(@NotNull final Convertor<? super Type, ? extends Aspect> aspect, @NotNull final Comparator<? super Aspect> comparator) {
+    return (element1, element2) -> comparator.compare(aspect.convert(element1), aspect.convert(element2));
   }
 
-  public static <T extends Comparable<T>> T max(T o1, T o2) {
+  @NotNull
+  public static <T extends Comparable<T>> T max(@NotNull T o1, @NotNull T o2) {
     return o1.compareTo(o2) >= 0 ? o1 : o2;
   }
 
-  public static <T extends Comparable<T>> T min(T o1, T o2) {
+  @NotNull
+  public static <T extends Comparable<T>> T min(@NotNull T o1, @NotNull T o2) {
     return o1.compareTo(o2) >= 0 ? o2 : o1;
   }
 
   public static <T> boolean equalsNullable(@Nullable T a, @Nullable T b) {
     if (a == null) {
       return b == null;
-    } else {
-      return b != null && a.equals(b);
     }
+    return a.equals(b);
   }
 }

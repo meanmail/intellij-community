@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package org.jetbrains.idea.maven.utils;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.editor.Document;
@@ -69,32 +68,32 @@ public class MavenRehighlighter {
         }
       });
 
-      mavenProjectManager.addProjectsTreeListener(new MavenProjectsTree.ListenerAdapter() {
+      mavenProjectManager.addProjectsTreeListener(new MavenProjectsTree.Listener() {
         @Override
-        public void projectsUpdated(List<Pair<MavenProject, MavenProjectChanges>> updated, List<MavenProject> deleted) {
+        public void projectsUpdated(@NotNull List<Pair<MavenProject, MavenProjectChanges>> updated, @NotNull List<MavenProject> deleted) {
           for (Pair<MavenProject, MavenProjectChanges> each : updated) {
             rehighlight(project, each.first);
           }
         }
 
         @Override
-        public void projectResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges,
+        public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges,
                                     NativeMavenProjectHolder nativeMavenProject) {
           rehighlight(project, projectWithChanges.first);
         }
 
         @Override
-        public void pluginsResolved(MavenProject mavenProject) {
+        public void pluginsResolved(@NotNull MavenProject mavenProject) {
           rehighlight(project, mavenProject);
         }
 
         @Override
-        public void foldersResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
+        public void foldersResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges) {
           rehighlight(project, projectWithChanges.first);
         }
 
         @Override
-        public void artifactsDownloaded(MavenProject mavenProject) {
+        public void artifactsDownloaded(@NotNull MavenProject mavenProject) {
           rehighlight(project, mavenProject);
         }
       });
@@ -106,22 +105,18 @@ public class MavenRehighlighter {
   }
 
   public static void rehighlight(@NotNull Project project, @Nullable MavenProject mavenProject) {
-    AccessToken accessToken = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
+    ApplicationManager.getApplication().runReadAction(() -> {
       if (!project.isDisposed()) {
         ServiceManager.getService(project, MavenRehighlighter.class).queue.queue(new MyUpdate(project, mavenProject));
       }
-    }
-    finally {
-      accessToken.finish();
-    }
+    });
   }
 
   private static class MyUpdate extends Update {
     private final Project myProject;
     private final MavenProject myMavenProject;
 
-    public MyUpdate(Project project, MavenProject mavenProject) {
+    MyUpdate(Project project, MavenProject mavenProject) {
       super(project);
       myProject = project;
       myMavenProject = mavenProject;

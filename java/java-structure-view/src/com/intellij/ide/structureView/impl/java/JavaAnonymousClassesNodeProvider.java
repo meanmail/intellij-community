@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.structureView.impl.java;
 
 import com.intellij.ide.structureView.impl.common.PsiTreeElementBase;
@@ -23,14 +9,12 @@ import com.intellij.ide.util.treeView.smartTree.TreeElement;
 import com.intellij.navigation.AnonymousElementProvider;
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
 import com.intellij.openapi.actionSystem.Shortcut;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.PropertyOwner;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.psi.PsiAnonymousClass;
-import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.containers.hash.HashSet;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -41,7 +25,8 @@ import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public class JavaAnonymousClassesNodeProvider implements FileStructureNodeProvider<JavaAnonymousClassTreeElement>, PropertyOwner {
+public class JavaAnonymousClassesNodeProvider
+  implements FileStructureNodeProvider<JavaAnonymousClassTreeElement>, PropertyOwner, DumbAware {
   public static final String ID = "SHOW_ANONYMOUS";
   public static final String JAVA_ANONYMOUS_PROPERTY_NAME = "java.anonymous.provider";
 
@@ -51,12 +36,12 @@ public class JavaAnonymousClassesNodeProvider implements FileStructureNodeProvid
     if (node instanceof PsiMethodTreeElement || node instanceof PsiFieldTreeElement || node instanceof ClassInitializerTreeElement) {
       final PsiElement el = ((PsiTreeElementBase)node).getElement();
       if (el != null) {
-        for (AnonymousElementProvider provider : Extensions.getExtensions(AnonymousElementProvider.EP_NAME)) {
+        for (AnonymousElementProvider provider : AnonymousElementProvider.EP_NAME.getExtensionList()) {
           final PsiElement[] elements = provider.getAnonymousElements(el);
           if (elements.length > 0) {
             List<JavaAnonymousClassTreeElement> result = new ArrayList<>(elements.length);
             for (PsiElement element : elements) {
-              result.add(new JavaAnonymousClassTreeElement((PsiAnonymousClass)element, new HashSet<>()));
+              result.add(new JavaAnonymousClassTreeElement((PsiAnonymousClass)element));
             }
             return result;
           }

@@ -22,10 +22,10 @@ import java.util.ArrayList;
 
 public class WrapProcessor {
   private LeafBlockWrapper myFirstWrappedBlockOnLine = null;
-  private BlockRangesMap myBlockRangesMap;
+  private final BlockRangesMap myBlockRangesMap;
   private LeafBlockWrapper myWrapCandidate = null;
-  private IndentAdjuster myIndentAdjuster;
-  private int myRightMargin;
+  private final IndentAdjuster myIndentAdjuster;
+  private final int myRightMargin;
 
   public WrapProcessor(BlockRangesMap blockHelper, IndentAdjuster indentAdjuster, int rightMargin) {
     myIndentAdjuster = indentAdjuster;
@@ -109,8 +109,8 @@ public class WrapProcessor {
    * Allows to answer if wrap of the {@link #myWrapCandidate} object (if any) may be replaced by the given wrap.
    *
    * @param wrap wrap candidate to check
-   * @return <code>true</code> if wrap of the {@link #myWrapCandidate} object (if any) may be replaced by the given wrap;
-   * <code>false</code> otherwise
+   * @return {@code true} if wrap of the {@link #myWrapCandidate} object (if any) may be replaced by the given wrap;
+   * {@code false} otherwise
    */
   private boolean canReplaceWrapCandidate(WrapImpl wrap, LeafBlockWrapper currentBlock) {
     if (myWrapCandidate == null) return true;
@@ -120,7 +120,7 @@ public class WrapProcessor {
     return wrap == currentWrap || !wrap.isChildOf(currentWrap, currentBlock);
   }
 
-  public LeafBlockWrapper processWrap(LeafBlockWrapper currentBlock) {
+  LeafBlockWrapper processWrap(LeafBlockWrapper currentBlock) {
     final SpacingImpl spacing = currentBlock.getSpaceProperty();
     final WhiteSpace whiteSpace = currentBlock.getWhiteSpace();
 
@@ -195,12 +195,7 @@ public class WrapProcessor {
     return wrap != null && wrap.getType() == WrapImpl.Type.CHOP_IF_NEEDED && isSuitableInTheCurrentPosition(wrap, currentBlock);
   }
 
-
-  public void reset() {
-    myWrapCandidate = null;
-  }
-  
-  public void onCurrentLineChanged() {
+  void onCurrentLineChanged() {
     myWrapCandidate = null;
   }
   

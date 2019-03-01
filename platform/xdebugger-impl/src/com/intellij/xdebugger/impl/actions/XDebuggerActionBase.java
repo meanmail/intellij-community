@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,10 @@ import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.xdebugger.impl.DebuggerSupport;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Arrays;
 
 /**
  * @author nik
@@ -39,7 +40,7 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   @Override
-  public void update(final AnActionEvent event) {
+  public void update(@NotNull final AnActionEvent event) {
     Presentation presentation = event.getPresentation();
     boolean hidden = isHidden(event);
     if (hidden) {
@@ -60,11 +61,7 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   protected boolean isEnabled(final AnActionEvent e) {
     Project project = e.getProject();
     if (project != null && !project.isDisposed()) {
-      for (DebuggerSupport support : DebuggerSupport.getDebuggerSupports()) {
-        if (isEnabled(project, e, support)) {
-          return true;
-        }
-      }
+      return Arrays.stream(DebuggerSupport.getDebuggerSupports()).anyMatch(support -> isEnabled(project, e, support));
     }
     return false;
   }
@@ -77,7 +74,7 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     performWithHandler(e);
   }
 
@@ -101,19 +98,15 @@ public abstract class XDebuggerActionBase extends AnAction implements AnAction.T
   }
 
   protected boolean isHidden(AnActionEvent event) {
-    final Project project = event.getProject();
+    Project project = event.getProject();
     if (project != null && !project.isDisposed()) {
-      for (DebuggerSupport support : DebuggerSupport.getDebuggerSupports()) {
-        if (!getHandler(support).isHidden(project, event)) {
-          return false;
-        }
-      }
+      return Arrays.stream(DebuggerSupport.getDebuggerSupports()).allMatch(support -> getHandler(support).isHidden(project, event));
     }
     return true;
   }
 
   @Override
   public boolean isDumbAware() {
-    return Registry.is("dumb.aware.run.configurations");
+    return true;
   }
 }

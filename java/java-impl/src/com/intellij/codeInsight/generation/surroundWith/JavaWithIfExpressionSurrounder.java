@@ -47,7 +47,7 @@ public class JavaWithIfExpressionSurrounder extends JavaBooleanExpressionSurroun
   @Override
   public TextRange surroundExpression(Project project, Editor editor, PsiExpression expr) throws IncorrectOperationException {
     PsiManager manager = expr.getManager();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
 
     @NonNls String text = "if(a){\nst;\n}";
@@ -63,7 +63,7 @@ public class JavaWithIfExpressionSurrounder extends JavaBooleanExpressionSurroun
     ifStatement = (PsiIfStatement)statement.replace(ifStatement);
 
     PsiStatement thenBranch = ifStatement.getThenBranch();
-    if (thenBranch != null && thenBranch instanceof PsiBlockStatement) {
+    if (thenBranch instanceof PsiBlockStatement) {
       PsiCodeBlock block = ((PsiBlockStatement)thenBranch).getCodeBlock();
       block = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(block);
       TextRange range = block.getStatements()[0].getTextRange();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,9 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,13 +42,15 @@ public abstract class SourcePositionProvider {
                                                  @NotNull DebuggerContextImpl context,
                                                  boolean nearest
   ) {
-    for (SourcePositionProvider provider : EP_NAME.getExtensions()) {
-      SourcePosition sourcePosition = provider.computeSourcePosition(descriptor, project, context, nearest);
-      if (sourcePosition != null) {
-        return sourcePosition;
-      }
+    try {
+      return StreamEx.of(EP_NAME.getExtensionList())
+        .map(provider -> provider.computeSourcePosition(descriptor, project, context, nearest))
+        .nonNull()
+        .findFirst().orElse(null);
     }
-    return null;
+    catch (IndexNotReadyException e) {
+      return null;
+    }
   }
 
   @Nullable

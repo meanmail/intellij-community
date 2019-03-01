@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.CodeInsightUtil;
 import com.intellij.codeInsight.FileModificationService;
@@ -28,27 +15,26 @@ import com.intellij.codeInsight.daemon.impl.actions.AddImportAction;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.hint.QuestionAction;
 import com.intellij.codeInsight.intention.HighPriorityAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.HintAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.packageDependencies.DependencyRule;
 import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.FileTypeUtils;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -90,8 +76,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       }
     }
 
-    PsiManager manager = file.getManager();
-    return manager.isInProject(file) && !getClassesToImport(true).isEmpty();
+    return !getClassesToImport(true).isEmpty();
   }
 
   @Nullable
@@ -111,7 +96,9 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       PsiElement element = result.getElement();
       // already imported
       // can happen when e.g. class name happened to be in a method position
-      if (element instanceof PsiClass && result.isValidResult()) return Collections.emptyList();
+      if (element instanceof PsiClass && (result.isValidResult() || result.getCurrentFileResolveScope() instanceof PsiImportStatement)) {
+        return Collections.emptyList();
+      }
     }
 
     String name = getReferenceName(myRef);
@@ -139,12 +126,16 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       if (qName != null) { //filter local classes
         if (qName.indexOf('.') == -1 || !PsiNameHelper.getInstance(project).isQualifiedName(qName)) continue; //do not show classes from default or invalid package
         if (qName.endsWith(name) && (file == null || ImportFilter.shouldImport(file, qName))) {
-          if (isAccessible(aClass, myElement)) {
-            classList.add(aClass);
-          }
+          classList.add(aClass);
         }
       }
     }
+
+    boolean anyAccessibleFound = classList.stream().anyMatch(aClass -> isAccessible(aClass, myElement));
+    PsiManager manager = myElement.getManager();
+    JavaPsiFacade facade = JavaPsiFacade.getInstance(manager.getProject());
+    classList.removeIf(
+      aClass -> (anyAccessibleFound || !BaseIntentionAction.canModify(aClass) || facade.arePackagesTheSame(aClass, myElement)) && !isAccessible(aClass, myElement));
 
     if (acceptWrongNumberOfTypeParams && referenceHasTypeParameters) {
       final List<PsiClass> candidates = new ArrayList<>();
@@ -168,8 +159,14 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       classList = filtered;
     }
 
-    filterAlreadyImportedButUnresolved(classList);
     filerByPackageName(classList, file);
+
+    return removeDuplicates(classList);
+  }
+
+  private static List<PsiClass> removeDuplicates(List<PsiClass> classList) {
+    Set<String> uniqueNames = new HashSet<>();
+    classList.removeIf(aClass -> !uniqueNames.add(aClass.getQualifiedName()));
     return classList;
   }
 
@@ -264,7 +261,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
       PsiElement granny = parent.getParent();
       if (granny instanceof PsiMethod) {
         final PsiMethod method = (PsiMethod)granny;
-        if (method.getModifierList().findAnnotation(CommonClassNames.JAVA_LANG_OVERRIDE) != null) {
+        if (method.getModifierList().hasAnnotation(CommonClassNames.JAVA_LANG_OVERRIDE)) {
           PsiClass aClass = method.getContainingClass();
           final Set<PsiClass> probableTypes = new HashSet<>();
           InheritanceUtil.processSupers(aClass, false, psiClass -> {
@@ -293,6 +290,8 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
   public Result doFix(@NotNull final Editor editor, boolean allowPopup, final boolean allowCaretNearRef) {
     List<PsiClass> classesToImport = getClassesToImport();
+    //do not show popups for already imported classes when library is missing (show them for explicit action)
+    filterAlreadyImportedButUnresolved(classesToImport);
     if (classesToImport.isEmpty()) return Result.POPUP_NOT_SHOWN;
 
     try {
@@ -312,7 +311,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     if (classesToImport.size() > 1) {
       reduceSuggestedClassesBasedOnDependencyRuleViolation(psiFile, classesToImport);
     }
-    PsiClass[] classes = classesToImport.toArray(new PsiClass[classesToImport.size()]);
+    PsiClass[] classes = classesToImport.toArray(PsiClass.EMPTY_ARRAY);
     final Project project = myElement.getProject();
     CodeInsightUtil.sortIdenticalShortNamedMembers(classes, myRef);
 
@@ -326,9 +325,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
     if (classes.length == 1 &&
         (canImportHere = canImportHere(allowCaretNearRef, editor, psiFile, classes[0].getName())) &&
-        (FileTypeUtils.isInServerPageFile(psiFile) ?
-         CodeInsightSettings.getInstance().JSP_ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY :
-         CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY) &&
+        isAddUnambiguousImportsOnTheFlyEnabled(psiFile) &&
         (ApplicationManager.getApplication().isUnitTestMode() || DaemonListeners.canChangeFileSilently(psiFile)) &&
         isInModlessContext &&
         !autoImportWillInsertUnexpectedCharacters(classes[0])
@@ -348,6 +345,12 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     return Result.POPUP_NOT_SHOWN;
   }
 
+  public static boolean isAddUnambiguousImportsOnTheFlyEnabled(@NotNull PsiFile psiFile) {
+    return FileTypeUtils.isInServerPageFile(psiFile) ?
+           CodeInsightSettings.getInstance().JSP_ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY :
+           CodeInsightSettings.getInstance().ADD_UNAMBIGIOUS_IMPORTS_ON_THE_FLY;
+  }
+
   protected int getStartOffset(T element, R ref) {
     return element.getTextOffset();
   }
@@ -359,7 +362,8 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
   private static boolean autoImportWillInsertUnexpectedCharacters(PsiClass aClass) {
     PsiClass containingClass = aClass.getContainingClass();
     // when importing inner class, the reference might be qualified with outer class name and it can be confusing
-    return containingClass != null;
+    return containingClass != null &&
+           !CodeStyle.getSettings(aClass.getContainingFile()).getCustomSettings(JavaCodeStyleSettings.class).INSERT_INNER_CLASS_IMPORTS;
   }
 
   private boolean canImportHere(boolean allowCaretNearRef, Editor editor, PsiFile psiFile, String exampleClassName) {
@@ -397,7 +401,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
 
   protected abstract boolean hasUnresolvedImportWhichCanImport(PsiFile psiFile, String name);
 
-  private static void reduceSuggestedClassesBasedOnDependencyRuleViolation(PsiFile file, List<PsiClass> availableClasses) {
+  private static void reduceSuggestedClassesBasedOnDependencyRuleViolation(PsiFile file, List<? extends PsiClass> availableClasses) {
     final Project project = file.getProject();
     final DependencyValidationManager validationManager = DependencyValidationManager.getInstance(project);
     for (int i = availableClasses.size() - 1; i >= 0; i--) {
@@ -426,7 +430,7 @@ public abstract class ImportClassFixBase<T extends PsiElement, R extends PsiRefe
     if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     ApplicationManager.getApplication().runWriteAction(() -> {
       List<PsiClass> classesToImport = getClassesToImport(true);
-      PsiClass[] classes = classesToImport.toArray(new PsiClass[classesToImport.size()]);
+      PsiClass[] classes = classesToImport.toArray(PsiClass.EMPTY_ARRAY);
       if (classes.length == 0) return;
 
       AddImportAction action = createAddImportAction(classes, project, editor);

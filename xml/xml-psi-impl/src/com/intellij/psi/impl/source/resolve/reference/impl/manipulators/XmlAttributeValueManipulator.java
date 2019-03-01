@@ -31,13 +31,6 @@ import com.intellij.psi.xml.XmlTokenType;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 06.01.2004
- * Time: 20:00:23
- * To change this template use Options | File Templates.
- */
 public class XmlAttributeValueManipulator extends AbstractElementManipulator<XmlAttributeValue> {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.resolve.reference.impl.manipulators.XmlAttributeValueManipulator");
 
@@ -49,7 +42,7 @@ public class XmlAttributeValueManipulator extends AbstractElementManipulator<Xml
     final String oldText = element.getText();
     try {
       String textBeforeRange = oldText.substring(0, range.getStartOffset());
-      String textAfterRange = oldText.substring(range.getEndOffset(), oldText.length());
+      String textAfterRange = oldText.substring(range.getEndOffset());
       newContent = oldText.startsWith("'") || oldText.endsWith("'") ?
                    newContent.replace("'", oldText.contains("&#39;") ? "&#39;" : "&apos;") :
                    newContent.replace("\"", oldText.contains("&#34;") ? "&#34;" : "&quot;");

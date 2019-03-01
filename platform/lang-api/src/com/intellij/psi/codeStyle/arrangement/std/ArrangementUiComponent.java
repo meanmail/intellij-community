@@ -33,7 +33,6 @@ import java.util.Set;
  * It's assumed that there is a dedicated implementation of this interface for every {@link StdArrangementTokenUiRole}.
  * 
  * @author Denis Zhdanov
- * @since 3/11/13 10:22 AM
  */
 public interface ArrangementUiComponent {
 
@@ -53,7 +52,7 @@ public interface ArrangementUiComponent {
    * We use 'enabled by user' property name here in order to avoid clash
    * with {@link Component#isEnabled() standard awt 'enabled' property}. 
    *
-   * @return    <code>true</code> if current ui token is enabled; <code>false</code> otherwise
+   * @return    {@code true} if current ui token is enabled; {@code false} otherwise
    */
   boolean isEnabled();
 
@@ -86,7 +85,7 @@ public interface ArrangementUiComponent {
    * to the containers hierarchy, hence, doesn't receive mouse events.
    *
    * @param event  target mouse move event
-   * @return       bounds to be repainted (in screen coordinates) if any; <code>null</code> otherwise
+   * @return       bounds to be repainted (in screen coordinates) if any; {@code null} otherwise
    */
   @Nullable
   Rectangle onMouseMove(@NotNull MouseEvent event);
@@ -126,7 +125,7 @@ public interface ArrangementUiComponent {
 
     @Nullable
     ArrangementUiComponent build(@NotNull StdArrangementTokenUiRole role,
-                                 @NotNull List<ArrangementSettingsToken> tokens,
+                                 @NotNull List<? extends ArrangementSettingsToken> tokens,
                                  @NotNull ArrangementColorsProvider colorsProvider,
                                  @NotNull ArrangementStandardSettingsManager settingsManager);
   }

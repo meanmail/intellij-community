@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.ide.ui.search.SearchUtil;
@@ -21,12 +7,13 @@ import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurableGroup;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.options.TabbedConfigurable;
-import com.intellij.openapi.options.ex.*;
-import com.intellij.openapi.options.newEditor.SettingsDialog;
+import com.intellij.openapi.options.ex.ConfigurableExtensionPointUtil;
+import com.intellij.openapi.options.ex.ConfigurableVisitor;
+import com.intellij.openapi.options.ex.ConfigurableWrapper;
+import com.intellij.openapi.options.newEditor.SettingsDialogFactory;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.navigation.Place;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
@@ -36,6 +23,8 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * @author max
@@ -52,41 +41,45 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
   public static DialogWrapper getDialog(@Nullable Project project, @NotNull ConfigurableGroup[] groups, @Nullable Configurable toSelect) {
     project = getProject(project);
     final ConfigurableGroup[] filteredGroups = filterEmptyGroups(groups);
-    return new SettingsDialog(project, filteredGroups, toSelect, null);
+    return SettingsDialogFactory.getInstance().create(project, filteredGroups, toSelect, null);
   }
 
+  /**
+   * @param project         a project used to load project settings or {@code null}
+   * @param withIdeSettings specifies whether to load application settings or not
+   * @return an array with the root configurable group
+   */
   @NotNull
   public static ConfigurableGroup[] getConfigurableGroups(@Nullable Project project, boolean withIdeSettings) {
-    if (!withIdeSettings) {
-      project = getProject(project);
-    }
-    return new ConfigurableGroup[]{ConfigurableExtensionPointUtil.getConfigurableGroup(project, withIdeSettings)};
+    ConfigurableGroup group = ConfigurableExtensionPointUtil.getConfigurableGroup(project, withIdeSettings);
+    return new ConfigurableGroup[]{group};
   }
 
+  /**
+   * @param project         a project used to load project settings or {@code null}
+   * @param withIdeSettings specifies whether to load application settings or not
+   * @return all configurables as a plain list except the root configurable group
+   */
   @NotNull
-  public static Configurable[] getConfigurables(@Nullable Project project, boolean withGroupReverseOrder) {
-    return getConfigurables(getConfigurableGroups(project, true), withGroupReverseOrder);
+  public static List<Configurable> getConfigurables(@Nullable Project project, boolean withIdeSettings) {
+    ConfigurableGroup group = ConfigurableExtensionPointUtil.getConfigurableGroup(project, withIdeSettings);
+    List<Configurable> list = new ArrayList<>();
+    collect(list, group.getConfigurables());
+    return list;
   }
 
-  @NotNull
-  private static Configurable[] getConfigurables(@NotNull ConfigurableGroup[] groups, boolean withGroupReverseOrder) {
-    Configurable[][] arrays = new Configurable[groups.length][];
-    int length = 0;
-    for (int i = 0; i < groups.length; i++) {
-      arrays[i] = groups[withGroupReverseOrder ? groups.length - 1 - i : i].getConfigurables();
-      length += arrays[i].length;
+  private static void collect(List<? super Configurable> list, Configurable... configurables) {
+    for (Configurable configurable : configurables) {
+      list.add(configurable);
+      if (configurable instanceof Configurable.Composite) {
+        Configurable.Composite composite = (Configurable.Composite)configurable;
+        collect(list, composite.getConfigurables());
+      }
     }
-    Configurable[] configurables = new Configurable[length];
-    int offset = 0;
-    for (Configurable[] array : arrays) {
-      System.arraycopy(array, 0, configurables, offset, array.length);
-      offset += array.length;
-    }
-    return configurables;
   }
 
   @Override
-  public void showSettingsDialog(@NotNull Project project, @NotNull ConfigurableGroup[] group) {
+  public void showSettingsDialog(@NotNull Project project, @NotNull ConfigurableGroup... group) {
     try {
       getDialog(project, group, null).show();
     }
@@ -96,14 +89,41 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
   }
 
   @Override
-  public void showSettingsDialog(@Nullable final Project project, final Class configurableClass) {
+  public <T extends Configurable> void showSettingsDialog(@Nullable Project project, @NotNull Class<T> configurableClass) {
+    showSettingsDialog(project, configurableClass, null);
+  }
+
+  @Override
+  public <T extends Configurable> void showSettingsDialog(@Nullable Project project,
+                                                          @NotNull Class<T> configurableClass,
+                                                          @Nullable Consumer<T> additionalConfiguration) {
     assert Configurable.class.isAssignableFrom(configurableClass) : "Not a configurable: " + configurableClass.getName();
+    showSettingsDialog(project, it -> ConfigurableWrapper.cast(configurableClass, it) != null, it -> {
+      if (additionalConfiguration != null) {
+        T toConfigure = ConfigurableWrapper.cast(configurableClass, it);
+        assert toConfigure != null : "Wrong configurable found: " + it.getClass();
+        additionalConfiguration.accept(toConfigure);
+      }
+    });
+  }
 
+  @Override
+  public void showSettingsDialog(@Nullable Project project,
+                                 @NotNull Predicate<? super Configurable> predicate,
+                                 @Nullable Consumer<? super Configurable> additionalConfiguration) {
     ConfigurableGroup[] groups = getConfigurableGroups(project, true);
+    Configurable config = new ConfigurableVisitor() {
+      @Override
+      protected boolean accept(Configurable configurable) {
+        return predicate.test(configurable);
+      }
+    }.find(groups);
 
-    Configurable config = new ConfigurableVisitor.ByType(configurableClass).find(groups);
+    assert config != null : "Cannot find configurable for specified predicate";
 
-    assert config != null : "Cannot find configurable: " + configurableClass.getName();
+    if (additionalConfiguration != null) {
+      additionalConfiguration.accept(config);
+    }
 
     getDialog(project, groups, config).show();
   }
@@ -132,7 +152,7 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
     group = filterEmptyGroups(group);
     final Configurable configurable2Select = id2Select == null ? null : new ConfigurableVisitor.ByID(id2Select).find(group);
 
-    new SettingsDialog(getProject(project), group, configurable2Select, filter).show();
+    SettingsDialogFactory.getInstance().create(getProject(project), group, configurable2Select, filter).show();
   }
 
   @Override
@@ -148,7 +168,7 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
         groups.add(g);
       }
     }
-    return groups.toArray(new ConfigurableGroup[groups.size()]);
+    return groups.toArray(new ConfigurableGroup[0]);
   }
 
   @Override
@@ -157,13 +177,7 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
   }
 
   @Override
-  public <T extends Configurable> T findApplicationConfigurable(final Class<T> confClass) {
-    return ConfigurableExtensionPointUtil.findApplicationConfigurable(confClass);
-  }
-
-  @Override
   public <T extends Configurable> T findProjectConfigurable(final Project project, final Class<T> confClass) {
-    //noinspection deprecation
     return ConfigurableExtensionPointUtil.findProjectConfigurable(project, confClass);
   }
 
@@ -206,10 +220,10 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
                                           boolean showApplyButton) {
     final DialogWrapper editor;
     if (parent == null) {
-      editor = new SettingsDialog(project, dimensionKey, configurable, showApplyButton, false);
+      editor = SettingsDialogFactory.getInstance().create(project, dimensionKey, configurable, showApplyButton, false);
     }
     else {
-      editor = new SettingsDialog(parent, dimensionKey, configurable, showApplyButton, false);
+      editor = SettingsDialogFactory.getInstance().create(parent, dimensionKey, configurable, showApplyButton, false);
     }
     if (advancedInitialization != null) {
       new UiNotifyConnector.Once(editor.getContentPane(), new Activatable.Adapter() {
@@ -224,7 +238,7 @@ public class ShowSettingsUtilImpl extends ShowSettingsUtil {
 
   @NotNull
   public static String createDimensionKey(@NotNull Configurable configurable) {
-    return '#' + StringUtil.replaceChar(StringUtil.replaceChar(configurable.getDisplayName(), '\n', '_'), ' ', '_');
+    return '#' + configurable.getDisplayName().replace('\n', '_').replace(' ', '_');
   }
 
   @Override

@@ -22,7 +22,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 
 /**
@@ -36,6 +35,7 @@ public abstract class SpeedSearchSupply {
   public static final String SEARCH_QUERY_KEY = "SEARCH_QUERY";
   private static final Key SPEED_SEARCH_COMPONENT_MARKER = new Key("SPEED_SEARCH_COMPONENT_MARKER");
   public static final DataKey<String> SPEED_SEARCH_CURRENT_QUERY = DataKey.create("SPEED_SEARCH_CURRENT_QUERY");
+  public static final String ENTERED_PREFIX_PROPERTY_NAME = "enteredPrefix";
 
   @Nullable
   public static SpeedSearchSupply getSupply(@NotNull final JComponent component) {
@@ -70,12 +70,7 @@ public abstract class SpeedSearchSupply {
 
   protected void installSupplyTo(final JComponent component) {
     component.putClientProperty(SPEED_SEARCH_COMPONENT_MARKER, this);
-    addChangeListener(new PropertyChangeListener() {
-      @Override
-      public void propertyChange(PropertyChangeEvent evt) {
-        component.repaint();
-      }
-    });
+    addChangeListener(evt -> component.repaint());
   }
 
   public abstract void addChangeListener(@NotNull PropertyChangeListener listener);

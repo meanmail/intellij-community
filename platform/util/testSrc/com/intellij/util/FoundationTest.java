@@ -32,12 +32,12 @@ public class FoundationTest {
   }
 
   @Test
-  public void testStrings() throws Exception {
+  public void testStrings() {
     assertThat(Foundation.toStringViaUTF8(Foundation.nsString("Test")), equalTo("Test"));
   }
 
   @Test
-  public void testEncodings() throws Exception {
+  public void testEncodings() {
     assertThat(Foundation.getEncodingName(4), equalTo("utf-8"));
     assertThat(Foundation.getEncodingName(0), nullValue());
     assertThat(Foundation.getEncodingName(-1), nullValue());
@@ -53,14 +53,14 @@ public class FoundationTest {
     assertThat(Foundation.getEncodingName(10), equalTo("utf-16"));
     assertThat(Foundation.getEncodingCode("utf-16"), equalTo(10L));
 
-    assertThat(Foundation.getEncodingName(2483028224l), equalTo("utf-16le"));
-    assertThat(Foundation.getEncodingCode("utf-16le"), equalTo(2483028224l));
-    assertThat(Foundation.getEncodingName(2415919360l), equalTo("utf-16be"));
-    assertThat(Foundation.getEncodingCode("utf-16be"), equalTo(2415919360l));
+    assertThat(Foundation.getEncodingName(2483028224L), equalTo("utf-16le"));
+    assertThat(Foundation.getEncodingCode("utf-16le"), equalTo(2483028224L));
+    assertThat(Foundation.getEncodingName(2415919360L), equalTo("utf-16be"));
+    assertThat(Foundation.getEncodingCode("utf-16be"), equalTo(2415919360L));
   }
 
   @Test
-  public void testFindingAppBundle() throws Exception {
+  public void testFindingAppBundle() {
     String path;
     
     path = NSWorkspace.absolutePathForAppBundleWithIdentifier("com.apple.Finder");

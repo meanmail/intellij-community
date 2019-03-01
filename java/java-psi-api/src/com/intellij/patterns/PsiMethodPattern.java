@@ -20,12 +20,10 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.SuperMethodsSearch;
-import com.intellij.psi.util.MethodSignatureBackedByPsiMethod;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.ProcessingContext;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -79,26 +77,18 @@ public class PsiMethodPattern extends PsiMemberPattern<PsiMethod,PsiMethodPatter
       }
 
       private boolean typeEquivalent(PsiType type, String expectedText) {
-        final PsiType erasure = TypeConversionUtil.erasure(type);
-        final String text;
-        if (erasure instanceof PsiEllipsisType && expectedText.endsWith("[]")) {
-          text = ((PsiEllipsisType)erasure).getComponentType().getCanonicalText() + "[]";
-        }
-        else if (erasure instanceof PsiArrayType && expectedText.endsWith("...")) {
-          text = ((PsiArrayType)erasure).getComponentType().getCanonicalText() +"...";
-        }
-        else {
-          text = erasure.getCanonicalText();
-        }
-        return expectedText.equals(text);
+        PsiType erasure = TypeConversionUtil.erasure(type);
+        return erasure != null && erasure.equalsToText(expectedText);
       }
     });
   }
 
+  @NotNull
   public PsiMethodPattern definedInClass(@NonNls final String qname) {
     return definedInClass(PsiJavaPatterns.psiClass().withQualifiedName(qname));
   }
 
+  @NotNull
   public PsiMethodPattern definedInClass(final ElementPattern<? extends PsiClass> pattern) {
     return with(new PatternConditionPlus<PsiMethod, PsiClass>("definedInClass", pattern) {
 
@@ -106,15 +96,12 @@ public class PsiMethodPattern extends PsiMemberPattern<PsiMethod,PsiMethodPatter
       public boolean processValues(PsiMethod t, final ProcessingContext context, final PairProcessor<PsiClass, ProcessingContext> processor) {
         if (!processor.process(t.getContainingClass(), context)) return false;
         final Ref<Boolean> result = Ref.create(Boolean.TRUE);
-        SuperMethodsSearch.search(t, null, true, false).forEach(new Processor<MethodSignatureBackedByPsiMethod>() {
-          @Override
-          public boolean process(final MethodSignatureBackedByPsiMethod signature) {
-            if (!processor.process(signature.getMethod().getContainingClass(), context)) {
-              result.set(Boolean.FALSE);
-              return false;
-            }
-            return true;
+        SuperMethodsSearch.search(t, null, true, false).forEach(signature -> {
+          if (!processor.process(signature.getMethod().getContainingClass(), context)) {
+            result.set(Boolean.FALSE);
+            return false;
           }
+          return true;
         });
         return result.get();
       }

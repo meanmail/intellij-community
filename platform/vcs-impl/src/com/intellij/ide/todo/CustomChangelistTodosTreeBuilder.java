@@ -30,13 +30,10 @@ import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultTreeModel;
 import java.util.*;
 
 /**
  * @author irengrig
- *         Date: 2/21/11
- *         Time: 5:14 PM
  */
 public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
   public static final TodoItem[] EMPTY_ITEMS = new TodoItem[0];
@@ -47,25 +44,26 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
   private PsiTodoSearchHelper myPsiTodoSearchHelper;
   private final ChangeListManager myChangeListManager;
 
-  public CustomChangelistTodosTreeBuilder(JTree tree, DefaultTreeModel treeModel, Project project, final String title,
-                                          final List<TodoItem> list) {
-    super(tree, treeModel, project);
+  public CustomChangelistTodosTreeBuilder(JTree tree, Project project, final String title,
+                                          final Collection<? extends TodoItem> todoItems) {
+    super(tree, project);
     myProject = project;
     myTitle = title;
     myMap = new MultiMap<>();
     myIncludedFiles = new HashSet<>();
     myChangeListManager = ChangeListManager.getInstance(myProject);
-    initMap(list);
+    initMap(todoItems);
     initHelper();
   }
 
-  private void initMap(List<TodoItem> list) {
-    buildMap(list);
+  private void initMap(Collection<? extends TodoItem> todoItems) {
+    buildMap(todoItems);
     myIncludedFiles.addAll(myMap.keySet());
   }
 
-  private void buildMap(List<TodoItem> list) {
-    for (TodoItem todoItem : list) {
+  private void buildMap(Collection<? extends TodoItem> todoItems) {
+    myMap.clear();
+    for (TodoItem todoItem : todoItems) {
       myMap.putValue(todoItem.getFile(), todoItem);
     }
   }
@@ -86,20 +84,19 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
             }
           }
         }
-        for (Iterator<PsiFile> iterator = myIncludedFiles.iterator(); iterator.hasNext(); ) {
-          final PsiFile next = iterator.next();
+        for (final PsiFile next : myIncludedFiles) {
           final Change change = allChanges.get(next.getVirtualFile());
           if (change != null) {
             changes.add(change);
           }
         }
         // a hack here with _todo filter
-        final TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, getTodoTreeStructure().getTodoFilter(), true);
+        final TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, getTodoTreeStructure().getTodoFilter());
         worker.execute();
         buildMap(worker.inOneList());
 
         final Set<PsiFile> files = myMap.keySet();
-        return files.toArray(new PsiFile[files.size()]);
+        return files.toArray(PsiFile.EMPTY_ARRAY);
       }
 
       @NotNull
@@ -134,7 +131,7 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
             result.add(todoItem);
           }
         }
-        return result.isEmpty() ? EMPTY_ITEMS : result.toArray(new TodoItem[result.size()]);
+        return result.isEmpty() ? EMPTY_ITEMS : result.toArray(new TodoItem[0]);
       }
 
       @Override
@@ -158,9 +155,9 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
       final Change change = myChangeListManager.getChange(file.getVirtualFile());
       if (change != null) {
         final TodoCheckinHandlerWorker
-          worker = new TodoCheckinHandlerWorker(myProject, Collections.singletonList(change), todoFilter, true);
+          worker = new TodoCheckinHandlerWorker(myProject, Collections.singletonList(change), todoFilter);
         worker.execute();
-        final List<TodoItem> todoItems = worker.inOneList();
+        final Collection<TodoItem> todoItems = worker.inOneList();
         if (todoItems != null && ! todoItems.isEmpty()) {
           for (TodoItem todoItem : todoItems) {
             myMap.putValue(file, todoItem);
@@ -169,7 +166,7 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
       }
     }
     final Collection<TodoItem> todoItems = myMap.get(file);
-    return todoItems == null || todoItems.isEmpty() ? EMPTY_ITEMS : todoItems.toArray(new TodoItem[todoItems.size()]);
+    return todoItems.isEmpty() ? EMPTY_ITEMS : todoItems.toArray(new TodoItem[0]);
   }
 
   @NotNull
@@ -180,20 +177,15 @@ public class CustomChangelistTodosTreeBuilder extends TodoTreeBuilder {
 
   @Override
   void rebuildCache() {
-    myMap.clear();
-    myFileTree.clear();
-    myDirtyFileSet.clear();
-    myFile2Highlighter.clear();
-
+    Set<VirtualFile> files = new HashSet<>();
     TodoTreeStructure treeStructure=getTodoTreeStructure();
     PsiFile[] psiFiles= myPsiTodoSearchHelper.findFilesWithTodoItems();
-    for(int i=0;i<psiFiles.length;i++){
-      PsiFile psiFile=psiFiles[i];
-      if(myPsiTodoSearchHelper.getTodoItemsCount(psiFile) > 0 && treeStructure.accept(psiFile)){
-        myFileTree.add(psiFile.getVirtualFile());
+    for (PsiFile psiFile : psiFiles) {
+      if (myPsiTodoSearchHelper.getTodoItemsCount(psiFile) > 0 && treeStructure.accept(psiFile)) {
+        files.add(psiFile.getVirtualFile());
       }
     }
 
-    treeStructure.validateCache();
+    super.rebuildCache(files);
   }
 }

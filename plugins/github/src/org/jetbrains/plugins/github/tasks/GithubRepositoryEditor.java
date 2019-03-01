@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.tasks;
 
 import com.intellij.openapi.project.Project;
@@ -12,17 +13,13 @@ import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.ui.GridBag;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.github.api.GithubApiUtil;
-import org.jetbrains.plugins.github.util.AuthLevel;
-import org.jetbrains.plugins.github.util.GithubAuthDataHolder;
-import org.jetbrains.plugins.github.util.GithubNotifications;
-import org.jetbrains.plugins.github.util.GithubUtil;
+import org.jetbrains.plugins.github.api.GithubApiRequestExecutor;
+import org.jetbrains.plugins.github.authentication.ui.GithubLoginDialog;
 
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
-import java.io.IOException;
 
 /**
  * @author Dennis.Ushakov
@@ -37,7 +34,7 @@ public class GithubRepositoryEditor extends BaseRepositoryEditor<GithubRepositor
   private JBLabel myRepositoryLabel;
   private JBLabel myTokenLabel;
 
-  public GithubRepositoryEditor(final Project project, final GithubRepository repository, Consumer<GithubRepository> changeListener) {
+  public GithubRepositoryEditor(final Project project, final GithubRepository repository, Consumer<? super GithubRepository> changeListener) {
     super(project, repository, changeListener);
     myUrlLabel.setVisible(false);
     myUsernameLabel.setVisible(false);
@@ -48,13 +45,12 @@ public class GithubRepositoryEditor extends BaseRepositoryEditor<GithubRepositor
 
     myRepoAuthor.setText(repository.getRepoAuthor());
     myRepoName.setText(repository.getRepoName());
-    myToken.setText(repository.getToken());
-    myToken.setText(repository.getToken());
+    myToken.setText(repository.getPassword());
     myShowNotAssignedIssues.setSelected(!repository.isAssignedIssuesOnly());
 
     DocumentListener buttonUpdater = new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         updateTokenButton();
       }
     };
@@ -106,33 +102,30 @@ public class GithubRepositoryEditor extends BaseRepositoryEditor<GithubRepositor
     installListener(myShowNotAssignedIssues);
 
     return FormBuilder.createFormBuilder()
-      .setAlignLabelOnRight(true)
-      .addLabeledComponent(myHostLabel, myHostPanel)
-      .addLabeledComponent(myRepositoryLabel, myRepoPanel)
-      .addLabeledComponent(myTokenLabel, myTokenPanel)
-      .addComponentToRightColumn(myShowNotAssignedIssues)
-      .getPanel();
+                      .setAlignLabelOnRight(true)
+                      .addLabeledComponent(myHostLabel, myHostPanel)
+                      .addLabeledComponent(myRepositoryLabel, myRepoPanel)
+                      .addLabeledComponent(myTokenLabel, myTokenPanel)
+                      .addComponentToRightColumn(myShowNotAssignedIssues)
+                      .getPanel();
   }
 
   @Override
   public void apply() {
+    super.apply();
     myRepository.setRepoName(getRepoName());
     myRepository.setRepoAuthor(getRepoAuthor());
-    myRepository.setToken(getToken());
+    myRepository.setPassword(getToken());
+    myRepository.storeCredentials();
     myRepository.setAssignedIssuesOnly(isAssignedIssuesOnly());
-    super.apply();
   }
 
   private void generateToken() {
-    try {
-      String token = GithubUtil.computeValueInModalIO(myProject, "Access to GitHub", indicator ->
-        GithubUtil.runTask(myProject, GithubAuthDataHolder.createFromSettings(), indicator, AuthLevel.basicOnetime(getHost()), connection ->
-          GithubApiUtil.getTasksToken(connection, getRepoAuthor(), getRepoName(), "IntelliJ tasks plugin")
-        ));
-      myToken.setText(token);
-    }
-    catch (IOException e) {
-      GithubNotifications.showErrorDialog(myProject, "Can't Get Access Token", e);
+    GithubLoginDialog dialog = new GithubLoginDialog(GithubApiRequestExecutor.Factory.getInstance(), myProject);
+    dialog.withServer(getHost(), false);
+    dialog.setClientName("Tasks Plugin");
+    if (dialog.showAndGet()) {
+      myToken.setText(dialog.getToken());
     }
   }
 

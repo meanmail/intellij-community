@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiType;
 import com.intellij.psi.util.InheritanceUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -28,7 +29,7 @@ import java.util.regex.Pattern;
 
 class FormatDecode {
 
-  private static final Pattern fsPattern = Pattern.compile("%(\\d+\\$)?([-#+ 0,(\\<]*)?(\\d+)?(\\.\\d*)?([tT])?([a-zA-Z%])");
+  private static final Pattern fsPattern = Pattern.compile("%(\\d+\\$)?([-#+ 0,(<]*)?(\\d+)?(\\.\\d*)?([tT])?([a-zA-Z%])");
 
   private FormatDecode() {}
 
@@ -95,6 +96,7 @@ class FormatDecode {
     }
   }
 
+  @NotNull
   public static Validator[] decode(String formatString, int argumentCount) {
     final ArrayList<Validator> parameters = new ArrayList<>();
 
@@ -186,7 +188,7 @@ class FormatDecode {
           case 's': // formatted string (general)
           case 'S':
             checkFlags(flagBits, LEFT_JUSTIFY | ALTERNATE | PREVIOUS, specifier);
-            allowed = ALL_VALIDATOR;
+            allowed = (flagBits & ALTERNATE) != 0 ? new FormattableValidator(specifier) : ALL_VALIDATOR;
             break;
           case 'c': // unicode character
           case 'C':
@@ -246,11 +248,11 @@ class FormatDecode {
       }
       storeValidator(allowed, pos, parameters, argumentCount);
     }
-    if (i < formatString.length() - 1) {
+    if (i < formatString.length()) {
       checkText(formatString.substring(i));
     }
 
-    return parameters.toArray(new Validator[parameters.size()]);
+    return parameters.toArray(new Validator[0]);
   }
 
   private static void checkNoPrecision(String precision, String specifier) {
@@ -304,7 +306,7 @@ class FormatDecode {
 
   private static class AllValidator extends Validator {
 
-    public AllValidator() {
+    AllValidator() {
       super("");
     }
 
@@ -316,7 +318,7 @@ class FormatDecode {
 
   private static class DateValidator extends Validator {
 
-    public DateValidator(String specifier) {
+    DateValidator(String specifier) {
       super(specifier);
     }
 
@@ -333,7 +335,7 @@ class FormatDecode {
 
   private static class CharValidator extends Validator {
 
-    public CharValidator(String specifier) {
+    CharValidator(String specifier) {
       super(specifier);
     }
 
@@ -352,7 +354,7 @@ class FormatDecode {
 
   private static class IntValidator extends Validator {
 
-    public IntValidator(String specifier) {
+    IntValidator(String specifier) {
       super(specifier);
     }
 
@@ -373,7 +375,7 @@ class FormatDecode {
 
   private static class FloatValidator extends Validator {
 
-    public FloatValidator(String specifier) {
+    FloatValidator(String specifier) {
       super(specifier);
     }
 
@@ -388,10 +390,22 @@ class FormatDecode {
     }
   }
 
+  private static class FormattableValidator extends Validator {
+
+    FormattableValidator(String specifier) {
+      super(specifier);
+    }
+
+    @Override
+    public boolean valid(PsiType type) {
+      return InheritanceUtil.isInheritor(type, "java.util.Formattable");
+    }
+  }
+
   private static class MultiValidator extends Validator {
     private final Set<Validator> validators = new HashSet<>(3);
 
-    public MultiValidator(String specifier) {
+    MultiValidator(String specifier) {
       super(specifier);
     }
 
@@ -414,7 +428,7 @@ class FormatDecode {
 
     private final String mySpecifier;
 
-    public Validator(String specifier) {
+    Validator(String specifier) {
       mySpecifier = specifier;
     }
 

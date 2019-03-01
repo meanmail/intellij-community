@@ -21,11 +21,10 @@ import com.intellij.ide.fileTemplates.FileTemplateUtil;
 import com.intellij.ui.ListSpeedSearch;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.Function;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
 import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -34,34 +33,26 @@ import java.util.List;
  * @author Alexey Kudravtsev
  */
 abstract class FileTemplateTabAsList extends FileTemplateTab {
-  private final JList myList = new JBList();
+  private final JList<FileTemplate> myList = new JBList<>();
   private MyListModel myModel;
 
   FileTemplateTabAsList(String title) {
     super(title);
     myList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     myList.setCellRenderer(new MyListCellRenderer());
-    myList.addListSelectionListener(new ListSelectionListener() {
-      @Override
-      public void valueChanged(ListSelectionEvent e) {
-        onTemplateSelected();
+    myList.addListSelectionListener(__ -> onTemplateSelected());
+    new ListSpeedSearch(myList, (Function<Object, String>)o -> {
+      if (o instanceof FileTemplate) {
+        return ((FileTemplate)o).getName();
       }
-    });
-    new ListSpeedSearch(myList, new Function<Object, String>() {
-      @Override
-      public String fun(final Object o) {
-        if (o instanceof FileTemplate) {
-          return ((FileTemplate)o).getName();
-        }
-        return null;
-      }
+      return null;
     });
   }
 
   private class MyListCellRenderer extends DefaultListCellRenderer {
     @Override
     public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-      super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+      super.getListCellRendererComponent(list, value, index, isSelected, false);
       Icon icon = null;
       if (value instanceof FileTemplate) {
         FileTemplate template = (FileTemplate) value;
@@ -83,6 +74,7 @@ abstract class FileTemplateTabAsList extends FileTemplateTab {
         }
       }
       setIcon(icon);
+      if (isSelected) setBackground(UIUtil.getListSelectionBackground(cellHasFocus));
       return this;
     }
   }
@@ -102,8 +94,8 @@ abstract class FileTemplateTabAsList extends FileTemplateTab {
     onTemplateSelected();
   }
 
-  private static class MyListModel extends DefaultListModel {
-    public void fireListDataChanged() {
+  private static class MyListModel extends DefaultListModel<FileTemplate> {
+    void fireListDataChanged() {
       int size = getSize();
       if (size > 0) {
         fireContentsChanged(this, 0, size - 1);
@@ -137,9 +129,9 @@ abstract class FileTemplateTabAsList extends FileTemplateTab {
     final int size = myModel.getSize();
     List<FileTemplate> templates = new ArrayList<>(size);
     for (int i =0; i<size; i++) {
-      templates.add((FileTemplate) myModel.getElementAt(i));
+      templates.add(myModel.getElementAt(i));
     }
-    return templates.toArray(new FileTemplate[templates.size()]);
+    return templates.toArray(FileTemplate.EMPTY_ARRAY);
   }
 
   @Override
@@ -154,8 +146,7 @@ abstract class FileTemplateTabAsList extends FileTemplateTab {
 
   @Override
   public FileTemplate getSelectedTemplate() {
-    final Object value = myList.getSelectedValue();
-    return value instanceof FileTemplate ? (FileTemplate) value : null;
+    return myList.getSelectedValue();
   }
 
   @Override

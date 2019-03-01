@@ -17,16 +17,17 @@ package com.intellij.refactoring.memberPushDown;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMember;
-import com.intellij.psi.PsiMethod;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringBundle;
-import com.intellij.refactoring.classMembers.*;
+import com.intellij.refactoring.classMembers.ANDCombinedMemberInfoModel;
+import com.intellij.refactoring.classMembers.DelegatingMemberInfoModel;
+import com.intellij.refactoring.classMembers.MemberInfoModel;
+import com.intellij.refactoring.classMembers.UsedByDependencyMemberInfoModel;
 import com.intellij.refactoring.ui.MemberSelectionPanel;
-import com.intellij.refactoring.util.classMembers.*;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.refactoring.util.classMembers.MemberInfo;
+import com.intellij.refactoring.util.classMembers.UsesDependencyMemberInfoModel;
 import org.jetbrains.annotations.Nullable;
 
 public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember, PsiClass> {
@@ -34,14 +35,12 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
     super(project, memberInfos, aClass);
   }
 
-  protected String getDimensionServiceKey() {
-    return "#com.intellij.refactoring.memberPushDown.PushDownDialog";
-  }
-
+  @Override
   protected MemberInfoModel<PsiMember, MemberInfo> createMemberInfoModel() {
     return new MyMemberInfoModel();
   }
 
+  @Override
   protected MemberSelectionPanel createMemberInfoPanel() {
     return new MemberSelectionPanel(
       RefactoringBundle.message("members.to.be.pushed.down.panel.title"),
@@ -49,6 +48,7 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
       RefactoringBundle.message("keep.abstract.column.header"));
   }
 
+  @Override
   protected int getDocCommentPolicy() {
     return JavaRefactoringSettings.getInstance().PULL_UP_MEMBERS_JAVADOC;
   }
@@ -65,7 +65,7 @@ public class PushDownDialog extends AbstractPushDownDialog<MemberInfo, PsiMember
   }
 
   private class MyMemberInfoModel extends DelegatingMemberInfoModel<PsiMember,MemberInfo> {
-    public MyMemberInfoModel() {
+    MyMemberInfoModel() {
       super(new ANDCombinedMemberInfoModel<>(
         new UsesDependencyMemberInfoModel<>(getSourceClass(), null, false),
         new UsedByDependencyMemberInfoModel<>(getSourceClass()))

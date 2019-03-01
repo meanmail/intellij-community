@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,20 @@
  */
 package com.intellij.tasks;
 
+import com.intellij.configurationStore.XmlSerializer;
 import com.intellij.notification.Notification;
 import com.intellij.notification.Notifications;
 import com.intellij.notification.NotificationsAdapter;
 import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.progress.EmptyProgressIndicator;
+import com.intellij.openapi.util.PasswordUtil;
 import com.intellij.openapi.util.Ref;
+import com.intellij.tasks.actions.TaskSearchSupport;
 import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskManagerImpl;
 import com.intellij.tasks.impl.TaskProjectConfiguration;
 import com.intellij.tasks.youtrack.YouTrackRepository;
 import com.intellij.tasks.youtrack.YouTrackRepositoryType;
-import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,12 +40,12 @@ import java.util.List;
  * @author Dmitry Avdeev
  */
 public class TaskManagerTest extends TaskManagerTestCase {
-  public void testTaskSwitch() throws Exception {
+  public void testTaskSwitch() {
 
     final Ref<Integer> count = Ref.create(0);
     TaskListener listener = new TaskListenerAdapter() {
       @Override
-      public void taskActivated(LocalTask task) {
+      public void taskActivated(@NotNull LocalTask task) {
         count.set(count.get() + 1);
       }
     };
@@ -56,7 +59,7 @@ public class TaskManagerTest extends TaskManagerTestCase {
     assertEquals(2, count.get().intValue());
   }
 
-  public void testNotifications() throws Exception {
+  public void testNotifications() {
 
     final Ref<Notification> notificationRef = new Ref<>();
     getProject().getMessageBus().connect(getTestRootDisposable()).subscribe(Notifications.TOPIC, new NotificationsAdapter() {
@@ -72,21 +75,21 @@ public class TaskManagerTest extends TaskManagerTestCase {
         throw new Exception();
       }
     };
-    ((TaskManagerImpl)myTaskManager).setRepositories(Collections.singletonList(repository));
+    myTaskManager.setRepositories(Collections.singletonList(repository));
 
     myTaskManager.updateIssues(null);
 
     assertNull(notificationRef.get());
 
-    myTaskManager.getIssues("");
+    TaskSearchSupport.getRepositoriesTasks(getProject(), "", 0, 100, true, false, new EmptyProgressIndicator());
 
     assertNotNull(notificationRef.get());
   }
 
-  public void testSharedServers() throws Exception {
+  public void testSharedServers() {
     TaskRepository repository = new YouTrackRepository(new YouTrackRepositoryType());
     repository.setShared(true);
-    ((TaskManagerImpl)myTaskManager).setRepositories(Collections.singletonList(repository));
+    myTaskManager.setRepositories(Collections.singletonList(repository));
 
     TaskProjectConfiguration configuration = ServiceManager.getService(getProject(), TaskProjectConfiguration.class);
     TaskProjectConfiguration state = configuration.getState();
@@ -95,19 +98,30 @@ public class TaskManagerTest extends TaskManagerTestCase {
     Element element = XmlSerializer.serialize(state);
 
     configuration.servers.clear();
-    ((TaskManagerImpl)myTaskManager).setRepositories(Collections.<TaskRepository>emptyList());
+    myTaskManager.setRepositories(Collections.emptyList());
 
     configuration.loadState(XmlSerializer.deserialize(element, TaskProjectConfiguration.class));
     assertEquals(1, state.servers.size());
 
-    ((TaskManagerImpl)myTaskManager).projectOpened();
+    myTaskManager.projectOpened();
 
     TaskRepository[] repositories = myTaskManager.getAllRepositories();
     assertEquals(1, repositories.length);
     assertTrue(repositories[0].isShared());
   }
 
-  public void testIssuesCacheSurvival() throws Exception {
+  public void testRemoveShared() {
+    TaskRepository repository = new YouTrackRepository(new YouTrackRepositoryType());
+    repository.setShared(true);
+    myTaskManager.setRepositories(Collections.singletonList(repository));
+
+    myTaskManager.setRepositories(Collections.emptyList());
+
+    TaskProjectConfiguration configuration = ServiceManager.getService(getProject(), TaskProjectConfiguration.class);
+    assertEquals(0, configuration.getState().servers.size());
+  }
+
+  public void testIssuesCacheSurvival() {
     final Ref<Boolean> stopper = new Ref<>(Boolean.FALSE);
     TestRepository repository = new TestRepository(new LocalTaskImpl("foo", "bar")) {
       @Override
@@ -116,19 +130,19 @@ public class TaskManagerTest extends TaskManagerTestCase {
         return super.getIssues(query, max, since);
       }
     };
-    ((TaskManagerImpl)myTaskManager).setRepositories(Collections.singletonList(repository));
+    myTaskManager.setRepositories(Collections.singletonList(repository));
 
     List<Task> issues = myTaskManager.getIssues("");
     assertEquals(1, issues.size());
 
     stopper.set(Boolean.TRUE);
-    issues = myTaskManager.getIssues("");
+    TaskSearchSupport.getRepositoriesTasks(getProject(), "", 0, 100, true, false, new EmptyProgressIndicator());
     assertEquals(1, issues.size());
   }
 
-  public void testTaskHistoryLength() throws Exception {
+  public void testTaskHistoryLength() {
     TestRepository repository = new TestRepository();
-    int historyLength = ((TaskManagerImpl)myTaskManager).getState().taskHistoryLength;
+    int historyLength = myTaskManager.getState().taskHistoryLength;
     for (int i = 0; i < historyLength + 100; i++) {
       myTaskManager.addTask(new TaskTestUtil.TaskBuilder(Integer.toString(i), "", repository));
     }
@@ -136,9 +150,9 @@ public class TaskManagerTest extends TaskManagerTestCase {
     assertEquals(Integer.toString(historyLength + 100 - 1), myTaskManager.getLocalTasks().get(historyLength - 1).getId());
   }
 
-  public void testBranchNameSuggestion() throws Exception {
+  public void testBranchNameSuggestion() {
     TaskTestUtil.TaskBuilder task = new TaskTestUtil.TaskBuilder("IDEA-666", "Bad news", null);
-    TaskManagerImpl taskManager = (TaskManagerImpl)myTaskManager;
+    TaskManagerImpl taskManager = myTaskManager;
     assertEquals("IDEA-666", taskManager.suggestBranchName(task));
     String format = taskManager.getState().branchNameFormat;
     try {
@@ -150,5 +164,59 @@ public class TaskManagerTest extends TaskManagerTestCase {
     finally {
       taskManager.getState().branchNameFormat = format;
     }
+  }
+
+  public void testPreserveTaskUrl() {
+    String url = "http://server/foo";
+    myTaskManager.addTask(new TaskTestUtil.TaskBuilder("foo", "summary", null).withIssueUrl(url));
+    TaskManagerImpl.Config config = getConfig();
+    LocalTaskImpl task = config.tasks.get(1);
+    assertEquals(url, task.getIssueUrl());
+  }
+
+  private TaskManagerImpl.Config getConfig() {
+    Element element = XmlSerializer.serialize(myTaskManager.getState());
+    return XmlSerializer.deserialize(element, TaskManagerImpl.Config.class);
+  }
+
+  public void testRestoreRepository() {
+    TestRepository repository = new TestRepository();
+    repository.setUrl("http://server");
+    myTaskManager.setRepositories(Collections.singletonList(repository));
+
+    TaskTestUtil.TaskBuilder issue = new TaskTestUtil.TaskBuilder("foo", "summary", repository).withIssueUrl(repository.getUrl() + "/foo");
+    myTaskManager.activateTask(issue, false);
+    TaskManagerImpl.Config config = getConfig();
+    myTaskManager.loadState(config);
+
+    assertEquals(repository, myTaskManager.getActiveTask().getRepository());
+  }
+
+  public void testCopyPresentableName() {
+    LocalTaskImpl task = new LocalTaskImpl("007", "");
+    LocalTaskImpl copy = new LocalTaskImpl(task);
+    copy.setSummary("foo");
+    assertEquals("foo", copy.getPresentableName());
+  }
+
+  public void testUpdateToVelocity() {
+    TaskManagerImpl.Config config = getConfig();
+    config.branchNameFormat = "{id}";
+    config.changelistNameFormat = "{id} {summary}";
+    myTaskManager.loadState(config);
+    assertEquals("${id}", myTaskManager.getState().branchNameFormat);
+    assertEquals("${id} ${summary}", myTaskManager.getState().changelistNameFormat);
+  }
+
+  public void testPasswordMigration() {
+    TestRepository repository = new TestRepository();
+    repository.setUrl("http://server");
+    repository.setUsername("me");
+    String password = "foo";
+    repository.setEncodedPassword(PasswordUtil.encodePassword(password));
+    repository.setRepositoryType(new TestRepositoryType());
+    repository.initializeRepository();
+    assertEquals(password, repository.getPassword());
+    assertNull(repository.getEncodedPassword());
   }
 }

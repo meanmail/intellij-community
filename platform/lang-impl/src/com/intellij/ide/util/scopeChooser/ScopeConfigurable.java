@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.scopeChooser;
 
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.options.ConfigurationException;
@@ -28,25 +15,22 @@ import com.intellij.psi.search.scope.packageSet.NamedScope;
 import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
 import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.psi.search.scope.packageSet.PackageSet;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 
-/**
- * User: anna
- * Date: 01-Jul-2006
- */
 public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
   private final Disposable myDisposable = Disposer.newDisposable();
   private NamedScope myScope;
   private ScopeEditorPanel myPanel;
   private String myPackageSet;
   private final JCheckBox mySharedCheckbox;
-  private boolean myShareScope = false;
+  private final JLabel mySharedContextHelp;
+  private boolean myShareScope;
   private final Project myProject;
   private Icon myIcon;
 
@@ -56,14 +40,14 @@ public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
     myShareScope = shareScope;
     myProject = project;
     mySharedCheckbox = new JCheckBox(IdeBundle.message("share.scope.checkbox.title"), shareScope);
+    mySharedContextHelp = new JLabel(AllIcons.General.ContextHelp);
+    mySharedContextHelp.setToolTipText(IdeBundle.message("share.scope.context.help"));
+    mySharedContextHelp.setBorder(JBUI.Borders.empty(0, 5));
     myPanel = new ScopeEditorPanel(project, getHolder());
     myIcon = getHolder(myShareScope).getIcon();
-    mySharedCheckbox.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(final ActionEvent e) {
-        myIcon = getHolder().getIcon();
-        myPanel.setHolder(getHolder());
-      }
+    mySharedCheckbox.addActionListener(e -> {
+      myIcon = getHolder().getIcon();
+      myPanel.setHolder(getHolder());
     });
   }
 
@@ -73,12 +57,12 @@ public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
       return;
     }
     final PackageSet packageSet = myScope.getValue();
-    myScope = new NamedScope(name, packageSet != null ? packageSet.createCopy() : null);
+    myScope = new NamedScope(name, myIcon, packageSet != null ? packageSet.createCopy() : null);
   }
 
   @Override
   public NamedScope getEditableObject() {
-    return new NamedScope(myScope.getName(), myPanel.getCurrentScope());
+    return new NamedScope(myScope.getName(), myIcon, myPanel.getCurrentScope());
   }
 
   @Override
@@ -91,12 +75,14 @@ public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
     return myScope.getName();
   }
 
+  @NotNull
   public NamedScopesHolder getHolder() {
     return getHolder(mySharedCheckbox.isSelected());
   }
 
+  @NotNull
   private NamedScopesHolder getHolder(boolean local) {
-    return (NamedScopesHolder)(local
+    return (local
             ? DependencyValidationManager.getInstance(myProject)
             : NamedScopeManager.getInstance(myProject));
   }
@@ -108,12 +94,20 @@ public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
     return "project.scopes";
   }
 
+  @Nullable
+  @Override
+  protected JComponent createTopRightComponent() {
+    JPanel panel = new JPanel(new BorderLayout());
+    panel.add(BorderLayout.WEST, mySharedCheckbox);
+    panel.add(BorderLayout.EAST, mySharedContextHelp);
+    return panel;
+  }
+
   @Override
   public JComponent createOptionsPanel() {
-    final JPanel wholePanel = new JPanel(new BorderLayout());
-    wholePanel.add(myPanel.getPanel(), BorderLayout.CENTER);
-    wholePanel.add(mySharedCheckbox, BorderLayout.SOUTH);
-    return wholePanel;
+    JPanel panel = myPanel.getPanel();
+    panel.setBorder(JBUI.Borders.empty(0, 10, 10, 10));
+    return panel;
   }
 
   @Override
@@ -128,7 +122,7 @@ public class ScopeConfigurable extends NamedConfigurable<NamedScope> {
     try {
       myPanel.apply();
       final PackageSet packageSet = myPanel.getCurrentScope();
-      myScope = new NamedScope(myScope.getName(), packageSet);
+      myScope = new NamedScope(myScope.getName(), myIcon, packageSet);
       myPackageSet = packageSet != null ? packageSet.getText() : null;
       myShareScope = mySharedCheckbox.isSelected();
     }

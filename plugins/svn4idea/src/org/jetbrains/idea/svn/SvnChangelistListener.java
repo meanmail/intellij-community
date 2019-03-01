@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -27,10 +13,10 @@ import com.intellij.util.ThrowableConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.svn.api.ErrorCode;
 import org.jetbrains.idea.svn.change.ChangeListClient;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.status.Status;
-import org.tmatesoft.svn.core.SVNErrorCode;
 
 import java.io.File;
 import java.util.Collection;
@@ -44,19 +30,13 @@ public class SvnChangelistListener implements ChangeListListener {
 
   public SvnChangelistListener(@NotNull SvnVcs vcs) {
     myVcs = vcs;
-    myUnderSvnCondition = new Condition<FilePath>() {
-      @Override
-      public boolean value(@NotNull FilePath path) {
-        final AbstractVcs vcs = ProjectLevelVcsManager.getInstance(myVcs.getProject()).getVcsFor(path);
-        return vcs != null && SvnVcs.VCS_NAME.equals(vcs.getName());
-      }
+    myUnderSvnCondition = path -> {
+      final AbstractVcs vcs1 = ProjectLevelVcsManager.getInstance(myVcs.getProject()).getVcsFor(path);
+      return vcs1 != null && SvnVcs.VCS_NAME.equals(vcs1.getName());
     };
   }
 
-  public void changeListAdded(final ChangeList list) {
-    // SVN change list exists only when there are any files in it
-  }
-
+  @Override
   public void changesRemoved(final Collection<Change> changes, final ChangeList fromList) {
     if (LocalChangeList.DEFAULT_NAME.equals(fromList.getName())) {
       return;
@@ -64,6 +44,7 @@ public class SvnChangelistListener implements ChangeListListener {
     removeFromChangeList(changes);
   }
 
+  @Override
   public void changesAdded(Collection<Change> changes, ChangeList toList) {
     if (toList == null || LocalChangeList.DEFAULT_NAME.equals(toList.getName())) {
       return;
@@ -71,6 +52,7 @@ public class SvnChangelistListener implements ChangeListListener {
     addToChangeList(toList.getName(), changes);
   }
 
+  @Override
   public void changeListRemoved(final ChangeList list) {
     removeFromChangeList(list.getChanges());
   }
@@ -80,9 +62,7 @@ public class SvnChangelistListener implements ChangeListListener {
     return ContainerUtil.findAll(ChangesUtil.getPaths(changes), myUnderSvnCondition);
   }
 
-  public void changeListChanged(final ChangeList list) {
-  }
-
+  @Override
   public void changeListRenamed(final ChangeList list, final String oldName) {
     if (Comparing.equal(list.getName(), oldName)) {
       return;
@@ -94,9 +74,7 @@ public class SvnChangelistListener implements ChangeListListener {
     addToChangeList(list.getName(), list.getChanges());
   }
 
-  public void changeListCommentChanged(final ChangeList list, final String oldComment) {
-  }
-
+  @Override
   public void changesMoved(final Collection<Change> changes, final ChangeList fromList, final ChangeList toList) {
     if (fromList.getName().equals(toList.getName())) {
       return;
@@ -110,23 +88,14 @@ public class SvnChangelistListener implements ChangeListListener {
     addToChangeList(toList.getName(), changes, fromLists);
   }
 
-  public void defaultListChanged(final ChangeList oldDefaultList, final ChangeList newDefaultList) {
-  }
-
-  public void unchangedFileStatusChanged() {
-  }
-
-  public void changeListUpdateDone() {
-  }
-
   @Nullable
   public static String getCurrentMapping(@NotNull SvnVcs vcs, @NotNull File file) {
     try {
       final Status status = vcs.getFactory(file).createStatusClient().doStatus(file, false);
-      return status == null ? null : status.getChangelistName();
+      return status == null ? null : status.getChangeListName();
     }
     catch (SvnBindException e) {
-      if (e.contains(SVNErrorCode.WC_NOT_DIRECTORY) || e.contains(SVNErrorCode.WC_NOT_FILE)) {
+      if (e.contains(ErrorCode.WC_NOT_WORKING_COPY) || e.contains(ErrorCode.WC_NOT_FILE)) {
         LOG.debug("Logging only, exception is valid (caught) here", e);
       } else {
         LOG.info("Logging only, exception is valid (caught) here", e);
@@ -151,7 +120,7 @@ public class SvnChangelistListener implements ChangeListListener {
     }
     catch (SvnBindException e) {
       LOG.info(e);
-      if (!e.contains(SVNErrorCode.WC_NOT_DIRECTORY) && !e.contains(SVNErrorCode.WC_NOT_FILE)) {
+      if (!e.contains(ErrorCode.WC_NOT_WORKING_COPY) && !e.contains(ErrorCode.WC_NOT_FILE)) {
         throw e;
       }
     }

@@ -16,7 +16,6 @@
 package com.intellij.codeInspection.actions;
 
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.ide.util.gotoByName.ChooseByNameBase;
 import com.intellij.lang.Language;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.UnknownFileType;
@@ -41,7 +40,6 @@ import java.util.List;
 /**
 * @author Konstantin Bulenkov
 */
-@SuppressWarnings({"GtkPreferredJComboBoxRenderer"})
 public class InspectionListCellRenderer extends DefaultListCellRenderer {
   private final SimpleTextAttributes mySelected;
   private final SimpleTextAttributes myPlain;
@@ -74,9 +72,8 @@ public class InspectionListCellRenderer extends DefaultListCellRenderer {
     final Color fg = sel ? UIUtil.getListSelectionForeground() : UIUtil.getListForeground();
     panel.setBackground(bg);
     panel.setForeground(fg);
-
-    if (value instanceof InspectionToolWrapper) {
-      final InspectionToolWrapper toolWrapper = (InspectionToolWrapper)value;
+    if (value instanceof InspectionElement) {
+      final InspectionToolWrapper toolWrapper = ((InspectionElement)value).getToolWrapper();
       final String inspectionName = "  " + toolWrapper.getDisplayName();
       final String groupName = StringUtil.join(toolWrapper.getGroupPath(), " | ");
       final String matchingText = inspectionName + "|" + groupName;
@@ -119,8 +116,7 @@ public class InspectionListCellRenderer extends DefaultListCellRenderer {
     }
     else {
       // E.g. "..." item
-      return value == ChooseByNameBase.NON_PREFIX_SEPARATOR ? ChooseByNameBase.renderNonPrefixSeparatorComponent(UIUtil.getListBackground()) :
-             super.getListCellRendererComponent(list, value, index, sel, focus);
+      return super.getListCellRendererComponent(list, value, index, sel, focus);
     }
 
     return panel;

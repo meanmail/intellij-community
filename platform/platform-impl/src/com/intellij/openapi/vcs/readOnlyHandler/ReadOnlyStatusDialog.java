@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.readOnlyHandler;
 
 import com.intellij.openapi.project.Project;
@@ -23,7 +9,7 @@ import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.CollectionComboBoxModel;
-import com.intellij.ui.ColoredListCellRendererWrapper;
+import com.intellij.ui.ColoredListCellRenderer;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.ui.OptionsDialog;
@@ -36,7 +22,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 
 /**
@@ -46,22 +31,22 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
   private static final SimpleTextAttributes BOLD_ATTRIBUTES =
     new SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, JBColor.foreground());
   private static final SimpleTextAttributes SELECTED_BOLD_ATTRIBUTES =
-    new SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, new JBColor(UIUtil::getListSelectionForeground));
+    new SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, new JBColor(() -> UIUtil.getListSelectionForeground(true)));
 
   private JPanel myTopPanel;
-  private JList myFileList;
+  private JList<VirtualFile> myFileList;
   private JRadioButton myUsingFileSystemRadioButton;
   private JRadioButton myUsingVcsRadioButton;
-  private JComboBox myChangelist;
-  private FileInfo[] myFiles;
+  private JComboBox<String> myChangelist;
+  private List<FileInfo> myFiles;
 
-  public ReadOnlyStatusDialog(Project project, final FileInfo[] files) {
+  public ReadOnlyStatusDialog(Project project, @NotNull List<FileInfo> files) {
     super(project);
     setTitle(VcsBundle.message("dialog.title.clear.read.only.file.status"));
     myFiles = files;
     myFileList.setPreferredSize(getDialogPreferredSize());
     initFileList();
-                       
+
     ActionListener listener = new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -73,7 +58,6 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
     (myUsingVcsRadioButton.isEnabled() ? myUsingVcsRadioButton : myUsingFileSystemRadioButton).setSelected(true);
     myChangelist.setEnabled(myUsingVcsRadioButton.isSelected());
 
-    //noinspection unchecked
     myFileList.setCellRenderer(new FileListRenderer());
 
     init();
@@ -85,14 +69,15 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
   }
 
   private void initFileList() {
-    //noinspection unchecked
-    myFileList.setModel(new AbstractListModel() {
+    myFileList.setModel(new AbstractListModel<VirtualFile>() {
+      @Override
       public int getSize() {
-        return myFiles.length;
+        return myFiles.size();
       }
 
-      public Object getElementAt(final int index) {
-        return myFiles[index].getFile();
+      @Override
+      public VirtualFile getElementAt(final int index) {
+        return myFiles.get(index).getFile();
       }
     });
 
@@ -102,14 +87,12 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
         hasVcs = true;
         HandleType handleType = info.getSelectedHandleType();
         List<String> changelists = handleType.getChangelists();
-        final String defaultChangelist = handleType.getDefaultChangelist();
-        //noinspection unchecked
-        myChangelist.setModel(new CollectionComboBoxModel(changelists, defaultChangelist));
+        String defaultChangelist = handleType.getDefaultChangelist();
+        myChangelist.setModel(new CollectionComboBoxModel<>(changelists, defaultChangelist));
 
-        //noinspection unchecked
-        myChangelist.setRenderer(new ColoredListCellRendererWrapper<String>() {
+        myChangelist.setRenderer(new ColoredListCellRenderer<String>() {
           @Override
-          protected void doCustomize(JList list, String value, int index, boolean selected, boolean hasFocus) {
+          protected void customizeCellRenderer(@NotNull JList<? extends String> list, String value, int index, boolean selected, boolean hasFocus) {
             if (value == null) return;
             String trimmed = StringUtil.first(value, 50, true);
             if (value.equals(defaultChangelist)) {
@@ -169,8 +152,7 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
       }
     }
 
-    List<FileInfo> files = new ArrayList<>();
-    Collections.addAll(files, myFiles);
+    List<FileInfo> files = new ArrayList<>(myFiles);
     String changelist = (String)myChangelist.getSelectedItem();
     ReadonlyStatusHandlerImpl.processFiles(files, changelist);
 
@@ -181,7 +163,7 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
       String list = StringUtil.join(files, info -> info.getFile().getPresentableUrl(), "<br>");
       String message = VcsBundle.message("handle.ro.file.status.failed", list);
       Messages.showErrorDialog(getRootPane(), message, VcsBundle.message("dialog.title.clear.read.only.file.status"));
-      myFiles = files.toArray(new FileInfo[files.size()]);
+      myFiles = files;
       initFileList();
     }
   }
@@ -191,22 +173,21 @@ public class ReadOnlyStatusDialog extends OptionsDialog {
     final JRootPane pane = getRootPane();
     return pane != null ? pane.getDefaultButton() : null;
   }
-  
+
   public static Dimension getDialogPreferredSize() {
     return new Dimension(500, 400);
   }
 
   @NotNull
-  public static String getTheseFilesMessage(Collection<VirtualFile> files) {
+  public static String getTheseFilesMessage(Collection<? extends VirtualFile> files) {
     boolean dirsOnly = true;
     for (VirtualFile each : files) {
       if (!each.isDirectory()) {
         dirsOnly = false;
         break;
-        
       }
     }
-    
+
     int size = files.size();
     return StringUtil.pluralize("this", size) + " " + StringUtil.pluralize((dirsOnly ? "directory" : "file"), size);
   }

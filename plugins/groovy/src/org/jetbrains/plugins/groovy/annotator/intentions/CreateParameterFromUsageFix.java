@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -92,7 +92,7 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return element instanceof GrReferenceExpression;
       }
     };
@@ -110,21 +110,22 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
 
     if (scopes.size() == 1) {
       final GrMethod owner = scopes.get(0);
-      final PsiMethod toSearchFor;
-      toSearchFor = SuperMethodWarningUtil.checkSuperMethod(owner, RefactoringBundle.message("to.refactor"));
+      final PsiMethod toSearchFor = SuperMethodWarningUtil.checkSuperMethod(owner, RefactoringBundle.message("to.refactor"));
       if (toSearchFor == null) return; //if it is null, refactoring was canceled
       showDialog(toSearchFor, ref, project);
     }
     else if (scopes.size() > 1) {
       myEnclosingMethodsPopup = MethodOrClosureScopeChooser.create(scopes, editor, this, (owner, element) -> {
-        showDialog((PsiMethod)owner, ref, project);
+        if (owner != null) {
+          showDialog((PsiMethod)owner, ref, project);
+        }
         return null;
       });
       myEnclosingMethodsPopup.showInBestPositionFor(editor);
     }
   }
 
-  private static void showDialog(final PsiMethod method, final GrReferenceExpression ref, final Project project) {
+  private static void showDialog(@NotNull PsiMethod method, @NotNull GrReferenceExpression ref, @NotNull Project project) {
     final String name = ref.getReferenceName();
     final List<PsiType> types = GroovyExpectedTypesProvider.getDefaultExpectedTypes(ref);
 
@@ -140,7 +141,7 @@ public class CreateParameterFromUsageFix extends Intention implements MethodOrCl
       dialog.setParameterInfos(parameters);
       dialog.show();
     }
-    else if (method != null) {
+    else {
       JavaChangeSignatureDialog dialog = new JavaChangeSignatureDialog(project, method, false, ref);
       final List<ParameterInfoImpl> parameterInfos = new ArrayList<>(Arrays.asList(ParameterInfoImpl.fromMethod(method)));
       ParameterInfoImpl parameterInfo = new ParameterInfoImpl(-1, name, type, PsiTypesUtil.getDefaultValueOfType(type), false);

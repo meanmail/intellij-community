@@ -17,7 +17,7 @@ import org.jetbrains.annotations.NotNull;
  * @author Mikhail Golubev
  */
 public class TemplateVariable {
-  private String myName;
+  private String myName = "";
   private String myValue = "";
   private String myDescription = "";
   private boolean myReadOnly;
@@ -26,7 +26,7 @@ public class TemplateVariable {
 
   public TemplateVariable(@NotNull @NonNls String name, @NotNull @NonNls String value) {
     myName = name;
-    myValue = String.valueOf(value);
+    myValue = value;
     myReadOnly = false;
     myDescription = "";
   }
@@ -34,7 +34,6 @@ public class TemplateVariable {
   /**
    * Serialization constructor
    */
-  @SuppressWarnings("unusedDesclaration")
   public TemplateVariable() {
     // empty
   }
@@ -106,6 +105,7 @@ public class TemplateVariable {
     myShownOnFirstTab = shownOnFirstTab;
   }
 
+  @Override
   public TemplateVariable clone() {
     return new TemplateVariable(this);
   }

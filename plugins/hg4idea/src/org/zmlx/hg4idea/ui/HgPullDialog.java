@@ -12,8 +12,8 @@
 // limitations under the License.
 package org.zmlx.hg4idea.ui;
 
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.text.StringUtil;
@@ -42,6 +42,7 @@ public class HgPullDialog extends DialogWrapper {
     this.project = project;
     hgRepositorySelector.setTitle("Select repository to pull changesets for");
     hgRepositorySelector.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         onChangeRepository();
       }
@@ -55,9 +56,9 @@ public class HgPullDialog extends DialogWrapper {
 
   public void createUIComponents() {
     myRepositoryURL = new EditorComboBox("");
-    myRepositoryURL.addDocumentListener(new DocumentAdapter() {
+    myRepositoryURL.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         onChangePullSource();
       }
     });
@@ -85,6 +86,7 @@ public class HgPullDialog extends DialogWrapper {
     onChangeRepository();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return mainPanel;
   }

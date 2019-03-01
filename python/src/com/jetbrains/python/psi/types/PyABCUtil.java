@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -83,19 +83,25 @@ public class PyABCUtil {
              hasMethod(subClass, "add", inherited, context);
     }
     if (PyNames.ABC_COMPLEX.equals(superClassName)) {
-      return hasMethod(subClass, "__complex__", inherited, context);
+      return hasMethod(subClass, PyNames.COMPLEX, inherited, context);
     }
     if (PyNames.ABC_REAL.equals(superClassName)) {
-      return hasMethod(subClass, "__float__", inherited, context);
+      return hasMethod(subClass, PyNames.FLOAT, inherited, context);
     }
     if (PyNames.ABC_INTEGRAL.equals(superClassName)) {
-      return hasMethod(subClass, "__int__", inherited, context);
+      return hasMethod(subClass, PyNames.INT, inherited, context);
     }
     if (PyNames.ABC_NUMBER.equals(superClassName) && "Decimal".equals(subClass.getName())) {
       return true;
     }
     if (PyNames.ASYNC_ITERABLE.equals(superClassName)) {
       return hasMethod(subClass, PyNames.AITER, inherited, context);
+    }
+    if (PyNames.AWAITABLE.equals(superClassName)) {
+      return hasMethod(subClass, PyNames.DUNDER_AWAIT, inherited, context);
+    }
+    if (PyNames.PATH_LIKE.equals(superClassName)) {
+      return hasMethod(subClass, PyNames.FSPATH, inherited, context);
     }
     return false;
   }
@@ -123,12 +129,12 @@ public class PyABCUtil {
       final PyUnionType unionType = (PyUnionType)type;
       for (PyType m : unionType.getMembers()) {
         if (m != null) {
-          if (!isSubtype(m, superClassName, context)) {
-            return false;
+          if (isSubtype(m, superClassName, context)) {
+            return true;
           }
         }
       }
-      return true;
+      return false;
     }
     return false;
   }

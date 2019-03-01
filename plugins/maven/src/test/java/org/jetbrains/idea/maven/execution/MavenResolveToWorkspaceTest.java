@@ -16,7 +16,6 @@
 package org.jetbrains.idea.maven.execution;
 
 import com.intellij.execution.configurations.JavaParameters;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -80,15 +79,9 @@ public abstract class MavenResolveToWorkspaceTest extends MavenImportingTestCase
 
     //assertModules("project", "moduleA", "moduleB");
 
-    AccessToken accessToken = WriteAction.start();
-    try {
-      ProjectRootManager.getInstance(myProject).setProjectSdk(createJdk("Java 1.5"));
-    }
-    finally {
-      accessToken.finish();
-    }
+    WriteAction.run(() -> ProjectRootManager.getInstance(myProject).setProjectSdk(createJdk()));
 
-    MavenRunnerParameters runnerParameters = new MavenRunnerParameters(moduleB.getParent().getPath(), false, Collections.singletonList("jetty:run"), Collections.<String, Boolean>emptyMap());
+    MavenRunnerParameters runnerParameters = new MavenRunnerParameters(moduleB.getParent().getPath(), null, false, Collections.singletonList("jetty:run"), Collections.emptyMap());
     runnerParameters.setResolveToWorkspace(true);
 
     MavenRunnerSettings runnerSettings = MavenRunner.getInstance(myProject).getSettings().clone();

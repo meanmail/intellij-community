@@ -38,7 +38,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 10/21/12
  */
 public class MavenResourcesTarget extends ModuleBasedTarget<MavenResourceRootDescriptor> {
 
@@ -65,7 +64,7 @@ public class MavenResourcesTarget extends ModuleBasedTarget<MavenResourceRootDes
   @Override
   public List<MavenResourceRootDescriptor> computeRootDescriptors(JpsModel model, ModuleExcludeIndex index, IgnoredFileIndex ignoredFileIndex, BuildDataPaths dataPaths) {
     // todo: should we honor ignored and excluded roots here?
-    final List<MavenResourceRootDescriptor> result = new ArrayList<MavenResourceRootDescriptor>();
+    final List<MavenResourceRootDescriptor> result = new ArrayList<>();
 
     MavenModuleResourceConfiguration moduleConfig = getModuleResourcesConfiguration(dataPaths);
     if (moduleConfig == null) return Collections.emptyList();
@@ -92,6 +91,7 @@ public class MavenResourcesTarget extends ModuleBasedTarget<MavenResourceRootDes
     return projectConfig.moduleConfigurations.get(myModule.getName());
   }
 
+  @Override
   public boolean isTests() {
     return ((MavenResourcesTargetType)getTargetType()).isTests();
   }
@@ -120,7 +120,7 @@ public class MavenResourcesTarget extends ModuleBasedTarget<MavenResourceRootDes
       getModuleResourcesConfiguration(context.getProjectDescriptor().dataManager.getDataPaths());
     if (configuration == null) return Collections.emptyList();
 
-    final Set<File> result = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> result = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
     final File moduleOutput = getModuleOutputDir();
     for (ResourceRootConfiguration resConfig : getRootConfigurations(configuration)) {
       final File output = getOutputDir(moduleOutput, resConfig, configuration.outputDirectory);

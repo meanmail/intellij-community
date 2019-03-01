@@ -31,7 +31,7 @@ import java.lang.reflect.InvocationTargetException;
  */
 public abstract class EdtInvocationManager {
 
-  @NotNull private static volatile EdtInvocationManager ourInstance = new SwingEdtInvocationManager();
+  @NotNull private static EdtInvocationManager ourInstance = new SwingEdtInvocationManager();
 
   public abstract boolean isEventDispatchThread();
 
@@ -50,7 +50,7 @@ public abstract class EdtInvocationManager {
   }
 
   /**
-   * 'True' {@link EdtInvocationManager} implementation which works with real EDT.
+   * The default {@link EdtInvocationManager} implementation which works with the EDT via SwingUtilities.
    */
   private static class SwingEdtInvocationManager extends EdtInvocationManager {
     @Override
@@ -66,7 +66,6 @@ public abstract class EdtInvocationManager {
 
     @Override
     public void invokeAndWait(@NotNull Runnable task) throws InvocationTargetException, InterruptedException {
-      //noinspection SSBasedInspection
       SwingUtilities.invokeAndWait(task);
     }
   }

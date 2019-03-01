@@ -22,13 +22,13 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.ForeignLeafPsiElement;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ExceptionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBus;
@@ -38,7 +38,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-import java.util.*;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.TreeMap;
 
 public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.PsiToDocumentSynchronizer");
@@ -46,19 +48,19 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
 
   private final PsiDocumentManagerBase myPsiDocumentManager;
   private final MessageBus myBus;
-  private final Map<Document, Pair<DocumentChangeTransaction, Integer>> myTransactionsMap = new HashMap<Document, Pair<DocumentChangeTransaction, Integer>>();
+  private final Map<Document, Pair<DocumentChangeTransaction, Integer>> myTransactionsMap = ContainerUtil.newConcurrentMap();
 
   private volatile Document mySyncDocument;
 
-  PsiToDocumentSynchronizer(PsiDocumentManagerBase psiDocumentManager, MessageBus bus) {
+  PsiToDocumentSynchronizer(@NotNull PsiDocumentManagerBase psiDocumentManager, @NotNull MessageBus bus) {
     myPsiDocumentManager = psiDocumentManager;
     myBus = bus;
   }
 
   @Nullable
-  public DocumentChangeTransaction getTransaction(final Document document) {
+  public DocumentChangeTransaction getTransaction(@NotNull Document document) {
     final Pair<DocumentChangeTransaction, Integer> pair = myTransactionsMap.get(document);
-    return pair != null ? pair.getFirst() : null;
+    return Pair.getFirst(pair);
   }
 
   public boolean isInSynchronization(@NotNull Document document) {
@@ -71,6 +73,7 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
     mySyncDocument = null;
   }
 
+  @FunctionalInterface
   private interface DocSyncAction {
     void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event);
   }
@@ -102,12 +105,7 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
     final DocumentEx document = getCachedDocument(psiFile, force);
     if (document == null) return;
 
-    performAtomically(psiFile, new Runnable() {
-      @Override
-      public void run() {
-        syncAction.syncDocument(document, (PsiTreeChangeEventImpl)event);
-      }
-    });
+    performAtomically(psiFile, () -> syncAction.syncDocument(document, (PsiTreeChangeEventImpl)event));
 
     final boolean insideTransaction = myTransactionsMap.containsKey(document);
     if (!insideTransaction) {
@@ -119,7 +117,8 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
     return file.getUserData(PSI_DOCUMENT_ATOMIC_ACTION) == Boolean.TRUE;
   }
 
-  static void performAtomically(@NotNull PsiFile file, @NotNull Runnable runnable) {
+  public static void performAtomically(@NotNull PsiFile file, @NotNull Runnable runnable) {
+    PsiUtilCore.ensureValid(file);
     assert !isInsideAtomicChange(file);
     file.putUserData(PSI_DOCUMENT_ATOMIC_ACTION, Boolean.TRUE);
 
@@ -154,47 +153,31 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
   @Override
   public void childAdded(@NotNull final PsiTreeChangeEvent event) {
     if (!(event.getChild() instanceof ForeignLeafPsiElement)) {
-      doSync(event, false, new DocSyncAction() {
-        @Override
-        public void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event) {
-          insertString(document, event.getOffset(), event.getChild().getText());
-        }
-    });
+      doSync(event, false, (document, event1) -> insertString(document, event1.getOffset(), event1.getChild().getText()));
     }
   }
 
   @Override
   public void childRemoved(@NotNull final PsiTreeChangeEvent event) {
     if (!(event.getChild() instanceof ForeignLeafPsiElement)) {
-      doSync(event, false, new DocSyncAction() {
-        @Override
-        public void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event) {
-          deleteString(document, event.getOffset(), event.getOffset() + event.getOldLength());
-        }
-      });
+      doSync(event, false, (document, event1) -> deleteString(document, event1.getOffset(), event1.getOffset() + event1.getOldLength()));
     }
   }
 
   @Override
   public void childReplaced(@NotNull final PsiTreeChangeEvent event) {
-    doSync(event, false, new DocSyncAction() {
-      @Override
-      public void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event) {
-        int oldLength = event.getOldChild() instanceof ForeignLeafPsiElement ? 0 : event.getOldLength();
-        String newText = event.getNewChild() instanceof ForeignLeafPsiElement ? "" : event.getNewChild().getText();
-        replaceString(document, event.getOffset(), event.getOffset() + oldLength, newText, event.getNewChild());
-      }
+    doSync(event, false, (document, event1) -> {
+      int oldLength = event1.getOldChild() instanceof ForeignLeafPsiElement ? 0 : event1.getOldLength();
+      String newText = event1.getNewChild() instanceof ForeignLeafPsiElement ? "" : event1.getNewChild().getText();
+      replaceString(document, event1.getOffset(), event1.getOffset() + oldLength, newText, event1.getNewChild());
     });
   }
 
   @Override
   public void childrenChanged(@NotNull final PsiTreeChangeEvent event) {
-    doSync(event, false, new DocSyncAction() {
-      @Override
-      public void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event) {
-        replaceString(document, event.getOffset(), event.getOffset() + event.getOldLength(), event.getParent().getText(), event.getParent());
-      }
-    });
+    doSync(event, false, (document, event1) ->
+      replaceString(document, event1.getOffset(), event1.getOffset() + event1.getOldLength(), event1.getParent().getText(), event1
+             .getParent()));
   }
 
   private boolean myIgnorePsiEvents;
@@ -211,24 +194,25 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
   }
 
   @TestOnly
-  public void replaceString(Document document, int startOffset, int endOffset, String s) {
+  public void replaceString(@NotNull Document document, int startOffset, int endOffset, @NotNull String s) {
     replaceString(document, startOffset, endOffset, s, null);
   }
-  private void replaceString(Document document, int startOffset, int endOffset, String s, @Nullable PsiElement replacement) {
+
+  private void replaceString(@NotNull Document document, int startOffset, int endOffset, @NotNull String s, @Nullable PsiElement replacement) {
     final DocumentChangeTransaction documentChangeTransaction = getTransaction(document);
     if(documentChangeTransaction != null) {
       documentChangeTransaction.replace(startOffset, endOffset - startOffset, s, replacement);
     }
   }
 
-  public void insertString(Document document, int offset, String s) {
+  public void insertString(@NotNull Document document, int offset, @NotNull String s) {
     final DocumentChangeTransaction documentChangeTransaction = getTransaction(document);
     if(documentChangeTransaction != null){
       documentChangeTransaction.replace(offset, 0, s, null);
     }
   }
 
-  private void deleteString(Document document, int startOffset, int endOffset){
+  private void deleteString(@NotNull Document document, int startOffset, int endOffset){
     final DocumentChangeTransaction documentChangeTransaction = getTransaction(document);
     if(documentChangeTransaction != null){
       documentChangeTransaction.replace(startOffset, endOffset - startOffset, "", null);
@@ -238,18 +222,19 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
   public void startTransaction(@NotNull Project project, @NotNull Document doc, @NotNull PsiElement scope) {
     LOG.assertTrue(!project.isDisposed());
     Pair<DocumentChangeTransaction, Integer> pair = myTransactionsMap.get(doc);
+    Pair<DocumentChangeTransaction, Integer> prev = pair;
     if (pair == null) {
       final PsiFile psiFile = scope.getContainingFile();
-      pair = new Pair<DocumentChangeTransaction, Integer>(new DocumentChangeTransaction(doc, psiFile), 0);
+      pair = new Pair<>(new DocumentChangeTransaction(doc, psiFile), 0);
       myBus.syncPublisher(PsiDocumentTransactionListener.TOPIC).transactionStarted(doc, psiFile);
     }
     else {
-      pair = new Pair<DocumentChangeTransaction, Integer>(pair.getFirst(), pair.getSecond().intValue() + 1);
+      pair = new Pair<>(pair.getFirst(), pair.getSecond().intValue() + 1);
     }
-    myTransactionsMap.put(doc, pair);
+    LOG.assertTrue(myTransactionsMap.put(doc, pair) == prev);
   }
 
-  public boolean commitTransaction(final Document document){
+  public boolean commitTransaction(@NotNull Document document){
     ApplicationManager.getApplication().assertIsDispatchThread();
     final DocumentChangeTransaction documentChangeTransaction = removeTransaction(document);
     if(documentChangeTransaction == null) return false;
@@ -261,12 +246,7 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
       fakeEvent.setParent(changeScope);
       fakeEvent.setFile(changeScope);
       checkPsiModificationAllowed(fakeEvent);
-      doSync(fakeEvent, true, new DocSyncAction() {
-        @Override
-        public void syncDocument(@NotNull Document document, @NotNull PsiTreeChangeEventImpl event) {
-          doCommitTransaction(document, documentChangeTransaction);
-        }
-      });
+      doSync(fakeEvent, true, (document1, event) -> doCommitTransaction(document1, documentChangeTransaction));
       myBus.syncPublisher(PsiDocumentTransactionListener.TOPIC).transactionCompleted(document, changeScope);
     }
     catch (Throwable e) {
@@ -298,7 +278,7 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
   }
 
   @Nullable
-  private DocumentChangeTransaction removeTransaction(Document doc) {
+  private DocumentChangeTransaction removeTransaction(@NotNull Document doc) {
     Pair<DocumentChangeTransaction, Integer> pair = myTransactionsMap.get(doc);
     if(pair == null) return null;
     int nestedCount = pair.getSecond().intValue();
@@ -311,17 +291,12 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
     return pair.getFirst();
   }
 
-  public boolean isDocumentAffectedByTransactions(Document document) {
+  public boolean isDocumentAffectedByTransactions(@NotNull Document document) {
     return myTransactionsMap.containsKey(document);
   }
 
   public static class DocumentChangeTransaction{
-    private final TreeMap<TextRange, CharSequence> myAffectedFragments = new TreeMap<TextRange, CharSequence>(new Comparator<TextRange>() {
-      @Override
-      public int compare(TextRange o1, TextRange o2) {
-        return o1.getStartOffset() - o2.getStartOffset();
-      }
-    });
+    private final TreeMap<TextRange, CharSequence> myAffectedFragments = new TreeMap<>(Comparator.comparingInt(TextRange::getStartOffset));
     private final PsiFile myChangeScope;
     private ImmutableCharSequence myPsiText;
 
@@ -419,21 +394,12 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
       CharSequence newReplacement = myPsiText.subSequence(documentToPsiOffset(newFragment.getStartOffset(), false),
                                                           documentToPsiOffset(newFragment.getEndOffset(), true) + replace.length() - (end - start));
 
-      for (Iterator<TextRange> iterator = myAffectedFragments.keySet().iterator(); iterator.hasNext(); ) {
-        if (iterator.next().intersects(newFragment)) {
-          iterator.remove();
-        }
-      }
+      myAffectedFragments.keySet().removeIf(range -> range.intersects(newFragment));
       myAffectedFragments.put(newFragment, newReplacement);
     }
 
     private TextRange findFragment(final int docOffset) {
-      return ContainerUtil.find(myAffectedFragments.keySet(), new Condition<TextRange>() {
-        @Override
-        public boolean value(TextRange range) {
-          return range.containsOffset(docOffset);
-        }
-      });
+      return ContainerUtil.find(myAffectedFragments.keySet(), range -> range.containsOffset(docOffset));
     }
 
     private int psiToDocumentOffset(int offset) {
@@ -468,5 +434,4 @@ public class PsiToDocumentSynchronizer extends PsiTreeChangeAdapter {
       return offset + delta;
     }
   }
-
 }

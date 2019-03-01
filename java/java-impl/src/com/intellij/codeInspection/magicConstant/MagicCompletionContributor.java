@@ -27,17 +27,12 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Consumer;
-import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import gnu.trove.TObjectHashingStrategy;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 import static com.intellij.patterns.PlatformPatterns.psiElement;
 
@@ -69,7 +64,7 @@ public class MagicCompletionContributor extends CompletionContributor {
   }
 
   @Nullable
-  private static MagicConstantInspection.AllowedValues getAllowedValues(@NotNull PsiElement pos) {
+  public static MagicConstantInspection.AllowedValues getAllowedValues(@NotNull PsiElement pos) {
     MagicConstantInspection.AllowedValues allowedValues = null;
     for (Pair<PsiModifierListOwner, PsiType> pair : getMembersWithAllowedValues(pos)) {
       MagicConstantInspection.AllowedValues values = MagicConstantInspection.getAllowedValues(pair.first, pair.second, null);
@@ -100,7 +95,7 @@ public class MagicCompletionContributor extends CompletionContributor {
 
   @NotNull
   public static List<Pair<PsiModifierListOwner, PsiType>> getMembersWithAllowedValues(@NotNull PsiElement pos) {
-    List<Pair<PsiModifierListOwner, PsiType>> result = ContainerUtil.newArrayList();
+    Set<Pair<PsiModifierListOwner, PsiType>> result = new THashSet<>();
     if (IN_METHOD_CALL_ARGUMENT.accepts(pos)) {
       PsiCall call = PsiTreeUtil.getParentOfType(pos, PsiCall.class);
       if (!(call instanceof PsiExpression)) return Collections.emptyList();
@@ -125,7 +120,7 @@ public class MagicCompletionContributor extends CompletionContributor {
         PsiParameter[] params = method.getParameterList().getParameters();
         if (i >= params.length) continue;
         PsiParameter parameter = params[i];
-        result.add(new Pair<>(parameter, parameter.getType()));
+        result.add(Pair.create(parameter, parameter.getType()));
       }
     }
     else if (IN_BINARY_COMPARISON.accepts(pos)) {
@@ -135,6 +130,14 @@ public class MagicCompletionContributor extends CompletionContributor {
           PsiModifierListOwner resolved = resolveExpression(operand);
           if (resolved != null) {
             result.add(Pair.create(resolved, operand.getType()));
+            // if something interesting assigned to this variable, e.g. magic method, suggest its magic too
+            MagicConstantInspection.processValuesFlownTo(operand, pos.getContainingFile(), pos.getManager(), expression -> {
+              PsiModifierListOwner assigned = resolveExpression(expression);
+              if (assigned != null) {
+                result.add(Pair.create(assigned, operand.getType()));
+              }
+              return true;
+            });
           }
         }
       }
@@ -142,9 +145,9 @@ public class MagicCompletionContributor extends CompletionContributor {
     else if (IN_ASSIGNMENT.accepts(pos)) {
       PsiAssignmentExpression assignment = PsiTreeUtil.getParentOfType(pos, PsiAssignmentExpression.class);
       PsiExpression l = assignment == null ? null : assignment.getLExpression();
-      PsiElement resolved = resolveExpression(l);
+      PsiModifierListOwner resolved = resolveExpression(l);
       if (resolved != null && PsiTreeUtil.isAncestor(assignment.getRExpression(), pos, false)) {
-        result.add(Pair.create((PsiModifierListOwner)resolved, l.getType()));
+        result.add(Pair.create(resolved, l.getType()));
       }
     }
     else if (IN_RETURN.accepts(pos)) {
@@ -158,7 +161,7 @@ public class MagicCompletionContributor extends CompletionContributor {
         final PsiType interfaceType = ((PsiLambdaExpression)element).getFunctionalInterfaceType();
         final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(interfaceType);
         if (interfaceMethod != null) {
-          result.add(Pair.create((PsiModifierListOwner)interfaceMethod, LambdaUtil.getFunctionalInterfaceReturnType(interfaceType)));
+          result.add(Pair.create(interfaceMethod, LambdaUtil.getFunctionalInterfaceReturnType(interfaceType)));
         }
       }
     }
@@ -168,11 +171,11 @@ public class MagicCompletionContributor extends CompletionContributor {
         PsiReference ref = pair.getReference();
         PsiMethod method = ref == null ? null : (PsiMethod)ref.resolve();
         if (method != null) {
-          result.add(new Pair<>(method, method.getReturnType()));
+          result.add(Pair.create(method, method.getReturnType()));
         }
       }
     }
-    return result;
+    return new ArrayList<>(result);
   }
 
   private static void addCompletionVariants(@NotNull final CompletionParameters parameters,

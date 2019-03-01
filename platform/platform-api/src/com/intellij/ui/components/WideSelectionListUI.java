@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.components;
 
-import java.awt.*;
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicListUI;
+import java.awt.*;
 
 /**
  * @author Sergey.Malenkov
@@ -27,7 +13,8 @@ final class WideSelectionListUI extends BasicListUI {
 
   @Override
   public void paint(Graphics g, JComponent c) {
-    myPaintBounds = g.getClipBounds();
+    // do not paint a line background if layout orientation is not vertical
+    myPaintBounds = !isVerticalList(c) ? null : g.getClipBounds();
     super.paint(g, c);
   }
 
@@ -39,6 +26,7 @@ final class WideSelectionListUI extends BasicListUI {
                            ListModel model,
                            ListSelectionModel selectionModel,
                            int leadSelectionIndex) {
+    if (!(0 <= row && row < model.getSize())) return;
     Rectangle paintBounds = myPaintBounds;
     if (paintBounds != null) {
       boolean selected = selectionModel.isSelectedIndex(row);
@@ -84,5 +72,39 @@ final class WideSelectionListUI extends BasicListUI {
         g.fillRect(0, y, owner.getWidth(), height);
       }
     }
+  }
+
+  /**
+   * @param component the component being painted
+   * @return {@code true} if the specified component is a list with vertical orientation
+   */
+  private static boolean isVerticalList(Component component) {
+    if (component instanceof JList) {
+      JList list = (JList)component;
+      return JList.VERTICAL == list.getLayoutOrientation();
+    }
+    return false;
+  }
+
+  @Override
+  public int locationToIndex(JList list, Point location) {
+    if (location.y <= list.getPreferredSize().height) {
+      return super.locationToIndex(list, location);
+    }
+    return -1;
+  }
+
+  @Override
+  public Rectangle getCellBounds(JList list, int index1, int index2) {
+    Rectangle bounds = super.getCellBounds(list, index1, index2);
+    if (bounds != null && index1 == index2 && list instanceof JBList && JList.VERTICAL == list.getLayoutOrientation()) {
+      if (((JBList<?>)list).getExpandableItemsHandler().getExpandedItems().contains(index1)) {
+        // increase paint area for list item with shown extendable popup
+        JScrollPane pane = JBScrollPane.findScrollPane(list);
+        JScrollBar bar = pane == null ? null : pane.getVerticalScrollBar();
+        if (bar != null && !bar.isOpaque()) bounds.width += bar.getWidth();
+      }
+    }
+    return bounds;
   }
 }

@@ -27,6 +27,7 @@ import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -40,7 +41,7 @@ class RestoreReferencesDialog extends DialogWrapper {
   private Object[] mySelectedElements = PsiClass.EMPTY_ARRAY;
   private boolean myContainsClassesOnly = true;
 
-  public RestoreReferencesDialog(final Project project, final Object[] elements) {
+  RestoreReferencesDialog(final Project project, final Object[] elements) {
     super(project, true);
     myNamedElements = elements;
     for (Object element : elements) {
@@ -97,6 +98,7 @@ class RestoreReferencesDialog extends DialogWrapper {
     return "#com.intellij.codeInsight.editorActions.RestoreReferencesDialog";
   }
 
+  @NotNull
   public Object[] getSelectedElements(){
     return mySelectedElements;
   }

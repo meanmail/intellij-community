@@ -1,53 +1,39 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
 import com.intellij.openapi.components.StateStorage
 import com.intellij.openapi.components.impl.stores.BatchUpdateListener
-import com.intellij.openapi.components.impl.stores.DefaultStateSerializer
-import com.intellij.openapi.diagnostic.Logger
-import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.debugOrInfoIfTestMode
+import com.intellij.openapi.diagnostic.logger
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.util.messages.MessageBus
 import org.jdom.Element
 import java.util.concurrent.atomic.AtomicReference
 
-private val LOG: Logger = Logger.getInstance(StateStorageBase::class.java)
+private val LOG = logger<StateStorageBase<*>>()
 
 abstract class StateStorageBase<T : Any> : StateStorage {
-  private var mySavingDisabled = false
+  private var isSavingDisabled = false
 
   protected val storageDataRef: AtomicReference<T> = AtomicReference()
 
-  override final fun <S : Any> getState(component: Any?, componentName: String, stateClass: Class<S>, mergeInto: S?, reload: Boolean): S? {
-    return getState(component, componentName, stateClass, true, reload, mergeInto)
+  override fun <T : Any> getState(component: Any?, componentName: String, stateClass: Class<T>, mergeInto: T?, reload: Boolean): T? {
+    return getState(component, componentName, stateClass, reload, mergeInto)
   }
 
-  fun <S: Any> getState(component: Any?, componentName: String, stateClass: Class<S>, archive: Boolean = true, reload: Boolean = false, mergeInto: S? = null): S? {
-    return deserializeState(getSerializedState(getStorageData(reload), component, componentName, archive), stateClass, mergeInto)
+  fun <T : Any> getState(component: Any?, componentName: String, stateClass: Class<T>, reload: Boolean = false, mergeInto: T? = null): T? {
+    return deserializeState(getSerializedState(getStorageData(reload), component, componentName, archive = true), stateClass, mergeInto)
   }
 
   open fun <S: Any> deserializeState(serializedState: Element?, stateClass: Class<S>, mergeInto: S?): S? {
-    return DefaultStateSerializer.deserializeState(serializedState, stateClass, mergeInto)
+    return com.intellij.configurationStore.deserializeState(serializedState, stateClass, mergeInto)
   }
 
   abstract fun getSerializedState(storageData: T, component: Any?, componentName: String, archive: Boolean = true): Element?
 
   protected abstract fun hasState(storageData: T, componentName: String): Boolean
 
-  override final fun hasState(componentName: String, reloadData: Boolean): Boolean {
+  final override fun hasState(componentName: String, reloadData: Boolean): Boolean {
     return hasState(getStorageData(reloadData), componentName)
   }
 
@@ -69,18 +55,23 @@ abstract class StateStorageBase<T : Any> : StateStorage {
   protected abstract fun loadData(): T
 
   fun disableSaving() {
-    LOG.debug { "Disabled saving for ${toString()}" }
-    mySavingDisabled = true
+    LOG.debugOrInfoIfTestMode { "Disable saving: ${toString()}" }
+    isSavingDisabled = true
   }
 
   fun enableSaving() {
-    LOG.debug { "Enabled saving ${toString()}" }
-    mySavingDisabled = false
+    LOG.debugOrInfoIfTestMode { "Enable saving: ${toString()}" }
+    isSavingDisabled = false
   }
 
   protected fun checkIsSavingDisabled(): Boolean {
-    LOG.debug { "Saving disabled for ${toString()}" }
-    return mySavingDisabled
+    if (isSavingDisabled) {
+      LOG.debugOrInfoIfTestMode { "Saving disabled: ${toString()}" }
+      return true
+    }
+    else {
+      return false
+    }
   }
 }
 
@@ -94,3 +85,5 @@ inline fun <T> runBatchUpdate(messageBus: MessageBus, runnable: () -> T): T {
     publisher.onBatchUpdateFinished()
   }
 }
+
+class UnresolvedReadOnlyFilesException(val files: List<VirtualFile>) : RuntimeException()

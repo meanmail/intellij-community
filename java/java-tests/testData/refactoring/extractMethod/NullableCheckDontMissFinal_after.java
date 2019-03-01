@@ -4,7 +4,7 @@ class Test {
   void foo() {
       final String str = newMethod();
       if (str == null) return;
-    new Runnable() {
+      new Runnable() {
       public void run() {
         System.out.println(str);
       }
@@ -14,7 +14,7 @@ class Test {
     @Nullable
     private String newMethod() {
         final String str = "";
-        if (str == "") {
+        if (str == "a") {
             return null;
         }
         return str;

@@ -3,6 +3,7 @@ package com.siyeh.igtest.junit;
 import junit.framework.TestCase;
 
 import java.util.Collection;
+import java.util.Objects;
 
 public class SimplifiableJUnitAssertion extends TestCase{
     public void test()
@@ -13,6 +14,12 @@ public class SimplifiableJUnitAssertion extends TestCase{
         <warning descr="'assertFalse()' can be simplified to 'fail()'">assertFalse</warning>("foo", true);
         Collection collection = null;
         <warning descr="'assertTrue()' can be simplified to 'assertEquals()'">assertTrue</warning>(collection.size() == 2);
+        <warning descr="'assertTrue()' can be simplified to 'assertFalse()'">assertTrue</warning>(!(3 == 4));
+        <warning descr="'assertFalse()' can be simplified to 'assertTrue()'">assertFalse</warning>(!(3 == 4));
+    }
+
+    public void testObjectEquals() {
+        <warning descr="'assertTrue()' can be simplified to 'assertEquals()'">assertTrue</warning>(Objects.equals("foo", "bar"));
     }
 
 

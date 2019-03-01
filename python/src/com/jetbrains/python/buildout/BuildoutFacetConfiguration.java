@@ -20,7 +20,6 @@ import com.intellij.facet.ui.FacetEditorContext;
 import com.intellij.facet.ui.FacetEditorTab;
 import com.intellij.facet.ui.FacetValidatorsManager;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
 import com.intellij.openapi.util.WriteExternalException;
@@ -39,7 +38,6 @@ import java.util.List;
  * Stores buildout facet config data.
  * <br/>
  * User: dcheryasov
- * Date: Jul 25, 2010
  */
 public class BuildoutFacetConfiguration implements FacetConfiguration {
 
@@ -76,11 +74,7 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
    * @param paths what to store; the list will be copied. 
    */
   void setPaths(@Nullable List<String> paths) {
-    if (paths != null) {
-      myPaths = new ArrayList<>(paths.size());
-      for (String s : paths) myPaths.add(s);
-    }
-    else myPaths = null;                   
+    myPaths = paths == null ? null : new ArrayList<>(paths);
   }
 
   public List<String> getPaths() {
@@ -93,7 +87,7 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
 
   private class Tab extends FacetEditorTab {
 
-    private BuildoutConfigPanel myPanel;
+    private final BuildoutConfigPanel myPanel;
 
     private Tab(Module module) {
       myPanel = new BuildoutConfigPanel(module, BuildoutFacetConfiguration.this);
@@ -125,7 +119,7 @@ public class BuildoutFacetConfiguration implements FacetConfiguration {
     }
 
     @Override
-    public void apply() throws ConfigurationException {
+    public void apply() {
       myPanel.apply();
     }
 

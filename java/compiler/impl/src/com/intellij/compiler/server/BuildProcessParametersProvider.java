@@ -23,6 +23,7 @@ import java.util.List;
 
 /**
  * Project-level extension point to dynamically vary build process parameters like classpath, bootclasspath and JVM arguments.
+ * @see CompileServerPlugin
  */
 public abstract class BuildProcessParametersProvider {
   public static final ExtensionPointName<BuildProcessParametersProvider> EP_NAME = ExtensionPointName.create("com.intellij.buildProcess.parametersProvider");
@@ -31,7 +32,8 @@ public abstract class BuildProcessParametersProvider {
    * Override this method to include additional jars to the build process classpath
    * @return list of paths to additional jars to be included to the build process classpath
    */
-  public @NotNull List<String> getClassPath() {
+  @NotNull
+  public List<String> getClassPath() {
     return Collections.emptyList();
   }
 
@@ -40,11 +42,13 @@ public abstract class BuildProcessParametersProvider {
    * custom implementation of Java compiler which must be loaded by the same classloader as tools.jar
    * @return list of paths to additional jars to be included to the build process launcher classpath
    */
-  public @NotNull List<String> getLauncherClassPath() {
+  @NotNull
+  public List<String> getLauncherClassPath() {
     return Collections.emptyList();
   }
 
-  public @NotNull List<String> getVMArguments() {
+  @NotNull
+  public List<String> getVMArguments() {
     return Collections.emptyList();
   }
 

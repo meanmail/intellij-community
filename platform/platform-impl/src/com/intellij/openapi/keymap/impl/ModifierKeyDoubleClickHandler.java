@@ -1,30 +1,16 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl;
 
 import com.intellij.ide.DataManager;
 import com.intellij.ide.IdeEventQueue;
+import com.intellij.ide.actions.ActionsCollector;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.actionSystem.ex.AnActionListener;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.ApplicationComponent;
-import com.intellij.openapi.keymap.KeymapManager;
-import com.intellij.openapi.util.Clock;
+import com.intellij.openapi.components.BaseComponent;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
@@ -41,14 +27,20 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
+
 /**
  * Support for keyboard shortcuts like Control-double-click or Control-double-click+A
  *
  * Timings that are used in the implementation to detect double click were tuned for SearchEverywhere
  * functionality (invoked on double Shift), so if you need to change them, please make sure
  * SearchEverywhere behaviour remains intact.
+ *
+ * @author Dmitry Batrak
+ * @author Konstantin Bulenkov
  */
-public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter {
+public class ModifierKeyDoubleClickHandler implements Disposable, BaseComponent {
+  private static final Logger LOG = Logger.getInstance(ModifierKeyDoubleClickHandler.class);
   private static final TIntIntHashMap KEY_CODE_TO_MODIFIER_MAP = new TIntIntHashMap();
   static {
     KEY_CODE_TO_MODIFIER_MAP.put(KeyEvent.VK_ALT, InputEvent.ALT_MASK);
@@ -60,7 +52,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
   private final ActionManagerEx myActionManagerEx;
   private final ConcurrentMap<String, MyDispatcher> myDispatchers = ContainerUtil.newConcurrentMap();
   private boolean myIsRunningAction;
-  
+
   private ModifierKeyDoubleClickHandler(ActionManagerEx actionManagerEx) {
     myActionManagerEx = actionManagerEx;
   }
@@ -77,7 +69,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
   }
 
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     for (MyDispatcher dispatcher : myDispatchers.values()) {
       Disposer.dispose(dispatcher);
     }
@@ -105,7 +97,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     final MyDispatcher dispatcher = new MyDispatcher(actionId, modifierKeyCode, actionKeyCode, skipIfActionHasShortcut);
     MyDispatcher oldDispatcher = myDispatchers.put(actionId, dispatcher);
     IdeEventQueue.getInstance().addDispatcher(dispatcher, dispatcher);
-    myActionManagerEx.addAnActionListener(dispatcher, dispatcher);
+    ApplicationManager.getApplication().getMessageBus().connect(dispatcher).subscribe(AnActionListener.TOPIC, dispatcher);
     if (oldDispatcher != null) {
       Disposer.dispose(oldDispatcher);
     }
@@ -133,7 +125,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     return myIsRunningAction;
   }
 
-  private class MyDispatcher extends AnActionListener.Adapter implements IdeEventQueue.EventDispatcher, Disposable {
+  private class MyDispatcher implements IdeEventQueue.EventDispatcher, Disposable, AnActionListener {
     private final String myActionId;
     private final int myModifierKeyCode;
     private final int myActionKeyCode;
@@ -144,7 +136,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     private final AtomicBoolean ourOtherKeyWasPressed = new AtomicBoolean(false);
     private final AtomicLong ourLastTimePressed = new AtomicLong(0);
 
-    public MyDispatcher(@NotNull String actionId, int modifierKeyCode, int actionKeyCode, boolean skipIfActionHasShortcut) {
+    MyDispatcher(@NotNull String actionId, int modifierKeyCode, int actionKeyCode, boolean skipIfActionHasShortcut) {
       myActionId = actionId;
       myModifierKeyCode = modifierKeyCode;
       myActionKeyCode = actionKeyCode;
@@ -152,28 +144,28 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     }
 
     @Override
-    public boolean dispatch(AWTEvent event) {
+    public boolean dispatch(@NotNull AWTEvent event) {
       if (event instanceof KeyEvent) {
         final KeyEvent keyEvent = (KeyEvent)event;
         final int keyCode = keyEvent.getKeyCode();
-
+        LOG.debug("", this, event);
         if (keyCode == myModifierKeyCode) {
           if (hasOtherModifiers(keyEvent)) {
             resetState();
             return false;
           }
-          if (myActionKeyCode == -1 && ourOtherKeyWasPressed.get() && Clock.getTime() - ourLastTimePressed.get() < 500) {
+          if (myActionKeyCode == -1 && ourOtherKeyWasPressed.get() && keyEvent.getWhen() - ourLastTimePressed.get() < 100) {
             resetState();
             return false;
           }
           ourOtherKeyWasPressed.set(false);
-          if (ourPressed.first.get() && Clock.getTime() - ourLastTimePressed.get() > 500) {
+          if (ourPressed.first.get() && keyEvent.getWhen() - ourLastTimePressed.get() > 500) {
             resetState();
           }
           handleModifier((KeyEvent)event);
           return false;
         } else if (ourPressed.first.get() && ourReleased.first.get() && ourPressed.second.get() && myActionKeyCode != -1) {
-          if (keyCode == myActionKeyCode) {
+          if (keyCode == myActionKeyCode && !hasOtherModifiers(keyEvent)) {
             if (event.getID() == KeyEvent.KEY_PRESSED) {
               return run(keyEvent);
             }
@@ -181,7 +173,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
           }
           return false;
         } else {
-          ourLastTimePressed.set(Clock.getTime());
+          ourLastTimePressed.set(keyEvent.getWhen());
           ourOtherKeyWasPressed.set(true);
           if (keyCode == KeyEvent.VK_ESCAPE || keyCode == KeyEvent.VK_TAB)  {
             ourLastTimePressed.set(0);
@@ -203,7 +195,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     }
 
     private void handleModifier(KeyEvent event) {
-      if (ourPressed.first.get() && Clock.getTime() - ourLastTimePressed.get() > 300) {
+      if (ourPressed.first.get() && event.getWhen() - ourLastTimePressed.get() > 300) {
         resetState();
         return;
       }
@@ -212,19 +204,19 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
         if (!ourPressed.first.get()) {
           resetState();
           ourPressed.first.set(true);
-          ourLastTimePressed.set(Clock.getTime());
+          ourLastTimePressed.set(event.getWhen());
           return;
         } else {
           if (ourPressed.first.get() && ourReleased.first.get()) {
             ourPressed.second.set(true);
-            ourLastTimePressed.set(Clock.getTime());
+            ourLastTimePressed.set(event.getWhen());
             return;
           }
         }
       } else if (event.getID() == KeyEvent.KEY_RELEASED) {
         if (ourPressed.first.get() && !ourReleased.first.get()) {
           ourReleased.first.set(true);
-          ourLastTimePressed.set(Clock.getTime());
+          ourLastTimePressed.set(event.getWhen());
           return;
         } else if (ourPressed.first.get() && ourReleased.first.get() && ourPressed.second.get()) {
           resetState();
@@ -257,6 +249,7 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
         myActionManagerEx.fireBeforeActionPerformed(action, anActionEvent.getDataContext(), anActionEvent);
         action.actionPerformed(anActionEvent);
         myActionManagerEx.fireAfterActionPerformed(action, anActionEvent.getDataContext(), anActionEvent);
+        ActionsCollector.getInstance().record("DoubleShortcut", anActionEvent.getInputEvent(), action.getClass());
         return true;
       }
       finally {
@@ -265,16 +258,22 @@ public class ModifierKeyDoubleClickHandler extends ApplicationComponent.Adapter 
     }
 
     private boolean shouldSkipIfActionHasShortcut() {
-      return mySkipIfActionHasShortcut && KeymapManager.getInstance().getActiveKeymap().getShortcuts(myActionId).length > 0;
+      return mySkipIfActionHasShortcut && getActiveKeymapShortcuts(myActionId).getShortcuts().length > 0;
     }
 
     @Override
-    public void beforeActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event) {
+    public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull AnActionEvent event) {
       if (!myIsRunningAction) resetState();
     }
 
     @Override
     public void dispose() {
+    }
+
+    @Override
+    public String toString() {
+      return "modifier double-click dispatcher [modifierKeyCode=" + myModifierKeyCode +
+             ",actionKeyCode=" + myActionKeyCode + ",actionId=" + myActionId + "]";
     }
   }
 }

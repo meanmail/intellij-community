@@ -16,16 +16,8 @@
 package com.intellij.ide.plugins;
 
 import com.intellij.openapi.updateSettings.impl.PluginDownloader;
-import com.intellij.openapi.util.text.StringUtil;
 import junit.framework.TestCase;
 
-/**
- * Created by IntelliJ IDEA.
- * User: stathik
- * Date: Dec 13, 2003
- * Time: 8:19:03 PM
- * To change this template use Options | File Templates.
- */
 public class VersionCompareTest extends TestCase {
   private static int compareVersions(String v1, String v2) {
     return PluginDownloader.comparePluginVersions(v1, v2);
@@ -150,6 +142,11 @@ public class VersionCompareTest extends TestCase {
   public void testBashPlugin() {
     assertTrue(compareVersions("1.1beta16", "1.1beta8") > 0);
     assertTrue(compareVersions("1.5.0.142-beta2", "1.5.0.142-beta1") > 0);
+  }
+
+  public void testKotlinPlugin() {
+    ascending("1.3-M2", "1.3.0-rc");
+    ascending("1.3-M2", "1.3.0-dev");
   }
 }
 

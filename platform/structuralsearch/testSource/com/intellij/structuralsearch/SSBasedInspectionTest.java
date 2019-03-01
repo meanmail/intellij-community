@@ -19,30 +19,32 @@ public class SSBasedInspectionTest extends InspectionTestCase {
     super.setUp();
     SSBasedInspection inspection = new SSBasedInspection();
     List<Configuration> configurations = new ArrayList<>();
-    SearchConfiguration configuration = new SearchConfiguration();
-    MatchOptions options = new MatchOptions();
+
+    SearchConfiguration configuration1 = new SearchConfiguration();
+    MatchOptions options = configuration1.getMatchOptions();
     options.setFileType(StdFileTypes.JAVA);
     options.setSearchPattern("int i;");
-    configuration.setMatchOptions(options);
-    configurations.add(configuration);
-    configuration = new SearchConfiguration();
-    options = new MatchOptions();
+    configurations.add(configuration1);
+
+    SearchConfiguration configuration2 = new SearchConfiguration();
+    options = configuration2.getMatchOptions();
     options.setFileType(StdFileTypes.JAVA);
     options.setSearchPattern("f();");
-    configuration.setMatchOptions(options);
-    configurations.add(configuration);
-    inspection.setConfigurations(configurations, myProject);
+    configurations.add(configuration2);
+
+    inspection.setConfigurations(configurations, getProject());
     myWrapper = new LocalInspectionToolWrapper(inspection);
   }
 
-  public void testSimple() throws Exception {
+  public void testSimple() {
     doTest();
   }
 
-  private void doTest() throws Exception {
-    doTest("ssBased/" + getTestName(true), myWrapper,"java 1.5");
+  private void doTest() {
+    doTest("ssBased/" + getTestName(true), myWrapper);
   }
 
+  @Override
   protected String getTestDataPath() {
     return PlatformTestUtil.getCommunityPath() + "/platform/structuralsearch/testData/";
   }

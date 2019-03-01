@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.credentialStore.windows;
 
 import com.intellij.util.containers.ContainerUtil;
 import com.sun.jna.*;
+import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIFunctionMapper;
 import com.sun.jna.win32.W32APITypeMapper;
@@ -55,13 +42,13 @@ public class WindowsCryptUtils {
     Memory input = new Memory(data.length);
     input.write(0, data, 0, data.length);
     Crypt32.DATA_BLOB in = new Crypt32.DATA_BLOB();
-    in.cbData = new W32API.DWORD(data.length);
+    in.cbData = new WinDef.DWORD(data.length);
     in.pbData = input;
     Crypt32.DATA_BLOB out = new Crypt32.DATA_BLOB();
     out.pbData = Pointer.NULL;
     Crypt32 crypt = Crypt32.INSTANCE;
     Kernel32 kernel = Kernel32.INSTANCE;
-    boolean rc = crypt.CryptProtectData(in, "Master Key", Pointer.NULL, Pointer.NULL, Pointer.NULL, new W32API.DWORD(0), out);
+    boolean rc = crypt.CryptProtectData(in, "Master Key", Pointer.NULL, Pointer.NULL, Pointer.NULL, new WinDef.DWORD(0), out);
     return getBytes(out, kernel, rc);
   }
 
@@ -79,19 +66,19 @@ public class WindowsCryptUtils {
     Memory input = new Memory(data.length);
     input.write(0, data, 0, data.length);
     Crypt32.DATA_BLOB in = new Crypt32.DATA_BLOB();
-    in.cbData = new W32API.DWORD(data.length);
+    in.cbData = new WinDef.DWORD(data.length);
     in.pbData = input;
     Crypt32.DATA_BLOB out = new Crypt32.DATA_BLOB();
     out.pbData = Pointer.NULL;
     Crypt32 crypt = Crypt32.INSTANCE;
     Kernel32 kernel = Kernel32.INSTANCE;
-    boolean rc = crypt.CryptUnprotectData(in, Pointer.NULL, Pointer.NULL, Pointer.NULL, Pointer.NULL, new W32API.DWORD(0), out);
+    boolean rc = crypt.CryptUnprotectData(in, Pointer.NULL, Pointer.NULL, Pointer.NULL, Pointer.NULL, new WinDef.DWORD(0), out);
     return getBytes(out, kernel, rc);
   }
 
   private static byte[] getBytes(Crypt32.DATA_BLOB out, Kernel32 kernel, boolean rc) {
     if (!rc) {
-      W32API.DWORD drc = kernel.GetLastError();
+      WinDef.DWORD drc = kernel.GetLastError();
       throw new RuntimeException("CryptProtectData failed: " + drc.intValue());
     }
     else {
@@ -103,14 +90,14 @@ public class WindowsCryptUtils {
   }
 
   public interface Crypt32 extends StdCallLibrary {
-    Crypt32 INSTANCE = (Crypt32)Native.loadLibrary("Crypt32", Crypt32.class, UNICODE_OPTIONS);
+    Crypt32 INSTANCE = Native.loadLibrary("Crypt32", Crypt32.class, UNICODE_OPTIONS);
 
     boolean CryptProtectData(DATA_BLOB pDataIn,
                              String szDataDescr,
                              Pointer pOptionalEntropy,
                              Pointer pvReserved,
                              Pointer pPromptStruct,
-                             W32API.DWORD dwFlags,
+                             WinDef.DWORD dwFlags,
                              DATA_BLOB pDataOut);
 
     boolean CryptUnprotectData(DATA_BLOB pDataIn,
@@ -118,13 +105,13 @@ public class WindowsCryptUtils {
                                Pointer pOptionalEntropy,
                                Pointer pvReserved,
                                Pointer pPromptStruct,
-                               W32API.DWORD dwFlags,
+                               WinDef.DWORD dwFlags,
                                DATA_BLOB pDataOut);
 
     class DATA_BLOB extends Structure implements Structure.ByReference {
       private static final List __FIELDS = Arrays.asList("cbData", "pbData");
 
-      public W32API.DWORD cbData;
+      public WinDef.DWORD cbData;
       public Pointer pbData;
 
       @Override
@@ -135,9 +122,9 @@ public class WindowsCryptUtils {
   }
 
   public interface Kernel32 extends StdCallLibrary {
-    Kernel32 INSTANCE = (Kernel32)Native.loadLibrary("Kernel32", Kernel32.class, UNICODE_OPTIONS);
+    Kernel32 INSTANCE = Native.loadLibrary("Kernel32", Kernel32.class, UNICODE_OPTIONS);
 
     Pointer LocalFree(Pointer hMem);
-    W32API.DWORD GetLastError();
+    WinDef.DWORD GetLastError();
   }
 }

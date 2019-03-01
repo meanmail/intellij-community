@@ -17,6 +17,7 @@ package com.intellij.openapi.actionSystem;
 
 import com.intellij.util.BitUtil;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.NotNull;
 
 import java.awt.event.InputEvent;
 import java.awt.event.MouseEvent;
@@ -36,7 +37,7 @@ public class MouseShortcut extends Shortcut {
   public static int getButton(MouseEvent event) {
     if (event instanceof MouseWheelEvent) {
       MouseWheelEvent wheel = (MouseWheelEvent)event;
-      return 0 < wheel.getWheelRotation()
+      return 0 < wheel.getPreciseWheelRotation()
              ? BUTTON_WHEEL_DOWN
              : BUTTON_WHEEL_UP;
     }
@@ -119,7 +120,7 @@ public class MouseShortcut extends Shortcut {
   }
 
   @Override
-  public boolean startsWith(final Shortcut sc) {
+  public boolean startsWith(@NotNull final Shortcut sc) {
     return equals(sc);
   }
 

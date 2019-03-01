@@ -20,37 +20,42 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.vcs.log.*;
+import com.intellij.vcs.log.VcsLog;
+import com.intellij.vcs.log.VcsLogDataKeys;
+import com.intellij.vcs.log.VcsLogUi;
 import com.intellij.vcs.log.impl.VcsGoToRefComparator;
-import com.intellij.vcs.log.impl.VcsLogUtil;
-import com.intellij.vcs.log.ui.VcsLogUiImpl;
+import com.intellij.vcs.log.statistics.VcsLogUsageTriggerCollector;
+import com.intellij.vcs.log.ui.AbstractVcsLogUi;
+import com.intellij.vcs.log.util.VcsLogUtil;
+import org.jetbrains.annotations.NotNull;
 
-import java.util.Collection;
 import java.util.Set;
 
 public class GoToHashOrRefAction extends DumbAwareAction {
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
-    VcsLogUtil.triggerUsage(e);
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    VcsLogUsageTriggerCollector.triggerUsage(e, this);
 
     Project project = e.getRequiredData(CommonDataKeys.PROJECT);
-    final VcsLog log = e.getRequiredData(VcsLogDataKeys.VCS_LOG);
-    final VcsLogUiImpl logUi = (VcsLogUiImpl)e.getRequiredData(VcsLogDataKeys.VCS_LOG_UI);
+    VcsLog log = e.getRequiredData(VcsLogDataKeys.VCS_LOG);
+    VcsLogUi ui = e.getRequiredData(VcsLogDataKeys.VCS_LOG_UI);
+    assert ui instanceof AbstractVcsLogUi;
+    AbstractVcsLogUi logUi = (AbstractVcsLogUi)ui;
 
     Set<VirtualFile> visibleRoots = VcsLogUtil.getVisibleRoots(logUi);
     GoToHashOrRefPopup popup =
-      new GoToHashOrRefPopup(project, logUi.getDataPack().getRefs(), visibleRoots, text -> log.jumpToReference(text),
-                                                      vcsRef -> logUi.jumpToCommit(vcsRef.getCommitHash(), vcsRef.getRoot()),
+      new GoToHashOrRefPopup(project, logUi.getDataPack().getRefs(), visibleRoots, log::jumpToReference,
+                             vcsRef -> logUi.jumpToCommit(vcsRef.getCommitHash(), vcsRef.getRoot()),
                              logUi.getColorManager(),
                              new VcsGoToRefComparator(logUi.getDataPack().getLogProviders()));
     popup.show(logUi.getTable());
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     VcsLog log = e.getData(VcsLogDataKeys.VCS_LOG);
     VcsLogUi logUi = e.getData(VcsLogDataKeys.VCS_LOG_UI);
-    e.getPresentation().setEnabledAndVisible(e.getProject() != null && log != null && logUi != null);
+    e.getPresentation().setEnabledAndVisible(e.getProject() != null && log != null && logUi instanceof AbstractVcsLogUi);
   }
 }

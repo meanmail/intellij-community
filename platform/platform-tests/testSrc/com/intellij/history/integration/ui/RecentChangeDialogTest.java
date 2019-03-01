@@ -22,10 +22,8 @@ import com.intellij.history.integration.ui.models.RecentChangeDialogModel;
 import com.intellij.history.integration.ui.views.RecentChangeDialog;
 import com.intellij.openapi.util.Disposer;
 
-import java.io.IOException;
-
 public class RecentChangeDialogTest extends LocalHistoryUITestCase {
-  public void testDialogWork() throws IOException {
+  public void testDialogWork() {
     getVcs().beginChangeSet();
     createChildData(myRoot, "f.txt");
     getVcs().endChangeSet("change");
@@ -43,7 +41,7 @@ public class RecentChangeDialogTest extends LocalHistoryUITestCase {
     }
   }
 
-  public void testRevertChange() throws IOException {
+  public void testRevertChange() throws Exception {
     getVcs().beginChangeSet();
     createChildData(myRoot, "f1.txt");
     getVcs().endChangeSet("change");

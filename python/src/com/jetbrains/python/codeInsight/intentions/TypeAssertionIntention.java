@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.intentions;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
-import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.template.*;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -39,21 +24,21 @@ import org.jetbrains.annotations.NotNull;
  *
  * Helps to specify type by assertion
  */
-public class TypeAssertionIntention implements IntentionAction {
+public class TypeAssertionIntention extends PyBaseIntentionAction {
 
-  public TypeAssertionIntention() {
-  }
-
+  @Override
   @NotNull
   public String getText() {
     return PyBundle.message("INTN.insert.assertion");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return PyBundle.message("INTN.insert.assertion");
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     if (!(file instanceof PyFile)) {
       return false;
@@ -79,16 +64,17 @@ public class TypeAssertionIntention implements IntentionAction {
     return type == null;
   }
 
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+  @Override
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     PsiElement elementAt = PyUtil.findNonWhitespaceAtOffset(file, editor.getCaretModel().getOffset());
-    PyExpression problemElement = PsiTreeUtil.getParentOfType(elementAt, PyReferenceExpression.class);
+    PyQualifiedExpression problemElement = PsiTreeUtil.getParentOfType(elementAt, PyReferenceExpression.class);
     if (problemElement != null) {
       PyElementGenerator elementGenerator = PyElementGenerator.getInstance(project);
 
       String name = problemElement.getText();
-      final PyExpression qualifier = ((PyQualifiedExpression)problemElement).getQualifier();
+      final PyExpression qualifier = problemElement.getQualifier();
       if (qualifier != null && !qualifier.getText().equals(PyNames.CANONICAL_SELF)) {
-        final String referencedName = ((PyQualifiedExpression)problemElement).getReferencedName();
+        final String referencedName = problemElement.getReferencedName();
         if (referencedName == null || PyNames.GETITEM.equals(referencedName))
           name = qualifier.getText();
       }
@@ -141,9 +127,5 @@ public class TypeAssertionIntention implements IntentionAction {
       Template template = ((TemplateBuilderImpl)builder).buildInlineTemplate();
       TemplateManager.getInstance(project).startTemplate(editor, template);
     }
-  }
-
-  public boolean startInWriteAction() {
-    return true;
   }
 }

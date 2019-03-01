@@ -99,7 +99,7 @@ abstract class LightClassReferenceBase extends LightElement implements PsiJavaCo
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     //TODO?
     throw new UnsupportedOperationException();
   }
@@ -120,12 +120,13 @@ abstract class LightClassReferenceBase extends LightElement implements PsiJavaCo
     }
   }
 
+  @Override
   public String toString() {
     return getClass().getSimpleName() + getText();
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return element instanceof PsiClass && getManager().areElementsEquivalent(resolve(), element);
   }
 
@@ -140,11 +141,13 @@ abstract class LightClassReferenceBase extends LightElement implements PsiJavaCo
     return false;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return new TextRange(0, getTextLength());
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;

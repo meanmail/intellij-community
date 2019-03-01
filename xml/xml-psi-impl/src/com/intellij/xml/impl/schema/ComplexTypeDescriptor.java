@@ -19,7 +19,7 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.FieldCache;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReferenceSet;
+import com.intellij.psi.PsiReference;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.SchemaReferencesProvider;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.util.CachedValue;
@@ -28,7 +28,6 @@ import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlElementsGroup;
@@ -36,6 +35,7 @@ import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.util.XmlUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
@@ -45,14 +45,13 @@ import java.util.*;
  */
 public class ComplexTypeDescriptor extends TypeDescriptor {
   protected final XmlNSDescriptorImpl myDocumentDescriptor;
-  private final XmlTag myTag;
 
   private static final FieldCache<XmlElementDescriptor[],ComplexTypeDescriptor,Object, XmlElement> myElementDescriptorsCache =
     new FieldCache<XmlElementDescriptor[],ComplexTypeDescriptor,Object, XmlElement>() {
 
     @Override
     protected XmlElementDescriptor[] compute(final ComplexTypeDescriptor complexTypeDescriptor, final XmlElement p) {
-      return complexTypeDescriptor.doCollectElements(p);
+      return complexTypeDescriptor.doCollectElements();
     }
 
     @Override
@@ -71,7 +70,7 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
     new FieldCache<XmlAttributeDescriptor[], ComplexTypeDescriptor, Object, XmlElement>() {
     @Override
     protected final XmlAttributeDescriptor[] compute(final ComplexTypeDescriptor complexTypeDescriptor, XmlElement p) {
-      return complexTypeDescriptor.doCollectAttributes(p);
+      return complexTypeDescriptor.doCollectAttributes();
     }
 
     @Override
@@ -86,23 +85,18 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
     }
   };
 
-  @SuppressWarnings("MismatchedQueryAndUpdateOfCollection")
-  private final FactoryMap<String, CachedValue<CanContainAttributeType>> myAnyAttributeCache = new ConcurrentFactoryMap<String, CachedValue<CanContainAttributeType>>() {
-    @Override
-    protected CachedValue<CanContainAttributeType> create(final String key) {
-      return CachedValuesManager.getManager(myTag.getProject()).createCachedValue(() -> {
-        THashSet<Object> dependencies = new THashSet<>();
-        CanContainAttributeType type = _canContainAttribute(key, myTag, null, new THashSet<>(), dependencies);
-        if (dependencies.isEmpty()) {
-          dependencies.add(myTag.getContainingFile());
-        }
-        if (DumbService.isDumb(myTag.getProject())) {
-          dependencies.add(DumbService.getInstance(myTag.getProject()).getModificationTracker());
-        }
-        return CachedValueProvider.Result.create(type, ArrayUtil.toObjectArray(dependencies));
-      }, false);
-    }
-  };
+  private final Map<String, CachedValue<CanContainAttributeType>> myAnyAttributeCache =
+    ConcurrentFactoryMap.createMap(key -> CachedValuesManager.getManager(myTag.getProject()).createCachedValue(() -> {
+      THashSet<Object> dependencies = new THashSet<>();
+      CanContainAttributeType type = _canContainAttribute(key, myTag, null, new THashSet<>(), dependencies);
+      if (dependencies.isEmpty()) {
+        dependencies.add(myTag.getContainingFile());
+      }
+      if (DumbService.isDumb(myTag.getProject())) {
+        dependencies.add(DumbService.getInstance(myTag.getProject()).getModificationTracker());
+      }
+      return CachedValueProvider.Result.create(type, ArrayUtil.toObjectArray(dependencies));
+    }, false));
 
   private volatile XmlElementDescriptor[] myElementDescriptors;
   private volatile XmlAttributeDescriptor[] myAttributeDescriptors;
@@ -122,12 +116,15 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
   @NonNls private static final String BASE_ATTR_NAME = "base";
 
   public ComplexTypeDescriptor(XmlNSDescriptorImpl documentDescriptor, XmlTag tag) {
+    super(tag);
     myDocumentDescriptor = documentDescriptor;
-    myTag = tag;
   }
 
-  public XmlTag getDeclaration(){
-    return myTag;
+  @SuppressWarnings("ConstantConditions")
+  @NotNull
+  @Override
+  public XmlTag getDeclaration() {
+    return super.getDeclaration();
   }
 
   @Nullable
@@ -140,34 +137,37 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
   }
 
   // Read-only calculation
-  private XmlElementDescriptor[] doCollectElements(@Nullable XmlElement context) {
+  private XmlElementDescriptor[] doCollectElements() {
     final Map<String,XmlElementDescriptor> map = new LinkedHashMap<>(5);
     createProcessor(map).startProcessing(myTag);
     addSubstitutionGroups(map, myDocumentDescriptor, new HashSet<>());
     filterAbstractElements(map);
     return map.values().toArray(
-      new XmlElementDescriptor[map.values().size()]
+      XmlElementDescriptor.EMPTY_ARRAY
     );
   }
 
   protected XmlSchemaTagsProcessor createProcessor(final Map<String, XmlElementDescriptor> map) {
     return new XmlSchemaTagsProcessor(myDocumentDescriptor) {
       @Override
-      protected void tagStarted(XmlTag tag, String tagName, XmlTag context, XmlTag ref) {
-        addElementDescriptor(tag, tagName, map);
+      protected void tagStarted(XmlTag tag, String tagName, XmlTag context, @Nullable XmlTag ref) {
+        String refName = ref == null ? null : ref.getAttributeValue(REF_ATTR_NAME);
+        addElementDescriptor(tag, tagName, map, refName);
       }
     };
   }
 
-  protected void addElementDescriptor(XmlTag tag, String tagName, Map<String, XmlElementDescriptor> map) {
+  protected void addElementDescriptor(XmlTag tag, String tagName, Map<String, XmlElementDescriptor> map, @Nullable String refName) {
     if ("element".equals(tagName) && tag.getAttribute("name") != null) {
-      addElementDescriptor(map, myDocumentDescriptor.createElementDescriptor(tag));
+      XmlElementDescriptor element = myDocumentDescriptor.createElementDescriptor(tag);
+      String name = refName == null ? element.getName() : refName;
+      addElementDescriptor(map, element, name);
     }
   }
 
   private static void addSubstitutionGroups(Map<String, XmlElementDescriptor> result,
                                             XmlNSDescriptorImpl nsDescriptor,
-                                            Set<XmlNSDescriptorImpl> visited) {
+                                            Set<? super XmlNSDescriptorImpl> visited) {
     mainLoop: while (true) {
       for (final XmlElementDescriptor xmlElementDescriptor : result.values()) {
         XmlElementDescriptorImpl descriptor = (XmlElementDescriptorImpl)xmlElementDescriptor;
@@ -190,18 +190,22 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
 
     visited.add(nsDescriptor);
     for (XmlTag tag : nsDescriptor.getTag().getSubTags()) {
-      if (XmlNSDescriptorImpl.equalsToSchemaName(tag, "include")) {
+      if (XmlNSDescriptorImpl.equalsToSchemaName(tag, "include") ||
+          XmlNSDescriptorImpl.equalsToSchemaName(tag, "import")) {
         XmlAttribute location = tag.getAttribute("schemaLocation");
         if (location != null) {
           XmlAttributeValue valueElement = location.getValueElement();
           if (valueElement != null) {
-            PsiElement element = new FileReferenceSet(valueElement).resolve();
-            if (element instanceof XmlFile) {
-              XmlDocument document = ((XmlFile)element).getDocument();
-              if (document != null) {
-                PsiMetaData metaData = document.getMetaData();
-                if (metaData instanceof XmlNSDescriptorImpl && !visited.contains(metaData)) {
-                  addSubstitutionGroups(result, (XmlNSDescriptorImpl)metaData, visited);
+            PsiReference reference = valueElement.getReference();
+            if (reference != null) {
+              PsiElement element = reference.resolve();
+              if (element instanceof XmlFile) {
+                XmlDocument document = ((XmlFile)element).getDocument();
+                if (document != null) {
+                  PsiMetaData metaData = document.getMetaData();
+                  if (metaData instanceof XmlNSDescriptorImpl && !visited.contains(metaData)) {
+                    addSubstitutionGroups(result, (XmlNSDescriptorImpl)metaData, visited);
+                  }
                 }
               }
             }
@@ -209,7 +213,6 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
         }
       }
     }
-
   }
 
   private static void filterAbstractElements(Map<String,XmlElementDescriptor> result) {
@@ -224,7 +227,7 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
   }
 
   // Read-only calculation
-  private XmlAttributeDescriptor[] doCollectAttributes(@Nullable final XmlElement context) {
+  private XmlAttributeDescriptor[] doCollectAttributes() {
     final List<XmlAttributeDescriptorImpl> result = new ArrayList<>();
 
     XmlSchemaTagsProcessor processor = new XmlSchemaTagsProcessor(myDocumentDescriptor, "element") {
@@ -256,16 +259,16 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
       }
     };
     processor.startProcessing(myTag);
-    return result.toArray(new XmlAttributeDescriptor[result.size()]);
+    return result.toArray(XmlAttributeDescriptor.EMPTY);
   }
 
   public XmlNSDescriptorImpl getNsDescriptor() {
     return myDocumentDescriptor;
   }
 
-  protected static void addElementDescriptor(Map<String,XmlElementDescriptor> result, XmlElementDescriptor element) {
-    result.remove(element.getName());
-    result.put(element.getName(),element);
+  protected static void addElementDescriptor(Map<String, XmlElementDescriptor> result, XmlElementDescriptor element, String name) {
+    result.remove(name);
+    result.put(name, element);
   }
 
   private static void removeAttributeDescriptor(List<XmlAttributeDescriptorImpl> result, String name, String referenceName) {
@@ -293,7 +296,7 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
     final XmlNSDescriptorImpl documentDescriptor;
     final String expectedDefaultNs;
 
-    public CurrentContextInfo(XmlNSDescriptorImpl _nsDescriptor, String _ns) {
+    CurrentContextInfo(XmlNSDescriptorImpl _nsDescriptor, String _ns) {
       documentDescriptor = _nsDescriptor;
       expectedDefaultNs = _ns;
     }
@@ -360,8 +363,12 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
       XmlTag descriptorTag = tag;
 
       if (ref != null) {
-        final PsiElement psiElement = SchemaReferencesProvider.createTypeOrElementOrAttributeReference(ref.getValueElement()).resolve();
-        if (psiElement instanceof XmlTag) descriptorTag = (XmlTag)psiElement;
+        XmlAttributeValue element = ref.getValueElement();
+        final PsiElement psiElement;
+        if (element != null) {
+          psiElement = SchemaReferencesProvider.createTypeOrElementOrAttributeReference(element).resolve();
+          if (psiElement instanceof XmlTag) descriptorTag = (XmlTag)psiElement;
+        }
       }
 
       if (TRUE_ATTR_VALUE.equals(descriptorTag.getAttributeValue("abstract"))) {
@@ -403,7 +410,7 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
   }
 
   private CanContainAttributeType _canContainAttribute(String namespace,
-                                                       XmlTag tag,
+                                                       @NotNull XmlTag tag,
                                                        @Nullable String qName,
                                                        Set<String> visited,
                                                        @Nullable Set<Object> dependencies) {
@@ -455,7 +462,8 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
         if (descriptor instanceof ComplexTypeDescriptor) {
           ComplexTypeDescriptor complexTypeDescriptor = (ComplexTypeDescriptor)descriptor;
           if (dependencies != null) {
-            dependencies.add(((ComplexTypeDescriptor)descriptor).getDeclaration().getContainingFile());
+            XmlTag declaration = complexTypeDescriptor.getDeclaration();
+            dependencies.add(declaration.getContainingFile());
           }
 
           final CanContainAttributeType containAttributeType =
@@ -493,5 +501,10 @@ public class ComplexTypeDescriptor extends TypeDescriptor {
     }
     return XmlElementDescriptor.CONTENT_TYPE_EMPTY;
 
+  }
+
+  @Override
+  public String toString() {
+    return myTag.getAttributeValue(NAME_ATTR_NAME);
   }
 }

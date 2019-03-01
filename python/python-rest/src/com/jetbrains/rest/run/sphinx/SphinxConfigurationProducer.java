@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.rest.run.sphinx;
 
 import com.intellij.execution.Location;
@@ -39,24 +25,25 @@ import java.util.List;
  * User : catherine
  */
 public class SphinxConfigurationProducer extends RuntimeConfigurationProducer implements Cloneable {
-  private PsiDirectory mySourceFile = null;
-
   public SphinxConfigurationProducer() {
     super(RestRunConfigurationType.getInstance().SPHINX_FACTORY);
   }
 
+  @Override
   public PsiElement getSourceElement() {
-    return mySourceFile;
+    return restoreSourceElement();
   }
 
+  @Override
   protected RunnerAndConfigurationSettings createConfigurationByElement(final Location location, final ConfigurationContext context) {
     PsiElement element = location.getPsiElement();
     if (!(element instanceof PsiDirectory)) return null;
 
-    mySourceFile = (PsiDirectory)element;
+    storeSourceElement(element);
+    PsiDirectory directory = (PsiDirectory)element;
     boolean hasRstFile = false;
     boolean hasConf = false;
-    for (PsiFile file : mySourceFile.getFiles()) {
+    for (PsiFile file : directory.getFiles()) {
       if ("conf.py".equals(file.getName()))
         hasConf = true;
       if (file instanceof RestFile) {
@@ -64,10 +51,10 @@ public class SphinxConfigurationProducer extends RuntimeConfigurationProducer im
       }
     }
     if (!hasRstFile || !hasConf) return null;
-    final Project project = mySourceFile.getProject();
+    final Project project = directory.getProject();
     RunnerAndConfigurationSettings settings = cloneTemplateConfiguration(project, context);
     SphinxRunConfiguration configuration = (SphinxRunConfiguration) settings.getConfiguration();
-    final VirtualFile vFile = mySourceFile.getVirtualFile();
+    final VirtualFile vFile = directory.getVirtualFile();
     configuration.setInputFile(vFile.getPath());
 
     configuration.setName(((PsiDirectory)element).getName());
@@ -104,6 +91,7 @@ public class SphinxConfigurationProducer extends RuntimeConfigurationProducer im
     return null;
   }
 
+  @Override
   public int compareTo(final Object o) {
     return PREFERED;
   }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.codeInsight.inspections;
 
 import com.intellij.codeInsight.daemon.impl.analysis.RemoveAttributeIntentionFix;
@@ -11,7 +12,6 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.psi.*;
 import com.intellij.psi.xml.XmlAttribute;
-import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.reference.SoftReference;
 import com.intellij.xml.XmlAttributeDescriptor;
@@ -37,7 +37,7 @@ import java.util.Map;
  * @author Pavel.Dolgov
  */
 public class JavaFxRedundantPropertyValueInspection extends XmlSuppressableInspectionTool {
-  private static final Logger LOG = Logger.getInstance("#" + JavaFxRedundantPropertyValueInspection.class.getName());
+  private static final Logger LOG = Logger.getInstance(JavaFxRedundantPropertyValueInspection.class);
 
   private static Reference<Map<String, Map<String, String>>> ourDefaultPropertyValues;
 
@@ -71,7 +71,7 @@ public class JavaFxRedundantPropertyValueInspection extends XmlSuppressableInspe
         if (isEqualValue(tagClass, attributeValue, defaultValue, descriptor.getDeclaration())) {
           holder.registerProblem(attribute, "Attribute is redundant because it contains default value",
                                  ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
-                                 new RemoveAttributeIntentionFix(attributeName, attribute));
+                                 new RemoveAttributeIntentionFix(attributeName));
         }
       }
 
@@ -172,7 +172,7 @@ public class JavaFxRedundantPropertyValueInspection extends XmlSuppressableInspe
   }
 
   /**
-   * The file format is <code>ClassName#propertyName:type=value</code> per line, line with leading double dash (--) is commented out
+   * The file format is {@code ClassName#propertyName:type=value} per line, line with leading double dash (--) is commented out
    */
   @NotNull
   private static Map<String, Map<String, String>> loadDefaultPropertyValues(@NotNull String resourceName) {

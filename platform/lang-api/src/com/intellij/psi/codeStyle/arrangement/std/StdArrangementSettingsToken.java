@@ -22,7 +22,6 @@ import org.jetbrains.annotations.PropertyKey;
 /**
  * Represents ArrangementSettingsToken designed for use with standard GUI, i.e. a token that knows its UI role.
  * @author Roman.Shein
- * Date: 19.07.13
  */
 public class StdArrangementSettingsToken extends ArrangementSettingsToken {
 
@@ -52,9 +51,9 @@ public class StdArrangementSettingsToken extends ArrangementSettingsToken {
     return myTokenType;
   }
 
-  protected StdArrangementSettingsToken(@NotNull String id,
-                                        @NotNull String uiName,
-                                        @NotNull StdArrangementTokenType tokenType) {
+  public StdArrangementSettingsToken(@NotNull String id,
+                                     @NotNull String uiName,
+                                     @NotNull StdArrangementTokenType tokenType) {
     super(id, uiName);
     myTokenType = tokenType;
   }

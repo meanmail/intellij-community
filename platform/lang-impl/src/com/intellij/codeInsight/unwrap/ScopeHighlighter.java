@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 26-Sep-2008
- */
 package com.intellij.codeInsight.unwrap;
 
 import com.intellij.openapi.editor.Editor;
@@ -41,13 +37,13 @@ public class ScopeHighlighter {
 
   @NotNull private final Editor myEditor;
   @NotNull private final List<RangeHighlighter> myActiveHighliters = new ArrayList<>();
-  @NotNull private final NotNullFunction<PsiElement, TextRange> myRanger;
+  @NotNull private final NotNullFunction<? super PsiElement, ? extends TextRange> myRanger;
 
   public ScopeHighlighter(@NotNull Editor editor) {
     this(editor, NATURAL_RANGER);
   }
 
-  public ScopeHighlighter(@NotNull Editor editor, @NotNull NotNullFunction<PsiElement, TextRange> ranger) {
+  public ScopeHighlighter(@NotNull Editor editor, @NotNull NotNullFunction<? super PsiElement, ? extends TextRange> ranger) {
     myEditor = editor;
     myRanger = ranger;
   }

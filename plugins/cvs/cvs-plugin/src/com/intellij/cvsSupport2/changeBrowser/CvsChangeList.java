@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 28.11.2006
- * Time: 20:44:46
- */
 package com.intellij.cvsSupport2.changeBrowser;
 
 import com.intellij.cvsSupport2.CvsVcs2;
@@ -32,7 +26,6 @@ import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
-import com.intellij.openapi.vcs.versionBrowser.CommittedChangeListImpl;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.io.IOUtil;
 import org.jetbrains.annotations.NonNls;
@@ -100,24 +93,24 @@ public class CvsChangeList implements CommittedChangeList {
     readFromStream(stream);
   }
 
+  @Override
   public String getCommitterName() {
     return myUser;
   }
 
+  @Override
   public Date getCommitDate() {
     return new Date(myDate);
   }
 
+  @Override
   public long getNumber() {
     return myNumber;
   }
 
+  @Override
   public AbstractVcs getVcs() {
     return CvsVcs2.getInstance(myProject);
-  }
-
-  public Collection<Change> getChangesWithMovedTrees() {
-    return CommittedChangeListImpl.getChangesWithMovedTreesImpl(this);
   }
 
   @Override
@@ -130,6 +123,7 @@ public class CvsChangeList implements CommittedChangeList {
     myDescription = newMessage;
   }
 
+  @Override
   @Nullable
   public String getBranch() {
     if (myRevisions.size() > 0) {
@@ -138,6 +132,7 @@ public class CvsChangeList implements CommittedChangeList {
     return null;
   }
 
+  @Override
   public Collection<Change> getChanges() {
     if (myChanges == null) {
       myChanges = new ArrayList<>();
@@ -176,11 +171,13 @@ public class CvsChangeList implements CommittedChangeList {
     return myChanges;
   }
 
+  @Override
   @NotNull
   public String getName() {
     return myDescription;
   }
 
+  @Override
   public String getComment() {
     return myDescription;
   }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.intention.impl;
 
@@ -48,7 +34,6 @@ import java.util.List;
  */
 public class FileLevelIntentionComponent extends EditorNotificationPanel {
   private final Project myProject;
-  private final Color myBackground;
 
   public FileLevelIntentionComponent(final String description,
                                      @NotNull HighlightSeverity severity,
@@ -56,9 +41,9 @@ public class FileLevelIntentionComponent extends EditorNotificationPanel {
                                      @Nullable final List<Pair<HighlightInfo.IntentionActionDescriptor, TextRange>> intentions,
                                      @NotNull final Project project,
                                      @NotNull final PsiFile psiFile,
-                                     @NotNull final Editor editor) {
+                                     @NotNull final Editor editor, @Nullable String tooltip) {
+    super(getColor(project, severity));
     myProject = project;
-    myBackground = getColor(severity);
 
     final ShowIntentionsPass.IntentionsInfo info = new ShowIntentionsPass.IntentionsInfo();
 
@@ -79,19 +64,21 @@ public class FileLevelIntentionComponent extends EditorNotificationPanel {
     }
 
     myLabel.setText(description);
+    myLabel.setToolTipText(tooltip);
     if (gutterMark != null) {
       myLabel.setIcon(gutterMark.getIcon());
     }
 
     if (intentions != null && !intentions.isEmpty()) {
-      myGearLabel.setIcon(AllIcons.General.Gear);
+      myGearLabel.setIcon(AllIcons.General.GearPlain);
 
       new ClickListener() {
         @Override
         public boolean onClick(@NotNull MouseEvent e, int clickCount) {
-          IntentionListStep step = new IntentionListStep(null, editor, psiFile, project);
+          CachedIntentions cachedIntentions = new CachedIntentions(project, psiFile, editor);
+          IntentionListStep step = new IntentionListStep(null, editor, psiFile, project, cachedIntentions);
           HighlightInfo.IntentionActionDescriptor descriptor = intentions.get(0).getFirst();
-          IntentionActionWithTextCaching actionWithTextCaching = step.wrapAction(descriptor, psiFile, psiFile, editor);
+          IntentionActionWithTextCaching actionWithTextCaching = cachedIntentions.wrapAction(descriptor, psiFile, psiFile, editor);
           if (step.hasSubstep(actionWithTextCaching)) {
             step = step.getSubStep(actionWithTextCaching, null);
           }
@@ -105,18 +92,13 @@ public class FileLevelIntentionComponent extends EditorNotificationPanel {
     }
   }
 
-  @Override
-  public Color getBackground() {
-    return myBackground;
-  }
-
   @NotNull
-  private Color getColor(@NotNull HighlightSeverity severity) {
-    if (SeverityRegistrar.getSeverityRegistrar(myProject).compare(severity, HighlightSeverity.ERROR) >= 0) {
+  private static Color getColor(@NotNull Project project, @NotNull HighlightSeverity severity) {
+    if (SeverityRegistrar.getSeverityRegistrar(project).compare(severity, HighlightSeverity.ERROR) >= 0) {
       return LightColors.RED;
     }
 
-    if (SeverityRegistrar.getSeverityRegistrar(myProject).compare(severity, HighlightSeverity.WARNING) >= 0) {
+    if (SeverityRegistrar.getSeverityRegistrar(project).compare(severity, HighlightSeverity.WARNING) >= 0) {
       return LightColors.YELLOW;
     }
 

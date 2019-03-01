@@ -59,7 +59,7 @@ class HttpVirtualFileImpl extends HttpVirtualFile {
     if (myFileInfo != null) {
       myFileInfo.addDownloadingListener(new FileDownloadingAdapter() {
         @Override
-        public void fileDownloaded(final VirtualFile localFile) {
+        public void fileDownloaded(@NotNull final VirtualFile localFile) {
           ApplicationManager.getApplication().invokeLater(() -> {
             HttpVirtualFileImpl file = HttpVirtualFileImpl.this;
             FileDocumentManager.getInstance().reloadFiles(file);
@@ -152,7 +152,7 @@ class HttpVirtualFileImpl extends HttpVirtualFile {
 
   @Override
   public VirtualFile[] getChildren() {
-    return ContainerUtil.isEmpty(myChildren) ? EMPTY_ARRAY : myChildren.toArray(new VirtualFile[myChildren.size()]);
+    return ContainerUtil.isEmpty(myChildren) ? EMPTY_ARRAY : myChildren.toArray(VirtualFile.EMPTY_ARRAY);
   }
 
   @Nullable

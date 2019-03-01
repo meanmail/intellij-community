@@ -14,7 +14,6 @@ package org.zmlx.hg4idea.command;
 
 import com.intellij.dvcs.DvcsUtil;
 import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
@@ -32,15 +31,12 @@ import org.zmlx.hg4idea.repo.HgRepository;
 import org.zmlx.hg4idea.util.HgErrorUtil;
 import org.zmlx.hg4idea.util.HgUtil;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.LinkedList;
 import java.util.List;
 
-import static org.zmlx.hg4idea.HgErrorHandler.ensureSuccess;
+import static org.zmlx.hg4idea.util.HgErrorUtil.ensureSuccess;
 
 public class HgMergeCommand {
-
-  private static final Logger LOG = Logger.getInstance(HgMergeCommand.class.getName());
 
   @NotNull private final Project project;
   @NotNull private final HgRepository repo;
@@ -64,30 +60,17 @@ public class HgMergeCommand {
       arguments.add("--rev");
       arguments.add(revision);
     }
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(project);
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(project, "Merge")) {
       HgCommandResult result = commandExecutor.executeInCurrentThread(repo.getRoot(), "merge", arguments);
       repo.update();
       return result;
-    }
-    finally {
-      DvcsUtil.workingTreeChangeFinished(project, token);
     }
   }
 
   @Nullable
   public HgCommandResult mergeSynchronously() throws VcsException {
     HgCommandResult commandResult = ensureSuccess(executeInCurrentThread());
-    try {
-      HgUtil.markDirectoryDirty(project, repo.getRoot());
-    }
-    catch (InvocationTargetException e) {
-      throwException(e);
-    }
-    catch (InterruptedException e) {
-      throwException(e);
-    }
-
+    HgUtil.markDirectoryDirty(project, repo.getRoot());
     return commandResult;
   }
 
@@ -131,11 +114,5 @@ public class HgMergeCommand {
         }
       }
     }.queue();
-  }
-
-  private static void throwException(@NotNull Exception e) throws VcsException {
-    String msg = "Exception during marking directory dirty: " + e;
-    LOG.info(msg, e);
-    throw new VcsException(msg);
   }
 }

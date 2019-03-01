@@ -61,57 +61,75 @@ final class ImageFileEditorImpl extends UserDataHolderBase implements ImageFileE
     ((ImageEditorImpl)imageEditor).getComponent().getImageComponent().addPropertyChangeListener(this);
   }
 
+  @Override
   @NotNull
   public JComponent getComponent() {
     return imageEditor.getComponent();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return imageEditor.getContentComponent();
   }
 
+  @Override
   @NotNull
   public String getName() {
     return NAME;
   }
 
+  @Override
   @NotNull
   public FileEditorState getState(@NotNull FileEditorStateLevel level) {
     ImageZoomModel zoomModel = imageEditor.getZoomModel();
     return new ImageFileEditorState(
       imageEditor.isTransparencyChessboardVisible(),
       imageEditor.isGridVisible(),
-      zoomModel.getZoomFactor());
+      zoomModel.getZoomFactor(),
+      zoomModel.isZoomLevelChanged());
   }
 
+  @Override
   public void setState(@NotNull FileEditorState state) {
     if (state instanceof ImageFileEditorState) {
+      Options options = OptionsManager.getInstance().getOptions();
+      ZoomOptions zoomOptions = options.getEditorOptions().getZoomOptions();
+
       ImageFileEditorState editorState = (ImageFileEditorState)state;
       ImageZoomModel zoomModel = imageEditor.getZoomModel();
       imageEditor.setTransparencyChessboardVisible(editorState.isBackgroundVisible());
       imageEditor.setGridVisible(editorState.isGridVisible());
-      zoomModel.setZoomFactor(editorState.getZoomFactor());
+      if (editorState.isZoomFactorChanged() || !zoomOptions.isSmartZooming()) {
+        zoomModel.setZoomFactor(editorState.getZoomFactor());
+      }
+      zoomModel.setZoomLevelChanged(editorState.isZoomFactorChanged());
     }
   }
 
+  @Override
   public boolean isModified() {
     return false;
   }
 
+  @Override
   public boolean isValid() {
     return true;
   }
 
+  @Override
   public void selectNotify() {
   }
 
+  @Override
   public void deselectNotify() {
   }
 
+  @Override
   public void addPropertyChangeListener(@NotNull PropertyChangeListener listener) {
     myDispatcher.addListener(listener);
   }
 
+  @Override
   public void removePropertyChangeListener(@NotNull PropertyChangeListener listener) {
     myDispatcher.removeListener(listener);
   }
@@ -122,21 +140,26 @@ final class ImageFileEditorImpl extends UserDataHolderBase implements ImageFileE
     myDispatcher.getMulticaster().propertyChange(editorEvent);
   }
 
+  @Override
   public BackgroundEditorHighlighter getBackgroundHighlighter() {
     return null;
   }
 
+  @Override
   public FileEditorLocation getCurrentLocation() {
     return null;
   }
 
+  @Override
   public StructureViewBuilder getStructureViewBuilder() {
     return null;
   }
 
+  @Override
   public void dispose() {
   }
 
+  @Override
   @NotNull
   public ImageEditor getImageEditor() {
     return imageEditor;

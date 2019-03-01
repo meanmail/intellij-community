@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,17 +26,21 @@ import com.intellij.psi.util.TypeConversionUtil;
 import java.util.HashSet;
 import java.util.List;
 
-/**
- * User: anna
- */
 public class StrictSubtypingConstraint implements ConstraintFormula {
   private PsiType myS;
   private PsiType myT;
+  private final boolean myCapture;
 
   //t < s
   public StrictSubtypingConstraint(PsiType t, PsiType s) {
+    this(t, s, true);
+  }
+
+  //t < s
+  public StrictSubtypingConstraint(PsiType t, PsiType s, boolean capture) {
     myT = t;
     myS = s;
+    myCapture = capture;
   }
 
   @Override
@@ -48,7 +52,7 @@ public class StrictSubtypingConstraint implements ConstraintFormula {
 
   @Override
   public boolean reduce(InferenceSession session, List<ConstraintFormula> constraints) {
-    final HashSet<InferenceVariable> dependencies = new HashSet<InferenceVariable>();
+    final HashSet<InferenceVariable> dependencies = new HashSet<>();
     final boolean reduceResult = doReduce(session, dependencies, constraints);
     if (!reduceResult) {
       session.registerIncompatibleErrorMessage(dependencies, session.getPresentableText(myS) + " conforms to " + session.getPresentableText(myT));
@@ -90,7 +94,7 @@ public class StrictSubtypingConstraint implements ConstraintFormula {
       final PsiType tComponentType = ((PsiArrayType)myT).getComponentType();
       final PsiType sComponentType = ((PsiArrayType)sType).getComponentType();
       if (!(tComponentType instanceof PsiPrimitiveType) && !(sComponentType instanceof PsiPrimitiveType)) {
-        constraints.add(new StrictSubtypingConstraint(tComponentType, sComponentType));
+        constraints.add(new StrictSubtypingConstraint(tComponentType, sComponentType, myCapture));
         return true;
       }
       return sComponentType instanceof PsiPrimitiveType && sComponentType.equals(tComponentType);
@@ -105,51 +109,41 @@ public class StrictSubtypingConstraint implements ConstraintFormula {
               if (myT.equals(conjunct)) return true;
             }
           }
-          final PsiType lowerBound = InferenceSession.getLowerBound(CClass);
+          final PsiType lowerBound = TypeConversionUtil.getInferredLowerBoundForSynthetic((PsiTypeParameter)CClass);
           if (lowerBound != null) {
-            constraints.add(new StrictSubtypingConstraint(lowerBound, myS));
+            constraints.add(new StrictSubtypingConstraint(lowerBound, myS, myCapture));
             return true;
           }
           return false;
         }
 
-        PsiClassType sType = null;
-        if (myS instanceof PsiIntersectionType) {
-          for (PsiType conjunct : ((PsiIntersectionType)myS).getConjuncts()) {
-            if (conjunct instanceof PsiClassType) {
-              final PsiClassType.ClassResolveResult conjunctResult = ((PsiClassType)conjunct).resolveGenerics();
-              if (InheritanceUtil.isInheritorOrSelf(conjunctResult.getElement(), CClass, true)) {
-                sType = (PsiClassType)conjunct;
-                break;
-              }
-            }
-          }
-        }
-        else if (myS instanceof PsiClassType) {
-          sType = (PsiClassType)myS;
-        }
-        else if (myS instanceof PsiArrayType) {
+        if (myS instanceof PsiArrayType) {
           return myT.isAssignableFrom(myS);
         }
-        else if (myS instanceof PsiCapturedWildcardType) {
-          final PsiType upperBound = ((PsiCapturedWildcardType)myS).getUpperBound();
-          if (upperBound instanceof PsiClassType) {
-            sType = (PsiClassType)upperBound;
-          }
-        }
+
+        PsiClassType sType = getSubclassType(CClass, myS, myCapture);
 
         if (sType == null) return false;
         final PsiClassType.ClassResolveResult SResult = sType.resolveGenerics();
         PsiClass SClass = SResult.getElement();
+
+        if (SClass == null) return false;
+
         if (((PsiClassType)myT).isRaw()) {
-          return SClass != null && InheritanceUtil.isInheritorOrSelf(SClass, CClass, true);
+          return InheritanceUtil.isInheritorOrSelf(SClass, CClass, true);
         }
+
+        PsiSubstitutor substitutor = SResult.getSubstitutor();
+        for (PsiTypeParameter typeParameter : SClass.getTypeParameters()) {
+          substitutor = substitutor.put(typeParameter, substitutor.substituteWithBoundsPromotion(typeParameter));
+        }
+
         final PsiSubstitutor tSubstitutor = TResult.getSubstitutor();
-        final PsiSubstitutor sSubstitutor = SClass != null ? TypeConversionUtil.getClassSubstitutor(CClass, SClass, SResult.getSubstitutor()) : null;
+        final PsiSubstitutor sSubstitutor = TypeConversionUtil.getClassSubstitutor(CClass, SClass, substitutor);
         if (sSubstitutor != null) {
-          for (PsiTypeParameter parameter : CClass.getTypeParameters()) {
+          for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(CClass)) {
             final PsiType tSubstituted = tSubstitutor.substitute(parameter);
-            final PsiType sSubstituted = sSubstitutor.substituteWithBoundsPromotion(parameter);
+            final PsiType sSubstituted = sSubstitutor.substitute(parameter);
             if (tSubstituted == null ^ sSubstituted == null) {
               return false;
             }
@@ -163,12 +157,45 @@ public class StrictSubtypingConstraint implements ConstraintFormula {
 
     if (myT instanceof PsiIntersectionType) {
       for (PsiType conjunct : ((PsiIntersectionType)myT).getConjuncts()) {
-        constraints.add(new StrictSubtypingConstraint(conjunct, myS));
+        constraints.add(new StrictSubtypingConstraint(conjunct, myS, myCapture));
       }
       return true;
     }
 
+    if (myT instanceof PsiCapturedWildcardType) {
+      PsiType lowerBound = ((PsiCapturedWildcardType)myT).getLowerBound();
+      if (lowerBound != PsiType.NULL) {
+        constraints.add(new StrictSubtypingConstraint(lowerBound, myS, myCapture));
+      }
+    }
+
     return true;
+  }
+
+  public static PsiClassType getSubclassType(PsiClass containingClass, PsiType sType, boolean capture) {
+    if (sType instanceof PsiIntersectionType) {
+      for (PsiType conjunct : ((PsiIntersectionType)sType).getConjuncts()) {
+        if (conjunct instanceof PsiClassType) {
+          final PsiClassType.ClassResolveResult conjunctResult = ((PsiClassType)conjunct).resolveGenerics();
+          if (InheritanceUtil.isInheritorOrSelf(conjunctResult.getElement(), containingClass, true)) {
+            return  (PsiClassType)conjunct;
+          }
+        }
+      }
+    }
+    else if (sType instanceof PsiClassType) {
+      return  (PsiClassType)sType;
+    }
+    else if (sType instanceof PsiCapturedWildcardType) {
+      final PsiType upperBound = ((PsiCapturedWildcardType)sType).getUpperBound(capture);
+      if (upperBound instanceof PsiClassType) {
+        return  (PsiClassType)upperBound;
+      }
+      else if (upperBound instanceof PsiIntersectionType) {
+        return getSubclassType(containingClass, upperBound, capture);
+      }
+    }
+    return null;
   }
 
   @Override

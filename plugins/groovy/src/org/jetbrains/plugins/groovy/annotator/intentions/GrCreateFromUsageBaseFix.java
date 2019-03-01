@@ -1,30 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.annotator.intentions;
 
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.ide.util.PsiClassListCellRenderer;
-import com.intellij.ide.util.PsiElementListCellRenderer;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.IPopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.psi.*;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyBundle;
@@ -70,11 +55,6 @@ public abstract class GrCreateFromUsageBaseFix extends Intention {
     return !targetClasses.isEmpty();
   }
 
-  @Override
-  public boolean startInWriteAction() {
-    return true;
-  }
-
 
   @Override
   protected void processIntention(@NotNull PsiElement element, @NotNull Project project, Editor editor) throws IncorrectOperationException {
@@ -92,7 +72,7 @@ public abstract class GrCreateFromUsageBaseFix extends Intention {
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return element instanceof GrReferenceExpression;
       }
     };
@@ -100,34 +80,24 @@ public abstract class GrCreateFromUsageBaseFix extends Intention {
 
   private void chooseClass(List<PsiClass> classes, Editor editor) {
     final Project project = classes.get(0).getProject();
-
-    final JList list = new JBList(classes);
-    PsiElementListCellRenderer renderer = PsiClassListCellRenderer.INSTANCE;
-    list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-    list.setCellRenderer(renderer);
-    final PopupChooserBuilder builder = new PopupChooserBuilder(list);
+    PsiClassListCellRenderer renderer = new PsiClassListCellRenderer();
+    final IPopupChooserBuilder<PsiClass> builder = JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(classes)
+      .setRenderer(renderer)
+      .setSelectionMode(ListSelectionModel.SINGLE_SELECTION)
+      .setItemChosenCallback((aClass) -> CommandProcessor.getInstance()
+                                                         .executeCommand(project, () -> ApplicationManager.getApplication().runWriteAction(() -> invokeImpl(project, aClass)), getText(),
+                        null))
+      .setTitle(QuickFixBundle.message("target.class.chooser.title"));
     renderer.installSpeedSearch(builder);
-
-    Runnable runnable = () -> {
-      int index = list.getSelectedIndex();
-      if (index < 0) return;
-      final PsiClass aClass = (PsiClass)list.getSelectedValue();
-      CommandProcessor.getInstance().executeCommand(project, () -> ApplicationManager.getApplication().runWriteAction(() -> invokeImpl(project, aClass)), getText(), null);
-    };
-
-    builder.
-      setTitle(QuickFixBundle.message("target.class.chooser.title")).
-      setItemChoosenCallback(runnable).
-      createPopup().
-      showInBestPositionFor(editor);
+    builder.createPopup().showInBestPositionFor(editor);
   }
 
   protected abstract void invokeImpl(Project project, @NotNull PsiClass targetClass);
 
   private List<PsiClass> getTargetClasses() {
     final GrReferenceExpression ref = getRefExpr();
-    final boolean compileStatic = PsiUtil.isCompileStatic(ref) || GrStaticChecker.isPropertyAccessInStaticMethod(ref);
-    final PsiClass targetClass = QuickfixUtil.findTargetClass(ref, compileStatic);
+    final PsiClass targetClass = QuickfixUtil.findTargetClass(ref);
     if (targetClass == null || !canBeTargetClass(targetClass)) return Collections.emptyList();
 
     final ArrayList<PsiClass> classes = new ArrayList<>();

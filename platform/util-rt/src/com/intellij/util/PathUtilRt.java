@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util;
 
 import com.intellij.openapi.diagnostic.LoggerRt;
 import com.intellij.openapi.util.SystemInfoRt;
+import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,12 +17,30 @@ import java.util.Set;
  */
 public class PathUtilRt {
   @NotNull
-  public static String getFileName(@NotNull String path) {
-    if (path.length() == 0) return "";
+  public static String getFileName(@Nullable String path) {
+    if (StringUtilRt.isEmpty(path)) {
+      return "";
+    }
+
+    int end = getEnd(path);
+    return path.substring(getLastIndexOfPathSeparator(path, end) + 1, end);
+  }
+
+  @Nullable
+  public static String getFileExtension(@Nullable String path) {
+    if (StringUtilRt.isEmpty(path)) {
+      return null;
+    }
+
+    int end = getEnd(path);
+    int start = getLastIndexOfPathSeparator(path, end) + 1;
+    int index = StringUtilRt.lastIndexOf(path, '.', Math.max(start, 0), end);
+    return index < 0 ? null : path.substring(index + 1, end);
+  }
+
+  private static int getEnd(@NotNull String path) {
     char c = path.charAt(path.length() - 1);
-    int end = c == '/' || c == '\\' ? path.length() - 1 : path.length();
-    int start = Math.max(path.lastIndexOf('/', end - 1), path.lastIndexOf('\\', end - 1)) + 1;
-    return path.substring(start, end);
+    return c == '/' || c == '\\' ? path.length() - 1 : path.length();
   }
 
   @NotNull
@@ -43,9 +48,13 @@ public class PathUtilRt {
     if (path.length() == 0) return "";
     int end = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
     if (end == path.length() - 1) {
-      end = Math.max(path.lastIndexOf('/', end - 1), path.lastIndexOf('\\', end - 1));
+      end = getLastIndexOfPathSeparator(path, end);
     }
     return end == -1 ? "" : path.substring(0, end);
+  }
+
+  private static int getLastIndexOfPathSeparator(@NotNull String path, int end) {
+    return Math.max(path.lastIndexOf('/', end - 1), path.lastIndexOf('\\', end - 1));
   }
 
   @NotNull
@@ -78,7 +87,7 @@ public class PathUtilRt {
 
   public enum Platform {
     UNIX, WINDOWS;
-    public static Platform CURRENT = SystemInfoRt.isWindows ? WINDOWS : UNIX;
+    public static final Platform CURRENT = SystemInfoRt.isWindows ? WINDOWS : UNIX;
   }
 
   /**

@@ -28,20 +28,14 @@ import java.util.NoSuchElementException;
  *  @author dyoma
  */
 public class FilteringIterator<Dom, E extends Dom> implements PeekableIterator<E> {
-  private final Iterator<Dom> myDelegate;
+  private final Iterator<? extends Dom> myDelegate;
   private final Condition<? super Dom> myCondition;
   private boolean myNextObtained;
   private boolean myCurrentIsValid;
   private Dom myCurrent;
   private Boolean myCurrentPassedFilter;
-  public static final Condition NOT_NULL = new Condition() {
-    @Override
-    public boolean value(Object t) {
-      return t != null;
-    }
-  };
 
-  public FilteringIterator(@NotNull Iterator<Dom> delegate, @NotNull Condition<? super Dom> condition) {
+  public FilteringIterator(@NotNull Iterator<? extends Dom> delegate, @NotNull Condition<? super Dom> condition) {
     myDelegate = delegate;
     myCondition = condition;
   }
@@ -76,7 +70,7 @@ public class FilteringIterator<Dom, E extends Dom> implements PeekableIterator<E
   private boolean isCurrentPassesFilter() {
     if (myCurrentPassedFilter != null) return myCurrentPassedFilter.booleanValue();
     boolean passed = myCondition.value(myCurrent);
-    myCurrentPassedFilter = Boolean.valueOf(passed);
+    myCurrentPassedFilter = passed;
     return passed;
   }
 
@@ -98,18 +92,19 @@ public class FilteringIterator<Dom, E extends Dom> implements PeekableIterator<E
     myDelegate.remove();
   }
 
+  @Override
   public E peek() {
     if (!hasNext()) throw new NoSuchElementException();
     return (E)myCurrent;
   }
 
   public static <T> Iterator<T> skipNulls(Iterator<T> iterator) {
-    return create(iterator, NOT_NULL);
+    return create(iterator, Conditions.notNull());
   }
 
   public static <Dom, T extends Dom> Iterator<T> create(Iterator<Dom> iterator, Condition<? super Dom> condition) {
     if (condition == Condition.TRUE || condition == Conditions.TRUE) return (Iterator<T>)iterator;
-    return new FilteringIterator<Dom, T>(iterator, condition);
+    return new FilteringIterator<>(iterator, condition);
   }
 
   public static <T> Condition<T> alwaysTrueCondition(Class<T> aClass) {
@@ -117,7 +112,7 @@ public class FilteringIterator<Dom, E extends Dom> implements PeekableIterator<E
   }
 
   public static <T> InstanceOf<T> instanceOf(final Class<T> aClass) {
-    return new InstanceOf<T>(aClass);
+    return new InstanceOf<>(aClass);
   }
 
   public static <T> Iterator<T> createInstanceOf(Iterator<?> iterator, Class<T> aClass) {

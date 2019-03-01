@@ -1,65 +1,73 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.service.project;
 
+import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import org.gradle.initialization.BuildCancellationToken;
-import org.gradle.internal.Factory;
-import org.gradle.internal.UncheckedException;
 import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.classpath.DefaultClassPath;
-import org.gradle.logging.ProgressLogger;
-import org.gradle.logging.ProgressLoggerFactory;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.gradle.internal.time.Clock;
+import org.gradle.internal.time.Time;
 import org.gradle.tooling.BuildCancelledException;
 import org.gradle.tooling.GradleConnectionException;
+import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.internal.consumer.Distribution;
 import org.gradle.tooling.internal.consumer.DistributionFactory;
-import org.gradle.tooling.internal.consumer.ExecutorServiceFactory;
+import org.gradle.tooling.internal.consumer.DistributionInstaller;
+import org.gradle.tooling.internal.protocol.InternalBuildProgressListener;
 import org.gradle.util.DistributionLocator;
 import org.gradle.util.GradleVersion;
-import org.gradle.wrapper.*;
+import org.gradle.wrapper.GradleUserHomeLookup;
+import org.gradle.wrapper.WrapperConfiguration;
+import org.gradle.wrapper.WrapperExecutor;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.lang.reflect.Field;
 import java.net.URI;
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.concurrent.*;
+import java.util.Arrays;
+import java.util.concurrent.CancellationException;
+
+import static org.gradle.internal.FileUtils.hasExtension;
 
 /**
  * @author Vladislav.Soroka
- * @since 8/23/13
  */
 public class DistributionFactoryExt extends DistributionFactory {
-  private final ExecutorServiceFactory myExecutorFactory;
 
-  public DistributionFactoryExt(ExecutorServiceFactory executorFactory) {
-    super(executorFactory);
-    myExecutorFactory = executorFactory;
+  private DistributionFactoryExt() {
+    super(Time.clock());
+  }
+
+  public static void setWrappedDistribution(GradleConnector connector, String wrapperPropertyFile, File gradleUserHome) {
+    File propertiesFile = new File(wrapperPropertyFile);
+    if (propertiesFile.exists()) {
+      WrapperExecutor wrapper = WrapperExecutor.forWrapperPropertiesFile(propertiesFile);
+      if (wrapper.getDistribution() != null) {
+        Distribution distribution = new DistributionFactoryExt().getWrappedDistribution(propertiesFile, gradleUserHome);
+        try {
+          setDistributionField(connector, distribution);
+        }
+        catch (Exception e) {
+          throw new ExternalSystemException(e);
+        }
+      }
+    }
   }
 
   /**
    * Returns the default distribution to use for the specified project.
    */
-  public Distribution getWrappedDistribution(File propertiesFile) {
-    //noinspection UseOfSystemOutOrSystemErr
-    WrapperExecutor wrapper = WrapperExecutor.forWrapperPropertiesFile(propertiesFile, System.out);
+  private Distribution getWrappedDistribution(File propertiesFile, final File userHomeDir) {
+    WrapperExecutor wrapper = WrapperExecutor.forWrapperPropertiesFile(propertiesFile);
     if (wrapper.getDistribution() != null) {
-      return new ZippedDistribution(wrapper.getConfiguration(), myExecutorFactory);
+      return new ZippedDistribution(wrapper.getConfiguration(), determineRealUserHomeDir(userHomeDir), Time.clock());
     }
     return getDownloadedDistribution(GradleVersion.current().getVersion());
+  }
+
+  private static File determineRealUserHomeDir(final File userHomeDir) {
+    return userHomeDir != null ? userHomeDir : GradleUserHomeLookup.gradleUserHome();
   }
 
   private Distribution getDownloadedDistribution(String gradleVersion) {
@@ -67,55 +75,27 @@ public class DistributionFactoryExt extends DistributionFactory {
     return getDistribution(distUri);
   }
 
-  private static class ProgressReportingDownload implements IDownload {
-    private final ProgressLoggerFactory progressLoggerFactory;
-
-    private ProgressReportingDownload(ProgressLoggerFactory progressLoggerFactory) {
-      this.progressLoggerFactory = progressLoggerFactory;
-    }
-
-    public void download(URI address, File destination) throws Exception {
-      ProgressLogger progressLogger = progressLoggerFactory.newOperation(DistributionFactory.class);
-      progressLogger.setDescription(String.format("Download %s", address));
-      progressLogger.started();
-      try {
-        new Download(new Logger(false), "Gradle Tooling API", GradleVersion.current().getVersion()).download(address, destination);
-      } finally {
-        progressLogger.completed();
-      }
-    }
-  }
-
   private static class InstalledDistribution implements Distribution {
     private final File gradleHomeDir;
     private final String displayName;
     private final String locationDisplayName;
 
-    public InstalledDistribution(File gradleHomeDir, String displayName, String locationDisplayName) {
+    InstalledDistribution(File gradleHomeDir, String displayName, String locationDisplayName) {
       this.gradleHomeDir = gradleHomeDir;
       this.displayName = displayName;
       this.locationDisplayName = locationDisplayName;
     }
 
+    @Override
     public String getDisplayName() {
       return displayName;
     }
 
+    @Override
     public ClassPath getToolingImplementationClasspath(ProgressLoggerFactory progressLoggerFactory,
+                                                       InternalBuildProgressListener progressListener,
                                                        File userHomeDir,
                                                        BuildCancellationToken cancellationToken) {
-      ProgressLogger progressLogger = progressLoggerFactory.newOperation(DistributionFactory.class);
-      progressLogger.setDescription("Validate distribution");
-      progressLogger.started();
-      try {
-        return getToolingImpl();
-      }
-      finally {
-        progressLogger.completed();
-      }
-    }
-
-    private ClassPath getToolingImpl() {
       if (!gradleHomeDir.exists()) {
         throw new IllegalArgumentException(String.format("The specified %s does not exist.", locationDisplayName));
       }
@@ -127,13 +107,9 @@ public class DistributionFactoryExt extends DistributionFactory {
         throw new IllegalArgumentException(
           String.format("The specified %s does not appear to contain a Gradle distribution.", locationDisplayName));
       }
-      Set<File> files = new LinkedHashSet<>();
-      //noinspection ConstantConditions
-      for (File file : libDir.listFiles()) {
-        if (file.getName().endsWith(".jar")) {
-          files.add(file);
-        }
-      }
+      File[] files = libDir.listFiles(file -> hasExtension(file, ".jar"));
+      // Make sure file order is always consistent
+      Arrays.sort(files);
       return new DefaultClassPath(files);
     }
   }
@@ -141,62 +117,64 @@ public class DistributionFactoryExt extends DistributionFactory {
   private static class ZippedDistribution implements Distribution {
     private InstalledDistribution installedDistribution;
     private final WrapperConfiguration wrapperConfiguration;
-    private final Factory<? extends ExecutorService> executorFactory;
+    private final File distributionBaseDir;
+    private final Clock clock;
 
-    private ZippedDistribution(WrapperConfiguration wrapperConfiguration, Factory<? extends ExecutorService> executorFactory) {
+    private ZippedDistribution(WrapperConfiguration wrapperConfiguration, File distributionBaseDir, Clock clock) {
       this.wrapperConfiguration = wrapperConfiguration;
-      this.executorFactory = executorFactory;
+      this.distributionBaseDir = distributionBaseDir;
+      this.clock = clock;
     }
 
+    @Override
     public String getDisplayName() {
-      return String.format("Gradle distribution '%s'", wrapperConfiguration.getDistribution());
+      return "Gradle distribution '" + wrapperConfiguration.getDistribution() + "'";
     }
 
-    public ClassPath getToolingImplementationClasspath(final ProgressLoggerFactory progressLoggerFactory, final File userHomeDir, BuildCancellationToken cancellationToken) {
+    @Override
+    public ClassPath getToolingImplementationClasspath(ProgressLoggerFactory progressLoggerFactory,
+                                                       final InternalBuildProgressListener progressListener,
+                                                       final File userHomeDir,
+                                                       BuildCancellationToken cancellationToken) {
       if (installedDistribution == null) {
-        Callable<File> installDistroTask = () -> {
-          File installDir;
-          try {
-            File realUserHomeDir = userHomeDir != null ? userHomeDir : GradleUserHomeLookup.gradleUserHome();
-            Install install =
-              new Install(new Logger(false), new ProgressReportingDownload(progressLoggerFactory), new PathAssembler(realUserHomeDir));
-            installDir = install.createDist(wrapperConfiguration);
-          } catch (FileNotFoundException e) {
-            throw new IllegalArgumentException(String.format("The specified %s does not exist.", getDisplayName()), e);
-          } catch (CancellationException e) {
-            throw new BuildCancelledException(String.format("Distribution download cancelled. Using distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
-          } catch (Exception e) {
-            throw new GradleConnectionException(String.format("Could not install Gradle distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
-          }
-          return installDir;
-        };
+        final DistributionInstaller installer = new DistributionInstaller(progressLoggerFactory, progressListener, clock);
         File installDir;
-        ExecutorService executor = null;
         try {
-          executor = executorFactory.create();
-          final Future<File> installDirFuture = executor.submit(installDistroTask);
-          cancellationToken.addCallback(() -> {
-            // TODO(radim): better to close the connection too to allow quick finish of the task
-            installDirFuture.cancel(true);
-          });
-          installDir = installDirFuture.get();
-        } catch (CancellationException e) {
-          throw new BuildCancelledException(String.format("Distribution download cancelled. Using distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
-        } catch (InterruptedException e) {
-          throw new GradleConnectionException(String.format("Could not install Gradle distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
-        } catch (ExecutionException e) {
-          if (e.getCause() != null) {
-            UncheckedException.throwAsUncheckedException(e.getCause());
-          }
-          throw new GradleConnectionException(String.format("Could not install Gradle distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
-        } finally {
-          if (executor != null) {
-            executor.shutdown();
-          }
+          cancellationToken.addCallback(() -> installer.cancel());
+          installDir = installer.install(determineRealUserHomeDir(userHomeDir), wrapperConfiguration);
+        }
+        catch (CancellationException e) {
+          throw new BuildCancelledException(
+            String.format("Distribution download cancelled. Using distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
+        }
+        catch (FileNotFoundException e) {
+          throw new IllegalArgumentException(String.format("The specified %s does not exist.", getDisplayName()), e);
+        }
+        catch (Exception e) {
+          throw new GradleConnectionException(
+            String.format("Could not install Gradle distribution from '%s'.", wrapperConfiguration.getDistribution()), e);
         }
         installedDistribution = new InstalledDistribution(installDir, getDisplayName(), getDisplayName());
       }
-      return installedDistribution.getToolingImplementationClasspath(progressLoggerFactory, userHomeDir, cancellationToken);
+      return installedDistribution
+        .getToolingImplementationClasspath(progressLoggerFactory, progressListener, userHomeDir, cancellationToken);
     }
+
+    private File determineRealUserHomeDir(final File userHomeDir) {
+      if (distributionBaseDir != null) {
+        return distributionBaseDir;
+      }
+
+      return userHomeDir != null ? userHomeDir : GradleUserHomeLookup.gradleUserHome();
+    }
+  }
+
+  private static void setDistributionField(GradleConnector connector, Object fieldValue)
+    throws SecurityException, NoSuchFieldException, IllegalArgumentException, IllegalAccessException {
+    final Field field = connector.getClass().getDeclaredField("distribution");
+    final boolean isAccessible = field.isAccessible();
+    field.setAccessible(true);
+    field.set(connector, fieldValue);
+    field.setAccessible(isAccessible);
   }
 }

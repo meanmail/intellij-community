@@ -14,9 +14,6 @@
  * limitations under the License.
  */
 body {
-    margin-left: 10px;
-    margin-right: 2px;
-    margin-bottom: 6px;
     color: #bbbbbb;
 }
 h1, p, ul {
@@ -66,10 +63,4 @@ pre {
 }
 pre .keyword{
     color: #cb7832;
-}
-h1 .product {
-    color: #5275d0;
-}
-h1 .version {
-    color: #f58220;
 }

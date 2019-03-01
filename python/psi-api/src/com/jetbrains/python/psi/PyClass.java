@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.StubBasedPsiElement;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.util.ArrayFactory;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.psi.stubs.PyClassStub;
@@ -39,7 +40,8 @@ import java.util.Map;
  */
 public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStringOwner, StubBasedPsiElement<PyClassStub>,
                                  ScopeOwner, PyDecoratable, PyTypedElement, PyQualifiedNameOwner, PyStatementListContainer, PyWithAncestors {
-  ArrayFactory<PyClass> ARRAY_FACTORY = count -> new PyClass[count];
+  PyClass[] EMPTY_ARRAY = new PyClass[0];
+  ArrayFactory<PyClass> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new PyClass[count];
 
   @Nullable
   ASTNode getNameNode();
@@ -105,21 +107,32 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
   /**
    * Get class properties.
    *
-   * @return Map [property_name] = [{@link com.jetbrains.python.psi.Property}]
+   * @return Map [property_name] = [{@link Property}]
    */
   @NotNull
   Map<String, Property> getProperties();
 
   /**
-   * Finds a method with given name.
+   * Finds a method with the given name.
    *
    * @param name      what to look for
-   * @param inherited true: search in superclasses; false: only look for methods defined in this class.
-   * @param context
-   * @return
+   * @param inherited true: search in superclasses; false: only look for methods defined in this class
+   * @param context   context to be used to resolve ancestors
+   * @return method with given name or null.
    */
   @Nullable
   PyFunction findMethodByName(@Nullable @NonNls final String name, boolean inherited, TypeEvalContext context);
+
+  /**
+   * Finds a method with the given name and all its overloads.
+   *
+   * @param name      what to look for
+   * @param inherited true: search in superclasses; false: only look for methods defined in this class
+   * @param context   context to be used to resolve ancestors
+   * @return all methods with the given name or empty list.
+   */
+  @NotNull
+  List<PyFunction> multiFindMethodByName(@NotNull String name, boolean inherited, @Nullable TypeEvalContext context);
 
   /**
    * Finds either __init__ or __new__, whichever is defined for given class.
@@ -128,11 +141,24 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
    * Since __new__ only makes sense for new-style classes, an old-style class never finds it with this method.
    *
    * @param inherited true: search in superclasses, too.
-   * @param context   TODO: DOC
+   * @param context   context to be used to resolve ancestors and check if this class is a new-style class
    * @return a method that would be called first when an instance of this class is instantiated.
    */
   @Nullable
   PyFunction findInitOrNew(boolean inherited, @Nullable TypeEvalContext context);
+
+  /**
+   * Finds either __init__ or __new__, whichever is defined for given class, and all its overloads.
+   * If __init__ is defined, it is found first. This mimics the way initialization methods
+   * are searched for and called by Python when a constructor call is made.
+   * Since __new__ only makes sense for new-style classes, an old-style class never finds it with this method.
+   *
+   * @param inherited true: search in superclasses, too.
+   * @param context   context to be used to resolve ancestors and check if this class is a new-style class
+   * @return a method that would be called first when an instance of this class is instantiated and all its overloads.
+   */
+  @NotNull
+  List<PyFunction> multiFindInitOrNew(boolean inherited, @Nullable TypeEvalContext context);
 
   /**
    * Finds a property with the specified name in the class or one of its ancestors.
@@ -240,7 +266,13 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
   boolean isSubclass(@NotNull String superClassQName, @Nullable TypeEvalContext context);
 
   /**
-   * Returns the aggregated list of names defined in __slots__ attributes of the class and its ancestors.
+   * Returns the aggregated list of names defined in `__slots__` attributes of the class and its ancestors.
+   * <p>
+   * Returned value is `null` if class or at least one of its ancestor does not follow the next conditions:
+   * <ul>
+   * <li>it should be a new style class</li>
+   * <li>its `__slots__` should exist and should not contain `__dict__`</li>
+   * </ul>
    *
    * @param context (will be used default if null)
    */
@@ -256,6 +288,7 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
   @Nullable
   List<String> getOwnSlots();
 
+  @Override
   @Nullable
   String getDocStringValue();
 
@@ -269,9 +302,38 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
    * Returns the type representing the metaclass of the class if it is explicitly set, null otherwise.
    * <p/>
    * The metaclass might be defined outside the class in case of Python 2 file-level __metaclass__ attributes.
+   *
+   * @deprecated Use {@link #getMetaClassType(boolean, TypeEvalContext)} with inherited=false.
    */
+  @Deprecated
   @Nullable
   PyType getMetaClassType(@NotNull TypeEvalContext context);
+
+  /**
+   * If {@code inherited} is false returns the respective type for the metaclass specified using either
+   * {@code metaclass} keyword argument in the list of base classes in Python 3 or {@code __metaclass__} attribute
+   * defined in this class itself or the module containing it in Python 2. If none is present, returns {@code null}.
+   * <p>
+   * If {@code inherited} is true, this method performs the same check for every class in MRO additionally taking
+   * into account instantiated metaclass ancestors as in the following example:
+   * <p>
+   * <code><pre>
+   * class Meta(type):
+   *     pass
+   *
+   * Base = Meta('Base', (), {})
+   *
+   * class MyClass(Base):
+   *     pass
+   * </pre></code>
+   * <p>
+   * If several candidates are found, the most-derived one (the lowest one in the hierarchy) is returned,
+   * and if it cannot be deduced, {@code type} is used as the fallback value.
+   */
+  @Nullable
+  default PyClassLikeType getMetaClassType(boolean inherited, @NotNull TypeEvalContext context) {
+    return ObjectUtils.tryCast(getMetaClassType(context), PyClassLikeType.class);
+  }
 
   /**
    * Returns the expression that defines the metaclass of the class.
@@ -283,7 +345,7 @@ public interface PyClass extends PsiNameIdentifierOwner, PyStatement, PyDocStrin
 
   /**
    * @param context eval context
-   * @return {@link com.jetbrains.python.psi.types.PyType} casted if it has right type
+   * @return {@link PyType} casted if it has right type
    */
   @Nullable
   PyClassLikeType getType(@NotNull TypeEvalContext context);

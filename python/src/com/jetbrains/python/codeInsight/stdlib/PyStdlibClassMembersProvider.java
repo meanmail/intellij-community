@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.stdlib;
 
 import com.intellij.openapi.util.Key;
@@ -36,27 +22,30 @@ import java.util.List;
  * @author yole
  */
 public class PyStdlibClassMembersProvider extends PyClassMembersProviderBase {
-  private Key<List<PyCustomMember>> mySocketMembersKey = Key.create("socket.members");
+
+  @NotNull
+  private static final Key<List<PyCustomMember>> SOCKET_MEMBERS_KEY = Key.create("socket.members");
 
   @NotNull
   @Override
-  public Collection<PyCustomMember> getMembers(PyClassType classType, PsiElement location, TypeEvalContext typeEvalContext) {
-    PyClass clazz = classType.getPyClass();
+  public Collection<PyCustomMember> getMembers(PyClassType classType, PsiElement location, @NotNull TypeEvalContext context) {
+    final PyClass clazz = classType.getPyClass();
     final String qualifiedName = clazz.getQualifiedName();
     if ("socket._socketobject".equals(qualifiedName)) {
       final PyFile socketFile = (PyFile)clazz.getContainingFile();
-      List<PyCustomMember> socketMembers = socketFile.getUserData(mySocketMembersKey);
+      List<PyCustomMember> socketMembers = socketFile.getUserData(SOCKET_MEMBERS_KEY);
       if (socketMembers == null) {
         socketMembers = calcSocketMembers(socketFile);
-        socketFile.putUserData(mySocketMembersKey, socketMembers);
+        socketFile.putUserData(SOCKET_MEMBERS_KEY, socketMembers);
       }
       return socketMembers;
     }
+
     return Collections.emptyList();
   }
 
   private static List<PyCustomMember> calcSocketMembers(PyFile socketFile) {
-    List<PyCustomMember> result = new ArrayList<>();
+    final List<PyCustomMember> result = new ArrayList<>();
     addMethodsFromAttr(socketFile, result, "_socketmethods");
     addMethodsFromAttr(socketFile, result, "_delegate_methods");
     return result;
@@ -65,7 +54,7 @@ public class PyStdlibClassMembersProvider extends PyClassMembersProviderBase {
   private static void addMethodsFromAttr(PyFile socketFile, List<PyCustomMember> result, final String attrName) {
     final PyTargetExpression socketMethods = socketFile.findTopLevelAttribute(attrName);
     if (socketMethods != null) {
-      final List<String> methods = PyUtil.getStringListFromTargetExpression(socketMethods);
+      final List<String> methods = PyUtil.strListValue(socketMethods.findAssignedValue());
       if (methods != null) {
         for (String name : methods) {
           result.add(new PyCustomMember(name).resolvesTo("_socket").toClass("SocketType").toFunction(name));

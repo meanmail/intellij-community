@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 25-Jan-2008
- */
 package com.intellij.codeEditor.printing;
 
 import com.intellij.openapi.fileTypes.FileType;
@@ -36,6 +32,7 @@ public class HyperlinksToClassesOption extends PrintOption {
   private JCheckBox myCbGenerateHyperlinksToClasses;
   private boolean isGenerateHyperlinksToClasses;
 
+  @Override
   @Nullable
   public TreeMap<Integer, PsiReference> collectReferences(PsiFile psiFile, Map<PsiFile, PsiFile> filesMap) {
     if (isGenerateHyperlinksToClasses) {
@@ -75,24 +72,25 @@ public class HyperlinksToClassesOption extends PrintOption {
   }
 
   private class HyperlinksToClassesConfigurable implements UnnamedConfigurable {
+    @Override
     public JComponent createComponent() {
       myCbGenerateHyperlinksToClasses = new JCheckBox(CodeEditorBundle.message("export.to.html.generate.hyperlinks.checkbox"), isGenerateHyperlinksToClasses);
       return myCbGenerateHyperlinksToClasses;
     }
 
+    @Override
     public boolean isModified() {
       return myCbGenerateHyperlinksToClasses.isSelected() != isGenerateHyperlinksToClasses;
     }
 
+    @Override
     public void apply() throws ConfigurationException {
       isGenerateHyperlinksToClasses = myCbGenerateHyperlinksToClasses.isSelected();
     }
 
+    @Override
     public void reset() {
       myCbGenerateHyperlinksToClasses.setSelected(isGenerateHyperlinksToClasses);
-    }
-
-    public void disposeUIResources() {
     }
   }
 }

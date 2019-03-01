@@ -1,40 +1,19 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.config;
 
+import com.intellij.dvcs.branch.DvcsBranchInfo;
+import com.intellij.dvcs.branch.DvcsBranchSettings;
+import com.intellij.dvcs.branch.DvcsCompareSettings;
 import com.intellij.dvcs.branch.DvcsSyncSettings;
-import com.intellij.lifecycle.PeriodicalTasksCloser;
-import com.intellij.openapi.components.PersistentStateComponent;
-import com.intellij.openapi.components.State;
-import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.components.StoragePathMacros;
+import com.intellij.openapi.components.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Attribute;
+import com.intellij.util.xmlb.annotations.Property;
 import com.intellij.util.xmlb.annotations.Tag;
-import git4idea.GitRemoteBranch;
-import git4idea.GitUtil;
 import git4idea.push.GitPushTagMode;
-import git4idea.repo.GitRemote;
-import git4idea.repo.GitRepository;
 import git4idea.reset.GitResetMode;
-import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -44,7 +23,7 @@ import java.util.*;
  * Git VCS settings
  */
 @State(name = "Git.Settings", storages = {@Storage(StoragePathMacros.WORKSPACE_FILE)})
-public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.State>, DvcsSyncSettings {
+public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.State>, DvcsSyncSettings, DvcsCompareSettings {
 
   private static final int PREVIOUS_COMMIT_AUTHORS_LIMIT = 16; // Limit for previous commit authors
 
@@ -60,9 +39,10 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
   }
 
   public static class State {
+    public String PATH_TO_GIT = null;
+
     // The previously entered authors of the commit (up to {@value #PREVIOUS_COMMIT_AUTHORS_LIMIT})
     public List<String> PREVIOUS_COMMIT_AUTHORS = new ArrayList<>();
-    public GitVcsApplicationSettings.SshExecutable SSH_EXECUTABLE = GitVcsApplicationSettings.SshExecutable.IDEA_SSH;
     // The policy that specifies how files are saved before update or rebase
     public UpdateChangesPolicy UPDATE_CHANGES_POLICY = UpdateChangesPolicy.STASH;
     public UpdateMethod UPDATE_TYPE = UpdateMethod.BRANCH_DEFAULT;
@@ -73,16 +53,23 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     public Map<String, String> RECENT_BRANCH_BY_REPOSITORY = new HashMap<>();
     public String RECENT_COMMON_BRANCH = null;
     public boolean AUTO_COMMIT_ON_CHERRY_PICK = false;
+    public boolean AUTO_COMMIT_ON_REVERT = false;
     public boolean WARN_ABOUT_CRLF = true;
     public boolean WARN_ABOUT_DETACHED_HEAD = true;
     public GitResetMode RESET_MODE = null;
-    public boolean FORCE_PUSH_ALLOWED = false;
     public GitPushTagMode PUSH_TAGS = null;
     public boolean SIGN_OFF_COMMIT = false;
+    public boolean SET_USER_NAME_GLOBALLY = true;
+    public boolean SWAP_SIDES_IN_COMPARE_BRANCHES = false;
+    public boolean UPDATE_BRANCHES_INFO = true;
+    public int BRANCH_INFO_UPDATE_TIME = 10;
+    public boolean PREVIEW_PUSH_ON_COMMIT_AND_PUSH = true;
+    public boolean PREVIEW_PUSH_PROTECTED_ONLY = false;
+    public boolean COMMIT_RENAMES_SEPARATELY = false;
+    public boolean ADD_SUFFIX_TO_CHERRY_PICKS_OF_PUBLISHED_COMMITS = true;
 
-    @AbstractCollection(surroundWithTag = false)
-    @Tag("push-targets")
-    public List<PushTargetInfo> PUSH_TARGETS = ContainerUtil.newArrayList();
+    @Property(surroundWithTag = false, flat = true)
+    public DvcsBranchSettings FAVORITE_BRANCH_SETTINGS = new DvcsBranchSettings();
   }
 
   public GitVcsSettings(GitVcsApplicationSettings appSettings) {
@@ -94,7 +81,7 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
   }
 
   public static GitVcsSettings getInstance(Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetService(project, GitVcsSettings.class);
+    return ServiceManager.getService(project, GitVcsSettings.class);
   }
 
   @NotNull
@@ -132,12 +119,23 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     return ArrayUtil.toStringArray(myState.PREVIOUS_COMMIT_AUTHORS);
   }
 
+  @Override
   public State getState() {
     return myState;
   }
 
-  public void loadState(State state) {
+  @Override
+  public void loadState(@NotNull State state) {
     myState = state;
+  }
+
+  @Nullable
+  public String getPathToGit() {
+    return myState.PATH_TO_GIT;
+  }
+
+  public void setPathToGit(@Nullable String pathToGit) {
+    myState.PATH_TO_GIT = pathToGit;
   }
 
   public boolean autoUpdateIfPushRejected() {
@@ -156,11 +154,13 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     myState.PUSH_UPDATE_ALL_ROOTS = updateAllRoots;
   }
 
+  @Override
   @NotNull
   public Value getSyncSetting() {
     return myState.ROOT_SYNC;
   }
 
+  @Override
   public void setSyncSetting(@NotNull Value syncSetting) {
     myState.ROOT_SYNC = syncSetting;
   }
@@ -200,6 +200,14 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     return myState.AUTO_COMMIT_ON_CHERRY_PICK;
   }
 
+  public void setAutoCommitOnRevert(boolean autoCommit) {
+    myState.AUTO_COMMIT_ON_REVERT = autoCommit;
+  }
+
+  public boolean isAutoCommitOnRevert() {
+    return myState.AUTO_COMMIT_ON_REVERT;
+  }
+
   public boolean warnAboutCrlf() {
     return myState.WARN_ABOUT_CRLF;
   }
@@ -225,14 +233,6 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     myState.RESET_MODE = mode;
   }
 
-  public boolean isForcePushAllowed() {
-    return myState.FORCE_PUSH_ALLOWED;
-  }
-
-  public void setForcePushAllowed(boolean allowed) {
-    myState.FORCE_PUSH_ALLOWED = allowed;
-  }
-
   @Nullable
   public GitPushTagMode getPushTagMode() {
     return myState.PUSH_TAGS;
@@ -250,78 +250,110 @@ public class GitVcsSettings implements PersistentStateComponent<GitVcsSettings.S
     myState.SIGN_OFF_COMMIT = state;
   }
 
-
-  /**
-   * Provides migration from project settings.
-   * This method is to be removed in IDEA 13: it should be moved to {@link GitVcsApplicationSettings}
-   */
-  @Deprecated
-  public boolean isIdeaSsh() {
-    if (getAppSettings().getIdeaSsh() == null) { // app setting has not been initialized yet => migrate the project setting there
-      getAppSettings().setIdeaSsh(myState.SSH_EXECUTABLE);
-    }
-    return getAppSettings().getIdeaSsh() == GitVcsApplicationSettings.SshExecutable.IDEA_SSH;
+  public boolean shouldUpdateBranchInfo() {
+    return myState.UPDATE_BRANCHES_INFO;
   }
 
-  @Nullable
-  public GitRemoteBranch getPushTarget(@NotNull GitRepository repository, @NotNull String sourceBranch) {
-    Iterator<PushTargetInfo> iterator = myState.PUSH_TARGETS.iterator();
-    PushTargetInfo targetInfo = find(iterator, repository, sourceBranch);
-    if (targetInfo == null) {
-      return null;
-    }
-    GitRemote remote = GitUtil.findRemoteByName(repository, targetInfo.targetRemoteName);
-    if (remote == null) {
-      return null;
-    }
-    return GitUtil.findOrCreateRemoteBranch(repository, remote, targetInfo.targetBranchName);
+  public void setUpdateBranchInfo(boolean state) {
+    myState.UPDATE_BRANCHES_INFO = state;
   }
 
-  public void setPushTarget(@NotNull GitRepository repository, @NotNull String sourceBranch,
-                            @NotNull String targetRemote, @NotNull String targetBranch) {
-    String repositoryPath = repository.getRoot().getPath();
-    List<PushTargetInfo> targets = new ArrayList<>(myState.PUSH_TARGETS);
-    Iterator<PushTargetInfo> iterator = targets.iterator();
-    PushTargetInfo existingInfo = find(iterator, repository, sourceBranch);
-    if (existingInfo != null) {
-      iterator.remove();
-    }
-    PushTargetInfo newInfo = new PushTargetInfo(repositoryPath, sourceBranch, targetRemote, targetBranch);
-    targets.add(newInfo);
-    myState.PUSH_TARGETS = targets;
+  public int getBranchInfoUpdateTime() {
+    return myState.BRANCH_INFO_UPDATE_TIME;
   }
 
-  @Nullable
-  @Contract(pure = false)
-  private static PushTargetInfo find(@NotNull Iterator<PushTargetInfo> iterator,
-                                     @NotNull GitRepository repository,
-                                     @NotNull String sourceBranch) {
-    while (iterator.hasNext()) {
-      PushTargetInfo targetInfo = iterator.next();
-      if (targetInfo.repoPath.equals(repository.getRoot().getPath()) && targetInfo.sourceName.equals(sourceBranch)) {
-        return targetInfo;
-      }
-    }
-    return null;
+  public void setBranchInfoUpdateTime(int time) {
+    myState.BRANCH_INFO_UPDATE_TIME = time;
+  }
+
+  public boolean shouldPreviewPushOnCommitAndPush() {
+    return myState.PREVIEW_PUSH_ON_COMMIT_AND_PUSH;
+  }
+
+  public void setPreviewPushOnCommitAndPush(boolean state) {
+    myState.PREVIEW_PUSH_ON_COMMIT_AND_PUSH = state;
+  }
+
+  public boolean isPreviewPushProtectedOnly() {
+    return myState.PREVIEW_PUSH_PROTECTED_ONLY;
+  }
+
+  public void setPreviewPushProtectedOnly(boolean state) {
+    myState.PREVIEW_PUSH_PROTECTED_ONLY = state;
+  }
+
+  public boolean isCommitRenamesSeparately() {
+    return myState.COMMIT_RENAMES_SEPARATELY;
+  }
+
+  public void setCommitRenamesSeparately(boolean state) {
+    myState.COMMIT_RENAMES_SEPARATELY = state;
+  }
+
+  @NotNull
+  public DvcsBranchSettings getFavoriteBranchSettings() {
+    return myState.FAVORITE_BRANCH_SETTINGS;
+  }
+
+  public boolean shouldSetUserNameGlobally() {
+    return myState.SET_USER_NAME_GLOBALLY;
+  }
+
+  public void setUserNameGlobally(boolean value) {
+    myState.SET_USER_NAME_GLOBALLY = value;
+  }
+
+  @Override
+  public boolean shouldSwapSidesInCompareBranches() {
+    return myState.SWAP_SIDES_IN_COMPARE_BRANCHES;
+  }
+
+  @Override
+  public void setSwapSidesInCompareBranches(boolean value) {
+    myState.SWAP_SIDES_IN_COMPARE_BRANCHES = value;
+  }
+
+  public boolean shouldAddSuffixToCherryPicksOfPublishedCommits() {
+    return myState.ADD_SUFFIX_TO_CHERRY_PICKS_OF_PUBLISHED_COMMITS;
+  }
+
+  public void setAddSuffixToCherryPicks(boolean value) {
+    myState.ADD_SUFFIX_TO_CHERRY_PICKS_OF_PUBLISHED_COMMITS = value;
   }
 
   @Tag("push-target-info")
-  private static class PushTargetInfo {
-    @Attribute(value = "repo") public String repoPath;
-    @Attribute(value = "source") public String sourceName;
+  private static class PushTargetInfo extends DvcsBranchInfo {
     @Attribute(value = "target-remote") public String targetRemoteName;
     @Attribute(value = "target-branch") public String targetBranchName;
 
     @SuppressWarnings("unused")
-    public PushTargetInfo() {
+    PushTargetInfo() {
       this("", "", "", "");
     }
 
     PushTargetInfo(@NotNull String repositoryPath, @NotNull String source, @NotNull String targetRemote, @NotNull String targetBranch) {
-      repoPath = repositoryPath;
-      sourceName = source;
+      super(repositoryPath, source);
       targetRemoteName = targetRemote;
       targetBranchName = targetBranch;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      if (!super.equals(o)) return false;
+
+      PushTargetInfo info = (PushTargetInfo)o;
+
+      if (targetRemoteName != null ? !targetRemoteName.equals(info.targetRemoteName) : info.targetRemoteName != null) return false;
+      if (targetBranchName != null ? !targetBranchName.equals(info.targetBranchName) : info.targetBranchName != null) return false;
+
+      return true;
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(super.hashCode(), targetRemoteName, targetBranchName);
     }
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.diff.DiffContext;
@@ -40,14 +26,12 @@ import com.intellij.notification.NotificationType;
 import com.intellij.notification.impl.NotificationsManagerImpl;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.localVcs.UpToDateLineNumberProvider;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Key;
@@ -63,6 +47,7 @@ import com.intellij.openapi.vcs.impl.UpToDateLineNumberProviderImpl;
 import com.intellij.openapi.vcs.impl.VcsBackgroundableActions;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFrame;
+import com.intellij.ui.BalloonLayoutData;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.ui.UIUtil;
@@ -74,7 +59,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 
-public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware {
+public class AnnotateDiffViewerAction {
   private static final Logger LOG = Logger.getInstance(AnnotateDiffViewerAction.class);
 
   private static final Key<boolean[]> ANNOTATIONS_SHOWN_KEY = Key.create("Diff.AnnotateAction.AnnotationShown");
@@ -83,19 +68,6 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     new TwosideAnnotatorFactory(), new OnesideAnnotatorFactory(), new UnifiedAnnotatorFactory(),
     new ThreesideAnnotatorFactory(), new TextMergeAnnotatorFactory()
   };
-
-  public AnnotateDiffViewerAction() {
-    ActionUtil.copyFrom(this, "Annotate");
-    setEnabledInModalContext(true);
-  }
-
-  @Override
-  public void update(AnActionEvent e) {
-    super.update(e);
-    boolean enabled = isEnabled(e);
-    e.getPresentation().setVisible(enabled);
-    e.getPresentation().setEnabled(enabled && !isSuspended(e));
-  }
 
   @Nullable
   @SuppressWarnings("unchecked")
@@ -107,7 +79,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
   }
 
   @Nullable
-  private static EventData collectEventData(AnActionEvent e) {
+  private static EventData collectEventData(@NotNull AnActionEvent e) {
     DiffViewerBase viewer = getViewer(e);
     if (viewer == null) return null;
     if (viewer.getProject() == null) return null;
@@ -123,7 +95,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
   }
 
   @Nullable
-  private static DiffViewerBase getViewer(AnActionEvent e) {
+  private static DiffViewerBase getViewer(@NotNull AnActionEvent e) {
     DiffViewerBase diffViewer = ObjectUtils.tryCast(e.getData(DiffDataKeys.DIFF_VIEWER), DiffViewerBase.class);
     if (diffViewer != null) return diffViewer;
 
@@ -133,7 +105,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     return null;
   }
 
-  private static boolean isEnabled(AnActionEvent e) {
+  private static boolean isEnabled(@NotNull AnActionEvent e) {
     EventData data = collectEventData(e);
     if (data == null) return false;
 
@@ -141,12 +113,12 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     return data.annotator.createAnnotationsLoader() != null;
   }
 
-  private static boolean isSuspended(AnActionEvent e) {
+  private static boolean isSuspended(@NotNull AnActionEvent e) {
     EventData data = collectEventData(e);
     return data != null && data.annotator.getBackgroundableLock().isLocked();
   }
 
-  private static boolean isAnnotated(AnActionEvent e) {
+  private static boolean isAnnotated(@NotNull AnActionEvent e) {
     EventData data = collectEventData(e);
     assert data != null;
     return data.annotator.isAnnotationShown();
@@ -156,24 +128,12 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     EventData data = collectEventData(e);
     assert data != null;
 
-    boolean annotationShown = data.annotator.isAnnotationShown();
-    if (annotationShown) {
+    if (!selected) {
       data.annotator.hideAnnotation();
     }
     else {
       doAnnotate(data.annotator);
     }
-  }
-
-  @Override
-  public boolean isSelected(AnActionEvent e) {
-    EventData data = collectEventData(e);
-    return data != null && data.annotator.isAnnotationShown();
-  }
-
-  @Override
-  public void setSelected(AnActionEvent e, boolean state) {
-    perform(e, state);
   }
 
   private static void doAnnotate(@NotNull final ViewerAnnotator annotator) {
@@ -189,7 +149,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     annotator.getBackgroundableLock().lock();
     if (diffContext != null) diffContext.showProgressBar(true);
 
-    BackgroundTaskUtil.executeOnPooledThread(indicator -> {
+    BackgroundTaskUtil.executeOnPooledThread(viewer, () -> {
       try {
         loader.run();
       }
@@ -211,9 +171,9 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
           if (viewer.isDisposed()) return;
 
           annotator.showAnnotation(loader.getResult());
-        }, indicator.getModalityState());
+        }, ProgressManager.getGlobalProgressIndicator().getModalityState());
       }
-    }, viewer);
+    });
   }
 
   @Nullable
@@ -292,7 +252,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     final AnnotationProvider annotationProvider = vcs.getAnnotationProvider();
     if (annotationProvider == null) return null;
 
-    FileStatus fileStatus = FileStatusManager.getInstance(project).getStatus(file);
+    FileStatus fileStatus = ChangeListManager.getInstance(project).getStatus(file);
     if (fileStatus == FileStatus.UNKNOWN || fileStatus == FileStatus.ADDED || fileStatus == FileStatus.IGNORED) {
       return null;
     }
@@ -310,9 +270,13 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
                                                                 @Nullable final FilePath path,
                                                                 @Nullable final VcsRevisionNumber revisionNumber) {
     if (vcs == null || path == null || revisionNumber == null) return null;
-    if (revisionNumber instanceof TextRevisionNumber) return null;
-    final AnnotationProvider annotationProvider = vcs.getAnnotationProvider();
+    if (revisionNumber instanceof TextRevisionNumber ||
+        revisionNumber == VcsRevisionNumber.NULL) {
+      return null;
+    }
+    AnnotationProvider annotationProvider = vcs.getAnnotationProvider();
     if (!(annotationProvider instanceof AnnotationProviderEx)) return null;
+    if (!((AnnotationProviderEx)annotationProvider).isAnnotationValid(path, revisionNumber)) return null;
 
     return new FileAnnotationLoader(vcs) {
       @Override
@@ -335,7 +299,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
   private static class MyDiffViewerListener extends DiffViewerListener {
     @NotNull private final DiffViewerBase myViewer;
 
-    public MyDiffViewerListener(@NotNull DiffViewerBase viewer) {
+    MyDiffViewerListener(@NotNull DiffViewerBase viewer) {
       myViewer = viewer;
     }
 
@@ -369,7 +333,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
       return;
     }
 
-    Balloon balloon = NotificationsManagerImpl.createBalloon(component, notification, false, true, null, viewer);
+    Balloon balloon = NotificationsManagerImpl.createBalloon(component, notification, false, true, BalloonLayoutData.fullContent(), viewer);
 
     Dimension componentSize = component.getSize();
     Dimension balloonSize = balloon.getPreferredSize();
@@ -406,7 +370,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @Override
     public void showAnnotation(@NotNull TwosideTextDiffViewer viewer, @NotNull Side side, @NotNull AnnotationData data) {
       Project project = ObjectUtils.assertNotNull(viewer.getProject());
-      AnnotateToggleAction.doAnnotate(viewer.getEditor(side), project, null, data.annotation, data.vcs);
+      AnnotateToggleAction.doAnnotate(viewer.getEditor(side), project, data.annotation, data.vcs);
     }
 
     @Override
@@ -439,7 +403,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     public void showAnnotation(@NotNull OnesideTextDiffViewer viewer, @NotNull Side side, @NotNull AnnotationData data) {
       if (side != viewer.getSide()) return;
       Project project = ObjectUtils.assertNotNull(viewer.getProject());
-      AnnotateToggleAction.doAnnotate(viewer.getEditor(), project, null, data.annotation, data.vcs);
+      AnnotateToggleAction.doAnnotate(viewer.getEditor(), project, data.annotation, data.vcs);
     }
 
     @Override
@@ -473,7 +437,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
       if (side != viewer.getMasterSide()) return;
       Project project = ObjectUtils.assertNotNull(viewer.getProject());
       UnifiedUpToDateLineNumberProvider lineNumberProvider = new UnifiedUpToDateLineNumberProvider(viewer, side);
-      AnnotateToggleAction.doAnnotate(viewer.getEditor(), project, null, data.annotation, data.vcs, lineNumberProvider);
+      AnnotateToggleAction.doAnnotate(viewer.getEditor(), project, data.annotation, data.vcs, lineNumberProvider);
     }
 
     @Override
@@ -487,7 +451,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @NotNull private final Side mySide;
     @NotNull private final UpToDateLineNumberProvider myLocalChangesProvider;
 
-    public UnifiedUpToDateLineNumberProvider(@NotNull UnifiedDiffViewer viewer, @NotNull Side side) {
+    UnifiedUpToDateLineNumberProvider(@NotNull UnifiedDiffViewer viewer, @NotNull Side side) {
       myViewer = viewer;
       mySide = side;
       myLocalChangesProvider = new UpToDateLineNumberProviderImpl(myViewer.getDocument(mySide), viewer.getProject());
@@ -514,6 +478,11 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
         if (isLineChanged(i)) return true; // TODO: a single request to LineNumberConvertor
       }
       return myLocalChangesProvider.isRangeChanged(line1, line2);
+    }
+
+    @Override
+    public int getLineCount() {
+      return myLocalChangesProvider.getLineCount();
     }
   }
 
@@ -542,7 +511,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @Override
     public void showAnnotation(@NotNull ThreesideTextDiffViewerEx viewer, @NotNull ThreeSide side, @NotNull AnnotationData data) {
       Project project = ObjectUtils.assertNotNull(viewer.getProject());
-      AnnotateToggleAction.doAnnotate(viewer.getEditor(side), project, null, data.annotation, data.vcs);
+      AnnotateToggleAction.doAnnotate(viewer.getEditor(side), project, data.annotation, data.vcs);
     }
 
     @Override
@@ -641,6 +610,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
           return createTwosideAnnotationsLoader(project, viewer.getRequest(), side);
         }
 
+        @Override
         @NotNull
         public BackgroundableActionLock getBackgroundableLock() {
           return BackgroundableActionLock.getLock(viewer.getProject(), VcsBackgroundableActions.ANNOTATE, viewer, side);
@@ -729,6 +699,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
           return createThreesideAnnotationsLoader(project, viewer.getRequest(), side);
         }
 
+        @Override
         @NotNull
         public BackgroundableActionLock getBackgroundableLock() {
           return BackgroundableActionLock.getLock(viewer.getProject(), VcsBackgroundableActions.ANNOTATE, viewer, side);
@@ -772,7 +743,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @Nullable private VcsException myException;
     @Nullable private FileAnnotation myResult;
 
-    public FileAnnotationLoader(@NotNull AbstractVcs vcs) {
+    FileAnnotationLoader(@NotNull AbstractVcs vcs) {
       myVcs = vcs;
     }
 
@@ -802,7 +773,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @NotNull public final AbstractVcs vcs;
     @NotNull public final FileAnnotation annotation;
 
-    public AnnotationData(@NotNull AbstractVcs vcs, @NotNull FileAnnotation annotation) {
+    AnnotationData(@NotNull AbstractVcs vcs, @NotNull FileAnnotation annotation) {
       this.vcs = vcs;
       this.annotation = annotation;
     }
@@ -812,7 +783,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     @NotNull public final DiffViewerBase viewer;
     @NotNull public final ViewerAnnotator annotator;
 
-    public EventData(@NotNull DiffViewerBase viewer, @NotNull ViewerAnnotator annotator) {
+    EventData(@NotNull DiffViewerBase viewer, @NotNull ViewerAnnotator annotator) {
       this.viewer = viewer;
       this.annotator = annotator;
     }
@@ -825,7 +796,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     }
 
     @Override
-    public boolean isSuspended(AnActionEvent e) {
+    public boolean isSuspended(@NotNull AnActionEvent e) {
       return AnnotateDiffViewerAction.isSuspended(e);
     }
 
@@ -835,7 +806,7 @@ public class AnnotateDiffViewerAction extends ToggleAction implements DumbAware 
     }
 
     @Override
-    public void perform(AnActionEvent e, boolean selected) {
+    public void perform(@NotNull AnActionEvent e, boolean selected) {
       AnnotateDiffViewerAction.perform(e, selected);
     }
   }

@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Jul 20, 2007
- * Time: 2:57:59 PM
- */
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.NullableNotNullManager;
@@ -29,6 +23,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
+/**
+ * @deprecated use {@link com.intellij.codeInsight.intention.AddAnnotationPsiFix#createAddNullableFix(PsiModifierListOwner)}
+ */
+@Deprecated
 public class AddNullableAnnotationFix extends AddNullableNotNullAnnotationFix {
   public AddNullableAnnotationFix(@NotNull PsiModifierListOwner owner) {
     super(NullableNotNullManager.getInstance(owner.getProject()).getDefaultNullable(),

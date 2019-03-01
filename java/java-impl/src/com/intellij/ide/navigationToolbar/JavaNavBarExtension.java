@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import com.intellij.lang.LangBundle;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.vfs.impl.jrt.JrtFileSystem;
+import com.intellij.openapi.vfs.jrt.JrtFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.presentation.java.ClassPresentationUtil;
@@ -29,7 +29,6 @@ import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
 /**
  * @author anna
- * @since 04-Feb-2008
  */
 public class JavaNavBarExtension extends AbstractNavBarModelExtension {
   @Override
@@ -66,7 +65,7 @@ public class JavaNavBarExtension extends AbstractNavBarModelExtension {
     if (containingFile != null) {
       final VirtualFile file = containingFile.getVirtualFile();
       if (file != null &&
-          (index.isUnderSourceRootOfType(file, JavaModuleSourceRootTypes.SOURCES) || index.isInLibraryClasses(file) || index.isInLibrarySource(file))) {
+          (index.isUnderSourceRootOfType(file, JavaModuleSourceRootTypes.SOURCES) || index.isInLibrary(file))) {
         if (psiElement instanceof PsiJavaFile) {
           final PsiJavaFile psiJavaFile = (PsiJavaFile)psiElement;
           if (psiJavaFile.getViewProvider().getBaseLanguage() == JavaLanguage.INSTANCE) {

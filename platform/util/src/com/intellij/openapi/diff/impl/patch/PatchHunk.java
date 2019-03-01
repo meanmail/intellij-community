@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 15.11.2006
- * Time: 20:20:15
- */
 package com.intellij.openapi.diff.impl.patch;
 
 import java.util.ArrayList;
@@ -31,7 +25,7 @@ public class PatchHunk {
   private final int myEndLineBefore;
   private final int myStartLineAfter;
   private final int myEndLineAfter;
-  private final List<PatchLine> myLines = new ArrayList<PatchLine>();
+  private final List<PatchLine> myLines = new ArrayList<>();
 
   public PatchHunk(final int startLineBefore, final int endLineBefore, final int startLineAfter, final int endLineAfter) {
     myStartLineBefore = startLineBefore;

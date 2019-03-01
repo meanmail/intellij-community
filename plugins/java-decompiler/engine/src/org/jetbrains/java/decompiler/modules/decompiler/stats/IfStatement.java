@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler.stats;
 
-import org.jetbrains.java.decompiler.main.TextBuffer;
 import org.jetbrains.java.decompiler.main.collectors.BytecodeMappingTracer;
 import org.jetbrains.java.decompiler.modules.decompiler.DecHelper;
 import org.jetbrains.java.decompiler.modules.decompiler.ExprProcessor;
@@ -25,6 +10,7 @@ import org.jetbrains.java.decompiler.modules.decompiler.exps.IfExprent;
 import org.jetbrains.java.decompiler.struct.match.IMatchable;
 import org.jetbrains.java.decompiler.struct.match.MatchEngine;
 import org.jetbrains.java.decompiler.struct.match.MatchNode;
+import org.jetbrains.java.decompiler.util.TextBuffer;
 import org.jetbrains.java.decompiler.util.TextUtil;
 
 import java.util.ArrayList;
@@ -50,9 +36,7 @@ public class IfStatement extends Statement {
 
   private boolean negated = false;
 
-  private boolean iffflag;
-
-  private final List<Exprent> headexprent = new ArrayList<>(); // contains IfExprent
+  private final List<Exprent> headexprent = new ArrayList<>(1); // contains IfExprent
 
   // *****************************************************************************
   // constructors
@@ -203,8 +187,8 @@ public class IfStatement extends Statement {
     return null;
   }
 
+  @Override
   public TextBuffer toJava(int indent, BytecodeMappingTracer tracer) {
-    String indstr = TextUtil.getIndentString(indent);
     TextBuffer buf = new TextBuffer();
 
     buf.append(ExprProcessor.listToJava(varDefinitions, indent, tracer));
@@ -219,24 +203,26 @@ public class IfStatement extends Statement {
     tracer.incrementCurrentSourceLine();
 
     if (ifstat == null) {
-      buf.appendIndent(indent + 1);
-
+      boolean semicolon = false;
       if (ifedge.explicit) {
+        semicolon = true;
         if (ifedge.getType() == StatEdge.TYPE_BREAK) {
           // break
-          buf.append("break");
+          buf.appendIndent(indent + 1).append("break");
         }
         else {
           // continue
-          buf.append("continue");
+          buf.appendIndent(indent + 1).append("continue");
         }
 
         if (ifedge.labeled) {
           buf.append(" label").append(ifedge.closure.id.toString());
         }
       }
-      buf.append(";").appendLineSeparator();
-      tracer.incrementCurrentSourceLine();
+      if(semicolon) {
+        buf.append(";").appendLineSeparator();
+        tracer.incrementCurrentSourceLine();
+      }
     }
     else {
       buf.append(ExprProcessor.jmpWrapper(ifstat, indent + 1, true, tracer));
@@ -250,10 +236,10 @@ public class IfStatement extends Statement {
           !elsestat.isLabeled() &&
           (elsestat.getSuccessorEdges(STATEDGE_DIRECT_ALL).isEmpty()
            || !elsestat.getSuccessorEdges(STATEDGE_DIRECT_ALL).get(0).explicit)) { // else if
-        TextBuffer content = ExprProcessor.jmpWrapper(elsestat, indent, false, tracer);
-        content.setStart(indstr.length());
-
         buf.appendIndent(indent).append("} else ");
+
+        TextBuffer content = ExprProcessor.jmpWrapper(elsestat, indent, false, tracer);
+        content.setStart(TextUtil.getIndentString(indent).length());
         buf.append(content);
 
         elseif = true;
@@ -281,6 +267,7 @@ public class IfStatement extends Statement {
     return buf;
   }
 
+  @Override
   public void initExprents() {
 
     IfExprent ifexpr = (IfExprent)first.getExprents().remove(first.getExprents().size() - 1);
@@ -293,6 +280,7 @@ public class IfStatement extends Statement {
     headexprent.set(0, ifexpr);
   }
 
+  @Override
   public List<Object> getSequentialObjects() {
 
     List<Object> lst = new ArrayList<>(stats);
@@ -301,12 +289,14 @@ public class IfStatement extends Statement {
     return lst;
   }
 
+  @Override
   public void replaceExprent(Exprent oldexpr, Exprent newexpr) {
     if (headexprent.get(0) == oldexpr) {
       headexprent.set(0, newexpr);
     }
   }
 
+  @Override
   public void replaceStatement(Statement oldstat, Statement newstat) {
 
     super.replaceStatement(oldstat, newstat);
@@ -339,16 +329,17 @@ public class IfStatement extends Statement {
     }
   }
 
+  @Override
   public Statement getSimpleCopy() {
 
     IfStatement is = new IfStatement();
     is.iftype = this.iftype;
     is.negated = this.negated;
-    is.iffflag = this.iffflag;
 
     return is;
   }
 
+  @Override
   public void initSimpleCopy() {
 
     first = stats.get(0);
@@ -401,14 +392,6 @@ public class IfStatement extends Statement {
     return (IfExprent)headexprent.get(0);
   }
 
-  public boolean isIffflag() {
-    return iffflag;
-  }
-
-  public void setIffflag(boolean iffflag) {
-    this.iffflag = iffflag;
-  }
-
   public void setElseEdge(StatEdge elseedge) {
     this.elseedge = elseedge;
   }
@@ -424,21 +407,21 @@ public class IfStatement extends Statement {
   public StatEdge getElseEdge() {
     return elseedge;
   }
-  
+
   // *****************************************************************************
   // IMatchable implementation
   // *****************************************************************************
-  
-  public IMatchable findObject(MatchNode matchNode, int index) {
 
+  @Override
+  public IMatchable findObject(MatchNode matchNode, int index) {
     IMatchable object = super.findObject(matchNode, index);
-    if(object != null) {
+    if (object != null) {
       return object;
     }
-    
-    if(matchNode.getType() == MatchNode.MATCHNODE_EXPRENT) {
+
+    if (matchNode.getType() == MatchNode.MATCHNODE_EXPRENT) {
       String position = (String)matchNode.getRuleValue(MatchProperties.EXPRENT_POSITION);
-      if("head".equals(position)) {
+      if ("head".equals(position)) {
         return getHeadexprent();
       }
     }
@@ -446,20 +429,13 @@ public class IfStatement extends Statement {
     return null;
   }
 
+  @Override
   public boolean match(MatchNode matchNode, MatchEngine engine) {
-
-    if(!super.match(matchNode, engine)) {
+    if (!super.match(matchNode, engine)) {
       return false;
     }
 
     Integer type = (Integer)matchNode.getRuleValue(MatchProperties.STATEMENT_IFTYPE);
-    if(type != null) {
-      if(this.iftype != type.intValue()) {
-        return false;
-      }
-    }
-        
-    return true;
+    return type == null || this.iftype == type;
   }
-  
 }

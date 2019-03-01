@@ -1,40 +1,28 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.platform.templates;
 
 import com.intellij.CommonBundle;
+import com.intellij.configurationStore.StoreUtil;
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplateUtil;
 import com.intellij.ide.fileTemplates.impl.FileTemplateBase;
 import com.intellij.ide.util.projectWizard.ProjectTemplateFileProcessor;
 import com.intellij.ide.util.projectWizard.ProjectTemplateParameterFactory;
+import com.intellij.idea.ActionsBundle;
+import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationType;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.progress.PerformInBackgroundOption;
-import com.intellij.openapi.progress.ProgressIndicator;
-import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.progress.Task;
+import com.intellij.openapi.progress.*;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentIterator;
 import com.intellij.openapi.roots.FileIndex;
@@ -45,12 +33,12 @@ import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.project.ProjectKt;
 import com.intellij.util.PlatformUtils;
+import com.intellij.util.io.PathKt;
 import com.intellij.util.io.ZipUtil;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.TIntObjectHashMap;
@@ -59,7 +47,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.serialization.PathMacroUtil;
 
-import java.io.*;
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,16 +64,15 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 10/5/12
  */
-public class SaveProjectAsTemplateAction extends AnAction {
+public class SaveProjectAsTemplateAction extends AnAction implements DumbAware {
 
   private static final Logger LOG = Logger.getInstance(SaveProjectAsTemplateAction.class);
   private static final String PROJECT_TEMPLATE_XML = "project-template.xml";
   static final String FILE_HEADER_TEMPLATE_PLACEHOLDER = "<IntelliJ_File_Header>";
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = getEventProject(e);
     assert project != null;
     if (!ProjectKt.isDirectoryBased(project)) {
@@ -95,7 +87,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
     if (dialog.showAndGet()) {
 
       final Module moduleToSave = dialog.getModuleToSave();
-      final File file = dialog.getTemplateFile();
+      final Path file = dialog.getTemplateFile();
       final String description = dialog.getDescription();
 
       FileDocumentManager.getInstance().saveAllDocuments();
@@ -108,13 +100,30 @@ public class SaveProjectAsTemplateAction extends AnAction {
 
         @Override
         public void onSuccess() {
-          Messages.showInfoMessage(FileUtil.getNameWithoutExtension(file) + " was successfully created.\n" +
-                                   "It's available now in Project Wizard", "Template Created");
+          AnAction newProjectAction = ActionManager.getInstance().getAction(getNewProjectActionId());
+          newProjectAction.getTemplatePresentation().setText(ActionsBundle.actionText("NewDirectoryProject"));
+          AnAction manageAction = ActionManager.getInstance().getAction("ManageProjectTemplates");
+          Notification notification = new Notification("Project Template",
+                                                       "Template Created",
+                                                       FileUtil.getNameWithoutExtension(file.getFileName().toString()) +
+                                                       " was successfully created",
+                                                       NotificationType.INFORMATION
+          );
+          notification.addAction(newProjectAction);
+          if (manageAction != null) {
+            notification.addAction(manageAction);
+          }
+          notification.notify(getProject());
+        }
+
+        @Override
+        public boolean shouldStartInBackground() {
+          return true;
         }
 
         @Override
         public void onCancel() {
-          file.delete();
+          PathKt.delete(file);
         }
       });
     }
@@ -126,36 +135,33 @@ public class SaveProjectAsTemplateAction extends AnAction {
   }
 
   public static void saveProject(final Project project,
-                                 final File zipFile,
+                                 @NotNull Path zipFile,
                                  Module moduleToSave,
                                  final String description,
                                  boolean replaceParameters,
                                  final ProgressIndicator indicator,
                                  boolean shouldEscape) {
-
     final Map<String, String> parameters = computeParameters(project, replaceParameters);
     indicator.setText("Saving project...");
-    ApplicationManager.getApplication().invokeAndWait(() -> WriteAction.run(project::save));
+    StoreUtil.saveSettings(project, true);
     indicator.setText("Processing project files...");
     ZipOutputStream stream = null;
     try {
-      FileUtil.ensureExists(zipFile.getParentFile());
-      stream = new ZipOutputStream(new FileOutputStream(zipFile));
+      stream = new ZipOutputStream(PathKt.outputStream(zipFile));
 
       final VirtualFile dir = getDirectoryToSave(project, moduleToSave);
 
       List<LocalArchivedTemplate.RootDescription> roots = collectStructure(project, moduleToSave);
       LocalArchivedTemplate.RootDescription basePathRoot = findOrAddBaseRoot(roots, dir);
 
-      writeFile(LocalArchivedTemplate.DESCRIPTION_PATH, description, project, basePathRoot.myRelativePath, stream, true, indicator);
+      writeFile(LocalArchivedTemplate.DESCRIPTION_PATH, description, project, basePathRoot.myRelativePath, stream, true);
       if (replaceParameters) {
         String text = getInputFieldsText(parameters);
-        writeFile(LocalArchivedTemplate.TEMPLATE_DESCRIPTOR, text, project, basePathRoot.myRelativePath, stream, false, indicator);
+        writeFile(LocalArchivedTemplate.TEMPLATE_DESCRIPTOR, text, project, basePathRoot.myRelativePath, stream, false);
       }
 
       String metaDescription = getTemplateMetaText(shouldEscape, roots);
-      writeFile(LocalArchivedTemplate.META_TEMPLATE_DESCRIPTOR_PATH, metaDescription, project, basePathRoot.myRelativePath, stream, true,
-                indicator);
+      writeFile(LocalArchivedTemplate.META_TEMPLATE_DESCRIPTOR_PATH, metaDescription, project, basePathRoot.myRelativePath, stream, true);
 
       FileIndex index = moduleToSave == null
                         ? ProjectRootManager.getInstance(project).getFileIndex()
@@ -169,6 +175,9 @@ public class SaveProjectAsTemplateAction extends AnAction {
         iterator.setRootAndPrefix(rootFile, prefix);
         index.iterateContentUnderDirectory(rootFile, iterator);
       }
+    }
+    catch (ProcessCanceledException ex){
+      //ignore
     }
     catch (Exception ex) {
       LOG.error(ex);
@@ -196,18 +205,33 @@ public class SaveProjectAsTemplateAction extends AnAction {
     }
     else if (PlatformUtils.isPhpStorm()) {
       return FileTemplateBase.getQualifiedName("PHP File Header", "php");
+    } else if (PlatformUtils.isWebStorm()) {
+      return FileTemplateBase.getQualifiedName("JavaScript File", "js");
     } else {
       throw new IllegalStateException("Provide file header template for your IDE");
     }
   }
 
+  static String getNewProjectActionId() {
+    if (PlatformUtils.isIntelliJ()) {
+      return "NewProject";
+    }
+    else if (PlatformUtils.isPhpStorm()) {
+      return "NewDirectoryProject";
+    } else if (PlatformUtils.isWebStorm()) {
+      return "NewWebStormDirectoryProject";
+    } else {
+      throw new IllegalStateException("Provide new project action id for your IDE");
+    }
+  }
+
   private static void writeFile(String path,
                                 final String text,
-                                Project project, String prefix, ZipOutputStream stream, boolean overwrite, ProgressIndicator indicator) throws IOException {
+                                Project project, String prefix, ZipOutputStream stream, boolean overwrite) throws IOException {
     final VirtualFile descriptionFile = getDescriptionFile(project, path);
     if (descriptionFile == null) {
       stream.putNextEntry(new ZipEntry(prefix + "/" + path));
-      stream.write(text.getBytes());
+      stream.write(text.getBytes(StandardCharsets.UTF_8));
       stream.closeEntry();
     }
     else if (overwrite) {
@@ -226,8 +250,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
     final Map<String, String> parameters = new HashMap<>();
     if (replaceParameters) {
       ApplicationManager.getApplication().runReadAction(() -> {
-        ProjectTemplateParameterFactory[] extensions = Extensions.getExtensions(ProjectTemplateParameterFactory.EP_NAME);
-        for (ProjectTemplateParameterFactory extension : extensions) {
+        for (ProjectTemplateParameterFactory extension : ProjectTemplateParameterFactory.EP_NAME.getExtensionList()) {
           String value = extension.detectParameterValue(project);
           if (value != null) {
             parameters.put(value, extension.getParameterId());
@@ -304,7 +327,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
   private static String getRelativePath(PathMacroManager pathMacroManager, VirtualFile moduleRoot) {
     String path = pathMacroManager.collapsePath(moduleRoot.getPath());
     path = StringUtil.trimStart(path, "$" + PathMacroUtil.PROJECT_DIR_MACRO_NAME + "$");
-    path = StringUtil.trimStart(path, "$" + PathMacroUtil.MODULE_DIR_MACRO_NAME + "$");
+    path = StringUtil.trimStart(path, PathMacroUtil.DEPRECATED_MODULE_DIR);
     path = StringUtil.trimStart(path, "/");
     return path;
   }
@@ -328,7 +351,11 @@ public class SaveProjectAsTemplateAction extends AnAction {
       }
 
       char c = input.charAt(i);
-      if (c == '$' || c == '#') {
+      if (c == '$') {
+        builder.append("#[[\\$]]#");
+        continue;
+      }
+      if (c == '#') {
         builder.append('\\');
       }
       builder.append(c);
@@ -361,7 +388,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     Project project = getEventProject(e);
     e.getPresentation().setEnabled(project != null && !project.isDefault());
   }
@@ -375,7 +402,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
     private final Map<String, String> myParameters;
     private final boolean myShouldEscape;
 
-    public MyContentIterator(ProgressIndicator indicator,
+    MyContentIterator(ProgressIndicator indicator,
                              ZipOutputStream finalStream,
                              Project project,
                              Map<String, String> parameters,
@@ -393,7 +420,7 @@ public class SaveProjectAsTemplateAction extends AnAction {
     }
 
     @Override
-    public boolean processFile(final VirtualFile virtualFile) {
+    public boolean processFile(@NotNull final VirtualFile virtualFile) {
       if (!virtualFile.isDirectory()) {
         final String fileName = virtualFile.getName();
         myIndicator.setText2(fileName);
@@ -419,14 +446,15 @@ public class SaveProjectAsTemplateAction extends AnAction {
                                myPrefix + "/" + relativePath, null, null,
                                new ZipUtil.FileContentProcessor() {
                                  @Override
-                                 public InputStream getContent(final File file) throws IOException {
-                                   if (virtualFile.getFileType().isBinary() || PROJECT_TEMPLATE_XML.equals(virtualFile.getName()))
+                                 public InputStream getContent(@NotNull final File file) throws IOException {
+                                   if (virtualFile.getFileType().isBinary() || PROJECT_TEMPLATE_XML.equals(virtualFile.getName())) {
                                      return STANDARD.getContent(file);
+                                   }
                                    String result =
                                      getEncodedContent(virtualFile, myProject, myParameters, getFileHeaderTemplateName(), myShouldEscape);
-                                   return new ByteArrayInputStream(result.getBytes(CharsetToolkit.UTF8_CHARSET));
+                                   return new ByteArrayInputStream(result.getBytes(StandardCharsets.UTF_8));
                                  }
-                               });
+                               }, false);
         }
         catch (IOException e) {
           LOG.error(e);

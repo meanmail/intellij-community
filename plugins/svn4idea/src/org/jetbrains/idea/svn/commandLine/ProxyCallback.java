@@ -1,27 +1,12 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.auth.AuthenticationService;
-import org.tmatesoft.svn.core.SVNURL;
 
 import java.net.PasswordAuthentication;
 
@@ -37,7 +22,7 @@ public class ProxyCallback extends AuthCallbackCase {
 
   private PasswordAuthentication myProxyAuthentication;
 
-  ProxyCallback(@NotNull AuthenticationService authenticationService, SVNURL url) {
+  ProxyCallback(@NotNull AuthenticationService authenticationService, Url url) {
     super(authenticationService, url);
   }
 
@@ -51,7 +36,7 @@ public class ProxyCallback extends AuthCallbackCase {
   }
 
   @Override
-  boolean getCredentials(String errText) throws SvnBindException {
+  boolean getCredentials(String errText) {
     boolean result = false;
 
     if (myUrl == null) {
@@ -75,12 +60,7 @@ public class ProxyCallback extends AuthCallbackCase {
     // TODO: This is quite messy logic for determining group for host - either ProxyCallback could be unified with ProxyModule
     // TODO: or group name resolved in ProxyModule could be saved in Command instance.
     // TODO: This will be done later after corresponding refactorings.
-    String proxyHostParameter = ContainerUtil.find(command.getParameters(), new Condition<String>() {
-      @Override
-      public boolean value(String s) {
-        return s.contains("http-proxy-port");
-      }
-    });
+    String proxyHostParameter = ContainerUtil.find(command.getParameters(), s -> s.contains("http-proxy-port"));
 
     if (!StringUtil.isEmpty(proxyHostParameter) && myUrl != null && myProxyAuthentication != null) {
       String group = getHostGroup(proxyHostParameter);

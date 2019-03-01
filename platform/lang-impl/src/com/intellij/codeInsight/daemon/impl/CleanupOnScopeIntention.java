@@ -28,11 +28,8 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* Created by anna on 5/13/2014.
-*/
-class CleanupOnScopeIntention extends CleanupIntention {
-  static final CleanupOnScopeIntention INSTANCE = new CleanupOnScopeIntention();
+public class CleanupOnScopeIntention extends CleanupIntention {
+  public static final CleanupOnScopeIntention INSTANCE = new CleanupOnScopeIntention();
 
   private CleanupOnScopeIntention() {}
 
@@ -47,11 +44,9 @@ class CleanupOnScopeIntention extends CleanupIntention {
     }
     final BaseAnalysisActionDialog dlg = new BaseAnalysisActionDialog(
       AnalysisScopeBundle.message("specify.analysis.scope", InspectionsBundle.message("inspection.action.title")),
-      AnalysisScopeBundle.message("analysis.scope.title", InspectionsBundle.message("inspection.action.noun")),
-      project,
-      analysisScope,
-      module != null ? module.getName() : null,
-      true, AnalysisUIOptions.getInstance(project), file);
+      AnalysisScopeBundle.message("analysis.scope.title", InspectionsBundle.message("inspection.action.noun")), project, BaseAnalysisActionDialog.standardItems(
+      project, analysisScope, module, file),
+      AnalysisUIOptions.getInstance(project), true);
     if (!dlg.showAndGet()) {
       return null;
     }

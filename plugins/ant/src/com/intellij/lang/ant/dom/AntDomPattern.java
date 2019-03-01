@@ -29,7 +29,6 @@ import java.util.regex.Pattern;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: May 2, 2007
  */
 public class AntDomPattern extends AntDomRecursiveVisitor {
   private static final List<Pattern> ourDefaultExcludes = new ArrayList<>(getDefaultExcludes(true));
@@ -70,6 +69,7 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     return myIncludePatterns.size() > 0;
   }
 
+  @Override
   public void visitAntDomElement(AntDomElement element) {
     // todo: add support to includefile and excludefile
     if ("include".equals(element.getXmlElementName()) && !(element instanceof AntDomInclude)) {
@@ -124,7 +124,7 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     String normalizedPattern = antPattern.endsWith("/") || antPattern.endsWith(File.separator)? antPattern.replace(File.separatorChar, '/') + "**" : antPattern.replace(File.separatorChar, '/');
     if (normalizedPattern.startsWith("/") && normalizedPattern.length() > 1) {
       // cut first leading slash if any
-      normalizedPattern = normalizedPattern.substring(1, normalizedPattern.length());
+      normalizedPattern = normalizedPattern.substring(1);
     }
     if (!normalizedPattern.startsWith("/")) {
       final String[] patDirs = normalizedPattern.split(ourSeparatorPattern);
@@ -221,12 +221,12 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     if (strIdxStart > strIdxEnd) {
       // String is exhausted
       return true;
-    } 
+    }
 
     if (patIdxStart > patIdxEnd) {
       // String not exhausted, but pattern is. Failure.
       return false;
-    } 
+    }
 
     // pattern now holds ** while string is not exhausted
     // this will generate false positives but we can live with that.
@@ -239,11 +239,11 @@ public class AntDomPattern extends AntDomRecursiveVisitor {
     }
     return myCouldBeIncludedPatterns.stream().anyMatch(couldBeIncludedPattern -> matchPatternStart(couldBeIncludedPattern, relativePath));
   }
-  
+
   private class PrefixItem {
     private final String myStrPattern;
     private Pattern myCompiledPattern;
-    public PrefixItem(String strPattern) {
+    PrefixItem(String strPattern) {
       myStrPattern = strPattern;
     }
 

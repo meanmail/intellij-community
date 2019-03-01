@@ -16,6 +16,7 @@
 package com.intellij.remote;
 
 import com.intellij.util.xmlb.annotations.Transient;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author traff
@@ -35,15 +36,12 @@ public interface RemoteCredentials {
   @Transient
   String getPassphrase();
 
-  boolean isUseKeyPair();
-
-  boolean isAnonymous();
+  @NotNull
+  AuthType getAuthType();
 
   String getPrivateKeyFile();
 
   boolean isStorePassword();
 
   boolean isStorePassphrase();
-
-  String getKnownHostsFile();
 }

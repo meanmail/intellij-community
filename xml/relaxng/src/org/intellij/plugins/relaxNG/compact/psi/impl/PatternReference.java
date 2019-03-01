@@ -46,18 +46,14 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 13.08.2007
- */
 class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function<Define, ResolveResult>,
                                                                         LocalQuickFixProvider, EmptyResolveMessageProvider {
 
-  public PatternReference(RncRef ref) {
+  PatternReference(RncRef ref) {
     super(ref);
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final ASTNode node = findNameNode();
@@ -122,7 +118,7 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final ASTNode newNode = RenameUtil.createIdentifierNode(getElement().getManager(), newElementName);
 
     final ASTNode nameNode = findNameNode();
@@ -172,7 +168,7 @@ class PatternReference extends PsiReferenceBase.Poly<RncRef> implements Function
   static class CreatePatternFix implements LocalQuickFix {
     private final PatternReference myReference;
 
-    public CreatePatternFix(PatternReference reference) {
+    CreatePatternFix(PatternReference reference) {
       myReference = reference;
     }
 

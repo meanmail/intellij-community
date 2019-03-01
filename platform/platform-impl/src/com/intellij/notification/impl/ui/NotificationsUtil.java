@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,10 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
-import com.intellij.notification.impl.NotificationsManagerImpl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.MessageType;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.ColorUtil;
-import com.intellij.ui.JBColor;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -113,8 +110,8 @@ public class NotificationsUtil {
         .append(titleColor == null ? "" : "</span>");
     }
     if (!StringUtil.isEmpty(content)) {
-      result.append("<p").append(contentStyle == null ? "" : " style=\"" + contentStyle + "\"")
-        .append(contentColor == null ? ">" : " color=\"" + contentColor + "\">").append(content).append("</p>");
+      result.append("<div").append(contentStyle == null ? "" : " style=\"" + contentStyle + "\"")
+        .append(contentColor == null ? ">" : " color=\"" + contentColor + "\">").append(content).append("</div>");
     }
     if (style != null) {
       result.append("</div>");
@@ -129,19 +126,23 @@ public class NotificationsUtil {
   }
 
   @Nullable
-  public static Pair<String, Integer> getFontData() {
+  public static Integer getFontSize() {
     UISettings uiSettings = UISettings.getInstance();
-    if (uiSettings.OVERRIDE_NONIDEA_LAF_FONTS) {
-      return Pair.create(uiSettings.FONT_FACE, uiSettings.FONT_SIZE);
+    if (uiSettings.getOverrideLafFonts()) {
+      return uiSettings.getFontSize();
     }
-    Pair<String, Integer> systemFontData = UIUtil.getSystemFontData();
-    return systemFontData == null ? null : systemFontData;
+    Font font = UIUtil.getLabelFont();
+    return font == null ? null : font.getSize();
   }
 
   @Nullable
   public static String getFontName() {
-    Pair<String, Integer> data = getFontData();
-    return data == null ? null : data.first;
+    UISettings uiSettings = UISettings.getInstance();
+    if (uiSettings.getOverrideLafFonts()) {
+      return uiSettings.getFontFace();
+    }
+    Font font = UIUtil.getLabelFont();
+    return font == null ? null : font.getName();
   }
 
   @Nullable
@@ -150,6 +151,7 @@ public class NotificationsUtil {
     if (listener == null) return null;
 
     return new HyperlinkListener() {
+      @Override
       public void hyperlinkUpdate(HyperlinkEvent e) {
         if (e.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
           final NotificationListener listener1 = notification.getListener();
@@ -168,15 +170,11 @@ public class NotificationsUtil {
       return icon;
     }
 
-    if (!NotificationsManagerImpl.newEnabled()) {
-      return getMessageType(notification).getDefaultIcon();
-    }
-
     switch (notification.getType()) {
       case WARNING:
         return AllIcons.General.BalloonWarning;
       case ERROR:
-        return AllIcons.Ide.FatalError;
+        return AllIcons.General.BalloonError;
       case INFORMATION:
       default:
         return AllIcons.General.BalloonInformation;
@@ -193,24 +191,6 @@ public class NotificationsUtil {
       case INFORMATION:
       default:
         return MessageType.INFO;
-    }
-  }
-
-  @NotNull
-  public static Color getBackground(@NotNull final Notification notification) {
-    return getMessageType(notification).getPopupBackground();
-  }
-
-  @NotNull
-  public static Color getBorderColor(@NotNull Notification notification) {
-    switch (notification.getType()) {
-      case ERROR:
-        return new JBColor(Color.gray, new Color(0xc8c8c8));
-      case WARNING:
-        return new JBColor(Color.gray, new Color(0x615f51));
-      case INFORMATION:
-      default:
-        return new JBColor(Color.gray, new Color(0x205c00));
     }
   }
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.attach;
 
 import com.intellij.execution.ExecutionException;
@@ -63,7 +64,7 @@ public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineSt
       myHandler = handler;
       myHandler.addProcessListener(new ProcessAdapter() {
         @Override
-        public void onTextAvailable(ProcessEvent event, Key outputType) {
+        public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
           PyRemoteDebugProcessHandler.this.notifyTextAvailable(event.getText(), outputType);
         }
       });
@@ -99,6 +100,7 @@ public class PyAttachToProcessCommandLineState extends PythonScriptCommandLineSt
       return null;
     }
 
+    @Override
     public void setRemoteDebugProcess(PyRemoteDebugProcess process) {
       myProcess = process;
     }

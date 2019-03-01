@@ -51,7 +51,7 @@ public class MavenEffectivePomDumper {
     final StringWriter w = new StringWriter();
 
     try {
-      final MavenExecutionRequest request = embedder.createRequest(file, activeProfiles, inactiveProfiles, Collections.<String>emptyList());
+      final MavenExecutionRequest request = embedder.createRequest(file, activeProfiles, inactiveProfiles, null);
 
       embedder.executeWithMavenSession(request, new Runnable() {
         @Override
@@ -240,6 +240,7 @@ public class MavenEffectivePomDumper {
     /**
      * {@inheritDoc}
      */
+    @Override
     public Set keySet() {
       Set keynames = super.keySet();
       Vector list = new Vector(keynames);

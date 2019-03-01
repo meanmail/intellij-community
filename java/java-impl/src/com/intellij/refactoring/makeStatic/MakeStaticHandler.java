@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
-* Created by IntelliJ IDEA.
-* User: dsl
-* Date: Apr 15, 2002
-* Time: 1:25:37 PM
-* To change template for new class use
-* Code Style | Class Templates options (Tools | IDE Options).
-*/
 package com.intellij.refactoring.makeStatic;
 
 import com.intellij.openapi.actionSystem.CommonDataKeys;
@@ -40,7 +32,6 @@ import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -109,7 +100,7 @@ public class MakeStaticHandler implements RefactoringActionHandler {
       }
 
       if (classRefsInMember.length > 0 || hasMethodReferenceOnInstance[0]) {
-        final PsiType type = JavaPsiFacade.getInstance(project).getElementFactory().createType(member.getContainingClass());
+        final PsiType type = JavaPsiFacade.getElementFactory(project).createType(member.getContainingClass());
         //TODO: callback
         String[] nameSuggestions =
                 JavaCodeStyleManager.getInstance(project).suggestVariableName(VariableKind.PARAMETER, null, null, type).names;

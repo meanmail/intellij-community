@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
@@ -50,9 +38,13 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
 
 public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurable  {
+  @NotNull
   protected final String myLevel;
 
   protected BaseLibrariesConfigurable(final @NotNull Project project, @NotNull String libraryTableLevel) {
@@ -70,15 +62,6 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
   }
 
   public abstract LibraryTablePresentation getLibraryTablePresentation();
-
-  @Override
-  protected void processRemovedItems() {
-  }
-
-  @Override
-  protected boolean wasObjectStored(final Object editableObject) {
-    return false;
-  }
 
   @Override
   @Nullable
@@ -149,11 +132,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     for (Library library : libraries) {
       myRoot.add(new MyNode(new LibraryConfigurable(modelProvider, library, myContext, TREE_UPDATER)));
     }
-    TreeUtil.sort(myRoot, (o1, o2) -> {
-      MyNode node1 = (MyNode)o1;
-      MyNode node2 = (MyNode)o2;
-      return node1.getDisplayName().compareToIgnoreCase(node2.getDisplayName());
-    });
+    TreeUtil.sortRecursively(myRoot, (o1, o2) -> o1.getDisplayName().compareToIgnoreCase(o2.getDisplayName()));
     ((DefaultTreeModel)myTree.getModel()).reload(myRoot);
   }
 
@@ -167,6 +146,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     });
   }
 
+  @NotNull
   public String getLevel() {
     return myLevel;
   }
@@ -258,7 +238,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     removeLibraries(Collections.singletonList(element));
   }
 
-  public void removeLibraries(@NotNull List<LibraryProjectStructureElement> libraries) {
+  public void removeLibraries(@NotNull List<? extends LibraryProjectStructureElement> libraries) {
     List<TreePath> pathsToRemove = new ArrayList<>();
     for (LibraryProjectStructureElement element : libraries) {
       getModelProvider().getModifiableModel().removeLibrary(element.getLibrary());
@@ -268,14 +248,14 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
       }
     }
     myContext.getDaemonAnalyzer().removeElements(libraries);
-    removePaths(pathsToRemove.toArray(new TreePath[pathsToRemove.size()]));
+    removePaths(pathsToRemove.toArray(new TreePath[0]));
   }
 
   @Override
   protected List<? extends RemoveConfigurableHandler<?>> getRemoveHandlers() {
     return Collections.singletonList(new RemoveConfigurableHandler<Library>(LibraryConfigurable.class) {
       @Override
-      public boolean remove(@NotNull Collection<Library> libraries) {
+      public boolean remove(@NotNull Collection<? extends Library> libraries) {
         List<Pair<LibraryProjectStructureElement, Collection<ProjectStructureElementUsage>>> toRemove = new ArrayList<>();
 
         String firstLibraryUsageDescription = null;
@@ -350,7 +330,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
       }
 
       @Override
-      public boolean canBeRemoved(@NotNull Collection<Library> libraries) {
+      public boolean canBeRemoved(@NotNull Collection<? extends Library> libraries) {
         for (Library library : libraries) {
           LibraryTable table = library.getTable();
           if (table != null && !table.isEditable()) {
@@ -374,7 +354,7 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
     }
 
     @Override
-    public void actionPerformed(final AnActionEvent e) {
+    public void actionPerformed(@NotNull final AnActionEvent e) {
       final Object o = getSelectedObject();
       if (o instanceof LibraryEx) {
         final LibraryEx selected = (LibraryEx)o;
@@ -387,13 +367,13 @@ public abstract class BaseLibrariesConfigurable extends BaseStructureConfigurabl
 
         final LibrariesModifiableModel libsModel = configurable.getModelProvider().getModifiableModel();
         final Library lib = libsModel.createLibrary(newName, library.getKind());
-        final LibraryEx.ModifiableModelEx model = (LibraryEx.ModifiableModelEx)libsModel.getLibraryEditor(lib).getModel();
-        LibraryEditingUtil.copyLibrary(library, Collections.<String, String>emptyMap(), model);
+        final LibraryEx.ModifiableModelEx model = libsModel.getLibraryEditor(lib).getModel();
+        LibraryEditingUtil.copyLibrary(library, Collections.emptyMap(), model);
       }
     }
 
     @Override
-    public void update(final AnActionEvent e) {
+    public void update(@NotNull final AnActionEvent e) {
       if (myTree.getSelectionPaths() == null || myTree.getSelectionPaths().length != 1) {
         e.getPresentation().setEnabled(false);
       } else {

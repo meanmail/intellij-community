@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.daemon.impl;
 
@@ -24,11 +10,10 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorMarkupModel;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
@@ -43,7 +28,7 @@ import com.intellij.psi.impl.PsiDocumentManagerImpl;
 import com.intellij.psi.impl.PsiDocumentTransactionListener;
 import com.intellij.psi.impl.PsiTreeChangeEventImpl;
 import com.intellij.util.SmartList;
-import com.intellij.util.containers.WeakHashMap;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +42,7 @@ class PsiChangeHandler extends PsiTreeChangeAdapter implements Disposable {
   private /*NOT STATIC!!!*/ final Key<Boolean> UPDATE_ON_COMMIT_ENGAGED = Key.create("UPDATE_ON_COMMIT_ENGAGED");
 
   private final Project myProject;
-  private final Map<Document, List<Pair<PsiElement, Boolean>>> changedElements = new WeakHashMap<>();
+  private final Map<Document, List<Pair<PsiElement, Boolean>>> changedElements = ContainerUtil.createWeakMap();
   private final FileStatusMap myFileStatusMap;
 
   PsiChangeHandler(@NotNull Project project,
@@ -67,9 +52,9 @@ class PsiChangeHandler extends PsiTreeChangeAdapter implements Disposable {
                    @NotNull FileStatusMap fileStatusMap) {
     myProject = project;
     myFileStatusMap = fileStatusMap;
-    editorFactory.getEventMulticaster().addDocumentListener(new DocumentAdapter() {
+    editorFactory.getEventMulticaster().addDocumentListener(new DocumentListener() {
       @Override
-      public void beforeDocumentChange(DocumentEvent e) {
+      public void beforeDocumentChange(@NotNull DocumentEvent e) {
         final Document document = e.getDocument();
         if (documentManager.getSynchronizer().isInSynchronization(document)) return;
         if (documentManager.getCachedPsiFile(document) == null) return;
@@ -104,7 +89,7 @@ class PsiChangeHandler extends PsiTreeChangeAdapter implements Disposable {
 
   private void updateChangesForDocument(@NotNull final Document document) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    if (DaemonListeners.isUnderIgnoredAction(null) || myProject.isDisposed()) return;
+    if (myProject.isDisposed()) return;
     List<Pair<PsiElement, Boolean>> toUpdate = changedElements.get(document);
     if (toUpdate == null) {
       // The document has been changed, but psi hasn't
@@ -124,7 +109,7 @@ class PsiChangeHandler extends PsiTreeChangeAdapter implements Disposable {
         if (!editor.isDisposed()) {
           EditorMarkupModel markupModel = (EditorMarkupModel)editor.getMarkupModel();
           PsiFile file = PsiDocumentManager.getInstance(myProject).getPsiFile(editor.getDocument());
-          TrafficLightRenderer.setOrRefreshErrorStripeRenderer(markupModel, myProject, editor.getDocument(), file);
+          ErrorStripeUpdateManager.getInstance(myProject).setOrRefreshErrorStripeRenderer(markupModel, file);
         }
       }, ModalityState.stateForComponent(editor.getComponent()), myProject.getDisposed());
     }
@@ -273,7 +258,7 @@ class PsiChangeHandler extends PsiTreeChangeAdapter implements Disposable {
   @Nullable
   private static PsiElement getChangeHighlightingScope(@NotNull PsiElement element) {
     DefaultChangeLocalityDetector defaultDetector = null;
-    for (ChangeLocalityDetector detector : Extensions.getExtensions(EP_NAME)) {
+    for (ChangeLocalityDetector detector : EP_NAME.getExtensionList()) {
       if (detector instanceof DefaultChangeLocalityDetector) {
         // run default detector last
         assert defaultDetector == null : defaultDetector;

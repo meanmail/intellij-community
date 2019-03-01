@@ -15,6 +15,7 @@
  */
 package git4idea.history;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.FileStatus;
@@ -23,9 +24,9 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.vcs.log.impl.VcsFileStatusInfo;
 import git4idea.GitContentRevision;
 import git4idea.GitRevisionNumber;
-import git4idea.history.wholeTree.AbstractHash;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,81 +35,61 @@ import java.util.Date;
 import java.util.List;
 
 public class GitChangesParser {
+  private static final Logger LOG = Logger.getInstance(GitChangesParser.class);
 
   @NotNull
   public static List<Change> parse(@NotNull Project project,
                                    @NotNull VirtualFile root,
-                                   @NotNull List<GitLogStatusInfo> statusInfos,
+                                   @NotNull List<VcsFileStatusInfo> statusInfos,
                                    @NotNull String hash,
                                    @NotNull Date date,
-                                   @NotNull List<String> parentsHashes) throws VcsException {
+                                   @Nullable String parentsHash) throws VcsException {
     GitRevisionNumber thisRevision = new GitRevisionNumber(hash, date);
-    List<GitRevisionNumber> parentRevisions = prepareParentRevisions(parentsHashes);
+    GitRevisionNumber parentRevision = parentsHash == null ? null : new GitRevisionNumber(parentsHash);
 
     List<Change> result = new ArrayList<>();
-    for (GitLogStatusInfo statusInfo : statusInfos) {
-      result.add(parseChange(project, root, parentRevisions, statusInfo, thisRevision));
+    for (VcsFileStatusInfo statusInfo : statusInfos) {
+      result.add(parseChange(project, root, thisRevision, parentRevision, statusInfo));
     }
     return result;
   }
 
-  private static List<GitRevisionNumber> prepareParentRevisions(List<String> parentsHashes) {
-    final List<AbstractHash> parents = new ArrayList<>(parentsHashes.size());
-    for (String parentsShortHash : parentsHashes) {
-      parents.add(AbstractHash.create(parentsShortHash));
-    }
-
-    final List<GitRevisionNumber> parentRevisions = new ArrayList<>(parents.size());
-    for (AbstractHash parent : parents) {
-      parentRevisions.add(new GitRevisionNumber(parent.getString()));
-    }
-    return parentRevisions;
-  }
-
-  private static Change parseChange(final Project project, final VirtualFile vcsRoot, final List<GitRevisionNumber> parentRevisions,
-                                    final GitLogStatusInfo statusInfo, final VcsRevisionNumber thisRevision) throws VcsException {
+  @NotNull
+  private static Change parseChange(@NotNull Project project,
+                                    @NotNull VirtualFile vcsRoot,
+                                    @NotNull VcsRevisionNumber thisRevision,
+                                    @Nullable VcsRevisionNumber parentRevision,
+                                    @NotNull VcsFileStatusInfo statusInfo) throws VcsException {
     final ContentRevision before;
     final ContentRevision after;
-    FileStatus status = null;
     final String path = statusInfo.getFirstPath();
-    @Nullable GitRevisionNumber firstParent = parentRevisions.isEmpty() ? null : parentRevisions.get(0);
 
+    FileStatus status;
     switch (statusInfo.getType()) {
-      case ADDED:
+      case NEW:
         before = null;
         status = FileStatus.ADDED;
-        after = GitContentRevision.createRevision(vcsRoot, path, thisRevision, project, false, false, true);
+        after = GitContentRevision.createRevision(vcsRoot, path, thisRevision, project, false);
         break;
-      case UNRESOLVED:
-        status = FileStatus.MERGED_WITH_CONFLICTS;
-      case MODIFIED:
-        if (status == null) {
-          status = FileStatus.MODIFIED;
-        }
-        final FilePath filePath = GitContentRevision.createPath(vcsRoot, path, false, true, true);
-        before = GitContentRevision.createRevision(vcsRoot, path, firstParent, project, false, false, true);
+      case MODIFICATION:
+        status = FileStatus.MODIFIED;
+        final FilePath filePath = GitContentRevision.createPath(vcsRoot, path, false);
+        before = GitContentRevision.createRevision(vcsRoot, path, parentRevision, project, false);
         after = GitContentRevision.createRevision(filePath, thisRevision, project, null);
         break;
       case DELETED:
         status = FileStatus.DELETED;
-        final FilePath filePathDeleted = GitContentRevision.createPath(vcsRoot, path, true, true, true);
-        before = GitContentRevision.createRevision(filePathDeleted, firstParent, project, null);
+        final FilePath filePathDeleted = GitContentRevision.createPath(vcsRoot, path, false);
+        before = GitContentRevision.createRevision(filePathDeleted, parentRevision, project, null);
         after = null;
         break;
-      case COPIED:
-      case RENAMED:
+      case MOVED:
         status = FileStatus.MODIFIED;
         String secondPath = statusInfo.getSecondPath();
         final FilePath filePathAfterRename = GitContentRevision.createPath(vcsRoot, secondPath == null ? path : secondPath,
-                                                                           false, false, true);
-        before = GitContentRevision.createRevision(vcsRoot, path, firstParent, project, true, true, true);
+                                                                           false);
+        before = GitContentRevision.createRevision(vcsRoot, path, parentRevision, project, false);
         after = GitContentRevision.createRevision(filePathAfterRename, thisRevision, project, null);
-        break;
-      case TYPE_CHANGED:
-        status = FileStatus.MODIFIED;
-        final FilePath filePath2 = GitContentRevision.createPath(vcsRoot, path, false, true, true);
-        before = GitContentRevision.createRevision(vcsRoot, path, firstParent, project, false, false, true);
-        after = GitContentRevision.createRevision(filePath2, thisRevision, project, null);
         break;
       default:
         throw new AssertionError("Unknown file status: " + statusInfo);
@@ -116,4 +97,22 @@ public class GitChangesParser {
     return new Change(before, after, status);
   }
 
+  @NotNull
+  public static Change.Type getChangeType(@NotNull GitChangeType type) {
+    switch (type) {
+      case ADDED:
+        return Change.Type.NEW;
+      case TYPE_CHANGED:
+      case MODIFIED:
+        return Change.Type.MODIFICATION;
+      case DELETED:
+        return Change.Type.DELETED;
+      case COPIED:
+      case RENAMED:
+        return Change.Type.MOVED;
+      default:
+        LOG.error("Unknown git change type: " + type);
+        return Change.Type.MODIFICATION;
+    }
+  }
 }

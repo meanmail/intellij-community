@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class DebuggerUtilsEx
@@ -20,6 +6,7 @@
  */
 package com.intellij.debugger.impl;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.*;
@@ -28,6 +15,7 @@ import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilder;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
 import com.intellij.debugger.engine.evaluation.expression.UnBoxingEvaluator;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
+import com.intellij.debugger.jdi.JvmtiError;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.requests.Requestor;
 import com.intellij.debugger.ui.breakpoints.Breakpoint;
@@ -39,22 +27,24 @@ import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.RunnerLayoutUi;
 import com.intellij.execution.ui.layout.impl.RunnerContentUi;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.ui.content.Content;
@@ -63,6 +53,7 @@ import com.intellij.unscramble.ThreadState;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.text.DateFormatUtil;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.XValueNode;
 import com.intellij.xdebugger.impl.XSourcePositionImpl;
@@ -78,6 +69,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import java.util.regex.PatternSyntaxException;
 
 public abstract class DebuggerUtilsEx extends DebuggerUtils {
@@ -89,9 +81,9 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
    */
   public static List<CodeFragmentFactory> getCodeFragmentFactories(@Nullable PsiElement context) {
     final DefaultCodeFragmentFactory defaultFactory = DefaultCodeFragmentFactory.getInstance();
-    final CodeFragmentFactory[] providers = ApplicationManager.getApplication().getExtensions(CodeFragmentFactory.EXTENSION_POINT_NAME);
-    final List<CodeFragmentFactory> suitableFactories = new ArrayList<>(providers.length);
-    if (providers.length > 0) {
+    final List<CodeFragmentFactory> providers = CodeFragmentFactory.EXTENSION_POINT_NAME.getExtensionList();
+    final List<CodeFragmentFactory> suitableFactories = new ArrayList<>(providers.size());
+    if (providers.size() > 0) {
       for (CodeFragmentFactory factory : providers) {
         if (factory != defaultFactory && factory.isContextAccepted(context)) {
           suitableFactories.add(factory);
@@ -105,12 +97,12 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   public static PsiMethod findPsiMethod(PsiFile file, int offset) {
     PsiElement element = null;
 
-    while(offset >= 0) {
+    while (offset >= 0) {
       element = file.findElementAt(offset);
-      if(element != null) {
+      if (element != null) {
         break;
       }
-      offset --;
+      offset--;
     }
 
     for (; element != null; element = element.getParent()) {
@@ -195,7 +187,6 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
 
   private static Set<String> myCharOrIntegers;
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
   public static boolean isCharOrIntegerArray(Value value) {
     if (value == null) return false;
     if (myCharOrIntegers == null) {
@@ -211,7 +202,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     int i;
     for (i = 0; signature.charAt(i) == '['; i++) ;
     if (i == 0) return false;
-    signature = signature.substring(i, signature.length());
+    signature = signature.substring(i);
     return myCharOrIntegers.contains(signature);
   }
 
@@ -239,32 +230,32 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   public static boolean isFiltered(@NotNull String qName, ClassFilter[] classFilters) {
     return isFiltered(qName, Arrays.asList(classFilters));
   }
-  
-  public static boolean isFiltered(@NotNull String qName, List<ClassFilter> classFilters) {
+
+  public static boolean isFiltered(@NotNull String qName, List<? extends ClassFilter> classFilters) {
     if (qName.indexOf('[') != -1) {
       return false; //is array
     }
 
-    for (ClassFilter filter : classFilters) {
-      if (isFiltered(filter, qName)) {
-        return true;
-      }
-    }
-    return false;
+    return classFilters.stream().anyMatch(filter -> isFiltered(filter, qName));
   }
-  
+
   public static int getEnabledNumber(ClassFilter[] classFilters) {
     return (int)Arrays.stream(classFilters).filter(ClassFilter::isEnabled).count();
   }
 
-  public static ClassFilter[] readFilters(List<Element> children) throws InvalidDataException {
+  public static ClassFilter[] readFilters(List<? extends Element> children) {
     if (ContainerUtil.isEmpty(children)) {
       return ClassFilter.EMPTY_ARRAY;
     }
 
     ClassFilter[] filters = new ClassFilter[children.size()];
     for (int i = 0, size = children.size(); i < size; i++) {
-      filters[i] = create(children.get(i));
+      try {
+        filters[i] = create(children.get(i));
+      }
+      catch (InvalidDataException e) {
+        LOG.error(e);
+      }
     }
     return filters;
   }
@@ -288,13 +279,13 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return f2.equals(f1);
   }
 
-  private static boolean elementListsEqual(List<Element> l1, List<Element> l2) {
-    if(l1 == null) return l2 == null;
-    if(l2 == null) return false;
+  private static boolean elementListsEqual(List<? extends Element> l1, List<? extends Element> l2) {
+    if (l1 == null) return l2 == null;
+    if (l2 == null) return false;
 
-    if(l1.size() != l2.size()) return false;
+    if (l1.size() != l2.size()) return false;
 
-    Iterator<Element> i1 = l1.iterator();
+    Iterator<? extends Element> i1 = l1.iterator();
 
     for (Element aL2 : l2) {
       Element elem1 = i1.next();
@@ -304,13 +295,13 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return true;
   }
 
-  private static boolean attributeListsEqual(List<Attribute> l1, List<Attribute> l2) {
-    if(l1 == null) return l2 == null;
-    if(l2 == null) return false;
+  private static boolean attributeListsEqual(List<? extends Attribute> l1, List<? extends Attribute> l2) {
+    if (l1 == null) return l2 == null;
+    if (l2 == null) return false;
 
-    if(l1.size() != l2.size()) return false;
+    if (l1.size() != l2.size()) return false;
 
-    Iterator<Attribute> i1 = l1.iterator();
+    Iterator<? extends Attribute> i1 = l1.iterator();
 
     for (Attribute aL2 : l2) {
       Attribute attr1 = i1.next();
@@ -323,13 +314,13 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   public static boolean elementsEqual(Element e1, Element e2) {
-    if(e1 == null) {
+    if (e1 == null) {
       return e2 == null;
     }
     if (!Comparing.equal(e1.getName(), e2.getName())) {
       return false;
     }
-    if (!elementListsEqual  (e1.getChildren(), e2.getChildren())) {
+    if (!elementListsEqual(e1.getChildren(), e2.getChildren())) {
       return false;
     }
     if (!attributeListsEqual(e1.getAttributes(), e2.getAttributes())) {
@@ -338,8 +329,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return true;
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
-  public static boolean externalizableEqual(JDOMExternalizable  e1, JDOMExternalizable e2) {
+  public static boolean externalizableEqual(JDOMExternalizable e1, JDOMExternalizable e2) {
     Element root1 = new Element("root");
     Element root2 = new Element("root");
     try {
@@ -365,9 +355,8 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       EventSet events = suspendContext.getEventSet();
       if (!ContainerUtil.isEmpty(events)) {
         List<Pair<Breakpoint, Event>> eventDescriptors = ContainerUtil.newSmartList();
-        RequestManagerImpl requestManager = suspendContext.getDebugProcess().getRequestsManager();
         for (Event event : events) {
-          Requestor requestor = requestManager.findRequestor(event.request());
+          Requestor requestor = RequestManagerImpl.findRequestor(event.request());
           if (requestor instanceof Breakpoint) {
             eventDescriptors.add(Pair.create((Breakpoint)requestor, event));
           }
@@ -407,36 +396,23 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   private static int myThreadDumpsCount = 0;
-  private static int myCurrentThreadDumpId = 1;
 
-  private static final String THREAD_DUMP_CONTENT_PREFIX = "Dump";
-
-  public static void addThreadDump(Project project, List<ThreadState> threads, final RunnerLayoutUi ui, DebuggerSession session) {
+  public static void addThreadDump(Project project, List<ThreadState> threads, RunnerLayoutUi ui, GlobalSearchScope searchScope) {
     final TextConsoleBuilder consoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project);
-    consoleBuilder.filters(ExceptionFilters.getFilters(session.getSearchScope()));
+    consoleBuilder.filters(ExceptionFilters.getFilters(searchScope));
     final ConsoleView consoleView = consoleBuilder.getConsole();
     final DefaultActionGroup toolbarActions = new DefaultActionGroup();
     consoleView.allowHeavyFilters();
     final ThreadDumpPanel panel = new ThreadDumpPanel(project, consoleView, toolbarActions, threads);
 
-    final String id = THREAD_DUMP_CONTENT_PREFIX + " #" + myCurrentThreadDumpId;
-    final Content content = ui.createContent(id, panel, id, null, null);
+    String id = "Dump " + DateFormatUtil.formatTimeWithSeconds(System.currentTimeMillis());
+    final Content content = ui.createContent(id + " " + myThreadDumpsCount, panel, id, null, null);
     content.putUserData(RunnerContentUi.LIGHTWEIGHT_CONTENT_MARKER, Boolean.TRUE);
     content.setCloseable(true);
     content.setDescription("Thread Dump");
     ui.addContent(content);
     ui.selectAndFocus(content, true, true);
     myThreadDumpsCount++;
-    myCurrentThreadDumpId++;
-    Disposer.register(content, new Disposable() {
-      @Override
-      public void dispose() {
-        myThreadDumpsCount--;
-        if (myThreadDumpsCount == 0) {
-          myCurrentThreadDumpId = 1;
-        }
-      }
-    });
     Disposer.register(content, consoleView);
     ui.selectAndFocus(content, true, false);
     if (threads.size() > 0) {
@@ -444,16 +420,29 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     }
   }
 
+  /**
+   * @deprecated use {@link EvaluationContext#keep(Value)} directly
+   */
+  @Deprecated
   public static void keep(Value value, EvaluationContext context) {
-    if (value instanceof ObjectReference) {
-      ((SuspendContextImpl)context.getSuspendContext()).keep((ObjectReference)value);
-    }
+    context.keep(value);
   }
 
-  public abstract DebuggerTreeNode  getSelectedNode    (DataContext context);
+  public static StringReference mirrorOfString(@NotNull String s, VirtualMachineProxyImpl virtualMachineProxy, EvaluationContext context)
+    throws EvaluateException {
+    return context.computeAndKeep(() -> virtualMachineProxy.mirrorOf(s));
+  }
 
-  public abstract EvaluatorBuilder  getEvaluatorBuilder();
+  public static ArrayReference mirrorOfArray(@NotNull ArrayType arrayType, int dimension, EvaluationContext context)
+    throws EvaluateException {
+    return context.computeAndKeep(() -> context.getDebugProcess().newInstance(arrayType, dimension));
+  }
 
+  public abstract DebuggerTreeNode getSelectedNode(DataContext context);
+
+  public abstract EvaluatorBuilder getEvaluatorBuilder();
+
+  @NotNull
   public static CodeFragmentFactory getCodeFragmentFactory(@Nullable PsiElement context, @Nullable FileType fileType) {
     DefaultCodeFragmentFactory defaultFactory = DefaultCodeFragmentFactory.getInstance();
     if (fileType == null) {
@@ -461,11 +450,12 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
         return defaultFactory;
       }
       else {
-        fileType = context.getContainingFile().getFileType();
+        PsiFile file = context.getContainingFile();
+        fileType = file != null ? file.getFileType() : null;
       }
     }
-    for (CodeFragmentFactory factory : ApplicationManager.getApplication().getExtensions(CodeFragmentFactory.EXTENSION_POINT_NAME)) {
-      if (factory != defaultFactory && factory.getFileType().equals(fileType) && factory.isContextAccepted(context)) {
+    for (CodeFragmentFactory factory : CodeFragmentFactory.EXTENSION_POINT_NAME.getExtensionList()) {
+      if (factory != defaultFactory && (fileType == null || factory.getFileType().equals(fileType)) && factory.isContextAccepted(context)) {
         return factory;
       }
     }
@@ -474,12 +464,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
 
   @NotNull
   public static CodeFragmentFactory findAppropriateCodeFragmentFactory(final TextWithImports text, final PsiElement context) {
-    CodeFragmentFactory factory = ApplicationManager.getApplication().runReadAction(new Computable<CodeFragmentFactory>() {
-      @Override
-      public CodeFragmentFactory compute() {
-        return getCodeFragmentFactory(context, text.getFileType());
-      }
-    });
+    CodeFragmentFactory factory = ReadAction.compute(() -> getCodeFragmentFactory(context, text.getFileType()));
     return new CodeFragmentFactoryContextWrapper(factory);
   }
 
@@ -503,7 +488,8 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       return buffer.length() <= pos;
     }
 
-    @NonNls String getSignature() {
+    @NonNls
+    String getSignature() {
       if (eof()) return "";
 
       switch (get()) {
@@ -544,7 +530,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
           result.append(")");
           return getSignature() + " " + getClassName() + "." + getMethodName() + " " + result;
         default:
-//          LOG.assertTrue(false, "unknown signature " + buffer);
+          //          LOG.assertTrue(false, "unknown signature " + buffer);
           return null;
       }
     }
@@ -558,12 +544,12 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     }
   }
 
-  public static String methodNameWithArguments(Method m) {
-    return m.name() + "(" + StringUtil.join(m.argumentTypeNames(), DebuggerUtilsEx::getSimpleName, ", ") + ")";
+  public static String methodKey(Method m) {
+    return m.declaringType().name() + '.' + m.name() + m.signature();
   }
 
-  public static String getSimpleName(String fqn) {
-    return fqn.substring(fqn.lastIndexOf('.') + 1);
+  public static String methodNameWithArguments(Method m) {
+    return m.name() + "(" + StringUtil.join(m.argumentTypeNames(), StringUtil::getShortName, ", ") + ")";
   }
 
   public static String methodName(final Method m) {
@@ -596,63 +582,157 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return new SigReader(s).getSignature();
   }
 
+  @Nullable
+  public static List<Location> allLineLocations(Method method) {
+    try {
+      return method.allLineLocations();
+    }
+    catch (AbsentInformationException ignored) {
+      return null;
+    }
+  }
+
+  @Nullable
+  public static List<Location> allLineLocations(ReferenceType cls) {
+    try {
+      return cls.allLineLocations();
+    }
+    catch (AbsentInformationException ignored) {
+      return null;
+    }
+    catch (ObjectCollectedException ignored) {
+      return Collections.emptyList();
+    }
+  }
+
+  public static int getLineNumber(Location location, boolean zeroBased) {
+    try {
+      return location.lineNumber() - (zeroBased ? 1 : 0);
+    }
+    catch (InternalError | IllegalArgumentException e) {
+      return -1;
+    }
+  }
+
+  public static String getSourceName(Location location, Function<? super Throwable, String> defaultName) {
+    try {
+      return location.sourceName();
+    }
+    catch (InternalError | AbsentInformationException e) {
+      return defaultName.apply(e);
+    }
+  }
+
+  public static boolean isVoid(@NotNull Method method) {
+    return "void".equals(method.returnTypeName());
+  }
+
+  @Nullable
+  public static Method getMethod(Location location) {
+    try {
+      return location.method();
+    }
+    catch (IllegalArgumentException e) { // Invalid method id
+      LOG.info(e);
+    }
+    return null;
+  }
+
+  public static List<Value> getArgumentValues(@NotNull StackFrame frame) {
+    try {
+      return frame.getArgumentValues();
+    }
+    catch (InternalException e) {
+      // From Oracle's forums:
+      // This could be a JPDA bug. Unexpected JDWP Error: 32 means that an 'opaque' frame was detected at the lower JPDA levels,
+      // typically a native frame.
+      if (e.errorCode() == JvmtiError.OPAQUE_FRAME /*opaque frame JDI bug*/ ) {
+        return Collections.emptyList();
+      }
+      else {
+        throw e;
+      }
+    }
+  }
+
   public static Value createValue(VirtualMachineProxyImpl vm, String expectedType, double value) {
-    if (PsiType.DOUBLE.getPresentableText().equals(expectedType)) {
+    if (PsiType.DOUBLE.getName().equals(expectedType)) {
       return vm.mirrorOf(value);
     }
-    if (PsiType.FLOAT.getPresentableText().equals(expectedType)) {
+    if (PsiType.FLOAT.getName().equals(expectedType)) {
       return vm.mirrorOf((float)value);
     }
-    return createValue(vm, expectedType, (long)value);
+    if (PsiType.LONG.getName().equals(expectedType)) {
+      return vm.mirrorOf((long)value);
+    }
+    if (PsiType.INT.getName().equals(expectedType)) {
+      return vm.mirrorOf((int)value);
+    }
+    if (PsiType.SHORT.getName().equals(expectedType)) {
+      return vm.mirrorOf((short)value);
+    }
+    if (PsiType.BYTE.getName().equals(expectedType)) {
+      return vm.mirrorOf((byte)value);
+    }
+    if (PsiType.CHAR.getName().equals(expectedType)) {
+      return vm.mirrorOf((char)value);
+    }
+    return null;
   }
 
   public static Value createValue(VirtualMachineProxyImpl vm, String expectedType, long value) {
-    if (PsiType.LONG.getPresentableText().equals(expectedType)) {
+    if (PsiType.LONG.getName().equals(expectedType)) {
       return vm.mirrorOf(value);
     }
-    if (PsiType.INT.getPresentableText().equals(expectedType)) {
+    if (PsiType.INT.getName().equals(expectedType)) {
       return vm.mirrorOf((int)value);
     }
-    if (PsiType.SHORT.getPresentableText().equals(expectedType)) {
+    if (PsiType.SHORT.getName().equals(expectedType)) {
       return vm.mirrorOf((short)value);
     }
-    if (PsiType.BYTE.getPresentableText().equals(expectedType)) {
+    if (PsiType.BYTE.getName().equals(expectedType)) {
       return vm.mirrorOf((byte)value);
     }
-    if (PsiType.CHAR.getPresentableText().equals(expectedType)) {
+    if (PsiType.CHAR.getName().equals(expectedType)) {
       return vm.mirrorOf((char)value);
     }
-    if (PsiType.DOUBLE.getPresentableText().equals(expectedType)) {
+    if (PsiType.DOUBLE.getName().equals(expectedType)) {
       return vm.mirrorOf((double)value);
     }
-    if (PsiType.FLOAT.getPresentableText().equals(expectedType)) {
+    if (PsiType.FLOAT.getName().equals(expectedType)) {
       return vm.mirrorOf((float)value);
     }
     return null;
   }
 
   public static Value createValue(VirtualMachineProxyImpl vm, String expectedType, boolean value) {
-    if (PsiType.BOOLEAN.getPresentableText().equals(expectedType)) {
+    if (PsiType.BOOLEAN.getName().equals(expectedType)) {
       return vm.mirrorOf(value);
     }
     return null;
   }
 
   public static Value createValue(VirtualMachineProxyImpl vm, String expectedType, char value) {
-    if (PsiType.CHAR.getPresentableText().equals(expectedType)) {
+    if (PsiType.CHAR.getName().equals(expectedType)) {
       return vm.mirrorOf(value);
     }
-    if (PsiType.LONG.getPresentableText().equals(expectedType)) {
+    if (PsiType.LONG.getName().equals(expectedType)) {
       return vm.mirrorOf((long)value);
     }
-    if (PsiType.INT.getPresentableText().equals(expectedType)) {
+    if (PsiType.INT.getName().equals(expectedType)) {
       return vm.mirrorOf((int)value);
     }
-    if (PsiType.SHORT.getPresentableText().equals(expectedType)) {
+    if (PsiType.SHORT.getName().equals(expectedType)) {
       return vm.mirrorOf((short)value);
     }
-    if (PsiType.BYTE.getPresentableText().equals(expectedType)) {
+    if (PsiType.BYTE.getName().equals(expectedType)) {
       return vm.mirrorOf((byte)value);
+    }
+    if (PsiType.DOUBLE.getName().equals(expectedType)) {
+      return vm.mirrorOf((double)value);
+    }
+    if (PsiType.FLOAT.getName().equals(expectedType)) {
+      return vm.mirrorOf((float)value);
     }
     return null;
   }
@@ -689,7 +769,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   public static String prepareValueText(String text, Project project) {
     text = StringUtil.unquoteString(text);
     text = StringUtil.unescapeStringCharacters(text);
-    int tabSize = CodeStyleSettingsManager.getSettings(project).getTabSize(StdFileTypes.JAVA);
+    int tabSize = CodeStyle.getSettings(project).getTabSize(StdFileTypes.JAVA);
     if (tabSize < 0) {
       tabSize = 0;
     }
@@ -714,22 +794,38 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
   }
 
   @Nullable
-  public static XSourcePosition toXSourcePosition(@NotNull SourcePosition position) {
-    VirtualFile file = position.getFile().getVirtualFile();
-    if (file == null) {
-      file = position.getFile().getOriginalFile().getVirtualFile();
+  public static XSourcePosition toXSourcePosition(@Nullable SourcePosition position) {
+    if (position != null) {
+      VirtualFile file = position.getFile().getVirtualFile();
+      if (file == null) {
+        file = position.getFile().getOriginalFile().getVirtualFile();
+      }
+      if (file != null) {
+        return new JavaXSourcePosition(position, file);
+      }
     }
-    if (file == null) {
-      return null;
+    return null;
+  }
+
+  @Nullable
+  public static SourcePosition toSourcePosition(@Nullable XSourcePosition position, Project project) {
+    if (position != null) {
+      if (position instanceof JavaXSourcePosition) {
+        return ((JavaXSourcePosition)position).mySourcePosition;
+      }
+      PsiFile psiFile = getPsiFile(position, project);
+      if (psiFile != null) {
+        return SourcePosition.createFromLine(psiFile, position.getLine());
+      }
     }
-    return new JavaXSourcePosition(position, file);
+    return null;
   }
 
   private static class JavaXSourcePosition implements XSourcePosition, ExecutionPointHighlighter.HighlighterProvider {
     private final SourcePosition mySourcePosition;
     @NotNull private final VirtualFile myFile;
 
-    public JavaXSourcePosition(@NotNull SourcePosition sourcePosition, @NotNull VirtualFile file) {
+    JavaXSourcePosition(@NotNull SourcePosition sourcePosition, @NotNull VirtualFile file) {
       mySourcePosition = sourcePosition;
       myFile = file;
     }
@@ -759,8 +855,31 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     @Nullable
     @Override
     public TextRange getHighlightRange() {
-      return SourcePositionHighlighter.getHighlightRangeFor(mySourcePosition);
+      return intersectWithLine(SourcePositionHighlighter.getHighlightRangeFor(mySourcePosition), mySourcePosition.getFile(), getLine());
     }
+  }
+
+  @Nullable
+  public static TextRange intersectWithLine(@Nullable TextRange range, @Nullable PsiFile file, int line) {
+    if (range != null && file != null) {
+      Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
+      if (document != null) {
+        range = range.intersection(DocumentUtil.getLineTextRange(document, line));
+      }
+    }
+    return range;
+  }
+
+  @Nullable
+  public static PsiFile getPsiFile(@Nullable XSourcePosition position, Project project) {
+    ApplicationManager.getApplication().assertReadAccessAllowed();
+    if (position != null) {
+      VirtualFile file = position.getFile();
+      if (file.isValid()) {
+        return PsiManager.getInstance(project).findFile(file);
+      }
+    }
+    return null;
   }
 
   /**
@@ -798,6 +917,29 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     return StringUtil.substringBefore(typeName, "$$Lambda$");
   }
 
+  public static boolean isLambdaName(@Nullable String name) {
+    return !StringUtil.isEmpty(name) && name.startsWith("lambda$");
+  }
+
+  public static boolean isLambda(@Nullable Method method) {
+    return method != null && isLambdaName(method.name());
+  }
+
+  public static boolean isProxyClassName(@Nullable String name) {
+    return !StringUtil.isEmpty(name) && StringUtil.getShortName(name).startsWith("$Proxy");
+  }
+
+  public static boolean isProxyClass(@Nullable ReferenceType type) {
+    // it may be better to call java.lang.reflect.Proxy#isProxyClass but it is much slower
+    return type instanceof ClassType && isProxyClassName(type.name());
+  }
+
+  public static final Comparator<Method> LAMBDA_ORDINAL_COMPARATOR = Comparator.comparingInt(m -> getLambdaOrdinal(m.name()));
+
+  public static int getLambdaOrdinal(@NotNull String name) {
+    return StringUtil.parseInt(StringUtil.substringAfterLast(name, "$"), -1);
+  }
+
   public static List<PsiLambdaExpression> collectLambdas(@NotNull SourcePosition position, final boolean onlyOnTheLine) {
     ApplicationManager.getApplication().assertReadAccessAllowed();
     PsiFile file = position.getFile();
@@ -807,6 +949,9 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       return Collections.emptyList();
     }
     PsiElement element = position.getElementAt();
+    if (element == null) {
+      return Collections.emptyList();
+    }
     final TextRange lineRange = DocumentUtil.getLineTextRange(document, line);
     do {
       PsiElement parent = element.getParent();
@@ -815,7 +960,7 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       }
       element = parent;
     }
-    while(true);
+    while (true);
 
     final List<PsiLambdaExpression> lambdas = new SmartList<>();
     final PsiElementVisitor lambdaCollector = new JavaRecursiveElementVisitor() {
@@ -882,21 +1027,24 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     PsiElement body = lambda.getBody();
     if (body == null || !intersects(lineRange, body)) return null;
     if (body instanceof PsiCodeBlock) {
-      for (PsiStatement statement : ((PsiCodeBlock)body).getStatements()) {
-        // return first statement starting on the line
-        if (lineRange.contains(statement.getTextOffset())) {
-          return statement;
-        }
-        // otherwise check all children
-        else if (intersects(lineRange, statement)) {
-          for (PsiElement element : SyntaxTraverser.psiTraverser(statement)) {
-            if (lineRange.contains(element.getTextOffset())) {
-              return element;
+      PsiStatement[] statements = ((PsiCodeBlock)body).getStatements();
+      if (statements.length > 0) {
+        for (PsiStatement statement : statements) {
+          // return first statement starting on the line
+          if (lineRange.contains(statement.getTextOffset())) {
+            return statement;
+          }
+          // otherwise check all children
+          else if (intersects(lineRange, statement)) {
+            for (PsiElement element : SyntaxTraverser.psiTraverser(statement)) {
+              if (lineRange.contains(element.getTextOffset())) {
+                return element;
+              }
             }
           }
         }
+        return null;
       }
-      return null;
     }
     return body;
   }
@@ -927,14 +1075,22 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
                                       DebugProcessImpl process) {
     PsiClass containingClass = psiMethod.getContainingClass();
     try {
-      return containingClass != null && Objects.equals(JVMNameUtil.getClassVMName(containingClass), className) &&
-             JVMNameUtil.getJVMMethodName(psiMethod).equals(name) &&
-             JVMNameUtil.getJVMSignature(psiMethod).getName(process).equals(signature);
+      if (containingClass != null &&
+          JVMNameUtil.getJVMMethodName(psiMethod).equals(name) &&
+          JVMNameUtil.getJVMSignature(psiMethod).getName(process).equals(signature)) {
+        String methodClassName = JVMNameUtil.getClassVMName(containingClass);
+        if (Objects.equals(methodClassName, className)) {
+          return true;
+        }
+        if (methodClassName != null) {
+          return process.getVirtualMachineProxy().classesByName(className).stream().anyMatch(t -> instanceOf(t, methodClassName));
+        }
+      }
     }
     catch (EvaluateException e) {
       LOG.debug(e);
-      return false;
     }
+    return false;
   }
 
   @Nullable
@@ -947,9 +1103,6 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     if (position == null) return null;
     return getContainingMethod(position.getElementAt());
   }
-
-  public static final Comparator<Method> LAMBDA_ORDINAL_COMPARATOR =
-    (m1, m2) -> LambdaMethodFilter.getLambdaOrdinal(m1.name()) - LambdaMethodFilter.getLambdaOrdinal(m2.name());
 
   public static void disableCollection(ObjectReference reference) {
     try {
@@ -969,6 +1122,13 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
     }
   }
 
+  /**
+   * Provides mapping from decompiled file line number to the original source code line numbers
+   *
+   * @param psiFile      decompiled file
+   * @param originalLine zero-based decompiled file line number
+   * @return zero-based source code line number
+   */
   public static int bytecodeToSourceLine(PsiFile psiFile, int originalLine) {
     VirtualFile file = psiFile.getVirtualFile();
     if (file != null) {
@@ -976,10 +1136,22 @@ public abstract class DebuggerUtilsEx extends DebuggerUtils {
       if (mapping != null) {
         int line = mapping.bytecodeToSource(originalLine + 1);
         if (line > -1) {
-          return line;
+          return line - 1;
         }
       }
     }
     return -1;
+  }
+
+  public static boolean isInLibraryContent(@Nullable VirtualFile file, @NotNull Project project) {
+    return ReadAction.compute(() -> {
+      if (file == null) {
+        return true;
+      }
+      else {
+        ProjectFileIndex projectFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
+        return projectFileIndex.isInLibrary(file);
+      }
+    });
   }
 }

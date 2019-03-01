@@ -17,9 +17,10 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.javaee.ExternalResourceManager;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileTypes.FileTypeManager;
@@ -31,7 +32,6 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.WatchedRootsProvider;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -143,6 +143,11 @@ public class FetchExtResourceAction extends BaseExtResourceAction implements Wat
   }
 
   @Override
+  public boolean startInWriteAction() {
+    return false;
+  }
+
+  @Override
   protected void doInvoke(@NotNull final PsiFile file, final int offset, @NotNull final String uri, final Editor editor)
     throws IncorrectOperationException {
     final String url = findUrl(file, offset, uri);
@@ -183,18 +188,11 @@ public class FetchExtResourceAction extends BaseExtResourceAction implements Wat
     LOG.assertTrue(extResources.mkdirs() || extResources.exists(), extResources);
 
     final PsiManager psiManager = PsiManager.getInstance(project);
-    ApplicationManager.getApplication().invokeAndWait(() -> {
-      @SuppressWarnings("deprecation")
-      final AccessToken token = ApplicationManager.getApplication().acquireWriteActionLock(FetchExtResourceAction.class);
-      try {
-        final String path = FileUtil.toSystemIndependentName(extResources.getAbsolutePath());
-        final VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
-        LOG.assertTrue(vFile != null, path);
-      }
-      finally {
-        token.finish();
-      }
-    });
+    ApplicationManager.getApplication().invokeAndWait(() -> WriteAction.run(() -> {
+      final String path = FileUtil.toSystemIndependentName(extResources.getAbsolutePath());
+      final VirtualFile vFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+      LOG.assertTrue(vFile != null, path);
+    }));
 
     final List<String> downloadedResources = new LinkedList<>();
     final List<String> resourceUrls = new LinkedList<>();
@@ -208,11 +206,10 @@ public class FetchExtResourceAction extends BaseExtResourceAction implements Wat
 
       VirtualFile virtualFile = findFileByPath(resPath, dtdUrl);
 
-      Set<String> linksToProcess = new HashSet<>();
       Set<String> processedLinks = new HashSet<>();
       Map<String, String> baseUrls = new HashMap<>();
       VirtualFile contextFile = virtualFile;
-      linksToProcess.addAll(extractEmbeddedFileReferences(virtualFile, null, psiManager, url));
+      Set<String> linksToProcess = new HashSet<>(extractEmbeddedFileReferences(virtualFile, null, psiManager, url));
 
       while (!linksToProcess.isEmpty()) {
         String s = linksToProcess.iterator().next();
@@ -402,9 +399,7 @@ public class FetchExtResourceAction extends BaseExtResourceAction implements Wat
                         ((XmlToken)e).getTokenType() == XmlTokenType.XML_DOCTYPE_SYSTEM
                        )
                 ) {
-                if (!result.contains(candidateName)) {
-                  result.add(candidateName);
-                }
+                result.add(candidateName);
                 break;
               }
             }
@@ -457,18 +452,15 @@ public class FetchExtResourceAction extends BaseExtResourceAction implements Wat
                                                           @Nullable final VirtualFile contextVFile,
                                                           final PsiManager psiManager,
                                                           final String url) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Set<String>>() {
-      @Override
-      public Set<String> compute() {
-        PsiFile file = psiManager.findFile(vFile);
+    return ReadAction.compute(() -> {
+      PsiFile file = psiManager.findFile(vFile);
 
-        if (file instanceof XmlFile) {
-          PsiFile contextFile = contextVFile != null ? psiManager.findFile(contextVFile) : null;
-          return extractEmbeddedFileReferences((XmlFile)file, contextFile instanceof XmlFile ? (XmlFile)contextFile : null, url);
-        }
-
-        return Collections.emptySet();
+      if (file instanceof XmlFile) {
+        PsiFile contextFile = contextVFile != null ? psiManager.findFile(contextVFile) : null;
+        return extractEmbeddedFileReferences((XmlFile)file, contextFile instanceof XmlFile ? (XmlFile)contextFile : null, url);
       }
+
+      return Collections.emptySet();
     });
   }
 

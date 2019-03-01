@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Feb 7, 2002
- * Time: 1:25:41 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow.instructions;
 
 import com.intellij.codeInspection.dataFlow.DataFlowRunner;
@@ -34,7 +26,7 @@ import com.intellij.psi.PsiExpression;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public class PushInstruction extends Instruction {
+public class PushInstruction extends Instruction implements ExpressionPushingInstruction {
   private final DfaValue myValue;
   private final PsiExpression myPlace;
   private final boolean myReferenceWrite;
@@ -58,7 +50,8 @@ public class PushInstruction extends Instruction {
     return myValue;
   }
 
-  public PsiExpression getPlace() {
+  @Override
+  public PsiExpression getExpression() {
     return myPlace;
   }
 

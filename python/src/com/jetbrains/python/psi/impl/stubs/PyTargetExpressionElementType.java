@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl.stubs;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.impl.source.tree.TreeUtil;
 import com.intellij.psi.stubs.IndexSink;
@@ -25,24 +10,27 @@ import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
-import com.intellij.util.io.StringRef;
 import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PythonDialectsTokenSetProvider;
 import com.jetbrains.python.documentation.docstrings.DocStringUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyTargetExpressionImpl;
-import com.jetbrains.python.psi.stubs.*;
+import com.jetbrains.python.psi.stubs.PyFileStub;
+import com.jetbrains.python.psi.stubs.PyTargetExpressionStub;
+import com.jetbrains.python.psi.stubs.PyVariableNameIndex;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * @author yole
  */
-public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExpressionStub, PyTargetExpression> {
-  private CustomTargetExpressionStubType[] myCustomStubTypes;
+public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExpressionStub, PyTargetExpression>
+  implements
+  PyCustomizableStubElementType<PyTargetExpression, CustomTargetExpressionStub, CustomTargetExpressionStubType<? extends CustomTargetExpressionStub>> {
 
   public PyTargetExpressionElementType() {
     super("TARGET_EXPRESSION");
@@ -52,34 +40,31 @@ public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExp
     super(debugName);
   }
 
-  private CustomTargetExpressionStubType[] getCustomStubTypes() {
-    if (myCustomStubTypes == null) {
-      myCustomStubTypes = Extensions.getExtensions(CustomTargetExpressionStubType.EP_NAME);
-    }
-    return myCustomStubTypes;
-  }
-
+  @Override
   @NotNull
   public PsiElement createElement(@NotNull final ASTNode node) {
     return new PyTargetExpressionImpl(node);
   }
 
+  @Override
   public PyTargetExpression createPsi(@NotNull final PyTargetExpressionStub stub) {
     return new PyTargetExpressionImpl(stub);
   }
 
+  @Override
   @NotNull
   public PyTargetExpressionStub createStub(@NotNull final PyTargetExpression psi, final StubElement parentStub) {
     final String name = psi.getName();
     final PyExpression assignedValue = psi.findAssignedValue();
     final String docString = DocStringUtil.getDocStringValue(psi);
     final String typeComment = psi.getTypeCommentAnnotation();
-    for (CustomTargetExpressionStubType customStubType : getCustomStubTypes()) {
-      CustomTargetExpressionStub customStub = customStubType.createStub(psi);
-      if (customStub != null) {
-        return new PyTargetExpressionStubImpl(name, docString, typeComment, customStub, parentStub);
-      }
+    final String annotation = psi.getAnnotationValue();
+
+    CustomTargetExpressionStub customStub = createCustomStub(psi);
+    if (customStub != null) {
+      return new PyTargetExpressionStubImpl(name, docString, typeComment, annotation, psi.hasAssignedValue(), customStub, parentStub);
     }
+
     PyTargetExpressionStub.InitializerType initializerType = PyTargetExpressionStub.InitializerType.Other;
     QualifiedName initializer = null;
     if (assignedValue instanceof PyReferenceExpression) {
@@ -93,20 +78,22 @@ public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExp
         initializer = ((PyReferenceExpression) callee).asQualifiedName();
       }
     }
-    return new PyTargetExpressionStubImpl(name, docString, initializerType, initializer, psi.isQualified(), typeComment, parentStub);
+    return new PyTargetExpressionStubImpl(name, docString, initializerType, initializer, psi.isQualified(), typeComment, annotation,
+                                          psi.hasAssignedValue(), parentStub);
   }
 
-  public void serialize(@NotNull final PyTargetExpressionStub stub, @NotNull final StubOutputStream stream)
-      throws IOException {
+  @Override
+  public void serialize(@NotNull final PyTargetExpressionStub stub, @NotNull final StubOutputStream stream) throws IOException {
     stream.writeName(stub.getName());
     final String docString = stub.getDocString();
     stream.writeUTFFast(docString != null ? docString : "");
     stream.writeVarInt(stub.getInitializerType().getIndex());
     stream.writeName(stub.getTypeComment());
+    stream.writeName(stub.getAnnotation());
+    stream.writeBoolean(stub.hasAssignedValue());
     final CustomTargetExpressionStub customStub = stub.getCustomStub(CustomTargetExpressionStub.class);
     if (customStub != null) {
-      stream.writeName(customStub.getTypeClass().getCanonicalName());
-      customStub.serialize(stream);
+      serializeCustomStub(customStub, stream);
     }
     else {
       QualifiedName.serialize(stub.getInitializer(), stream);
@@ -114,32 +101,29 @@ public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExp
     }
   }
 
+  @Override
   @NotNull
-  public PyTargetExpressionStub deserialize(@NotNull final StubInputStream stream, final StubElement parentStub)
-      throws IOException {
-    String name = StringRef.toString(stream.readName());
+  public PyTargetExpressionStub deserialize(@NotNull final StubInputStream stream, final StubElement parentStub) throws IOException {
+    String name = stream.readNameString();
     String docString = stream.readUTFFast();
     if (docString.isEmpty()) {
       docString = null;
     }
     PyTargetExpressionStub.InitializerType initializerType = PyTargetExpressionStub.InitializerType.fromIndex(stream.readVarInt());
-    final StringRef typeCommentRef = stream.readName();
-    final String typeComment = typeCommentRef == null ? null : typeCommentRef.getString();
+    String typeComment = stream.readNameString();
+    String annotation = stream.readNameString();
+    final boolean hasAssignedValue = stream.readBoolean();
     if (initializerType == PyTargetExpressionStub.InitializerType.Custom) {
-      final String typeName = stream.readName().getString();
-      for(CustomTargetExpressionStubType type: getCustomStubTypes()) {
-        if (type.getClass().getCanonicalName().equals(typeName)) {
-          CustomTargetExpressionStub stub = type.deserializeStub(stream);
-          return new PyTargetExpressionStubImpl(name, docString, typeComment, stub, parentStub);
-        }
-      }
-      throw new IOException("Unknown custom stub type " + typeName);
+      CustomTargetExpressionStub stub = deserializeCustomStub(stream);
+      return new PyTargetExpressionStubImpl(name, docString, typeComment, annotation, hasAssignedValue, stub, parentStub);
     }
     QualifiedName initializer = QualifiedName.deserialize(stream);
     boolean isQualified = stream.readBoolean();
-    return new PyTargetExpressionStubImpl(name, docString, initializerType, initializer, isQualified, typeComment, parentStub);
+    return new PyTargetExpressionStubImpl(name, docString, initializerType, initializer, isQualified, typeComment, annotation,
+                                          hasAssignedValue, parentStub);
   }
 
+  @Override
   public boolean shouldCreateStub(final ASTNode node) {
     if (PsiTreeUtil.getParentOfType(node.getPsi(), PyComprehensionElement.class, true, PyDocStringOwner.class) != null) {
       return false;
@@ -168,17 +152,15 @@ public class PyTargetExpressionElementType extends PyStubElementType<PyTargetExp
       if (stub.getParentStub() instanceof PyFileStub) {
         sink.occurrence(PyVariableNameIndex.KEY, name);
       }
-      else if (isInstanceAttributeStub(stub)) {
-        sink.occurrence(PyInstanceAttributeIndex.KEY, name);
-      }
     }
-    for (CustomTargetExpressionStubType stubType : getCustomStubTypes()) {
+    for (CustomTargetExpressionStubType stubType : getExtensions()) {
       stubType.indexStub(stub, sink);
     }
   }
 
-  private static boolean isInstanceAttributeStub(PyTargetExpressionStub stub) {
-    final StubElement parent = stub.getParentStub();
-    return parent instanceof PyFunctionStub;   // otherwise we wouldn't create the stub (see shouldCreateStub() implementation)
+  @NotNull
+  @Override
+  public List<CustomTargetExpressionStubType<? extends CustomTargetExpressionStub>> getExtensions() {
+    return CustomTargetExpressionStubType.EP_NAME.getExtensionList();
   }
 }

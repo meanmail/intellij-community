@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 24-Apr-2009
- */
 package com.intellij.codeInspection.ex;
 
 import com.intellij.psi.PsiElement;
@@ -39,7 +35,7 @@ public interface Tools {
   @NotNull
   List<ScopeToolState> getTools();
 
-  void collectTools(@NotNull List<ScopeToolState> result);
+  void collectTools(@NotNull List<? super ScopeToolState> result);
 
   @NotNull
   ScopeToolState getDefaultState();

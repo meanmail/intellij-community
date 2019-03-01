@@ -16,28 +16,30 @@
 package com.intellij.psi.codeStyle.extractor.ui;
 
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.openapi.util.Condition;
-import com.intellij.psi.codeStyle.*;
+import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
+import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
+import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
+import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider.SettingsType;
 import com.intellij.psi.codeStyle.extractor.values.Value;
 import com.intellij.psi.codeStyle.presentation.CodeStyleSelectSettingPresentation;
 import com.intellij.psi.codeStyle.presentation.CodeStyleSettingPresentation;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.psi.codeStyle.presentation.CodeStyleSettingPresentation.SettingsGroup;
-import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider.SettingsType;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
 
 /**
  * @author Roman.Shein
- * @since 03.08.2015.
  */
 public class CodeStyleSettingsNameProvider implements CodeStyleSettingsCustomizable {
 
   protected Map<SettingsType, Map<SettingsGroup, List<CodeStyleSettingPresentation>>> mySettings =
     ContainerUtil.newHashMap();
-  private Map<SettingsType, Map<SettingsGroup, List<CodeStyleSettingPresentation>>> standardSettings =
+  private final Map<SettingsType, Map<SettingsGroup, List<CodeStyleSettingPresentation>>> standardSettings =
     ContainerUtil.newHashMap();
 
   public CodeStyleSettingsNameProvider() {
@@ -193,7 +195,7 @@ public class CodeStyleSettingsNameProvider implements CodeStyleSettingsCustomiza
     }
   }
 
-  public static Value getValue(final CodeStyleSettingPresentation representation, List<Value> values) {
+  public static Value getValue(final CodeStyleSettingPresentation representation, List<? extends Value> values) {
     Value myValue = ContainerUtil.find(values, value -> {
       return value.state == Value.STATE.SELECTED && value.name.equals(representation.getFieldName());
       //return value.name.equals(representation.getFieldName()); //TODO this is here only to test the UI!!

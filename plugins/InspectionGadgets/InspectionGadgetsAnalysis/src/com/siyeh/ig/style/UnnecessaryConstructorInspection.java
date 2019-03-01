@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.VisibilityUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -72,24 +72,16 @@ public class UnnecessaryConstructorInspection extends BaseInspection {
     return new UnnecessaryConstructorFix();
   }
 
-  private static class UnnecessaryConstructorFix
-    extends InspectionGadgetsFix {
+  private static class UnnecessaryConstructorFix extends InspectionGadgetsFix {
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "unnecessary.constructor.remove.quickfix");
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement nameIdentifier = descriptor.getPsiElement();
       final PsiElement constructor = nameIdentifier.getParent();
       assert constructor != null;
@@ -97,8 +89,7 @@ public class UnnecessaryConstructorInspection extends BaseInspection {
     }
   }
 
-  private class UnnecessaryConstructorVisitor
-    extends BaseInspectionVisitor {
+  private class UnnecessaryConstructorVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitClass(@NotNull PsiClass aClass) {
@@ -110,47 +101,31 @@ public class UnnecessaryConstructorInspection extends BaseInspection {
       if (!constructor.isPhysical() || constructor.getNameIdentifier() == null) {
         return;
       }
-      if (!constructor.hasModifierProperty(PsiModifier.PRIVATE) &&
-          aClass.hasModifierProperty(PsiModifier.PRIVATE)) {
-        return;
+      if (!aClass.isEnum()) {
+        String modifier = VisibilityUtil.getVisibilityModifier(aClass.getModifierList());
+        if (!constructor.hasModifierProperty(modifier)) {
+          return;
+        }
       }
-      if (!constructor.hasModifierProperty(PsiModifier.PACKAGE_LOCAL) &&
-          aClass.hasModifierProperty(PsiModifier.PACKAGE_LOCAL)) {
-        return;
-      }
-      if (!constructor.hasModifierProperty(PsiModifier.PROTECTED) &&
-          aClass.hasModifierProperty(PsiModifier.PROTECTED)) {
-        return;
-      }
-      if (!constructor.hasModifierProperty(PsiModifier.PUBLIC) &&
-          aClass.hasModifierProperty(PsiModifier.PUBLIC)) {
-        return;
-      }
-      final PsiParameterList parameterList =
-        constructor.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      final PsiParameterList parameterList = constructor.getParameterList();
+      if (!parameterList.isEmpty()) {
         return;
       }
       if (ignoreAnnotations) {
-        final PsiModifierList modifierList =
-          constructor.getModifierList();
-        final PsiAnnotation[] annotations =
-          modifierList.getAnnotations();
+        final PsiModifierList modifierList = constructor.getModifierList();
+        final PsiAnnotation[] annotations = modifierList.getAnnotations();
         if (annotations.length > 0) {
           return;
         }
       }
       final PsiReferenceList throwsList = constructor.getThrowsList();
-      final PsiJavaCodeReferenceElement[] elements =
-        throwsList.getReferenceElements();
+      final PsiJavaCodeReferenceElement[] elements = throwsList.getReferenceElements();
       if (elements.length != 0) {
         return;
       }
       final PsiCodeBlock body = constructor.getBody();
-      if (ControlFlowUtils.isEmptyCodeBlock(body)) {
-        registerMethodError(constructor);
-      }
-      else if (isSuperConstructorInvocationWithoutArguments(ControlFlowUtils.getOnlyStatementInBlock(body))) {
+      if (ControlFlowUtils.isEmptyCodeBlock(body) ||
+          isSuperConstructorInvocationWithoutArguments(ControlFlowUtils.getOnlyStatementInBlock(body))) {
         registerMethodError(constructor);
       }
     }
@@ -166,7 +141,7 @@ public class UnnecessaryConstructorInspection extends BaseInspection {
       }
       final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)expression;
       final PsiExpressionList argumentList = methodCallExpression.getArgumentList();
-      if (argumentList.getExpressions().length != 0) {
+      if (!argumentList.isEmpty()) {
         return false;
       }
       final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();

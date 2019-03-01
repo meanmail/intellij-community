@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.options.newEditor;
 
 import com.intellij.ide.ui.search.ConfigurableHit;
@@ -37,7 +23,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Set;
 
-abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
+public abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
   final OptionsEditorContext myContext = new OptionsEditorContext();
   final Project myProject;
 
@@ -46,7 +32,7 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
   private final SearchTextField mySearch;
   private final ConfigurableGroup[] myGroups;
 
-  private SearchableOptionsRegistrar myRegistrar = SearchableOptionsRegistrar.getInstance();
+  private final SearchableOptionsRegistrar myRegistrar = SearchableOptionsRegistrar.getInstance();
   private Set<Configurable> myFiltered;
   private ConfigurableHit myHits;
 
@@ -59,7 +45,7 @@ abstract class SettingsFilter extends ElementFilter.Active.Impl<SimpleNode> {
     mySearch = search;
     mySearch.addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent event) {
+      protected void textChanged(@NotNull DocumentEvent event) {
         update(event.getType(), true, false);
         // request focus if needed on changing the filter text
         IdeFocusManager manager = IdeFocusManager.findInstanceByComponent(mySearch);

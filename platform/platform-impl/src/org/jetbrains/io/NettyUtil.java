@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.io;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.util.io.NettyKt;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpObjectAggregator;
@@ -31,7 +17,6 @@ import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
-import org.jetbrains.ide.PooledThreadExecutor;
 
 import java.io.IOException;
 import java.net.BindException;
@@ -76,16 +61,22 @@ public final class NettyUtil {
       return false;
     }
 
-    return (throwable instanceof IOException && message.equals("An existing connection was forcibly closed by the remote host")) ||
-           (throwable instanceof ChannelException && message.startsWith("Failed to bind to: ")) ||
-           throwable instanceof BindException ||
+    if (throwable instanceof IOException) {
+      return throwable instanceof BindException ||
+             message.equals("An existing connection was forcibly closed by the remote host") ||
+             message.equals("\u0423\u0434\u0430\u043b\u0435\u043d\u043d\u044b\u0439 \u0445\u043e\u0441\u0442 \u043f\u0440\u0438\u043d\u0443\u0434\u0438\u0442\u0435\u043b\u044c\u043d\u043e \u0440\u0430\u0437\u043e\u0440\u0432\u0430\u043b \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044e\u0449\u0435\u0435 \u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0435");
+    }
+
+    return (throwable instanceof ChannelException && message.startsWith("Failed to bind to: ")) ||
            (message.startsWith("Connection reset") || message.equals("Operation timed out") || message.equals("Connection timed out"));
   }
 
+  @NotNull
   public static Bootstrap nioClientBootstrap() {
-    return nioClientBootstrap(new NioEventLoopGroup(1, PooledThreadExecutor.INSTANCE));
+    return nioClientBootstrap(NettyKt.MultiThreadEventLoopGroup(2));
   }
 
+  @NotNull
   public static Bootstrap nioClientBootstrap(@NotNull EventLoopGroup eventLoopGroup) {
     Bootstrap bootstrap = new Bootstrap().group(eventLoopGroup).channel(NioSocketChannel.class);
     bootstrap.option(ChannelOption.TCP_NODELAY, true).option(ChannelOption.SO_KEEPALIVE, true);
@@ -107,17 +98,17 @@ public final class NettyUtil {
                                                                        .allowCredentials()
                                                                        .allowNullOrigin()
                                                                        .allowedRequestMethods(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.HEAD, HttpMethod.PATCH)
-                                                                       .allowedRequestHeaders("origin", "accept", "authorization", "content-type")
+                                                                       .allowedRequestHeaders("origin", "accept", "authorization", "content-type", "x-ijt", "x-requested-with")
                                                                        .build()));
   }
 
   private static final class CorsHandlerDoNotUseOwnLogger extends CorsHandler {
-    public CorsHandlerDoNotUseOwnLogger(@NotNull CorsConfig config) {
+    CorsHandlerDoNotUseOwnLogger(@NotNull CorsConfig config) {
       super(config);
     }
 
     @Override
-    public void exceptionCaught(ChannelHandlerContext context, Throwable cause) throws Exception {
+    public void exceptionCaught(ChannelHandlerContext context, Throwable cause) {
       context.fireExceptionCaught(cause);
     }
   }

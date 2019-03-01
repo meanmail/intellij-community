@@ -1,28 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.impl.projectlevelman;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.util.EmptyRunnable;
 import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.*;
@@ -32,57 +18,54 @@ import com.intellij.openapi.vcs.impl.VcsInitObject;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.Functions;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.Convertor;
-import com.intellij.util.messages.MessageBus;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Function;
+
+import static com.intellij.util.containers.ContainerUtil.*;
+import static java.util.Collections.singletonList;
+import static java.util.function.Function.identity;
 
 public class NewMappings {
 
-  public static Comparator<VcsDirectoryMapping> MAPPINGS_COMPARATOR = new Comparator<VcsDirectoryMapping>() {
-    @Override
-    public int compare(@NotNull VcsDirectoryMapping o1, @NotNull VcsDirectoryMapping o2) {
-      return o1.getDirectory().compareTo(o2.getDirectory());
-    }
-  };
+  public static final Comparator<VcsDirectoryMapping> MAPPINGS_COMPARATOR = Comparator.comparing(VcsDirectoryMapping::getDirectory);
 
   private final static Logger LOG = Logger.getInstance("#com.intellij.openapi.vcs.impl.projectlevelman.NewMappings");
   private final Object myLock;
 
   // vcs to mappings
-  private final Map<String, List<VcsDirectoryMapping>> myVcsToPaths;
+  private final MultiMap<String, VcsDirectoryMapping> myVcsToPaths;
   private AbstractVcs[] myActiveVcses;
   private VcsDirectoryMapping[] mySortedMappings;
   private FileWatchRequestsManager myFileWatchRequestsManager;
 
   private final DefaultVcsRootPolicy myDefaultVcsRootPolicy;
-  private final MessageBus myMessageBus;
   private final ProjectLevelVcsManager myVcsManager;
   private final FileStatusManager myFileStatusManager;
   private final Project myProject;
 
   private boolean myActivated;
 
-  public NewMappings(final Project project, final MessageBus messageBus, final ProjectLevelVcsManagerImpl vcsManager,
+  public NewMappings(Project project,
+                     ProjectLevelVcsManagerImpl vcsManager,
                      FileStatusManager fileStatusManager) {
     myProject = project;
-    myMessageBus = messageBus;
     myVcsManager = vcsManager;
     myFileStatusManager = fileStatusManager;
     myLock = new Object();
-    myVcsToPaths = new HashMap<>();
+    myVcsToPaths = MultiMap.createOrderedSet();
     myFileWatchRequestsManager = new FileWatchRequestsManager(myProject, this, LocalFileSystem.getInstance());
     myDefaultVcsRootPolicy = DefaultVcsRootPolicy.getInstance(project);
     myActiveVcses = new AbstractVcs[0];
 
     if (!myProject.isDefault()) {
-      final ArrayList<VcsDirectoryMapping> listStr = new ArrayList<>();
-      final VcsDirectoryMapping mapping = new VcsDirectoryMapping("", "");
-      listStr.add(mapping);
-      myVcsToPaths.put("", listStr);
+      VcsDirectoryMapping mapping = new VcsDirectoryMapping("", "");
+      myVcsToPaths.putValue("", mapping);
       mySortedMappings = new VcsDirectoryMapping[]{mapping};
     }
     else {
@@ -90,11 +73,9 @@ public class NewMappings {
     }
     myActivated = false;
 
-    vcsManager.addInitializationRequest(VcsInitObject.MAPPINGS, new DumbAwareRunnable() {
-      public void run() {
-        if (!myProject.isDisposed()) {
-          activateActiveVcses();
-        }
+    vcsManager.addInitializationRequest(VcsInitObject.MAPPINGS, (DumbAwareRunnable)() -> {
+      if (!myProject.isDisposed()) {
+        activateActiveVcses();
       }
     });
   }
@@ -128,30 +109,23 @@ public class NewMappings {
     mappingsChanged();
   }
 
-  @Modification
   public void setMapping(final String path, final String activeVcsName) {
     LOG.debug("setMapping path = '" + path + "' vcs = " + activeVcsName);
     final VcsDirectoryMapping newMapping = new VcsDirectoryMapping(path, activeVcsName);
     // do not add duplicates
     synchronized (myLock) {
-      if (myVcsToPaths.containsKey(activeVcsName)) {
-        final List<VcsDirectoryMapping> vcsDirectoryMappings = myVcsToPaths.get(activeVcsName);
-        if ((vcsDirectoryMappings != null) && (vcsDirectoryMappings.contains(newMapping))) {
-          return;
-        }
+      Collection<VcsDirectoryMapping> vcsDirectoryMappings = myVcsToPaths.get(activeVcsName);
+      if (vcsDirectoryMappings.contains(newMapping)) {
+        return;
       }
     }
 
-    final Ref<Boolean> switched = new Ref<>(Boolean.FALSE);
-    keepActiveVcs(new Runnable() {
-      public void run() {
-        // sorted -> map. sorted mappings are NOT changed;
-        switched.set(trySwitchVcs(path, activeVcsName));
-        if (!switched.get().booleanValue()) {
-          final List<VcsDirectoryMapping> newList = listForVcsFromMap(newMapping.getVcs());
-          newList.add(newMapping);
-          sortedMappingsByMap();
-        }
+    keepActiveVcs(() -> {
+      // sorted -> map. sorted mappings are NOT changed;
+      boolean switched = trySwitchVcs(path, activeVcsName);
+      if (!switched) {
+        myVcsToPaths.putValue(newMapping.getVcs(), newMapping);
+        sortedMappingsByMap();
       }
     });
 
@@ -187,39 +161,43 @@ public class NewMappings {
           list.add(vcs);
         }
       }
-      myActiveVcses = list.toArray(new AbstractVcs[list.size()]);
+      myActiveVcses = list.toArray(new AbstractVcs[0]);
     }
   }
 
   public void mappingsChanged() {
-    if (myProject.isDisposed()) return;
-    myMessageBus.syncPublisher(ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED).directoryMappingChanged();
+    BackgroundTaskUtil.syncPublisher(myProject, ProjectLevelVcsManager.VCS_CONFIGURATION_CHANGED).directoryMappingChanged();
     myFileStatusManager.fileStatusesChanged();
     myFileWatchRequestsManager.ping();
+
+    dumpMappingsToLog();
   }
 
-  @Modification
-  public void setDirectoryMappings(final List<VcsDirectoryMapping> items) {
-    LOG.debug("setDirectoryMappings, size: " + items.size());
-    MySetMappingsPreProcessor setMappingsPreProcessor = new MySetMappingsPreProcessor(items);
-    setMappingsPreProcessor.invoke();
+  private void dumpMappingsToLog() {
+    for (VcsDirectoryMapping mapping : mySortedMappings) {
+      String path = mapping.isDefaultMapping() ? VcsDirectoryMapping.PROJECT_CONSTANT : mapping.getDirectory();
+      String vcs = mapping.getVcs();
+      LOG.info(String.format("VCS Root: [%s] - [%s]", vcs, path));
+    }
+  }
 
-    final List<VcsDirectoryMapping> itemsCopy;
+  public void setDirectoryMappings(final List<? extends VcsDirectoryMapping> items) {
+    LOG.debug("setDirectoryMappings, size: " + items.size());
+
+    final List<? extends VcsDirectoryMapping> itemsCopy;
     if (items.isEmpty()) {
-      itemsCopy = Collections.singletonList(new VcsDirectoryMapping("", ""));
+      itemsCopy = singletonList(new VcsDirectoryMapping("", ""));
     }
     else {
       itemsCopy = items;
     }
 
-    keepActiveVcs(new Runnable() {
-      public void run() {
-        myVcsToPaths.clear();
-        for (VcsDirectoryMapping mapping : itemsCopy) {
-          listForVcsFromMap(mapping.getVcs()).add(mapping);
-        }
-        sortedMappingsByMap();
+    keepActiveVcs(() -> {
+      myVcsToPaths.clear();
+      for (VcsDirectoryMapping mapping : itemsCopy) {
+        myVcsToPaths.putValue(mapping.getVcs(), mapping);
       }
+      sortedMappingsByMap();
     });
 
     mappingsChanged();
@@ -267,7 +245,7 @@ public class NewMappings {
     return mapping.getVcs();
   }
 
-  private boolean fileMatchesMapping(final VirtualFile file,
+  private boolean fileMatchesMapping(@NotNull VirtualFile file,
                                      final Object matchContext,
                                      final String systemIndependentPath,
                                      final VcsDirectoryMapping mapping) {
@@ -284,15 +262,14 @@ public class NewMappings {
 
     final List<VcsDirectoryMapping> mappings;
     synchronized (myLock) {
-      final List<VcsDirectoryMapping> vcsMappings = myVcsToPaths.get(vcsName);
-      if (vcsMappings == null) return result;
+      final Collection<VcsDirectoryMapping> vcsMappings = myVcsToPaths.get(vcsName);
+      if (vcsMappings.isEmpty()) return result;
       mappings = new ArrayList<>(vcsMappings);
     }
 
     for (VcsDirectoryMapping mapping : mappings) {
       if (mapping.isDefaultMapping()) {
-        // todo callback here; don't like it
-        myDefaultVcsRootPolicy.addDefaultVcsRoots(this, vcsName, result);
+        result.addAll(myDefaultVcsRootPolicy.getDefaultVcsRoots(this, vcsName));
       }
       else {
         final VirtualFile file = LocalFileSystem.getInstance().findFileByPath(mapping.getDirectory());
@@ -301,16 +278,15 @@ public class NewMappings {
         }
       }
     }
+    result.removeIf(file -> !file.isDirectory());
     return result;
   }
 
-  @Modification
   public void disposeMe() {
     LOG.debug("dispose me");
     clearImpl();
   }
 
-  @Modification
   public void clear() {
     LOG.debug("clear");
     clearImpl();
@@ -322,12 +298,10 @@ public class NewMappings {
     // if vcses were not mapped, there's nothing to clear
     if ((myActiveVcses == null) || (myActiveVcses.length == 0)) return;
 
-    keepActiveVcs(new Runnable() {
-      public void run() {
-        myVcsToPaths.clear();
-        myActiveVcses = new AbstractVcs[0];
-        mySortedMappings = VcsDirectoryMapping.EMPTY_ARRAY;
-      }
+    keepActiveVcs(() -> {
+      myVcsToPaths.clear();
+      myActiveVcses = new AbstractVcs[0];
+      mySortedMappings = VcsDirectoryMapping.EMPTY_ARRAY;
     });
     myFileWatchRequestsManager.ping();
   }
@@ -340,8 +314,8 @@ public class NewMappings {
 
   public List<VcsDirectoryMapping> getDirectoryMappings(String vcsName) {
     synchronized (myLock) {
-      final List<VcsDirectoryMapping> mappings = myVcsToPaths.get(vcsName);
-      return mappings == null ? new ArrayList<>() : new ArrayList<>(mappings);
+      Collection<VcsDirectoryMapping> mappings = myVcsToPaths.get(vcsName);
+      return mappings.isEmpty() ? new ArrayList<>() : new ArrayList<>(mappings);
     }
   }
 
@@ -367,15 +341,12 @@ public class NewMappings {
     }
   }
 
-  @Modification
   public void removeDirectoryMapping(final VcsDirectoryMapping mapping) {
     LOG.debug("remove mapping: " + mapping.getDirectory());
 
-    keepActiveVcs(new Runnable() {
-      public void run() {
-        if (removeVcsFromMap(mapping, mapping.getVcs())) {
-          sortedMappingsByMap();
-        }
+    keepActiveVcs(() -> {
+      if (removeVcsFromMap(mapping, mapping.getVcs())) {
+        sortedMappingsByMap();
       }
     });
 
@@ -385,36 +356,26 @@ public class NewMappings {
   // todo area for optimization
   private void removeRedundantMappings() {
     final LocalFileSystem lfs = LocalFileSystem.getInstance();
-    final AllVcsesI allVcses = AllVcses.getInstance(myProject);
 
     for (Iterator<String> iterator = myVcsToPaths.keySet().iterator(); iterator.hasNext(); ) {
       final String vcsName = iterator.next();
-      final List<VcsDirectoryMapping> mappings = myVcsToPaths.get(vcsName);
+      final Collection<VcsDirectoryMapping> mappings = myVcsToPaths.get(vcsName);
 
-      final List<Pair<VirtualFile, VcsDirectoryMapping>> objects = ObjectsConvertor.convert(mappings,
-        new Convertor<VcsDirectoryMapping, Pair<VirtualFile, VcsDirectoryMapping>>() {
-        public Pair<VirtualFile, VcsDirectoryMapping> convert(final VcsDirectoryMapping dm) {
-          VirtualFile vf = lfs.findFileByPath(dm.getDirectory());
-          if (vf == null) {
-            vf = lfs.refreshAndFindFileByPath(dm.getDirectory());
-          }
-          return vf == null ? null : Pair.create(vf, dm);
-        }
-      }, ObjectsConvertor.NOT_NULL);
+      VcsDirectoryMapping defaultMapping = find(mappings, it -> it.isDefaultMapping());
+      if (defaultMapping != null) mappings.remove(defaultMapping);
+
+      List<Pair<VirtualFile, VcsDirectoryMapping>> objects = mapNotNull(mappings, dm -> {
+        VirtualFile vf = lfs.refreshAndFindFileByPath(dm.getDirectory());
+        return vf == null ? null : Pair.create(vf, dm);
+      });
 
       final List<Pair<VirtualFile, VcsDirectoryMapping>> filteredFiles;
-      // todo static
-      final Convertor<Pair<VirtualFile, VcsDirectoryMapping>, VirtualFile> fileConvertor =
-        new Convertor<Pair<VirtualFile, VcsDirectoryMapping>, VirtualFile>() {
-          public VirtualFile convert(Pair<VirtualFile, VcsDirectoryMapping> o) {
-            return o.getFirst();
-          }
-        };
+      Function<Pair<VirtualFile, VcsDirectoryMapping>, VirtualFile> fileConvertor = pair -> pair.getFirst();
       if (StringUtil.isEmptyOrSpaces(vcsName)) {
         filteredFiles = AbstractVcs.filterUniqueRootsDefault(objects, fileConvertor);
       }
       else {
-        final AbstractVcs<?> vcs = allVcses.getByName(vcsName);
+        final AbstractVcs<?> vcs = myVcsManager.findVcsByName(vcsName);
         if (vcs == null) {
           VcsBalloonProblemNotifier.showOverChangesView(myProject, "VCS plugin not found for mapping to : '" + vcsName + "'", MessageType.ERROR);
           continue;
@@ -422,15 +383,8 @@ public class NewMappings {
         filteredFiles = vcs.filterUniqueRoots(objects, fileConvertor);
       }
 
-      final List<VcsDirectoryMapping> filteredMappings =
-        ObjectsConvertor.convert(filteredFiles, new Convertor<Pair<VirtualFile, VcsDirectoryMapping>, VcsDirectoryMapping>() {
-          public VcsDirectoryMapping convert(final Pair<VirtualFile, VcsDirectoryMapping> o) {
-            return o.getSecond();
-          }
-        });
-
-      // to calculate what had been removed
-      mappings.removeAll(filteredMappings);
+      List<VcsDirectoryMapping> filteredMappings = map(filteredFiles, Functions.pairSecond());
+      if (defaultMapping != null) filteredMappings = append(filteredMappings, defaultMapping);
 
       if (filteredMappings.isEmpty()) {
         iterator.remove();
@@ -459,11 +413,7 @@ public class NewMappings {
   }
 
   private void sortedMappingsByMap() {
-    final List<VcsDirectoryMapping> list = new ArrayList<>();
-    for (List<VcsDirectoryMapping> mappingList : myVcsToPaths.values()) {
-      list.addAll(mappingList);
-    }
-    mySortedMappings = list.toArray(new VcsDirectoryMapping[list.size()]);
+    mySortedMappings = myVcsToPaths.values().toArray(VcsDirectoryMapping.EMPTY_ARRAY);
     Arrays.sort(mySortedMappings, MAPPINGS_COMPARATOR);
   }
 
@@ -472,35 +422,17 @@ public class NewMappings {
 
     removeVcsFromMap(mapping, oldVcs);
 
-    final List<VcsDirectoryMapping> newList = listForVcsFromMap(activeVcsName);
-    newList.add(mapping);
+    myVcsToPaths.putValue(activeVcsName, mapping);
   }
 
   private boolean removeVcsFromMap(VcsDirectoryMapping mapping, String oldVcs) {
-    final List<VcsDirectoryMapping> oldList = myVcsToPaths.get(oldVcs);
-    if (oldList == null) return false;
-
-    final boolean result = oldList.remove(mapping);
-    if (oldList.isEmpty()) {
-      myVcsToPaths.remove(oldVcs);
-    }
-    return result;
-  }
-
-  // todo don't like it
-  private List<VcsDirectoryMapping> listForVcsFromMap(String activeVcsName) {
-    List<VcsDirectoryMapping> newList = myVcsToPaths.get(activeVcsName);
-    if (newList == null) {
-      newList = new ArrayList<>();
-      myVcsToPaths.put(activeVcsName, newList);
-    }
-    return newList;
+    return myVcsToPaths.remove(oldVcs, mapping);
   }
 
   private static class MyVcsActivator {
     private final Set<String> myOld;
 
-    public MyVcsActivator(final Set<String> old) {
+    MyVcsActivator(final Set<String> old) {
       myOld = old;
     }
 
@@ -565,60 +497,32 @@ public class NewMappings {
     }
   }
 
-  @Modification
   public void beingUnregistered(final String name) {
     synchronized (myLock) {
-      keepActiveVcs(new Runnable() {
-        public void run() {
-          myVcsToPaths.remove(name);
-          sortedMappingsByMap();
-        }
+      keepActiveVcs(() -> {
+        myVcsToPaths.remove(name);
+        sortedMappingsByMap();
       });
     }
 
     mappingsChanged();
   }
 
-  private static class MySetMappingsPreProcessor {
-    private final List<VcsDirectoryMapping> myItems;
-    private List<VcsDirectoryMapping> myItemsCopy;
-
-    public MySetMappingsPreProcessor(final List<VcsDirectoryMapping> items) {
-      myItems = items;
-    }
-
-    public List<VcsDirectoryMapping> getItemsCopy() {
-      return myItemsCopy;
-    }
-
-    public void invoke() {
-      if (myItems.isEmpty()) {
-        myItemsCopy = Collections.singletonList(new VcsDirectoryMapping("", ""));
-      }
-      else {
-        myItemsCopy = myItems;
-      }
-    }
-  }
-
-  private @interface Modification {
-  }
-
+  @NotNull
   public List<VirtualFile> getDefaultRoots() {
     synchronized (myLock) {
       final String defaultVcs = haveDefaultMapping();
       if (defaultVcs == null) return Collections.emptyList();
-      final List<VirtualFile> list = new ArrayList<>();
-      myDefaultVcsRootPolicy.addDefaultVcsRoots(this, defaultVcs, list);
+      final List<VirtualFile> list = new ArrayList<>(myDefaultVcsRootPolicy.getDefaultVcsRoots(this, defaultVcs));
       if (StringUtil.isEmptyOrSpaces(defaultVcs)) {
-        return AbstractVcs.filterUniqueRootsDefault(list, Convertor.SELF);
+        return AbstractVcs.filterUniqueRootsDefault(list, identity());
       }
       else {
         final AbstractVcs<?> vcs = AllVcses.getInstance(myProject).getByName(defaultVcs);
         if (vcs == null) {
-          return AbstractVcs.filterUniqueRootsDefault(list, Convertor.SELF);
+          return AbstractVcs.filterUniqueRootsDefault(list, identity());
         }
-        return vcs.filterUniqueRoots(list, Convertor.SELF);
+        return vcs.filterUniqueRoots(list, identity());
       }
     }
   }

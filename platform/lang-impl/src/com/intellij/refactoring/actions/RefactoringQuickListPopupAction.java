@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -91,19 +91,17 @@ public class RefactoringQuickListPopupAction extends QuickSwitchSchemeAction {
   }
 
   @Override
-  protected boolean isEnabled() {
-    return true;
-  }
-
-  @Override
   public void update(@NotNull AnActionEvent e) {
     super.update(e);
     e.getPresentation().setVisible(
-      ActionPlaces.isMainMenuOrActionSearch(e.getPlace()) || ActionPlaces.ACTION_PLACE_QUICK_LIST_POPUP_ACTION.equals(e.getPlace()));
+      ActionPlaces.isMainMenuOrActionSearch(e.getPlace())
+      || ActionPlaces.ACTION_PLACE_QUICK_LIST_POPUP_ACTION.equals(e.getPlace())
+      || ActionPlaces.TOUCHBAR_GENERAL.equals(e.getPlace())
+    );
   }
 
   @Override
-  protected String getPopupTitle(AnActionEvent e) {
+  protected String getPopupTitle(@NotNull AnActionEvent e) {
     return "Refactor This";
   }
 }

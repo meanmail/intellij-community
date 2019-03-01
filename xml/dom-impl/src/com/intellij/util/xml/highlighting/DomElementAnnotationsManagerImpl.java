@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.util.xml.highlighting;
 
@@ -27,9 +13,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Key;
-import com.intellij.profile.Profile;
 import com.intellij.profile.ProfileChangeAdapter;
-import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
@@ -43,7 +27,6 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.DomElement;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomUtil;
-import com.intellij.util.xml.impl.DomApplicationComponent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -65,22 +48,9 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
     }
 
     @Override
-    public List<DomElementProblemDescriptor> getProblems(final DomElement domElement, boolean includeXmlProblems) {
-      return Collections.emptyList();
-    }
-
-    @Override
     public List<DomElementProblemDescriptor> getProblems(final DomElement domElement,
                                                          final boolean includeXmlProblems,
                                                          final boolean withChildren) {
-      return Collections.emptyList();
-    }
-
-    @Override
-    public List<DomElementProblemDescriptor> getProblems(DomElement domElement,
-                                                         final boolean includeXmlProblems,
-                                                         final boolean withChildren,
-                                                         HighlightSeverity minSeverity) {
       return Collections.emptyList();
     }
 
@@ -107,21 +77,19 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
   };
   private final Project myProject;
 
-  public DomElementAnnotationsManagerImpl(Project project) {
+  public DomElementAnnotationsManagerImpl(@NotNull Project project) {
     myProject = project;
-    final ProfileChangeAdapter profileChangeAdapter = new ProfileChangeAdapter() {
+    project.getMessageBus().connect().subscribe(ProfileChangeAdapter.TOPIC, new ProfileChangeAdapter() {
       @Override
-      public void profileActivated(Profile oldProfile, @Nullable Profile profile) {
+      public void profileActivated(InspectionProfile oldProfile, @Nullable InspectionProfile profile) {
         dropAnnotationsCache();
       }
 
       @Override
-      public void profileChanged(Profile profile) {
+      public void profileChanged(InspectionProfile profile) {
         dropAnnotationsCache();
       }
-    };
-
-    InspectionProfileManager.getInstance().addProfileChangeListener(profileChangeAdapter, project);
+    });
   }
 
   @Override
@@ -199,13 +167,6 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
     return getProblemHolder(element);
   }
 
-  public static void annotate(final DomElement element, final DomElementAnnotationHolder holder, final Class rootClass) {
-    final DomElementsAnnotator annotator = DomApplicationComponent.getInstance().getAnnotator(rootClass);
-    if (annotator != null) {
-      annotator.annotate(element, holder);
-    }
-  }
-
   @Override
   public List<ProblemDescriptor> createProblemDescriptors(final InspectionManager manager, DomElementProblemDescriptor problemDescriptor) {
     return ContainerUtil.createMaybeSingletonList(DomElementsHighlightingUtil.createProblemDescriptors(manager, problemDescriptor));
@@ -241,18 +202,22 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
       return problemHolder.getAllProblems(inspection);
     }
 
-    final DomElementAnnotationHolder holder = new DomElementAnnotationHolderImpl(onTheFly);
+    DomElementAnnotationHolder holder = new DomElementAnnotationHolderImpl(onTheFly, domFileElement);
     inspection.checkFileElement(domFileElement, holder);
     return appendProblems(domFileElement, holder, inspection.getClass());
   }
 
   public List<DomElementsInspection> getSuitableDomInspections(final DomFileElement fileElement, boolean enabledOnly) {
-    Class rootType = fileElement.getRootElementClass();
+    Class<?> rootType = fileElement.getRootElementClass();
     final InspectionProfile profile = getInspectionProfile(fileElement);
     final List<DomElementsInspection> inspections = new SmartList<>();
     for (final InspectionToolWrapper toolWrapper : profile.getInspectionTools(fileElement.getFile())) {
       if (!enabledOnly || profile.isToolEnabled(HighlightDisplayKey.find(toolWrapper.getShortName()), fileElement.getFile())) {
-        ContainerUtil.addIfNotNull(inspections, getSuitableInspection(toolWrapper.getTool(), rootType));
+        InspectionProfileEntry entry = toolWrapper.getTool();
+        if (entry instanceof DomElementsInspection &&
+            ContainerUtil.exists(((DomElementsInspection<?>)entry).getDomClasses(), cls -> cls.isAssignableFrom(rootType))) {
+          inspections.add((DomElementsInspection)entry);
+        }
       }
     }
     return inspections;
@@ -262,17 +227,7 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
     return InspectionProjectProfileManager.getInstance(fileElement.getManager().getProject()).getCurrentProfile();
   }
 
-  @Nullable
-  private static DomElementsInspection getSuitableInspection(InspectionProfileEntry entry, Class rootType) {
-    if (entry instanceof DomElementsInspection) {
-      if (((DomElementsInspection)entry).getDomClasses().contains(rootType)) {
-        return (DomElementsInspection) entry;
-      }
-    }
-    return null;
-  }
-
-  @Nullable public <T extends DomElement>  DomElementsInspection<T> getMockInspection(DomFileElement<T> root) {
+  @Nullable public <T extends DomElement>  DomElementsInspection<T> getMockInspection(DomFileElement<? extends T> root) {
     if (root.getFileDescription().isAutomaticHighlightingEnabled()) {
       return new MockAnnotatingDomInspection<>(root.getRootElementClass());
     }
@@ -283,7 +238,7 @@ public class DomElementAnnotationsManagerImpl extends DomElementAnnotationsManag
     return null;
   }
 
-  private static boolean areInspectionsFinished(DomElementsProblemsHolderImpl holder, final List<DomElementsInspection> suitableInspections) {
+  private static boolean areInspectionsFinished(DomElementsProblemsHolderImpl holder, final List<? extends DomElementsInspection> suitableInspections) {
     for (final DomElementsInspection inspection : suitableInspections) {
       if (!holder.isInspectionCompleted(inspection)) {
         return false;

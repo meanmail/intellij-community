@@ -10,8 +10,6 @@ import java.io.File;
  * @author spleaner
  */
 public class XmlWrongClosingTagNameInspectionTest extends LightQuickFixParameterizedTestCase {
-  public void test() throws Exception { doAllTests(); }
-
   @Override
   protected String getBasePath() {
     return "/wrongClosingTagName";

@@ -29,13 +29,14 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
+import com.intellij.psi.util.ClassUtil;
 import com.intellij.refactoring.listeners.RefactoringElementListener;
 import com.intellij.util.FunctionUtil;
 
 import java.util.Set;
 
 abstract class JUnitTestDiscoveryRunnableState extends TestObject {
-  public JUnitTestDiscoveryRunnableState(JUnitConfiguration configuration, ExecutionEnvironment environment) {
+  JUnitTestDiscoveryRunnableState(JUnitConfiguration configuration, ExecutionEnvironment environment) {
     super(configuration, environment);
   }
 
@@ -59,11 +60,11 @@ abstract class JUnitTestDiscoveryRunnableState extends TestObject {
       final String className = StringUtil.getPackageName((String)pattern, ',');
       if (!pattern.equals(className)) {
         final Project project = getConfiguration().getProject();
-        final JavaPsiFacade facade = JavaPsiFacade.getInstance(project);
+        PsiManager manager = PsiManager.getInstance(project);
         final SourceScope sourceScope = getSourceScope();
         final GlobalSearchScope globalSearchScope = sourceScope != null ? sourceScope.getGlobalSearchScope()
                                                                         : GlobalSearchScope.projectScope(project);
-        return facade.findClass(className, globalSearchScope);
+        return ClassUtil.findPsiClass(manager, className, null, true, globalSearchScope);
       }
     }
     return null;
@@ -76,15 +77,15 @@ abstract class JUnitTestDiscoveryRunnableState extends TestObject {
       private Set<String> myPatterns;
 
       @Override
-      protected void search() throws ExecutionException {
-        myPatterns = TestDiscoverySearchHelper.search(getProject(), getPosition(), getChangeList(), getConfiguration().getFrameworkPrefix());
+      protected void search() {
+        myPatterns = TestDiscoverySearchHelper.search(getProject(), getPosition(), getChangeList(), getConfiguration().getTestFrameworkId());
       }
 
       @Override
       protected void onFound() {
         if (myPatterns != null) {
           try {
-            addClassesListToJavaParameters(myPatterns, FunctionUtil.<String>id(), "", false, getJavaParameters());
+            addClassesListToJavaParameters(myPatterns, FunctionUtil.id(), "", false, getJavaParameters());
           }
           catch (ExecutionException ignored) {
           }

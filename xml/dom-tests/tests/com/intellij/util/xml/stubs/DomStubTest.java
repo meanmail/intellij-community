@@ -35,7 +35,6 @@ import com.intellij.util.xml.stubs.model.Foo;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 8/8/12
  */
 public abstract class DomStubTest extends LightCodeInsightFixtureTestCase {
 
@@ -44,6 +43,11 @@ public abstract class DomStubTest extends LightCodeInsightFixtureTestCase {
     @Override
     public boolean hasStubs() {
       return true;
+    }
+
+    @Override
+    public int getStubVersion() {
+      return 0;
     }
 
     @Override
@@ -68,7 +72,7 @@ public abstract class DomStubTest extends LightCodeInsightFixtureTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    ((DomManagerImpl)DomManager.getDomManager(getProject())).registerFileDescription(DOM_FILE_DESCRIPTION, getTestRootDisposable());
+    ((DomManagerImpl)DomManager.getDomManager(getProject())).registerFileDescription(DOM_FILE_DESCRIPTION, myFixture.getTestRootDisposable());
   }
 
   @Override

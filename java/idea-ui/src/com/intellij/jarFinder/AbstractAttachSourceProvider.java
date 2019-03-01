@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.intellij.jarFinder;
 import com.intellij.codeInsight.AttachSourcesProvider;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
@@ -54,7 +53,7 @@ public abstract class AbstractAttachSourceProvider implements AttachSourcesProvi
       if (entry != null) {
         VirtualFileSystem fs = entry.getFileSystem();
         if (fs instanceof JarFileSystem) {
-          return ((JarFileSystem)fs).getLocalVirtualFileFor(entry);
+          return ((JarFileSystem)fs).getLocalByEntry(entry);
         }
       }
     }
@@ -63,7 +62,7 @@ public abstract class AbstractAttachSourceProvider implements AttachSourcesProvi
   }
 
   @Nullable
-  protected static Library getLibraryFromOrderEntriesList(List<LibraryOrderEntry> orderEntries) {
+  protected static Library getLibraryFromOrderEntriesList(List<? extends LibraryOrderEntry> orderEntries) {
     if (orderEntries.isEmpty()) return null;
 
     Library library = orderEntries.get(0).getLibrary();
@@ -120,13 +119,7 @@ public abstract class AbstractAttachSourceProvider implements AttachSourcesProvi
 
       if (myLibrary != getLibraryFromOrderEntriesList(orderEntriesContainingFile)) return callback;
 
-      AccessToken accessToken = WriteAction.start();
-      try {
-        addSourceFile(mySrcFile, myLibrary);
-      }
-      finally {
-        accessToken.finish();
-      }
+      WriteAction.run(() -> addSourceFile(mySrcFile, myLibrary));
 
       return callback;
     }
@@ -178,12 +171,10 @@ public abstract class AbstractAttachSourceProvider implements AttachSourcesProvi
           }
 
           ApplicationManager.getApplication().invokeLater(() -> {
-            AccessToken accessToken = WriteAction.start();
             try {
-              storeFile(bytes);
+              WriteAction.run(() -> storeFile(bytes));
             }
             finally {
-              accessToken.finish();
               callback.setDone();
             }
           });

@@ -15,15 +15,17 @@
  */
 package com.intellij.openapi.externalSystem.model.task.event;
 
+import org.jetbrains.annotations.Nullable;
+
 /**
  * @author Vladislav.Soroka
- * @since 12/16/2015
  */
 public class OperationDescriptorImpl implements OperationDescriptor {
   private static final long serialVersionUID = 1L;
 
   private final long myEventTime;
   private final String myDisplayName;
+  @Nullable private String myHint;
 
   public OperationDescriptorImpl(String displayName, long eventTime) {
     myDisplayName = displayName;
@@ -39,5 +41,15 @@ public class OperationDescriptorImpl implements OperationDescriptor {
   @Override
   public String getDisplayName() {
     return myDisplayName;
+  }
+
+  @Override
+  @Nullable
+  public String getHint() {
+    return myHint;
+  }
+
+  public void setHint(@Nullable String hint) {
+    myHint = hint;
   }
 }

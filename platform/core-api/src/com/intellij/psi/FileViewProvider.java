@@ -18,7 +18,7 @@ package com.intellij.psi;
 import com.intellij.lang.Language;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.util.UserDataHolder;
+import com.intellij.openapi.util.UserDataHolderEx;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.LightVirtualFile;
 import org.jetbrains.annotations.NotNull;
@@ -32,13 +32,13 @@ import java.util.Set;
  * <p/>
  * Custom providers are registered via {@link FileViewProviderFactory}.
  * <p/>
- * Please see <a href="http://confluence.jetbrains.net/display/IDEADEV/IntelliJ+IDEA+Architectural+Overview">IntelliJ IDEA Architectural Overview </a>
+ * Please see <a href="https://www.jetbrains.org/intellij/sdk/docs/basics/architectural_overview.html">IntelliJ Platform Architectural Overview</a>
  * for high-level overview.
  *
  * @see PsiFile#getViewProvider()
  * @see PsiManager#findViewProvider(VirtualFile)
  */
-public interface FileViewProvider extends Cloneable, UserDataHolder {
+public interface FileViewProvider extends Cloneable, UserDataHolderEx {
 
   /**
    * @return this project's PsiManager
@@ -84,14 +84,22 @@ public interface FileViewProvider extends Cloneable, UserDataHolder {
   /**
    * @return all languages this file supports, in no particular order.
    * 
-   * @see #getPsi(com.intellij.lang.Language)
+   * @see #getPsi(Language)
    */
   @NotNull
   Set<Language> getLanguages();
 
   /**
+   * Check if given language is supported.
+   * Implementations may provide more effective way to check without getting all languages.
+   */
+  default boolean hasLanguage(@NotNull Language language) {
+    return getLanguages().contains(language);
+  }
+
+  /**
    * @param target target language
-   * @return PsiFile for given language, or <code>null</code> if the language not present
+   * @return PsiFile for given language, or {@code null} if the language not present
    */
   PsiFile getPsi(@NotNull Language target);
 
@@ -174,7 +182,7 @@ public interface FileViewProvider extends Cloneable, UserDataHolder {
    * 
    * @see #getBaseLanguage()
    * @see #findElementAt(int, Class) 
-   * @see #findElementAt(int, com.intellij.lang.Language) 
+   * @see #findElementAt(int, Language)
    * @see PsiFile#findElementAt(int) 
    */
   @Nullable
@@ -186,7 +194,7 @@ public interface FileViewProvider extends Cloneable, UserDataHolder {
    * 
    * @see #getBaseLanguage()
    * @see PsiFile#findReferenceAt(int)
-   * @see #findReferenceAt(int, com.intellij.lang.Language) 
+   * @see #findReferenceAt(int, Language)
    */
   @Nullable
   PsiReference findReferenceAt(int offset);

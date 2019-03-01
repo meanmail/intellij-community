@@ -29,10 +29,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: Feb 24, 2005
- */
 public class SendToFavoritesGroup extends ActionGroup implements DumbAware {
   @Override
   @NotNull
@@ -54,23 +50,23 @@ public class SendToFavoritesGroup extends ActionGroup implements DumbAware {
     }
     actions.add(Separator.getInstance());
     actions.add(new SendToNewFavoritesListAction());
-    return actions.toArray(new AnAction[actions.size()]);
+    return actions.toArray(AnAction.EMPTY_ARRAY);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     super.update(e);
     e.getPresentation().setVisible(SendToFavoritesAction.isEnabled(e)
                                    && FavoritesTreeViewPanel.FAVORITES_LIST_NAME_DATA_KEY.getData(e.getDataContext()) != null);
   }
 
   private static class SendToNewFavoritesListAction extends AnAction {
-    public SendToNewFavoritesListAction() {
+    SendToNewFavoritesListAction() {
       super(IdeBundle.message("action.send.to.new.favorites.list"));
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final DataContext dataContext = e.getDataContext();
       Project project = e.getProject();
       FavoritesTreeNodeDescriptor[] roots = FavoritesTreeViewPanel.CONTEXT_FAVORITES_ROOTS_DATA_KEY.getData(dataContext);

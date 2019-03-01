@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.parser;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
@@ -15,6 +16,7 @@ public class YAMLParserTest extends ParsingTestCase {
     super("", "yml", new YAMLParserDefinition());
   }
 
+  @Override
   protected String getTestDataPath() {
     return PathManagerEx.getCommunityHomePath() + "/plugins/yaml/testSrc/org/jetbrains/yaml/parser/data/";
   }
@@ -135,6 +137,13 @@ public class YAMLParserTest extends ParsingTestCase {
                "bar: \"baz\"");
   }
 
+  public void testRuby19105() throws Throwable {
+    doCodeTest("'Fn::Join':\n" +
+               "  - ''\n" +
+               "  - - Ref: hostedZoneName\n" +
+               "    - a");
+  }
+
   public void testRuby15345() throws IOException {
     doCodeTest("- !qualified.class.name\n" +
                "    propertyOne: bla bla\n" +
@@ -176,7 +185,7 @@ public class YAMLParserTest extends ParsingTestCase {
   public void testStringWithTag() throws IOException {
     doCodeTest("foo: ! \"tratata\"");
   }
-  
+
   public void testIncompleteKeyWithWhitespace() throws IOException {
     doCodeTest("logging:\n" +
                "  config:\n" +
@@ -184,6 +193,16 @@ public class YAMLParserTest extends ParsingTestCase {
                "  \n" +
                "  \n" +
                "  \n");
+  }
+
+  public void testShiftedMap() throws IOException {
+    doCodeTest("    key: ttt\n" +
+               "    ahahah: ppp");
+  }
+
+  public void testShiftedList() throws IOException {
+    doCodeTest("    - item1\n" +
+               "    - item2");
   }
 
   public void testExplicitMaps() {
@@ -201,24 +220,42 @@ public class YAMLParserTest extends ParsingTestCase {
   public void testAnsibleRoleElkMain() {
     doTest(true);
   }
-  
+
   public void testBlockMapping() {
     doTest(true);
   }
-  
+
   public void testIncompleteKeyInHierarchy() {
     doTest(true);
   }
-  
+
   public void testKeyValueWithEmptyLineAhead() {
     doTest(true);
   }
-  
+
   public void testMultipleDocsWithMappings() {
     doTest(true);
   }
-  
+
   public void testScalarsWithNewlines() {
+    doTest(true);
+  }
+
+  public void testCommentInBlockScalarHeader() {
+    doTest(true);
+  }
+
+  public void testErrorInBlockScalarHeader() {
+    doTest(true);
+  }
+
+  public void testInlineMapWithBlockScalarValue()  {
+    doTest(true);
+  }
+
+  public void testAliasInKey() { doTest(true); }
+
+  public void testPlainMultilineScalarRuby21788() {
     doTest(true);
   }
 }

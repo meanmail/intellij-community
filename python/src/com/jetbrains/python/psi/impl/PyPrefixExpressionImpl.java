@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiPolyVariantReference;
 import com.intellij.psi.PsiReference;
@@ -24,14 +11,17 @@ import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.PythonDialectsTokenSetProvider;
+import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.references.PyOperatorReference;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.types.*;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -74,7 +64,7 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
 
   @NotNull
   @Override
-  public PsiPolyVariantReference getReference(PyResolveContext context) {
+  public PsiPolyVariantReference getReference(@NotNull PyResolveContext context) {
     return new PyOperatorReference(this, context);
   }
 
@@ -88,20 +78,22 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
       final PyExpression operand = getOperand();
       if (operand != null) {
         final PyType operandType = context.getType(operand);
-        final PyType type = getGeneratorReturnType(operandType, context);
+        final Ref<PyType> type = getGeneratorReturnType(operandType);
         if (type != null) {
-          return type;
+          return type.get();
         }
       }
     }
-    final PsiReference ref = getReference(PyResolveContext.noImplicits().withTypeEvalContext(context));
-    final PsiElement resolved = ref.resolve();
-    if (resolved instanceof PyCallable) {
-      // TODO: Make PyPrefixExpression a PyCallSiteExpression, use getCallType() here and analyze it in PyTypeChecker.analyzeCallSite()
-      final PyType returnType = ((PyCallable)resolved).getReturnType(context, key);
-      return isAwait ? getGeneratorReturnType(returnType, context) : returnType;
-    }
-    return null;
+
+    return Ref.deref(
+      StreamEx
+      .of(PyCallExpressionHelper.mapArguments(this, PyResolveContext.noImplicits().withTypeEvalContext(context)))
+      .map(PyCallExpression.PyArgumentsMapping::getMarkedCallee)
+      .nonNull()
+      .map(callee -> callee.getCallableType().getCallType(context, this))
+      .map(callType -> isAwait ? Ref.deref(getGeneratorReturnType(callType)) : callType)
+      .collect(PyTypeUtil.toUnion())
+    );
   }
 
   @Override
@@ -122,7 +114,7 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
 
   @Override
   public String getReferencedName() {
-    PyElementType t = getOperator();
+    final PyElementType t = getOperator();
     if (t == PyTokenTypes.PLUS) {
       return PyNames.POS;
     }
@@ -139,37 +131,34 @@ public class PyPrefixExpressionImpl extends PyElementImpl implements PyPrefixExp
   }
 
   @Nullable
-  private static PyType getGeneratorReturnType(@Nullable PyType type, @NotNull TypeEvalContext context) {
-    if (type instanceof PyClassLikeType) {
-      final PyClassLikeType classLikeType = (PyClassLikeType)type;
-      // TODO: Understand typing.Generator as well
-      final String classQName = classLikeType.getClassQName();
-      if (PyNames.FAKE_GENERATOR.equals(classQName)) {
-        if (type instanceof PyCollectionType) {
-          final PyCollectionType collectionType = (PyCollectionType)type;
-          final List<PyType> elementTypes = collectionType.getElementTypes(context);
-          if (elementTypes.size() == 3) {
-            return elementTypes.get(2);
-          }
-        }
+  @Override
+  public PyExpression getReceiver(@Nullable PyCallable resolvedCallee) {
+    return getOperand();
+  }
+
+  @NotNull
+  @Override
+  public List<PyExpression> getArguments(@Nullable PyCallable resolvedCallee) {
+    return Collections.emptyList();
+  }
+
+  @Nullable
+  private static Ref<PyType> getGeneratorReturnType(@Nullable PyType type) {
+    if (type instanceof PyCollectionType) {
+      if (PyNames.AWAITABLE.equals(((PyClassType)type).getPyClass().getName())) {
+        return Ref.create(((PyCollectionType)type).getIteratedItemType());
       }
-      else if (PyNames.FAKE_COROUTINE.equals(classQName)) {
-        if (type instanceof PyCollectionType) {
-          final PyCollectionType collectionType = (PyCollectionType)type;
-          final List<PyType> elementTypes = collectionType.getElementTypes(context);
-          if (elementTypes.size() == 1) {
-            return elementTypes.get(0);
-          }
-        }
+      else {
+        return PyTypingTypeProvider.coroutineOrGeneratorElementType(type);
       }
     }
     else if (type instanceof PyUnionType) {
       final List<PyType> memberReturnTypes = new ArrayList<>();
       final PyUnionType unionType = (PyUnionType)type;
       for (PyType member : unionType.getMembers()) {
-        memberReturnTypes.add(getGeneratorReturnType(member, context));
+        memberReturnTypes.add(Ref.deref(getGeneratorReturnType(member)));
       }
-      return PyUnionType.union(memberReturnTypes);
+      return Ref.create(PyUnionType.union(memberReturnTypes));
     }
     return null;
   }

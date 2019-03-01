@@ -21,12 +21,8 @@ import com.intellij.codeInsight.intention.AddAnnotationPsiFix;
 import com.intellij.codeInspection.InspectionsBundle;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiNameValuePair;
-import com.intellij.psi.PsiParameter;
+import com.intellij.psi.*;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -40,13 +36,12 @@ import java.util.List;
 /**
  * @author cdr
  */
-public class AnnotateOverriddenMethodParameterFix implements LocalQuickFix {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.AnnotateMethodFix");
+class AnnotateOverriddenMethodParameterFix implements LocalQuickFix {
   private final String myAnnotation;
   private final String[] myAnnosToRemove;
 
-  public AnnotateOverriddenMethodParameterFix(final String fqn, String... annosToRemove) {
-    myAnnotation = fqn;
+  AnnotateOverriddenMethodParameterFix(@NotNull String annotationFQN, @NotNull String... annosToRemove) {
+    myAnnotation = annotationFQN;
     myAnnosToRemove = annosToRemove;
   }
 
@@ -54,6 +49,11 @@ public class AnnotateOverriddenMethodParameterFix implements LocalQuickFix {
   @NotNull
   public String getName() {
     return InspectionsBundle.message("annotate.overridden.methods.parameters", ClassUtil.extractClassName(myAnnotation));
+  }
+
+  @Override
+  public boolean startInWriteAction() {
+    return false;
   }
 
   @Override
@@ -71,25 +71,34 @@ public class AnnotateOverriddenMethodParameterFix implements LocalQuickFix {
 
     PsiMethod[] methods = OverridingMethodsSearch.search(method).toArray(PsiMethod.EMPTY_ARRAY);
     for (PsiMethod psiMethod : methods) {
+      if (NullableStuffInspectionBase.shouldSkipOverriderAsGenerated(psiMethod)) continue;
+      
       PsiParameter[] psiParameters = psiMethod.getParameterList().getParameters();
       if (index >= psiParameters.length) continue;
-      PsiParameter psiParameter = psiParameters[index];
-      if (!AnnotationUtil.isAnnotated(psiParameter, myAnnotation, false, false) && psiMethod.getManager().isInProject(psiMethod)) {
-        toAnnotate.add(psiParameter);
+      
+      if (AddAnnotationPsiFix.isAvailable(psiParameters[index], myAnnotation)) {
+        toAnnotate.add(psiParameters[index]);
       }
     }
 
     FileModificationService.getInstance().preparePsiElementsForWrite(toAnnotate);
+    RuntimeException exception = null;
     for (PsiParameter psiParam : toAnnotate) {
+      assert psiParam != null : toAnnotate;
       try {
-        assert psiParam != null : toAnnotate;
         if (AnnotationUtil.isAnnotatingApplicable(psiParam, myAnnotation)) {
           AddAnnotationPsiFix fix = new AddAnnotationPsiFix(myAnnotation, psiParam, PsiNameValuePair.EMPTY_ARRAY, myAnnosToRemove);
-          fix.invoke(project, psiParam.getContainingFile(), psiParam, psiParam);
+          PsiFile containingFile = psiParam.getContainingFile();
+          if (psiParam.isValid() && fix.isAvailable(project, containingFile, psiParam, psiParam)) {
+            fix.invoke(project, containingFile, psiParam, psiParam);
+          }
         }
       }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
+      catch (PsiInvalidElementAccessException|IncorrectOperationException e) {
+        exception = e;
+      }
+      if (exception != null) {
+        throw exception;
       }
     }
   }

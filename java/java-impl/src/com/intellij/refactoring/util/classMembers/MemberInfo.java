@@ -14,23 +14,15 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 14.06.2002
- * Time: 20:31:59
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.util.classMembers;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.classMembers.MemberInfoBase;
-import com.intellij.util.containers.HashSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -87,6 +79,11 @@ public class MemberInfo extends MemberInfoBase<PsiMember> {
       }
       isStatic = aClass.hasModifierProperty(PsiModifier.STATIC);
     }
+    else if (member instanceof PsiClassInitializer) {
+      isStatic = member.hasModifierProperty(PsiModifier.STATIC);
+      overrides = null;
+      displayName = isStatic ? "static {...}" : "{...}";
+    }
     else {
       LOG.assertTrue(false);
       isStatic = false;
@@ -135,6 +132,12 @@ public class MemberInfo extends MemberInfoBase<PsiMember> {
     for (final PsiField field : fields) {
       if (filter.includeMember(field)) {
         result.add(new MemberInfo(field));
+      }
+    }
+
+    for (PsiClassInitializer initializer : subclass.getInitializers()) {
+      if (filter.includeMember(initializer)) {
+        result.add(new MemberInfo(initializer));
       }
     }
   }

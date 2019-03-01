@@ -16,14 +16,18 @@
 package com.intellij.xml.impl.schema;
 
 import com.intellij.codeInsight.daemon.Validator;
-import com.intellij.psi.*;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiInvalidElementAccessException;
+import com.intellij.psi.PsiReference;
 import com.intellij.psi.meta.PsiWritableMetaData;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xml.*;
-import com.intellij.xml.util.XmlEnumeratedValueReference;
+import com.intellij.xml.util.XmlEnumeratedReferenceSet;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -129,8 +133,9 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
     myDescriptorTag = (XmlTag) element;
   }
 
+  @NotNull
   @Override
-  public Object[] getDependences(){
+  public Object[] getDependencies(){
     return new Object[]{myDescriptorTag};
   }
 
@@ -195,6 +200,19 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
         if (originalElement != null && originalElement != this) {
           type = originalElement.getType(context);
         }
+      }
+    }
+    else if (context instanceof XmlTag && nsDescriptor instanceof XmlNSDescriptorImpl) {
+      // check for redefined descriptor
+      XmlTag tag = (XmlTag)context;
+      if (!tag.getNamespace().equals(((XmlNSDescriptorImpl)nsDescriptor).getDefaultNamespace())) {
+          XmlNSDescriptor descriptor = tag.getNSDescriptor(tag.getNamespace(), true);
+          if (descriptor != nsDescriptor && descriptor instanceof XmlNSTypeDescriptorProvider) {
+            TypeDescriptor typeDescriptor = ((XmlNSTypeDescriptorProvider)descriptor).getTypeDescriptor(myDescriptorTag);
+            if (typeDescriptor != null && typeDescriptor.getDeclaration() != type.getDeclaration()) {
+              return typeDescriptor;
+            }
+          }
       }
     }
     return type;
@@ -266,7 +284,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
               }
             }
           }
-          return result.toArray(new XmlElementDescriptor[result.size()]);
+          return result.toArray(XmlElementDescriptor.EMPTY_ARRAY);
         }
       }
       return elements;
@@ -423,7 +441,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
       final XmlElementDescriptorImpl element = (XmlElementDescriptorImpl)element1;
       final String namespaceByContext = element.getNamespaceByContext(context);
 
-      if (element.getName().equals(localName)) {
+      if (StringUtil.equals(element.getName(), localName)) {
         if (namespace == null ||
             namespace.equals(namespaceByContext) ||
             namespaceByContext.equals(XmlUtil.EMPTY_URI) ||
@@ -544,9 +562,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
     XmlTagValue value = xmlTag.getValue();
     XmlText[] elements = value.getTextElements();
     if (elements.length == 0 || xmlTag.getSubTags().length > 0) return PsiReference.EMPTY_ARRAY;
-    return new PsiReference[] {
-      new XmlEnumeratedValueReference(xmlTag, this, ElementManipulators.getValueTextRange(xmlTag))
-    };
+    return new XmlEnumeratedReferenceSet(xmlTag, this).getPsiReferences();
   }
 
   @Override
@@ -557,8 +573,7 @@ public class XmlElementDescriptorImpl extends XsdEnumerationDescriptor<XmlTag>
       final ComplexTypeDescriptor typeDescriptor = (ComplexTypeDescriptor)type;
       return typeDescriptor.canContainTag("a", namespace, context) ||
              typeDescriptor.getNsDescriptor().hasSubstitutions() ||
-             XmlUtil.nsFromTemplateFramework(namespace)
-        ;
+             XmlUtil.nsFromTemplateFramework(namespace);
     }
     return false;
   }

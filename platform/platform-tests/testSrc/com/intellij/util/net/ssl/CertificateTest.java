@@ -17,7 +17,6 @@ package com.intellij.util.net.ssl;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Ref;
 import com.intellij.testFramework.LightPlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -30,9 +29,7 @@ import org.apache.http.impl.client.HttpClientBuilder;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.File;
 import java.security.cert.X509Certificate;
-import java.util.concurrent.Callable;
 
 import static com.intellij.util.net.ssl.ConfirmingTrustManager.MutableTrustManager;
 
@@ -63,7 +60,7 @@ public class CertificateTest extends LightPlatformTestCase {
   private X509Certificate myAuthorityCertificate;
 
 
-  public void testSetUp() throws Exception {
+  public void testSetUp() {
     assertTrue(myTrustManager.containsCertificate(AUTHORITY_CN));
   }
 
@@ -105,12 +102,8 @@ public class CertificateTest extends LightPlatformTestCase {
   }
 
   private void doTest(@NotNull String url, @NotNull String alias, boolean added) throws Exception {
-    CloseableHttpResponse response = myClient.execute(new HttpGet(url));
-    try {
+    try (CloseableHttpResponse response = myClient.execute(new HttpGet(url))) {
       assertEquals(response.getStatusLine().getStatusCode(), HttpStatus.SC_OK);
-    }
-    finally {
-      response.close();
     }
     if (added) {
       assertTrue(myTrustManager.containsCertificate(alias));
@@ -189,6 +182,9 @@ public class CertificateTest extends LightPlatformTestCase {
       try {
         myClient.close();
       }
+      catch (Throwable e) {
+        addSuppressedException(e);
+      }
       finally {
         super.tearDown();
       }
@@ -196,6 +192,6 @@ public class CertificateTest extends LightPlatformTestCase {
   }
 
   private static String getTestDataPath() {
-    return PlatformTestUtil.getCommunityPath().replace(File.separatorChar, '/') + "/platform/platform-tests/testData/";
+    return PlatformTestUtil.getPlatformTestDataPath();
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.github.api;
 
 import com.google.gson.JsonElement;
@@ -28,8 +14,8 @@ import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.plugins.github.api.data.GithubErrorMessage;
+import org.jetbrains.plugins.github.authentication.accounts.GithubAccount;
 import org.jetbrains.plugins.github.exceptions.*;
 import org.jetbrains.plugins.github.util.GithubAuthData;
 import org.jetbrains.plugins.github.util.GithubUrlUtil;
@@ -42,25 +28,29 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.security.cert.CertificateException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static org.jetbrains.plugins.github.api.GithubApiUtil.fromJson;
 
+/**
+ * @deprecated use {@link GithubApiRequestExecutor} with {@link GithubApiRequests} and {@link GithubApiRequest}
+ * @see GithubApiRequestExecutorManager
+ * @see GithubApiRequestExecutor
+ * @see GithubApiRequestExecutor.Factory
+ */
+@Deprecated
 public class GithubConnection {
   private static final Logger LOG = GithubUtil.LOG;
 
+  // nullable for backwards compatibility
+  @Nullable private GithubAccount myAccount;
   @NotNull private final String myApiURL;
   @NotNull private final CloseableHttpClient myClient;
   private final boolean myReusable;
 
   private volatile HttpUriRequest myRequest;
   private volatile boolean myAborted;
-
-  @TestOnly
-  public GithubConnection(@NotNull GithubAuthData auth) {
-    this(auth, false);
-  }
 
   public GithubConnection(@NotNull GithubAuthData auth, boolean reusable) {
     myApiURL = GithubUrlUtil.getApiUrl(auth.getHost());
@@ -102,6 +92,15 @@ public class GithubConnection {
   public Header[] headRequest(@NotNull String path,
                               @NotNull Header... headers) throws IOException {
     return request(path, null, Arrays.asList(headers), HttpVerb.HEAD).getHeaders();
+  }
+
+  @Nullable
+  public GithubAccount getAccount() {
+    return myAccount;
+  }
+
+  public void setAccount(@NotNull GithubAccount account) {
+    myAccount = account;
   }
 
   @NotNull
@@ -253,7 +252,6 @@ public class GithubConnection {
       case HttpStatus.SC_UNAUTHORIZED:
       case HttpStatus.SC_PAYMENT_REQUIRED:
       case HttpStatus.SC_FORBIDDEN:
-        //noinspection ThrowableResultOfMethodCallIgnored
         GithubStatusCodeException error = getStatusCodeException(response);
 
         Header headerOTP = response.getFirstHeader("X-GitHub-OTP");
@@ -282,36 +280,34 @@ public class GithubConnection {
   @NotNull
   private static GithubStatusCodeException getStatusCodeException(@NotNull CloseableHttpResponse response) {
     StatusLine statusLine = response.getStatusLine();
+    int statusCode = statusLine.getStatusCode();
+    String reason = statusCode + " " + statusLine.getReasonPhrase();
     try {
       HttpEntity entity = response.getEntity();
       if (entity != null) {
         GithubErrorMessage error = fromJson(parseResponse(entity.getContent()), GithubErrorMessage.class);
-        String message = statusLine.getReasonPhrase() + " - " + error.getMessage();
-        return new GithubStatusCodeException(message, error, statusLine.getStatusCode());
+        String message = reason + " - " + error.getMessage();
+        return new GithubStatusCodeException(message, error, statusCode);
       }
     }
     catch (IOException e) {
       LOG.info(e);
     }
-    return new GithubStatusCodeException(statusLine.getReasonPhrase(), statusLine.getStatusCode());
+    return new GithubStatusCodeException(reason, statusCode);
   }
 
   @NotNull
   private static JsonElement parseResponse(@NotNull InputStream githubResponse) throws IOException {
-    Reader reader = new InputStreamReader(githubResponse, CharsetToolkit.UTF8_CHARSET);
-    try {
+    try (Reader reader = new InputStreamReader(githubResponse, CharsetToolkit.UTF8_CHARSET)) {
       return new JsonParser().parse(reader);
     }
     catch (JsonParseException jse) {
       throw new GithubJsonException("Couldn't parse GitHub response", jse);
     }
-    finally {
-      reader.close();
-    }
   }
 
   public static abstract class PagedRequestBase<T> implements PagedRequest<T> {
-    @NotNull private String myPath;
+    @NotNull private final String myPath;
     @NotNull private final Collection<Header> myHeaders;
 
     private boolean myFirstRequest = true;
@@ -322,6 +318,7 @@ public class GithubConnection {
       myHeaders = Arrays.asList(headers);
     }
 
+    @Override
     @NotNull
     public List<T> next(@NotNull GithubConnection connection) throws IOException {
       String url;
@@ -345,6 +342,7 @@ public class GithubConnection {
       return parse(response.getJsonElement());
     }
 
+    @Override
     public boolean hasNext() {
       return myFirstRequest || myNextPage != null;
     }
@@ -408,7 +406,7 @@ public class GithubConnection {
     @Nullable private final String myNextPage;
     @NotNull private final Header[] myHeaders;
 
-    public ResponsePage(@Nullable JsonElement response, @Nullable String next, @NotNull Header[] headers) {
+    ResponsePage(@Nullable JsonElement response, @Nullable String next, @NotNull Header[] headers) {
       myResponse = response;
       myNextPage = next;
       myHeaders = headers;

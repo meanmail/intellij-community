@@ -27,6 +27,7 @@ import com.intellij.psi.PsiRecursiveElementVisitor;
 import com.intellij.psi.xml.XmlAttributeDecl;
 import com.intellij.psi.xml.XmlElementDecl;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -34,11 +35,6 @@ import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.util.*;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 18.11.2007
- */
 public class AdvancedDtdOptions implements AdvancedOptions {
   @NonNls
   private static final String COLON_REPLACEMENT = "colon-replacement";
@@ -91,7 +87,7 @@ public class AdvancedDtdOptions implements AdvancedOptions {
     final DefaultActionGroup group = new DefaultActionGroup();
     group.add(new AnAction(null, "Remove Entry", AllIcons.General.Remove) {
       @Override
-      public void update(AnActionEvent e) {
+      public void update(@NotNull AnActionEvent e) {
         if (myNamespaceMap.getModel().getRowCount() == 0 || myNamespaceMap.getSelectedRow() == -1) {
           e.getPresentation().setEnabled(false);
         } else {
@@ -100,12 +96,12 @@ public class AdvancedDtdOptions implements AdvancedOptions {
       }
 
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         ((NamespaceMapModel)myNamespaceMap.getModel()).removeRow(myNamespaceMap.getSelectedRow());
       }
     });
 
-    final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, false);
+    final ActionToolbar toolbar = ActionManager.getInstance().createActionToolbar("RelaxNgDtdOptions", group, false);
     myToolbar.add(toolbar.getComponent());
   }
 

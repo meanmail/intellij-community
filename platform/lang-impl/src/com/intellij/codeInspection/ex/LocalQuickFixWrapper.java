@@ -1,23 +1,12 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.BatchQuickFix;
+import com.intellij.codeInspection.CommonProblemDescriptor;
+import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.QuickFix;
 import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefManager;
@@ -78,13 +67,13 @@ public class LocalQuickFixWrapper extends QuickFixAction {
   protected void applyFix(@NotNull final Project project,
                           @NotNull final GlobalInspectionContextImpl context,
                           @NotNull final CommonProblemDescriptor[] descriptors,
-                          @NotNull final Set<PsiElement> ignoredElements) {
+                          @NotNull final Set<? super PsiElement> ignoredElements) {
     if (myFix instanceof BatchQuickFix) {
       final List<PsiElement> collectedElementsToIgnore = new ArrayList<>();
       final Runnable refreshViews = () -> {
         DaemonCodeAnalyzer.getInstance(project).restart();
         for (CommonProblemDescriptor descriptor : descriptors) {
-          ignore(ignoredElements, descriptor, getWorkingQuickFix(descriptor.getFixes()), context);
+          ignore(ignoredElements, descriptor, getWorkingQuickFix(descriptor.getFixes()) != null, context);
         }
 
         final RefManager refManager = context.getRefManager();
@@ -110,7 +99,7 @@ public class LocalQuickFixWrapper extends QuickFixAction {
           //CCE here means QuickFix was incorrectly inherited, is there a way to signal (plugin) it is wrong?
           fix.applyFix(project, descriptor);
           restart = true;
-          ignore(ignoredElements, descriptor, fix, context);
+          ignore(ignoredElements, descriptor, true, context);
         }
       }
     }
@@ -119,13 +108,31 @@ public class LocalQuickFixWrapper extends QuickFixAction {
     }
   }
 
-  private void ignore(@NotNull Collection<PsiElement> ignoredElements,
+  @Override
+  protected boolean startInWriteAction() {
+    return myFix.startInWriteAction();
+  }
+
+  @Override
+  protected void performFixesInBatch(@NotNull Project project,
+                                     @NotNull List<CommonProblemDescriptor[]> descriptors,
+                                     @NotNull GlobalInspectionContextImpl context,
+                                     Set<? super PsiElement> ignoredElements) {
+    if (myFix instanceof BatchQuickFix) {
+      applyFix(project, context, BatchModeDescriptorsUtil.flattenDescriptors(descriptors), ignoredElements);
+    }
+    else {
+      super.performFixesInBatch(project, descriptors, context, ignoredElements);
+    }
+  }
+
+  private void ignore(@NotNull Collection<? super PsiElement> ignoredElements,
                       @NotNull CommonProblemDescriptor descriptor,
-                      @Nullable QuickFix fix,
+                      boolean hasFix,
                       @NotNull GlobalInspectionContextImpl context) {
-    if (fix != null) {
+    if (hasFix) {
       InspectionToolPresentation presentation = context.getPresentation(myToolWrapper);
-      presentation.ignoreProblem(descriptor, fix);
+      presentation.resolveProblem(descriptor);
     }
     if (descriptor instanceof ProblemDescriptor) {
       PsiElement element = ((ProblemDescriptor)descriptor).getPsiElement();

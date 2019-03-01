@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Alexey
- * Date: 18.12.2006
- * Time: 20:18:31
- */
 package com.intellij.util.containers;
 
 import gnu.trove.TObjectHashingStrategy;
@@ -38,19 +32,19 @@ class ConcurrentSoftKeySoftValueHashMap<K, V> extends ConcurrentWeakKeySoftValue
   ConcurrentSoftKeySoftValueHashMap(int initialCapacity,
                                     float loadFactor,
                                     int concurrencyLevel,
-                                    @NotNull final TObjectHashingStrategy<K> hashingStrategy) {
+                                    @NotNull final TObjectHashingStrategy<? super K> hashingStrategy) {
     super(initialCapacity, loadFactor, concurrencyLevel, hashingStrategy);
   }
 
   private static class SoftKey<K, V> extends SoftReference<K> implements KeyReference<K, V> {
     private final int myHash; // Hash code of the key, stored here since the key may be tossed by the GC
-    private final TObjectHashingStrategy<K> myStrategy;
+    private final TObjectHashingStrategy<? super K> myStrategy;
     @NotNull private final ValueReference<K, V> myValueReference;
 
     SoftKey(@NotNull K k,
             @NotNull ValueReference<K, V> valueReference,
-            @NotNull TObjectHashingStrategy<K> strategy,
-            @NotNull ReferenceQueue<K> queue) {
+            @NotNull TObjectHashingStrategy<? super K> strategy,
+            @NotNull ReferenceQueue<? super K> queue) {
       super(k, queue);
       myValueReference = valueReference;
       myHash = strategy.computeHashCode(k);
@@ -81,13 +75,12 @@ class ConcurrentSoftKeySoftValueHashMap<K, V> extends ConcurrentWeakKeySoftValue
 
   @Override
   @NotNull
-  protected KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
+  KeyReference<K,V> createKeyReference(@NotNull K k, @NotNull final V v) {
     final ValueReference<K, V> valueReference = createValueReference(v, myValueQueue);
-    SoftKey<K, V> keyReference = new SoftKey<K, V>(k, valueReference, myHashingStrategy, myKeyQueue);
+    SoftKey<K, V> keyReference = new SoftKey<>(k, valueReference, myHashingStrategy, myKeyQueue);
     if (valueReference instanceof SoftValue) {
       ((SoftValue)valueReference).myKeyReference = keyReference;
     }
     return keyReference;
   }
-
 }

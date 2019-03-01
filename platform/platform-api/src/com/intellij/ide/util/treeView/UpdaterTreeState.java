@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.openapi.util.ActionCallback;
@@ -31,22 +17,21 @@ import javax.swing.tree.TreePath;
 import java.util.*;
 
 public class UpdaterTreeState {
-
   private final AbstractTreeUi myUi;
-  protected WeakHashMap<Object, Object> myToSelect = new WeakHashMap<>();
-  protected WeakHashMap<Object, Condition> myAdjustedSelection = new WeakHashMap<>();
-  protected WeakHashMap<Object, Object> myToExpand = new WeakHashMap<>();
+  private final Map<Object, Object> myToSelect = new WeakHashMap<>();
+  private Map<Object, Condition> myAdjustedSelection = new WeakHashMap<>();
+  private final Map<Object, Object> myToExpand = new WeakHashMap<>();
   private int myProcessingCount;
 
   private boolean myCanRunRestore = true;
 
   private final WeakHashMap<Object, Object> myAdjustmentCause2Adjustment = new WeakHashMap<>();
 
-  public UpdaterTreeState(AbstractTreeUi ui) {
+  UpdaterTreeState(AbstractTreeUi ui) {
     this(ui, false);
   }
 
-  public UpdaterTreeState(AbstractTreeUi ui, boolean isEmpty) {
+  private UpdaterTreeState(AbstractTreeUi ui, boolean isEmpty) {
     myUi = ui;
 
     if (!isEmpty) {
@@ -54,10 +39,6 @@ public class UpdaterTreeState {
       putAll(addPaths(tree.getSelectionPaths()), myToSelect);
       putAll(addPaths(tree.getExpandedDescendants(new TreePath(tree.getModel().getRoot()))), myToExpand);
     }
-  }
-
-  public boolean isQueuedForSelection(Object element) {
-    return myToSelect.containsKey(element);
   }
 
   private static void putAll(final Set<Object> source, final Map<Object, Object> target) {
@@ -109,12 +90,12 @@ public class UpdaterTreeState {
 
   @NotNull
   public Object[] getToSelect() {
-    return myToSelect.keySet().toArray(new Object[myToSelect.size()]);
+    return ArrayUtil.toObjectArray(myToSelect.keySet());
   }
 
   @NotNull
   public Object[] getToExpand() {
-    return myToExpand.keySet().toArray(new Object[myToExpand.size()]);
+    return ArrayUtil.toObjectArray(myToExpand.keySet());
   }
 
   public boolean process(@NotNull Runnable runnable) {
@@ -134,7 +115,7 @@ public class UpdaterTreeState {
   }
 
 
-  public boolean isProcessingNow() {
+  boolean isProcessingNow() {
     return myProcessingCount > 0;
   }
 
@@ -164,8 +145,7 @@ public class UpdaterTreeState {
     final Object[] toExpand = getToExpand();
 
 
-    final Map<Object, Condition> adjusted = new WeakHashMap<>();
-    adjusted.putAll(myAdjustedSelection);
+    final Map<Object, Condition> adjusted = new WeakHashMap<>(myAdjustedSelection);
 
     clearSelection();
     clearExpansion();
@@ -182,7 +162,7 @@ public class UpdaterTreeState {
           return o;
         }, originallySelected);
 
-        processAjusted(adjusted, originallySelected).doWhenDone(new TreeRunnable("UpdaterTreeState.restore: on done") {
+        processAdjusted(adjusted, originallySelected).doWhenDone(new TreeRunnable("UpdaterTreeState.restore: on done") {
           @Override
           public void perform() {
             myUi.expand(toExpand, new TreeRunnable("UpdaterTreeState.restore: after on done") {
@@ -195,7 +175,7 @@ public class UpdaterTreeState {
           }
         });
       }
-    }, false, true, true, false);
+    });
 
     return true;
   }
@@ -248,21 +228,23 @@ public class UpdaterTreeState {
     }
   }
 
-  private ActionCallback processAjusted(final Map<Object, Condition> adjusted, final Set<Object> originallySelected) {
+  private ActionCallback processAdjusted(final Map<Object, Condition> adjusted, final Set<Object> originallySelected) {
     final ActionCallback result = new ActionCallback();
 
     final Set<Object> allSelected = myUi.getSelectedElements();
 
     Set<Object> toSelect = new HashSet<>();
     for (Map.Entry<Object, Condition> entry : adjusted.entrySet()) {
-      if (entry.getValue().value(entry.getKey())) continue;
+      Condition condition = entry.getValue();
+      Object key = entry.getKey();
+      if (condition.value(key)) continue;
 
       for (final Object eachSelected : allSelected) {
-        if (isParentOrSame(entry.getKey(), eachSelected)) continue;
-        toSelect.add(entry.getKey());
+        if (isParentOrSame(key, eachSelected)) continue;
+        toSelect.add(key);
       }
       if (allSelected.isEmpty()) {
-        toSelect.add(entry.getKey());
+        toSelect.add(key);
       }
     }
 
@@ -284,7 +266,7 @@ public class UpdaterTreeState {
 
           processHangByParent(hangByParent).notify(result);
         }
-      }, false, true, true);
+      }, false, true);
     } else {
       result.setDone();
     }
@@ -341,7 +323,7 @@ public class UpdaterTreeState {
     return false;
   }
 
-  public void clearExpansion() {
+  void clearExpansion() {
     myToExpand.clear();
   }
 
@@ -354,7 +336,7 @@ public class UpdaterTreeState {
     myToSelect.put(element, element);
   }
 
-  public void addAdjustedSelection(final Object element, Condition isExpired, @Nullable Object adjustmentCause) {
+  void addAdjustedSelection(final Object element, Condition isExpired, @Nullable Object adjustmentCause) {
     myAdjustedSelection.put(element, isExpired);
     if (adjustmentCause != null) {
       myAdjustmentCause2Adjustment.put(adjustmentCause, element);
@@ -364,12 +346,12 @@ public class UpdaterTreeState {
   @NonNls
   @Override
   public String toString() {
-    return "UpdaterState toSelect" +
+    return "UpdaterState toSelect " +
            myToSelect + " toExpand=" +
            myToExpand + " processingNow=" + isProcessingNow() + " canRun=" + myCanRunRestore;
   }
 
-  public void setProcessingNow(boolean processingNow) {
+  private void setProcessingNow(boolean processingNow) {
     if (processingNow) {
       myProcessingCount++;
     } else {

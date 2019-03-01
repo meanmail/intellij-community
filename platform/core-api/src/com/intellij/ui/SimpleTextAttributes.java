@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.openapi.editor.markup.EffectType;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.util.BitUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.intellij.lang.annotations.MagicConstant;
@@ -30,10 +17,11 @@ import java.awt.*;
 /**
  * @author Vladimir Kondratyev
  */
-@SuppressWarnings({"PointlessBitwiseExpression"})
 public final class SimpleTextAttributes {
 
-  @MagicConstant(flags = {STYLE_PLAIN, STYLE_BOLD, STYLE_ITALIC, STYLE_STRIKEOUT, STYLE_WAVED, STYLE_UNDERLINE, STYLE_BOLD_DOTTED_LINE, STYLE_SEARCH_MATCH, STYLE_SMALLER, STYLE_OPAQUE})
+  @MagicConstant(flags = {
+    STYLE_PLAIN, STYLE_BOLD, STYLE_ITALIC, STYLE_STRIKEOUT, STYLE_WAVED, STYLE_UNDERLINE,
+    STYLE_BOLD_DOTTED_LINE, STYLE_SEARCH_MATCH, STYLE_SMALLER, STYLE_OPAQUE, STYLE_CLICKABLE})
   public @interface StyleAttributeConstant { }
 
   public static final int STYLE_PLAIN = Font.PLAIN;
@@ -47,6 +35,7 @@ public final class SimpleTextAttributes {
   public static final int STYLE_SEARCH_MATCH = STYLE_BOLD_DOTTED_LINE << 1;
   public static final int STYLE_SMALLER = STYLE_SEARCH_MATCH << 1;
   public static final int STYLE_OPAQUE = STYLE_SMALLER << 1;
+  public static final int STYLE_CLICKABLE = STYLE_OPAQUE << 1;
 
   public static final SimpleTextAttributes REGULAR_ATTRIBUTES = new SimpleTextAttributes(STYLE_PLAIN, null);
   public static final SimpleTextAttributes REGULAR_BOLD_ATTRIBUTES = new SimpleTextAttributes(STYLE_BOLD, null);
@@ -69,8 +58,9 @@ public final class SimpleTextAttributes {
     new SimpleTextAttributes(STYLE_PLAIN, UIUtil.getListSelectionForeground());
   public static final SimpleTextAttributes EXCLUDED_ATTRIBUTES = new SimpleTextAttributes(STYLE_ITALIC, Color.GRAY);
 
-  public static final SimpleTextAttributes LINK_ATTRIBUTES = new SimpleTextAttributes(STYLE_UNDERLINE, JBColor.blue);
-  public static final SimpleTextAttributes LINK_BOLD_ATTRIBUTES = new SimpleTextAttributes(STYLE_UNDERLINE | STYLE_BOLD, JBColor.blue);
+  public static final SimpleTextAttributes LINK_PLAIN_ATTRIBUTES = new SimpleTextAttributes(STYLE_PLAIN, JBUI.CurrentTheme.Link.linkColor());
+  public static final SimpleTextAttributes LINK_ATTRIBUTES = new SimpleTextAttributes(STYLE_UNDERLINE, JBUI.CurrentTheme.Link.linkColor());
+  public static final SimpleTextAttributes LINK_BOLD_ATTRIBUTES = new SimpleTextAttributes(STYLE_UNDERLINE | STYLE_BOLD, JBUI.CurrentTheme.Link.linkColor());
 
   private final Color myBgColor;
   private final Color myFgColor;
@@ -79,9 +69,9 @@ public final class SimpleTextAttributes {
   private final int myStyle;
 
   /**
-   * @param style   style of the text fragment.                                       5
-   * @param fgColor color of the text fragment. <code>color</code> can be
-   *                <code>null</code>. In that case <code>SimpleColoredComponent</code> will
+   * @param style   style of the text fragment.
+   * @param fgColor color of the text fragment. {@code color} can be
+   *                {@code null}. In that case {@code SimpleColoredComponent} will
    *                use its foreground to paint the text fragment.
    */
   public SimpleTextAttributes(@StyleAttributeConstant int style, Color fgColor) {
@@ -102,7 +92,8 @@ public final class SimpleTextAttributes {
            STYLE_BOLD_DOTTED_LINE |
            STYLE_SEARCH_MATCH |
            STYLE_SMALLER |
-           STYLE_OPAQUE) & style) != 0) {
+           STYLE_OPAQUE |
+           STYLE_CLICKABLE) & style) != 0) {
       throw new IllegalArgumentException("Wrong style: " + style);
     }
 
@@ -129,7 +120,7 @@ public final class SimpleTextAttributes {
   }
 
   /**
-   * @return wave color. The method can return <code>null</code>. <code>null</code>
+   * @return wave color. The method can return {@code null}. {@code null}
    *         means that color of wave is the same as foreground color.
    */
   @Nullable
@@ -176,12 +167,17 @@ public final class SimpleTextAttributes {
     return BitUtil.isSet(myStyle, STYLE_OPAQUE);
   }
 
+  public boolean isClickable() {
+    return BitUtil.isSet(myStyle, STYLE_CLICKABLE);
+  }
+
   @NotNull
   public static SimpleTextAttributes fromTextAttributes(TextAttributes attributes) {
     if (attributes == null) return REGULAR_ATTRIBUTES;
 
-    Color foregroundColor = attributes.getForegroundColor();
-    if (foregroundColor == null) foregroundColor = REGULAR_ATTRIBUTES.getFgColor();
+    Color fgColor = attributes.getForegroundColor();
+    if (fgColor == null) fgColor = REGULAR_ATTRIBUTES.getFgColor();
+    Color bgColor = attributes.getBackgroundColor();
 
     int style = attributes.getFontType();
     if (attributes.getEffectColor() != null) {
@@ -204,7 +200,8 @@ public final class SimpleTextAttributes {
         // not supported
       }
     }
-    return new SimpleTextAttributes(attributes.getBackgroundColor(), foregroundColor, attributes.getEffectColor(), style);
+    //noinspection MagicConstant
+    return new SimpleTextAttributes(bgColor, fgColor, attributes.getEffectColor(), style);
   }
 
   @JdkConstants.FontStyle

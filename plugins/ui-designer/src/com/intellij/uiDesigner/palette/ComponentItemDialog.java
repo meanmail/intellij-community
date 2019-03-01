@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.palette;
 
 import com.intellij.CommonBundle;
@@ -20,8 +6,8 @@ import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.ide.util.TreeFileChooser;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileTypes.StdFileTypes;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.module.ResourceFileUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.ComponentWithBrowseButton;
@@ -113,9 +99,9 @@ public final class ComponentItemDialog extends DialogWrapper {
     }
     updateEnabledTextField();
 
-    myTfClassName.getChildComponent().addDocumentListener(new com.intellij.openapi.editor.event.DocumentAdapter() {
+    myTfClassName.getChildComponent().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         updateOKAction();
       }
     });
@@ -137,7 +123,7 @@ public final class ComponentItemDialog extends DialogWrapper {
 
     myTfNestedForm.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         updateOKAction();
       }
     });
@@ -210,14 +196,8 @@ public final class ComponentItemDialog extends DialogWrapper {
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
-  }
-
-  @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("reference.dialogs.addEditPaletteComponent");
+  protected String getHelpId() {
+    return "reference.dialogs.addEditPaletteComponent";
   }
 
   @Override
@@ -227,7 +207,7 @@ public final class ComponentItemDialog extends DialogWrapper {
       final String className = myDocument.getText().trim();
       PsiClass psiClass = JavaPsiFacade.getInstance(myProject).findClass(className, GlobalSearchScope.allScope(myProject));
       if (psiClass != null) {
-        myItemToBeEdited.setClassName(getClassOrInnerName(psiClass));        
+        myItemToBeEdited.setClassName(getClassOrInnerName(psiClass));
       }
       else {
         myItemToBeEdited.setClassName(className);
@@ -371,7 +351,7 @@ public final class ComponentItemDialog extends DialogWrapper {
   private class MyChooseClassActionListener implements ActionListener {
     private final Project myProject;
 
-    public MyChooseClassActionListener(final Project project) {
+    MyChooseClassActionListener(final Project project) {
       myProject = project;
     }
 
@@ -395,7 +375,7 @@ public final class ComponentItemDialog extends DialogWrapper {
     private final TextFieldWithBrowseButton myTextField;
     private final String myTitle;
 
-    public MyChooseFileActionListener(final Project project,
+    MyChooseFileActionListener(final Project project,
                                       final TreeFileChooser.PsiFileFilter filter,
                                       final TextFieldWithBrowseButton textField,
                                       final String title) {

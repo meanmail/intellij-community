@@ -20,17 +20,16 @@ import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.ex.FakeFileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeManagerEx;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.search.FileTypeIndex;
+import com.intellij.psi.search.FileTypeIndexImpl;
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 7/24/12
  */
 public class FileTypeIndexTest extends LightPlatformCodeInsightFixtureTestCase {
 
-  public void testAddFileType() throws Exception {
+  public void testAddFileType() {
     addAndRemoveFileType();
   }
 
@@ -53,7 +52,7 @@ public class FileTypeIndexTest extends LightPlatformCodeInsightFixtureTestCase {
         return "";
       }
     };
-    FileTypeIndex index = new FileTypeIndex(FileTypeManager.getInstance());
+    FileTypeIndexImpl index = new FileTypeIndexImpl(FileTypeManager.getInstance());
     int version = index.getVersion();
 
     try {

@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 06.06.2002
- * Time: 11:30:13
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.introduceParameter;
 
 import com.intellij.openapi.project.Project;
@@ -63,15 +55,18 @@ public class EnclosingMethodSelectionDialog extends DialogWrapper {
     }
   }
 
+  @Override
   @NotNull
   protected Action[] createActions() {
     return new Action[]{getOKAction(), getCancelAction()/*, getHelpAction()*/};
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myEnclosingMethodsList;
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     JPanel panel = new JPanel();
 
@@ -101,10 +96,12 @@ public class EnclosingMethodSelectionDialog extends DialogWrapper {
     return panel;
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "#com.intellij.refactoring.introduceParameter.EnclosingMethodSelectonDialog";
   }
 
+  @Override
   protected void doOKAction() {
     if (!isOKActionEnabled())
       return;
@@ -112,6 +109,7 @@ public class EnclosingMethodSelectionDialog extends DialogWrapper {
     super.doOKAction();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return null;
   }

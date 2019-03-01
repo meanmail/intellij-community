@@ -17,7 +17,6 @@ package org.jetbrains.jps.eclipse.model;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
-import com.intellij.util.containers.HashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -31,6 +30,7 @@ import org.jetbrains.jps.model.serialization.module.JpsModuleClasspathSerializer
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -61,7 +61,7 @@ public class JpsEclipseClasspathSerializer extends JpsModuleClasspathSerializer 
 
       final String eml = module.getName() + EclipseXml.IDEA_SETTINGS_POSTFIX;
       final File emlFile = new File(baseModulePath, eml);
-      final Map<String, String> levels = new HashMap<String, String>();
+      final Map<String, String> levels = new HashMap<>();
       final JpsIdeaSpecificSettings settings;
       final Element root;
       if (emlFile.isFile()) {
@@ -73,7 +73,7 @@ public class JpsEclipseClasspathSerializer extends JpsModuleClasspathSerializer 
         root = null;
       }
 
-      final JpsEclipseClasspathReader reader = new JpsEclipseClasspathReader(classpathDir, paths, new HashSet<String>(), levels);
+      final JpsEclipseClasspathReader reader = new JpsEclipseClasspathReader(classpathDir, paths, new HashSet<>(), levels);
       reader.readClasspath(module, null, JDOMUtil.load(classpathFile), expander);//todo
       if (settings != null) {
         settings.updateEntries(root, module, projectSdkType);

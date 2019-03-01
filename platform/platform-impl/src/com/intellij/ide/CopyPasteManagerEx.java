@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.editor.CaretStateTransferableData;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.ide.CutElementMarker;
 import com.intellij.openapi.ide.KillRingTransferable;
@@ -36,7 +22,7 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
   private final List<Transferable> myData = new ArrayList<>();
   private final EventDispatcher<ContentChangedListener> myDispatcher = EventDispatcher.create(ContentChangedListener.class);
   private final ClipboardSynchronizer myClipboardSynchronizer;
-  private boolean myOwnContent = false;
+  private boolean myOwnContent;
 
   public static CopyPasteManagerEx getInstanceEx() {
     return (CopyPasteManagerEx)getInstance();
@@ -89,7 +75,7 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
 
   @Override
   public boolean isCutElement(@Nullable final Object element) {
-    for (CutElementMarker marker : Extensions.getExtensions(CutElementMarker.EP_NAME)) {
+    for (CutElementMarker marker : CutElementMarker.EP_NAME.getExtensionList()) {
       if (marker.isCutElement(element)) return true;
     }
     return false;
@@ -142,23 +128,20 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
         }
       }
 
-      Transferable same = null;
-      for (Transferable old : myData) {
-        if (clipString.equals(getStringContent(old))) {
-          same = old;
-          break;
+      CaretStateTransferableData caretData = CaretStateTransferableData.getFrom(content);
+      for (int i = 0; i < myData.size(); i++) {
+        Transferable old = myData.get(i);
+        if (clipString.equals(getStringContent(old)) &&
+            CaretStateTransferableData.areEquivalent(caretData, CaretStateTransferableData.getFrom(old))) {
+          myData.remove(i);
+          myData.add(0, content);
+          return content;
         }
       }
 
-      if (same == null) {
-        addToTheTopOfTheStack(content);
-      }
-      else {
-        moveContentToStackTop(same, false); // notification is done in setContents() method
-      }
+      addToTheTopOfTheStack(content);
     }
-    catch (UnsupportedFlavorException ignore) { }
-    catch (IOException ignore) { }
+    catch (UnsupportedFlavorException | IOException ignore) { }
     return content;
   }
 
@@ -172,7 +155,7 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
    *
    * @param newData new data to merge
    * @param oldData old data to merge
-   * @return merge result of the given data if possible; <code>null</code> otherwise
+   * @return merge result of the given data if possible; {@code null} otherwise
    * @throws IOException                as defined by {@link Transferable#getTransferData(DataFlavor)}
    * @throws UnsupportedFlavorException as defined by {@link Transferable#getTransferData(DataFlavor)}
    */
@@ -221,13 +204,12 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
     try {
       return (String)content.getTransferData(DataFlavor.stringFlavor);
     }
-    catch (UnsupportedFlavorException ignore) { }
-    catch (IOException ignore) { }
+    catch (UnsupportedFlavorException | IOException ignore) { }
     return null;
   }
 
   private void deleteAfterAllowedMaximum() {
-    int max = UISettings.getInstance().MAX_CLIPBOARD_CONTENTS;
+    int max = UISettings.getInstance().getMaxClipboardContents();
     for (int i = myData.size() - 1; i >= max; i--) {
       myData.remove(i);
     }
@@ -242,17 +224,9 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
   @Override
   public <T> T getContents(@NotNull DataFlavor flavor) {
     if (areDataFlavorsAvailable(flavor)) {
-      try {
-        Transferable contents = getContents();
-        if (contents != null) {
-          @SuppressWarnings("unchecked") T data = (T)contents.getTransferData(flavor);
-          return data;
-        }
-      }
-      catch (UnsupportedFlavorException ignore) { }
-      catch (IOException ignore) { }
+      //noinspection unchecked
+      return (T)myClipboardSynchronizer.getData(flavor);
     }
-
     return null;
   }
 
@@ -263,7 +237,7 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
     if (clipString != null && (myData.isEmpty() || !Comparing.equal(clipString, getStringContent(myData.get(0))))) {
       addToTheTopOfTheStack(new StringSelection(clipString));
     }
-    return myData.toArray(new Transferable[myData.size()]);
+    return myData.toArray(new Transferable[0]);
   }
 
   public void removeContent(Transferable t) {
@@ -277,23 +251,15 @@ public class CopyPasteManagerEx extends CopyPasteManager implements ClipboardOwn
   }
 
   public void moveContentToStackTop(Transferable t) {
-    moveContentToStackTop(t, true);
-  }
-
-  private void moveContentToStackTop(Transferable t, boolean notifyOthers) {
     Transferable current = myData.isEmpty() ? null : myData.get(0);
     if (!Comparing.equal(t, current)) {
       myData.remove(t);
       myData.add(0, t);
-      if (notifyOthers) {
-        setSystemClipboardContent(t);
-        fireContentChanged(current, t);
-      }
+      setSystemClipboardContent(t);
+      fireContentChanged(current, t);
     }
     else {
-      if (notifyOthers) {
-        setSystemClipboardContent(t);
-      }
+      setSystemClipboardContent(t);
     }
   }
 }

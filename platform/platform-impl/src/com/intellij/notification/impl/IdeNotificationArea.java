@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -63,7 +63,8 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
     }.installOn(this);
 
     ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(LogModel.LOG_MODEL_CHANGED,
-                                                                                () -> ApplicationManager.getApplication().invokeLater(() -> updateStatus()));
+                                                                                () -> ApplicationManager.getApplication()
+                                                                                                        .invokeLater(() -> updateStatus()));
   }
 
   @Override
@@ -71,13 +72,16 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
     updateStatus();
   }
 
+  @Override
   public WidgetPresentation getPresentation(@NotNull PlatformType type) {
     return null;
   }
 
+  @Override
   public void dispose() {
   }
 
+  @Override
   public void install(@NotNull StatusBar statusBar) {
     myStatusBar = statusBar;
     updateStatus();
@@ -88,6 +92,7 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
     return CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext((Component)myStatusBar));
   }
 
+  @Override
   @NotNull
   public String ID() {
     return WIDGET_ID;
@@ -105,7 +110,7 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
   }
 
   private void applyIconToStatusAndToolWindow(Project project, LayeredIcon icon) {
-    if (UISettings.getInstance().HIDE_TOOL_STRIPES || UISettings.getInstance().PRESENTATION_MODE) {
+    if (UISettings.getInstance().getHideToolStripes() || UISettings.getInstance().getPresentationMode()) {
       setVisible(true);
       setIcon(icon);
     }
@@ -128,7 +133,9 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
     icon.setIcon(getPendingNotificationsIcon(AllIcons.Ide.Notification.NoEvents, type), 0);
     if (size > 0) {
       //noinspection UseJBColor
-      Color textColor = type == NotificationType.ERROR ? new JBColor(Color.white, new Color(0xF2F2F2)) : new Color(0x333333);
+      Color textColor = type == NotificationType.ERROR || type == NotificationType.INFORMATION
+                        ? new JBColor(Color.white, new Color(0xF2F2F2))
+                        : new Color(0x333333);
       icon.setIcon(new TextIcon(component, size < 10 ? String.valueOf(size) : "9+", textColor), 1);
     }
     return icon;
@@ -179,7 +186,7 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
     private final int myWidth;
     private final Font myFont;
 
-    public TextIcon(JComponent component, @NotNull String str, @NotNull Color textColor) {
+    TextIcon(JComponent component, @NotNull String str, @NotNull Color textColor) {
       myStr = str;
       myComponent = component;
       myTextColor = textColor;
@@ -220,17 +227,18 @@ public class IdeNotificationArea extends JLabel implements UISettingsListener, C
       x += (getIconWidth() - myWidth) / 2;
       y += SimpleColoredComponent.getTextBaseLine(g.getFontMetrics(), getIconHeight());
 
-      if (SystemInfo.isLinux) {
-        if (myStr.length() == 1) {
-          x--;
-        }
-      }
-      else if (myStr.length() == 2) {
-        x++;
+      int length = myStr.length();
+      if (SystemInfo.isMac || (SystemInfo.isWindows && length == 2)) {
+        x += JBUI.scale(1);
       }
 
       g.setColor(myTextColor);
-      g.drawString(myStr, x, y);
+      g.drawString(myStr.substring(0, 1), x, y);
+
+      if (length == 2) {
+        x += g.getFontMetrics().charWidth(myStr.charAt(0)) - JBUI.scale(1);
+        g.drawString(myStr.substring(1), x, y);
+      }
 
       g.setFont(originalFont);
       g.setColor(originalColor);

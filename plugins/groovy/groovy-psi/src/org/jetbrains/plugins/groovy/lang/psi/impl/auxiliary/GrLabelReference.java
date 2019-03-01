@@ -49,6 +49,7 @@ public class GrLabelReference implements PsiReference {
     throw new IncorrectOperationException("Can't bind not to labeled statement");
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final PsiElement identifier = myStatement.getLabelIdentifier();
@@ -60,7 +61,7 @@ public class GrLabelReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return resolve() == element;
   }
 
@@ -73,7 +74,7 @@ public class GrLabelReference implements PsiReference {
   }
 
   @Override
-  public GrFlowInterruptingStatement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public GrFlowInterruptingStatement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     if (myStatement instanceof GrBreakStatement) {
       myStatement = (GrFlowInterruptingStatement)myStatement.replaceWithStatement(
         GroovyPsiElementFactory.getInstance(myStatement.getProject()).createStatementFromText("break " + newElementName));
@@ -104,6 +105,7 @@ public class GrLabelReference implements PsiReference {
     return false;
   }
 
+  @NotNull
   @Override
   public GrFlowInterruptingStatement getElement() {
     return myStatement;

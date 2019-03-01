@@ -105,7 +105,7 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
     myClass = aClass;
     myManager = aClass.getManager();
     mySubstitutor = substitutor;
-    assert substitutor.isValid();
+    substitutor.ensureValid();
   }
 
   @Override
@@ -126,7 +126,7 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
       return PsiType.EMPTY_ARRAY;
     }
 
-    List<PsiType> lst = new ArrayList<PsiType>();
+    List<PsiType> lst = new ArrayList<>();
     for (PsiTypeParameter parameter : parameters) {
       PsiType substituted = mySubstitutor.substitute(parameter);
       if (substituted == null) {
@@ -146,7 +146,7 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
   @Override
   @NotNull
   public PsiClassType rawType() {
-    return JavaPsiFacade.getInstance(myClass.getProject()).getElementFactory().createType(myClass);
+    return JavaPsiFacade.getElementFactory(myClass.getProject()).createType(myClass);
   }
 
   @NotNull
@@ -196,11 +196,14 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
     if (aClass instanceof PsiAnonymousClass) {
       ClassResolveResult baseResolveResult = ((PsiAnonymousClass)aClass).getBaseClassType().resolveGenerics();
       PsiClass baseClass = baseResolveResult.getElement();
+      if (textType == TextType.INT_CANONICAL) {
+        buffer.append("anonymous ");
+      }
       if (baseClass != null) {
-        if (textType == TextType.INT_CANONICAL) {
-          buffer.append("anonymous ");
-        }
         buildText(baseClass, baseResolveResult.getSubstitutor(), buffer, textType, false);
+      }
+      else {
+        buffer.append(((PsiAnonymousClass)aClass).getBaseClassReference().getCanonicalText());
       }
       return;
     }
@@ -276,6 +279,9 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
 
   @Override
   public boolean isValid() {
+    for (PsiAnnotation annotation : getAnnotations()) {
+      if (!annotation.isValid()) return false;
+    }
     return myClass.isValid() && mySubstitutor.isValid();
   }
 
@@ -285,7 +291,7 @@ public class PsiImmediateClassType extends PsiClassType.Stub {
     if (name == null || !text.contains(name)) return false;
     if (text.equals(getCanonicalText(false))) return true;
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myManager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myManager.getProject());
     final PsiType patternType;
     try {
       patternType = factory.createTypeFromText(text, myClass);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,18 +15,20 @@
  */
 package org.jetbrains.plugins.gradle.service.project;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.ExternalSystemException;
 import com.intellij.openapi.progress.ProcessCanceledException;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
+import org.gradle.cli.CommandLineArgumentException;
 import org.gradle.tooling.UnsupportedVersionException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.gradle.service.notification.ApplyGradlePluginCallback;
+import org.jetbrains.plugins.gradle.service.execution.GradleExecutionErrorHandler;
 import org.jetbrains.plugins.gradle.service.notification.GotoSourceNotificationCallback;
 import org.jetbrains.plugins.gradle.service.notification.OpenGradleSettingsCallback;
 
+import java.io.FileNotFoundException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.net.ConnectException;
@@ -34,34 +36,30 @@ import java.net.UnknownHostException;
 
 /**
  * @author Vladislav.Soroka
- * @since 10/16/13
  */
 public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHandler {
 
-  private static final Logger LOG = Logger.getInstance("#" + BaseProjectImportErrorHandler.class.getName());
+  private static final Logger LOG = Logger.getInstance(BaseProjectImportErrorHandler.class);
 
   @NotNull
   @Override
   public ExternalSystemException getUserFriendlyError(@NotNull Throwable error,
                                                       @NotNull String projectPath,
                                                       @Nullable String buildFilePath) {
-    if (error instanceof ExternalSystemException) {
-      // This is already a user-friendly error.
-      return (ExternalSystemException)error;
+    GradleExecutionErrorHandler executionErrorHandler = new GradleExecutionErrorHandler(error, projectPath, buildFilePath);
+    ExternalSystemException friendlyError = executionErrorHandler.getUserFriendlyError();
+    if (friendlyError != null) {
+      return friendlyError;
     }
 
     LOG.info(String.format("Failed to import Gradle project at '%1$s'", projectPath), error);
 
     if(error instanceof ProcessCanceledException) {
-      return new ExternalSystemException("Project import was cancelled");
+      return new ExternalSystemException("Project build was cancelled");
     }
 
-    Pair<Throwable, String> rootCauseAndLocation = getRootCauseAndLocation(error);
-
-    //noinspection ThrowableResultOfMethodCallIgnored
-    Throwable rootCause = rootCauseAndLocation.getFirst();
-
-    String location = rootCauseAndLocation.getSecond();
+    Throwable rootCause = executionErrorHandler.getRootCause();
+    String location = executionErrorHandler.getLocation();
     if (location == null && !StringUtil.isEmpty(buildFilePath)) {
       location = String.format("Build file: '%1$s'", buildFilePath);
     }
@@ -73,6 +71,17 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
       return createUserFriendlyError(msg, null);
     }
 
+    final String rootCauseMessage = rootCause.getMessage();
+    // CommandLineArgumentException class can be loaded by different classloaders
+    if (rootCause.getClass().getName().equals(CommandLineArgumentException.class.getName())) {
+      if (StringUtil.contains(rootCauseMessage, "Unknown command-line option '--include-build'")) {
+        String msg = String.format(
+          "Gradle composite build support available for Gradle 3.1 or better version (<a href=\"%s\">Fix Gradle settings</a>)",
+          OpenGradleSettingsCallback.ID);
+        return createUserFriendlyError(msg, location, OpenGradleSettingsCallback.ID);
+      }
+    }
+
     final String rootCauseText = rootCause.toString();
     if (StringUtil.startsWith(rootCauseText, "org.gradle.api.internal.MissingMethodException")) {
       String method = parseMissingMethod(rootCauseText);
@@ -81,22 +90,21 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
       msg += String.format(
         "%s  - you are using Gradle version where the method is absent (<a href=\"%s\">Fix Gradle settings</a>)",
         '\n', OpenGradleSettingsCallback.ID);
-      msg += String.format(
-        "%s  - you didn't apply Gradle plugin which provides the method (<a href=\"%s\">Apply Gradle plugin</a>)",
-        '\n', ApplyGradlePluginCallback.ID);
+      //msg += String.format(
+      //  "%s  - you didn't apply Gradle plugin which provides the method (<a href=\"%s\">Apply Gradle plugin</a>)",
+      //  '\n', ApplyGradlePluginCallback.ID);
       msg += String.format(
         "%s  - or there is a mistake in a build script (<a href=\"%s\">Goto source</a>)",
         '\n', GotoSourceNotificationCallback.ID);
       return createUserFriendlyError(
-        msg, location, OpenGradleSettingsCallback.ID, ApplyGradlePluginCallback.ID, GotoSourceNotificationCallback.ID);
+        msg, location, OpenGradleSettingsCallback.ID, /*ApplyGradlePluginCallback.ID,*/ GotoSourceNotificationCallback.ID);
     }
 
     if (rootCause instanceof OutOfMemoryError) {
       // The OutOfMemoryError happens in the Gradle daemon process.
-      String originalMessage = rootCause.getMessage();
       String msg = "Out of memory";
-      if (originalMessage != null && !originalMessage.isEmpty()) {
-        msg = msg + ": " + originalMessage;
+      if (rootCauseMessage != null && !rootCauseMessage.isEmpty()) {
+        msg = msg + ": " + rootCauseMessage;
       }
       if (msg.endsWith("Java heap space")) {
         msg += ". Configure Gradle memory settings using '-Xmx' JVM option (e.g. '-Xmx2048m'.)";
@@ -110,14 +118,14 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
     }
 
     if (rootCause instanceof ClassNotFoundException) {
-      String msg = String.format("Unable to load class '%1$s'.", rootCause.getMessage()) + EMPTY_LINE +
+      String msg = String.format("Unable to load class '%1$s'.", rootCauseMessage) + EMPTY_LINE +
                    UNEXPECTED_ERROR_FILE_BUG;
       // Location of build.gradle is useless for this error. Omitting it.
       return createUserFriendlyError(msg, null);
     }
 
     if (rootCause instanceof UnknownHostException) {
-      String msg = String.format("Unknown host '%1$s'.", rootCause.getMessage()) +
+      String msg = String.format("Unknown host '%1$s'.", rootCauseMessage) +
                    EMPTY_LINE + "Please ensure the host name is correct. " +
                    SET_UP_HTTP_PROXY;
       // Location of build.gradle is useless for this error. Omitting it.
@@ -125,7 +133,7 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
     }
 
     if (rootCause instanceof ConnectException) {
-      String msg = rootCause.getMessage();
+      String msg = rootCauseMessage;
       if (msg != null && msg.contains("timed out")) {
         msg += msg.endsWith(".") ? " " : ". ";
         msg += SET_UP_HTTP_PROXY;
@@ -133,10 +141,18 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
       }
     }
 
-    if (rootCause instanceof RuntimeException) {
-      String msg = rootCause.getMessage();
+    if (rootCause instanceof FileNotFoundException) {
+      Throwable errorCause = error.getCause();
+      if (errorCause instanceof IllegalArgumentException &&
+          GradleExecutionErrorHandler.DOWNLOAD_GRADLE_DISTIBUTION_ERROR_PATTERN.matcher(errorCause.getMessage()).matches()) {
+        return createUserFriendlyError(errorCause.getMessage(), null);
+      }
+    }
 
-      if (msg != null && UNSUPPORTED_GRADLE_VERSION_ERROR_PATTERN.matcher(msg).matches()) {
+    if (rootCause instanceof RuntimeException) {
+      String msg = rootCauseMessage;
+
+      if (msg != null && GradleExecutionErrorHandler.UNSUPPORTED_GRADLE_VERSION_ERROR_PATTERN.matcher(msg).matches()) {
         if (!msg.endsWith(".")) {
           msg += ".";
         }
@@ -147,13 +163,16 @@ public class BaseProjectImportErrorHandler extends AbstractProjectImportErrorHan
     }
 
     final String errMessage;
-    if (rootCause.getMessage() == null) {
+    if (rootCauseMessage == null || ApplicationManager.getApplication().isUnitTestMode()) {
       StringWriter writer = new StringWriter();
+      if (rootCauseMessage != null) {
+        writer.write(rootCauseMessage + "\n");
+      }
       rootCause.printStackTrace(new PrintWriter(writer));
       errMessage = writer.toString();
     }
     else {
-      errMessage = rootCause.getMessage();
+      errMessage = rootCauseMessage;
     }
     return createUserFriendlyError(errMessage, location);
   }

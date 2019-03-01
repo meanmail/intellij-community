@@ -1,25 +1,5 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: amrk
- * Date: Jul 2, 2005
- * Time: 12:16:02 AM
- */
 package com.theoryinpractice.testng.configuration;
 
 import com.intellij.diagnostic.logging.LogConfigurationPanel;
@@ -33,13 +13,12 @@ import com.intellij.execution.testframework.TestSearchScope;
 import com.intellij.execution.testframework.sm.runner.SMTRunnerConsoleProperties;
 import com.intellij.execution.util.JavaParametersUtil;
 import com.intellij.execution.util.ProgramParametersUtil;
-import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.options.SettingsEditorGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.DefaultJDOMExternalizer;
-import com.intellij.openapi.util.InvalidDataException;
+import com.intellij.openapi.util.DifferenceFilter;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
@@ -56,50 +35,53 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.stream.Collectors;
 
-public class TestNGConfiguration extends JavaTestConfigurationBase {
+public class TestNGConfiguration extends JavaTestConfigurationWithDiscoverySupport {
   @NonNls private static final String PATTERNS_EL_NAME = "patterns";
   @NonNls private static final String PATTERN_EL_NAME = "pattern";
   @NonNls private static final String TEST_CLASS_ATT_NAME = "testClass";
-  
+
   //private TestNGResultsContainer resultsContainer;
   protected TestData data;
   protected transient Project project;
   public boolean ALTERNATIVE_JRE_PATH_ENABLED;
   public String ALTERNATIVE_JRE_PATH;
-  
 
-
-  public static final String DEFAULT_PACKAGE_NAME = ExecutionBundle.message("default.package.presentable.name");
-  public static final String DEFAULT_PACKAGE_CONFIGURATION_NAME = ExecutionBundle.message("default.package.configuration.name");
   private final RefactoringListeners.Accessor<PsiPackage> myPackage = new RefactoringListeners.Accessor<PsiPackage>() {
+    @Override
     public void setName(final String qualifiedName) {
       final boolean generatedName = isGeneratedName();
       data.PACKAGE_NAME = qualifiedName;
       if (generatedName) setGeneratedName();
     }
 
+    @Override
     @Nullable
     public PsiPackage getPsiElement() {
       final String qualifiedName = data.getPackageName();
       return qualifiedName != null ? JavaPsiFacade.getInstance(getProject()).findPackage(qualifiedName) : null;
     }
 
+    @Override
     public void setPsiElement(final PsiPackage psiPackage) {
       setName(psiPackage.getQualifiedName());
     }
   };
 
   private final RefactoringListeners.Accessor<PsiClass> myClass = new RefactoringListeners.Accessor<PsiClass>() {
+    @Override
     public void setName(final String qualifiedName) {
       final boolean generatedName = isGeneratedName();
       data.MAIN_CLASS_NAME = qualifiedName;
       if (generatedName) setGeneratedName();
     }
 
+    @Override
     @Nullable
     public PsiClass getPsiElement() {
       final String qualifiedName = data.getMainClassName();
@@ -108,13 +90,28 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
              : null;
     }
 
-    public void setPsiElement(final PsiClass psiClass) {
+    @Override
+    public void setPsiElement(@NotNull PsiClass psiClass) {
       setName(psiClass.getQualifiedName());
     }
   };
 
-  public TestNGConfiguration(String s, Project project, ConfigurationFactory factory) {
-    this(s, project, new TestData(), factory);
+  public TestNGConfiguration(@NotNull Project project, @NotNull ConfigurationFactory factory) {
+    this(null, project, new TestData(), factory);
+  }
+
+  @TestOnly
+  public TestNGConfiguration(@Nullable String name, @NotNull Project project) {
+    this(name, project, new TestData(), TestNGConfigurationType.getInstance());
+  }
+
+  public TestNGConfiguration(@NotNull Project project) {
+    this(null, project, new TestData(), TestNGConfigurationType.getInstance());
+  }
+
+  @Deprecated
+  public TestNGConfiguration(@Nullable String name, @NotNull Project project, @NotNull ConfigurationFactory factory) {
+    this(name, project, new TestData(), factory);
   }
 
   protected TestNGConfiguration(String s, Project project, TestData data, ConfigurationFactory factory) {
@@ -128,7 +125,8 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     return null;
   }
 
-  public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) throws ExecutionException {
+  @Override
+  public TestNGRunnableState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) {
     final TestData data = getPersistantData();
     if (data.TEST_OBJECT.equals(TestType.SOURCE.getType()) || data.getChangeList() != null) {
       return new TestNGTestDiscoveryRunnableState(env, this);
@@ -158,76 +156,118 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     return testObject != null ? testObject.getActionName() : null;
   }
 
-  public void setVMParameters(String value) {
+  @Override
+  public void setVMParameters(@Nullable String value) {
     data.setVMParameters(value);
   }
 
+  @Override
   public String getVMParameters() {
     return data.getVMParameters();
   }
 
+  @Override
   public void setProgramParameters(String value) {
     data.setProgramParameters(value);
   }
 
+  @Override
   public String getProgramParameters() {
     return data.getProgramParameters();
   }
 
+  @Override
   public void setWorkingDirectory(String value) {
     data.setWorkingDirectory(value);
   }
 
+  @Override
   public String getWorkingDirectory() {
-    return data.getWorkingDirectory(project);
+    return data.getWorkingDirectory();
   }
 
+  @Override
   public void setEnvs(@NotNull Map<String, String> envs) {
     data.setEnvs(envs);
   }
 
+  @Override
   @NotNull
   public Map<String, String> getEnvs() {
     return data.getEnvs();
   }
 
+  @Override
   public void setPassParentEnvs(boolean passParentEnvs) {
     data.PASS_PARENT_ENVS = passParentEnvs;
   }
 
+  @Override
   public boolean isPassParentEnvs() {
     return data.PASS_PARENT_ENVS;
   }
 
+  @Override
   public boolean isAlternativeJrePathEnabled() {
      return ALTERNATIVE_JRE_PATH_ENABLED;
    }
 
+   @Override
    public void setAlternativeJrePathEnabled(boolean enabled) {
      this.ALTERNATIVE_JRE_PATH_ENABLED = enabled;
    }
 
+   @Override
    @Nullable
    public String getAlternativeJrePath() {
      return ALTERNATIVE_JRE_PATH;
    }
 
+   @Override
    public void setAlternativeJrePath(String path) {
      this.ALTERNATIVE_JRE_PATH = path;
    }
 
+  @Override
   public String getRunClass() {
     return !data.TEST_OBJECT.equals(TestType.CLASS.getType()) && !data.TEST_OBJECT.equals(TestType.METHOD.getType()) ? null : data.getMainClassName();
   }
 
+  @Override
   public String getPackage() {
     return !data.TEST_OBJECT.equals(TestType.PACKAGE.getType()) ? null : data.getPackageName();
   }
 
-  public void setClassConfiguration(PsiClass psiclass) {
+  @Override
+  public void beClassConfiguration(PsiClass psiclass) {
     setModule(data.setMainClass(psiclass));
     data.TEST_OBJECT = TestType.CLASS.getType();
     setGeneratedName();
+  }
+
+  @Override
+  public boolean isConfiguredByElement(PsiElement element) {
+    return TestNGTestObject.fromConfig(this).isConfiguredByElement(element);
+  }
+
+  @Override
+  public String getTestType() {
+    return getPersistantData().TEST_OBJECT;
+  }
+
+  @Override
+  public String prepareParameterizedParameter(String paramSetName) {
+    return TestNGConfigurationProducer.getInvocationNumber(paramSetName);
+  }
+
+  @Override
+  public TestSearchScope getTestSearchScope() {
+    return getPersistantData().getScope();
+  }
+
+  @Override
+  public void setSearchScope(TestSearchScope searchScope) {
+    getPersistantData().setScope(searchScope);
   }
 
   public void setPackageConfiguration(Module module, PsiPackage pkg) {
@@ -237,12 +277,26 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     setGeneratedName();
   }
 
+  @Override
+  public void beMethodConfiguration(Location<PsiMethod> location) {
+    setModule(data.setTestMethod(location));
+    setGeneratedName();
+  }
+
+  @Deprecated
+  public void setClassConfiguration(PsiClass psiclass) {
+    setModule(data.setMainClass(psiclass));
+    data.TEST_OBJECT = TestType.CLASS.getType();
+    setGeneratedName();
+  }
+
+  @Deprecated
   public void setMethodConfiguration(Location<PsiMethod> location) {
     setModule(data.setTestMethod(location));
     setGeneratedName();
   }
-  
-  
+
+  @Override
   public void bePatternConfiguration(List<PsiClass> classes, PsiMethod method) {
     data.TEST_OBJECT = TestType.PATTERN.getType();
     final String suffix;
@@ -269,6 +323,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     setGeneratedName();
   }
 
+  @Override
   @NotNull
   public SettingsEditor<? extends RunConfiguration> getConfigurationEditor() {
     SettingsEditorGroup<TestNGConfiguration> group = new SettingsEditorGroup<>();
@@ -282,9 +337,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
   @Override
   public void checkConfiguration() throws RuntimeConfigurationException {
     final TestNGTestObject testObject = TestNGTestObject.fromConfig(this);
-    if (testObject != null) {
-      testObject.checkConfiguration();
-    }
+    testObject.checkConfiguration();
     JavaRunConfigurationExtensionManager.checkConfigurationIsValid(this);
     ProgramParametersUtil.checkWorkingDirectoryExist(this, getProject(), getConfigurationModule().getModule());
     JavaParametersUtil.checkAlternativeJRE(this);
@@ -292,11 +345,9 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
-    PathMacroManager.getInstance(getProject()).expandPaths(element);
+  public void readExternal(@NotNull Element element) {
     super.readExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().readExternal(this, element);
-    readModule(element);
     DefaultJDOMExternalizer.readExternal(this, element);
     DefaultJDOMExternalizer.readExternal(getPersistantData(), element);
     EnvironmentVariablesComponent.readExternal(element, getPersistantData().getEnvs());
@@ -323,8 +374,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     final Element patternsElement = element.getChild(PATTERNS_EL_NAME);
     if (patternsElement != null) {
       final LinkedHashSet<String> tests = new LinkedHashSet<>();
-      for (Object o : patternsElement.getChildren(PATTERN_EL_NAME)) {
-        Element patternElement = (Element)o;
+      for (Element patternElement : patternsElement.getChildren(PATTERN_EL_NAME)) {
         tests.add(patternElement.getAttributeValue(TEST_CLASS_ATT_NAME));
       }
       getPersistantData().setPatterns(tests);
@@ -332,16 +382,19 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
     JavaRunConfigurationExtensionManager.getInstance().writeExternal(this, element);
-    writeModule(element);
-    DefaultJDOMExternalizer.writeExternal(this, element);
-    DefaultJDOMExternalizer.writeExternal(getPersistantData(), element);
+    DefaultJDOMExternalizer.writeExternal(this, element, JavaParametersUtil.getFilter(this));
+    DefaultJDOMExternalizer.writeExternal(getPersistantData(), element, new DifferenceFilter<TestData>(getPersistantData(), new TestData()) {
+      @Override
+      public boolean isAccept(@NotNull Field field) {
+        return "TEST_OBJECT".equals(field.getName()) || super.isAccept(field);
+      }
+    });
     EnvironmentVariablesComponent.writeExternal(element, getPersistantData().getEnvs());
 
     Element propertiesElement = element.getChild("properties");
-
     if (propertiesElement == null) {
       propertiesElement = new Element("properties");
       element.addContent(propertiesElement);
@@ -379,6 +432,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     }
   }
 
+  @Override
   @Nullable
   public RefactoringElementListener getRefactoringElementListener(final PsiElement element) {
     if (data.TEST_OBJECT.equals(TestType.PACKAGE.getType())) {
@@ -400,6 +454,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
       if (!method.getName().equals(data.getMethodName())) return null;
       if (!method.getContainingClass().equals(myClass.getPsiElement())) return null;
       class Listener extends RefactoringElementAdapter implements UndoRefactoringElementListener {
+        @Override
         public void elementRenamedOrMoved(@NotNull final PsiElement newElement) {
           data.setTestMethod(PsiLocation.fromPsiElement((PsiMethod)newElement));
         }
@@ -426,10 +481,9 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
     return new TestNGConsoleProperties(this, executor);
   }
 
-  @NotNull
   @Override
-  public String getFrameworkPrefix() {
-    return "g";
+  public byte getTestFrameworkId() {
+    return 0x1;
   }
 
   @Nullable
@@ -446,7 +500,7 @@ public class TestNGConfiguration extends JavaTestConfigurationBase {
   }
 
   public void beFromSourcePosition(PsiLocation<PsiMethod> position) {
-    setMethodConfiguration(position);
+    beMethodConfiguration(position);
     getPersistantData().TEST_OBJECT = TestType.SOURCE.getType();
   }
 }

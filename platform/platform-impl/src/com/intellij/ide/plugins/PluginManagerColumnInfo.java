@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.plugins;
 
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.LightColors;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.ColumnInfo;
@@ -33,9 +20,8 @@ import java.util.Comparator;
 
 /**
  * @author stathik
- * @since Dec 11, 2003
  */
-class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
+public class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
   public static final int COLUMN_NAME = 0;
   public static final int COLUMN_DOWNLOADS = 1;
   public static final int COLUMN_RATE = 2;
@@ -50,9 +36,6 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
     IdeBundle.message("column.plugins.category")
   };
 
-  private static final float MB = 1024.0f * 1024.0f;
-  private static final float KB = 1024.0f;
-
   private static final InstalledPluginsState ourState = InstalledPluginsState.getInstance();
 
   private final int columnIdx;
@@ -64,17 +47,18 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
     myModel = model;
   }
 
+  @Override
   public String valueOf(IdeaPluginDescriptor base) {
     if (columnIdx == COLUMN_NAME) {
       return base.getName();
     }
     else if (columnIdx == COLUMN_DOWNLOADS) {
       //  Base class IdeaPluginDescriptor does not declare this field.
-      return base.getDownloads();
+      return base instanceof PluginNode ? ((PluginNode)base).getDownloads() : null;
     }
     if (columnIdx == COLUMN_DATE) {
       //  Base class IdeaPluginDescriptor does not declare this field.
-      long date = (base instanceof PluginNode) ? ((PluginNode)base).getDate() : ((IdeaPluginDescriptorImpl)base).getDate();
+      long date = (base instanceof PluginNode) ? ((PluginNode)base).getDate() : 0;
       if (date != 0) {
         return DateFormatUtil.formatDate(date);
       }
@@ -119,6 +103,7 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
     return ourState.wasInstalled(pluginId);
   }
 
+  @Override
   public Comparator<IdeaPluginDescriptor> getComparator() {
     final Comparator<IdeaPluginDescriptor> comparator = getColumnComparator();
     if (isSortByStatus()) {
@@ -173,8 +158,8 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
       }
 
       if (isSortByDate()) {
-        long date1 = (o1 instanceof PluginNode) ? ((PluginNode)o1).getDate() : ((IdeaPluginDescriptorImpl)o1).getDate();
-        long date2 = (o2 instanceof PluginNode) ? ((PluginNode)o2).getDate() : ((IdeaPluginDescriptorImpl)o2).getDate();
+        long date1 = (o1 instanceof PluginNode) ? ((PluginNode)o1).getDate() : 0;
+        long date2 = (o2 instanceof PluginNode) ? ((PluginNode)o2).getDate() : 0;
         date1 /= 60 * 1000;
         date2 /= 60 * 1000;
         if (date2 != date1) {
@@ -183,17 +168,12 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
       }
 
       if (isSortByDownloads()) {
-        String count1 = o1.getDownloads();
-        String count2 = o2.getDownloads();
-        if (count1 != null && count2 != null) {
-          final Long result = Long.valueOf(count2);
-          if (result != 0) {
-            return result.compareTo(Long.valueOf(count1));
-          }
-        }
-        else {
-          return count1 != null ? -1 : 1;
-        }
+        String d1 = o1 instanceof PluginNode ? ((PluginNode)o1).getDownloads() : null;
+        String d2 = o2 instanceof PluginNode ? ((PluginNode)o2).getDownloads() : null;
+        Long count1 = d1 == null ? 0 : Long.valueOf(d1);
+        Long count2 = d2 == null ? 0 : Long.valueOf(d2);
+        int result = count2.compareTo(count1);
+        if (result != 0) return result;
       }
 
       return StringUtil.compare(o1.getName(), o2.getName(), true);
@@ -204,77 +184,71 @@ class PluginManagerColumnInfo extends ColumnInfo<IdeaPluginDescriptor, String> {
     if (size.equals("-1")) {
       return IdeBundle.message("plugin.info.unknown");
     }
-    if (size.length() >= 7) {
-      size = String.format("%.1f", (float)Integer.parseInt(size) / MB) + " M";
-    }
-    else if (size.length() >= 4) {
-      size = String.format("%.1f", (float)Integer.parseInt(size) / KB) + " K";
-    }
-    return size;
+    return StringUtil.formatFileSize(Long.parseLong(size));
   }
 
+  @Override
   public Class getColumnClass() {
-    if (columnIdx == COLUMN_DOWNLOADS) {
-      return Integer.class;
-    }
-    else {
-      return String.class;
-    }
+    return columnIdx == COLUMN_DOWNLOADS ? Integer.class : String.class;
   }
 
+  @Override
   public TableCellRenderer getRenderer(IdeaPluginDescriptor o) {
-    if (columnIdx == COLUMN_RATE) {
-      return new DefaultTableCellRenderer(){
-        private RatesPanel myPanel = new RatesPanel();
-        @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-          final Component orig = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-          myPanel.setBackground(orig.getBackground());
-          if (value != null) {
-            myPanel.setRate((String)value);
-          }
-          return myPanel;
-        }
-      };
+    return columnIdx == COLUMN_RATE ? new PluginRateTableCellRenderer() : new PluginTableCellRenderer((PluginNode)o);
+  }
+
+  private static class PluginRateTableCellRenderer extends DefaultTableCellRenderer {
+    private final RatesPanel myPanel = new RatesPanel();
+
+    @Override
+    public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+      Component orig = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+      myPanel.setBackground(orig.getBackground());
+      if (value != null) {
+        myPanel.setRate((String)value);
+      }
+      return myPanel;
     }
-    return new PluginTableCellRenderer((PluginNode)o);
   }
 
   private static class PluginTableCellRenderer extends DefaultTableCellRenderer {
     private final JLabel myLabel = new JLabel();
-    private final PluginNode myPluginDescriptor;
+    private final PluginNode myPluginNode;
 
-    private PluginTableCellRenderer(PluginNode pluginDescriptor) {
+    private PluginTableCellRenderer(PluginNode pluginNode) {
       myLabel.setFont(UIUtil.getLabelFont(UIUtil.FontSize.SMALL));
       myLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 2));
-      myPluginDescriptor = pluginDescriptor;
+      myPluginNode = pluginNode;
     }
 
+    @Override
     public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
       Component orig = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
-      final Color bg = orig.getBackground();
-      final Color grayedFg = isSelected ? orig.getForeground() : Color.GRAY;
+      Color bg = orig.getBackground();
+      Color grayedFg = isSelected ? orig.getForeground() : JBColor.GRAY;
       myLabel.setForeground(grayedFg);
       myLabel.setBackground(bg);
       myLabel.setOpaque(true);
 
       if (column == COLUMN_DATE) {
-        long date = myPluginDescriptor.getDate();
+        long date = myPluginNode.getDate();
         myLabel.setText(date != 0 && date != Long.MAX_VALUE ? DateFormatUtil.formatDate(date) : "n/a");
         myLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-      } else if (column == COLUMN_DOWNLOADS) {
-        String downloads = myPluginDescriptor.getDownloads();
+      }
+      else if (column == COLUMN_DOWNLOADS) {
+        String downloads = myPluginNode.getDownloads();
         myLabel.setText(!StringUtil.isEmpty(downloads) ? downloads : "n/a");
         myLabel.setHorizontalAlignment(SwingConstants.RIGHT);
-      } else if (column == COLUMN_CATEGORY) {
-        String category = myPluginDescriptor.getCategory();
+      }
+      else if (column == COLUMN_CATEGORY) {
+        String category = myPluginNode.getCategory();
         if (StringUtil.isEmpty(category)) {
-          category = myPluginDescriptor.getRepositoryName();
+          category = myPluginNode.getRepositoryName();
         }
         myLabel.setText(!StringUtil.isEmpty(category) ? category : "n/a");
       }
-      if (myPluginDescriptor.getStatus() == PluginNode.STATUS_INSTALLED) {
-        PluginId pluginId = myPluginDescriptor.getPluginId();
+      if (myPluginNode.getStatus() == PluginNode.STATUS_INSTALLED) {
+        PluginId pluginId = myPluginNode.getPluginId();
         final boolean hasNewerVersion = ourState.hasNewerVersion(pluginId);
         if (hasNewerVersion) {
           if (!isSelected) myLabel.setBackground(LightColors.BLUE);

@@ -18,10 +18,9 @@ package com.intellij.ui;
 import com.intellij.openapi.ui.popup.IconButton;
 import com.intellij.openapi.util.Pass;
 import com.intellij.ui.awt.RelativePoint;
-import com.intellij.util.ui.BaseButtonBehavior;
-import com.intellij.util.ui.CenteredIcon;
-import com.intellij.util.ui.TimedDeadzone;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.*;
+import com.intellij.util.ui.accessibility.AccessibleContextUtil;
+import com.intellij.util.ui.accessibility.ScreenReader;
 
 import javax.accessibility.*;
 import javax.swing.*;
@@ -36,9 +35,10 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
   private boolean myPainting = true;
   private boolean myActive = true;
 
-  private BaseButtonBehavior myBehavior;
-  private ActionListener myListener;
+  private final BaseButtonBehavior myBehavior;
+  private final ActionListener myListener;
 
+  private Icon myIcon;
   private CenteredIcon myRegular;
   private CenteredIcon myHovered;
   private CenteredIcon myInactive;
@@ -47,13 +47,15 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
   private int myYTransform = 0;
   private boolean myFill;
 
+  private JBDimension mySize;
+
   private boolean myHoveringEnabled;
 
   public InplaceButton(String tooltip, final Icon icon, final ActionListener listener) {
     this(new IconButton(tooltip, icon, icon), listener, null);
   }
 
-  public InplaceButton(String tooltip, final Icon icon, final ActionListener listener, final Pass<MouseEvent> me) {
+  public InplaceButton(String tooltip, final Icon icon, final ActionListener listener, final Pass<? super MouseEvent> me) {
     this(new IconButton(tooltip, icon, icon), listener, me);
   }
 
@@ -61,11 +63,11 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     this(source, listener, null);
   }
 
-  public InplaceButton(IconButton source, final ActionListener listener, final Pass<MouseEvent> me) {
+  public InplaceButton(IconButton source, final ActionListener listener, final Pass<? super MouseEvent> me) {
     this(source, listener, me, TimedDeadzone.DEFAULT);
   }
 
-  public InplaceButton(IconButton source, final ActionListener listener, final Pass<MouseEvent> me, TimedDeadzone.Length mouseDeadzone) {
+  public InplaceButton(IconButton source, final ActionListener listener, final Pass<? super MouseEvent> me, TimedDeadzone.Length mouseDeadzone) {
     myListener = listener;
     myBehavior = new BaseButtonBehavior(this, mouseDeadzone) {
       @Override
@@ -92,6 +94,9 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     setToolTipText(source.getTooltip());
     setOpaque(false);
     setHoveringEnabled(true);
+    if (ScreenReader.isActive()) {
+      setFocusable(true);
+    }
   }
 
   protected void doRepaintComponent(Component c) {
@@ -128,11 +133,22 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     height = Math.max(height, hovered.getIconHeight());
 
 
-    setPreferredSize(new Dimension(width, height));
+    JBDimension size = JBDimension.create(new Dimension(width, height), true);
+    if (mySize != null && !mySize.size().equals(size)) {
+      invalidate();
+    }
+    mySize = size;
 
+    myIcon = regular;
     myRegular = new CenteredIcon(regular, width, height);
     myHovered = new CenteredIcon(hovered, width, height);
     myInactive = new CenteredIcon(inactive, width, height);
+  }
+
+  @Override
+  public Dimension getPreferredSize() {
+    if (mySize == null || isPreferredSizeSet()) return super.getPreferredSize();
+    return mySize.size();
   }
 
   public InplaceButton setFillBg(boolean fill) {
@@ -158,6 +174,10 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     setIcons(icon, icon, icon);
   }
 
+  public Icon getIcon() {
+    return myIcon;
+  }
+
   @Override
   public JComponent getComponent() {
     return this;
@@ -177,7 +197,7 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     g.translate(myXTransform, myYTransform);
 
 
-    if (myBehavior.isHovered() && myHoveringEnabled) {
+    if ((myBehavior.isHovered() && myHoveringEnabled) || hasFocus()) {
       if (myBehavior.isPressedByMouse()) {
         myHovered.paintIcon(this, g, 1, 1);
       }
@@ -240,6 +260,11 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
     }
 
     @Override
+    public String getAccessibleDescription() {
+      return AccessibleContextUtil.getUniqueDescription(this, super.getAccessibleDescription());
+    }
+
+    @Override
     public AccessibleRole getAccessibleRole() {
       return AccessibleRole.PUSH_BUTTON;
     }
@@ -280,7 +305,7 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
       for (Icon icon : icons) {
         if (icon instanceof Accessible) {
           AccessibleContext ac = ((Accessible)icon).getAccessibleContext();
-          if (ac != null && ac instanceof AccessibleIcon) {
+          if (ac instanceof AccessibleIcon) {
             accessibleIconList.add((AccessibleIcon)ac);
           }
         }
@@ -289,7 +314,7 @@ public class InplaceButton extends JComponent implements ActiveComponent, Access
         return null;
       }
 
-      return accessibleIconList.toArray(new AccessibleIcon[accessibleIconList.size()]);
+      return accessibleIconList.toArray(new AccessibleIcon[0]);
     }
 
     @Override

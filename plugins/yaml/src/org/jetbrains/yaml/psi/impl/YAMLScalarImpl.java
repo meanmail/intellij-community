@@ -1,24 +1,26 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi.impl;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.ElementManipulators;
-import com.intellij.psi.LiteralTextEscaper;
-import com.intellij.psi.PsiLanguageInjectionHost;
-import com.intellij.psi.PsiReference;
+import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.ReferenceProvidersRegistry;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.yaml.YAMLElementTypes;
+import org.jetbrains.yaml.YAMLTokenTypes;
 import org.jetbrains.yaml.lexer.YAMLGrammarCharUtil;
 import org.jetbrains.yaml.psi.YAMLScalar;
+import org.jetbrains.yaml.psi.YamlPsiElementVisitor;
 
 import java.util.Collections;
 import java.util.List;
 
 public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar {
   protected static final int MAX_SCALAR_LENGTH_PREDEFINED = 60;
-  
+
   public YAMLScalarImpl(@NotNull ASTNode node) {
     super(node);
   }
@@ -28,11 +30,11 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
   @NotNull
   protected abstract String getRangesJoiner(@NotNull CharSequence text, @NotNull List<TextRange> contentRanges, int indexBefore);
-  
+
   protected List<Pair<TextRange, String>> getDecodeReplacements(@NotNull CharSequence input) {
     return Collections.emptyList();
   }
-  
+
   protected List<Pair<TextRange, String>> getEncodeReplacements(@NotNull CharSequence input) throws IllegalArgumentException {
     throw new IllegalArgumentException("Not implemented");
   }
@@ -47,7 +49,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
 
     for (int i = 0; i < contentRanges.size(); i++) {
       final TextRange range = contentRanges.get(i);
-      
+
       final CharSequence curString = range.subSequence(text);
       builder.append(curString);
 
@@ -65,6 +67,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
     return references.length == 1 ? references[0] : null;
   }
 
+  @Override
   @NotNull
   public PsiReference[] getReferences() {
     return ReferenceProvidersRegistry.getReferencesFromProviders(this);
@@ -85,10 +88,10 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
   public LiteralTextEscaper<? extends PsiLanguageInjectionHost> createLiteralTextEscaper() {
     return new MyLiteralTextEscaper(this);
   }
-  
-  @NotNull 
-  static String processReplacements(@NotNull CharSequence input, 
-                                            @NotNull List<Pair<TextRange, String>> replacements) throws IndexOutOfBoundsException {
+
+  @NotNull
+  static String processReplacements(@NotNull CharSequence input,
+                                    @NotNull List<? extends Pair<TextRange, String>> replacements) throws IndexOutOfBoundsException {
     StringBuilder result = new StringBuilder();
     int currentOffset = 0;
     for (Pair<TextRange, String> replacement : replacements) {
@@ -105,8 +108,18 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
            && (pos + 1 >= text.length() || !YAMLGrammarCharUtil.isSpaceLike(text.charAt(pos + 1)));
   }
 
+  @Nullable
+  protected final ASTNode getFirstContentNode() {
+    ASTNode node = getNode().getFirstChildNode();
+    while (node != null && (
+      node.getElementType() == YAMLTokenTypes.TAG || YAMLElementTypes.BLANK_ELEMENTS.contains(node.getElementType()))) {
+      node = node.getTreeNext();
+    }
+    return node;
+  }
+
   private static class MyLiteralTextEscaper extends LiteralTextEscaper<YAMLScalarImpl> {
-    public MyLiteralTextEscaper(YAMLScalarImpl scalar) {
+    MyLiteralTextEscaper(YAMLScalarImpl scalar) {
       super(scalar);
     }
 
@@ -120,7 +133,7 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
     public int getOffsetInHost(int offsetInDecoded, @NotNull TextRange rangeInsideHost) {
       final String text = myHost.getText();
       final List<TextRange> contentRanges = myHost.getContentRanges();
-      
+
       int currentOffsetInDecoded = 0;
 
       for (int i = 0; i < contentRanges.size(); i++) {
@@ -158,6 +171,16 @@ public abstract class YAMLScalarImpl extends YAMLValueImpl implements YAMLScalar
     @Override
     public boolean isOneLine() {
       return myHost.isMultiline();
+    }
+  }
+
+  @Override
+  public void accept(@NotNull PsiElementVisitor visitor) {
+    if (visitor instanceof YamlPsiElementVisitor) {
+      ((YamlPsiElementVisitor)visitor).visitScalar(this);
+    }
+    else {
+      super.accept(visitor);
     }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,10 +20,11 @@ import com.intellij.ide.BrowserUtil;
 import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.vcs.ui.FontUtil;
 import com.intellij.ui.HyperlinkAdapter;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.panels.Wrapper;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -50,10 +51,10 @@ public class VcsCommitInfoBalloon {
     myEditorPane = new JEditorPane(UIUtil.HTML_MIME, "");
     myEditorPane.putClientProperty(JEditorPane.HONOR_DISPLAY_PROPERTIES, Boolean.TRUE);
     myEditorPane.setEditable(false);
-    myEditorPane.setBackground(HintUtil.INFORMATION_COLOR);
-    myEditorPane.setFont(UIUtil.getToolTipFont());
+    myEditorPane.setBackground(HintUtil.getInformationColor());
+    myEditorPane.setFont(FontUtil.getCommitMessageFont());
     myEditorPane.setBorder(HintUtil.createHintBorder());
-    Border margin = IdeBorderFactory.createEmptyBorder(3, 3, 3, 3);
+    Border margin = JBUI.Borders.empty(3);
     myEditorPane.setBorder(new CompoundBorder(myEditorPane.getBorder(), margin));
     myEditorPane.addHyperlinkListener(new HyperlinkAdapter() {
       @Override

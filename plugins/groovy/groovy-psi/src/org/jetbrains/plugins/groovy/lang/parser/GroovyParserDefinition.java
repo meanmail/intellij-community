@@ -48,9 +48,6 @@ import static org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes.*;
  */
 public class GroovyParserDefinition implements ParserDefinition {
   public static final IStubFileElementType GROOVY_FILE = new GrStubFileElementType(GroovyLanguage.INSTANCE);
-  private static final IElementType[] STRINGS = new IElementType[]{
-    GSTRING, REGEX, GSTRING_INJECTION, GroovyTokenTypes.mREGEX_LITERAL, GroovyTokenTypes.mDOLLAR_SLASH_REGEX_LITERAL
-  };
 
   @Override
   @NotNull
@@ -98,14 +95,14 @@ public class GroovyParserDefinition implements ParserDefinition {
   }
 
   @Override
-  public SpaceRequirements spaceExistanceTypeBetweenTokens(ASTNode left, ASTNode right) {
+  public SpaceRequirements spaceExistenceTypeBetweenTokens(ASTNode left, ASTNode right) {
     final IElementType lType = left.getElementType();
     final IElementType rType = right.getElementType();
 
     if (rType == GroovyTokenTypes.kIMPORT && lType != TokenType.WHITE_SPACE) {
       return SpaceRequirements.MUST_LINE_BREAK;
     }
-    else if (lType == MODIFIERS && rType == MODIFIERS) {
+    else if (lType == MODIFIER_LIST && rType == MODIFIER_LIST) {
       return SpaceRequirements.MUST;
     }
     if (lType == GroovyTokenTypes.mSEMI) {
@@ -121,7 +118,8 @@ public class GroovyParserDefinition implements ParserDefinition {
     if (rType == GroovyTokenTypes.mLT) return SpaceRequirements.MUST;
 
     final ASTNode parent = TreeUtil.findCommonParent(left, right);
-    if (parent == null || ArrayUtil.contains(parent.getElementType(), STRINGS)) {
+    if (parent == null || ArrayUtil.contains(parent.getElementType(), GSTRING, REGEX, GSTRING_INJECTION,
+                                             GroovyTokenTypes.mREGEX_LITERAL, GroovyTokenTypes.mDOLLAR_SLASH_REGEX_LITERAL)) {
       return SpaceRequirements.MUST_NOT;
     }
 

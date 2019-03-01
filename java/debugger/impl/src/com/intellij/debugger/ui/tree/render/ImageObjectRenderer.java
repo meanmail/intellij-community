@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -22,6 +8,7 @@ import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
 import com.intellij.debugger.impl.ClassLoadingUtils;
+import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.ui.impl.watch.ValueDescriptorImpl;
 import com.intellij.openapi.diagnostic.Logger;
@@ -38,13 +25,10 @@ import java.awt.image.BufferedImage;
 import java.util.Collections;
 import java.util.List;
 
-/**
-* Created by Egor on 04.10.2014.
-*/
 class ImageObjectRenderer extends CompoundReferenceRenderer implements FullValueEvaluatorProvider {
   private static final Logger LOG = Logger.getInstance(ImageObjectRenderer.class);
 
-  public ImageObjectRenderer(final NodeRendererSettings rendererSettings) {
+  ImageObjectRenderer(final NodeRendererSettings rendererSettings) {
     super(rendererSettings, "Image", null, null);
     setClassName("java.awt.Image");
     setEnabled(true);
@@ -78,7 +62,7 @@ class ImageObjectRenderer extends CompoundReferenceRenderer implements FullValue
   static ImageIcon getIcon(EvaluationContext evaluationContext, Value obj, String methodName) {
     try {
       Value bytes = getImageBytes(evaluationContext, obj, methodName);
-      byte[] data = readBytes(bytes);
+      byte[] data = DebuggerUtilsImpl.readBytesArray(bytes);
       if (data != null) {
         return new ImageIcon(data);
       }
@@ -93,7 +77,7 @@ class ImageObjectRenderer extends CompoundReferenceRenderer implements FullValue
     throws EvaluateException {
     DebugProcess process = evaluationContext.getDebugProcess();
     EvaluationContext copyContext = evaluationContext.createEvaluationContext(obj);
-    ClassType helperClass = ClassLoadingUtils.getHelperClass(ImageSerializer.class.getName(), copyContext, process);
+    ClassType helperClass = ClassLoadingUtils.getHelperClass(ImageSerializer.class, copyContext);
 
     if (helperClass != null) {
       List<Method> methods = helperClass.methodsByName(methodName);
@@ -104,26 +88,8 @@ class ImageObjectRenderer extends CompoundReferenceRenderer implements FullValue
     return null;
   }
 
-  private static byte[] readBytes(Value bytes) {
-    if (bytes instanceof ArrayReference) {
-      List<Value> values = ((ArrayReference)bytes).getValues();
-      byte[] res = new byte[values.size()];
-      int idx = 0;
-      for (Value value : values) {
-        if (value instanceof ByteValue) {
-          res[idx++] = ((ByteValue)value).value();
-        }
-        else {
-          return null;
-        }
-      }
-      return res;
-    }
-    return null;
-  }
-
   static abstract class IconPopupEvaluator extends CustomPopupFullValueEvaluator<Icon> {
-    public IconPopupEvaluator(@NotNull String linkText, @NotNull EvaluationContextImpl evaluationContext) {
+    IconPopupEvaluator(@NotNull String linkText, @NotNull EvaluationContextImpl evaluationContext) {
       super(linkText, evaluationContext);
     }
 

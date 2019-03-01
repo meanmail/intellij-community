@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.richcopy.view;
 
 import com.intellij.ide.MacOSApplicationProvider;
@@ -28,13 +14,14 @@ import java.awt.color.ColorSpace;
 import java.awt.datatransfer.DataFlavor;
 
 public class RtfTransferableData extends AbstractSyntaxAwareInputStreamTransferableData {
-
+  public static final int PRIORITY = 100;
   @NotNull public static final DataFlavor FLAVOR = new DataFlavor("text/rtf;class=java.io.InputStream", "RTF text");
 
   @NotNull private static final String HEADER_PREFIX = "{\\rtf1\\ansi\\deff0";
   @NotNull private static final String HEADER_SUFFIX = "}";
   @NotNull private static final String TAB           = "\\tab\n";
-  @NotNull private static final String NEW_LINE      = "\\line\n";
+  // using undocumented way to denote line break on Mac (used e.g. by TextEdit) to resolve IDEA-165337
+  @NotNull private static final String NEW_LINE      = SystemInfo.isMac ? "\\\n" : "\\line\n";
   @NotNull private static final String BOLD          = "\\b";
   @NotNull private static final String ITALIC        = "\\i";
 
@@ -65,7 +52,8 @@ public class RtfTransferableData extends AbstractSyntaxAwareInputStreamTransfera
 
     holder.append("\n\\s0\\box")
       .append("\\cbpat").append(mySyntaxInfo.getDefaultBackground())
-      .append("\\cb").append(mySyntaxInfo.getDefaultBackground());
+      .append("\\cb").append(mySyntaxInfo.getDefaultBackground())
+      .append("\\cf").append(mySyntaxInfo.getDefaultForeground());
     addFontSize(holder, mySyntaxInfo.getFontSize());
     holder.append('\n');
 
@@ -103,6 +91,11 @@ public class RtfTransferableData extends AbstractSyntaxAwareInputStreamTransfera
 
   private static void addFontSize(StringBuilder buffer, float fontSize) {
     buffer.append("\\fs").append(Math.round(fontSize * 2));
+  }
+
+  @Override
+  public int getPriority() {
+    return PRIORITY;
   }
 
   private static class MyVisitor implements MarkupHandler {

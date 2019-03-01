@@ -22,6 +22,7 @@ import org.gradle.api.file.FileVisitDetails
 import org.gradle.api.java.archives.Manifest
 import org.gradle.plugins.ear.Ear
 import org.gradle.plugins.ear.EarPlugin
+import org.gradle.util.GradleVersion
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.annotations.Nullable
 import org.jetbrains.plugins.gradle.model.ear.EarConfiguration
@@ -31,17 +32,17 @@ import org.jetbrains.plugins.gradle.tooling.internal.ear.EarConfigurationImpl
 import org.jetbrains.plugins.gradle.tooling.internal.ear.EarModelImpl
 import org.jetbrains.plugins.gradle.tooling.internal.ear.EarResourceImpl
 import org.jetbrains.plugins.gradle.tooling.util.DependencyResolver
-import org.jetbrains.plugins.gradle.tooling.util.DependencyResolverImpl
 import org.jetbrains.plugins.gradle.tooling.util.SourceSetCachedFinder
+import org.jetbrains.plugins.gradle.tooling.util.resolve.DependencyResolverImpl
 
 /**
  * @author Vladislav.Soroka
- * @since 11/10/2015
  */
 class EarModelBuilderImpl implements ModelBuilderService {
 
   private static final String APP_DIR_PROPERTY = "appDirName"
   private SourceSetCachedFinder mySourceSetFinder = null
+  private static is4OrBetter = GradleVersion.current().baseVersion >= GradleVersion.version("4.0")
 
   @Override
   boolean canBuild(String modelName) {
@@ -64,6 +65,7 @@ class EarModelBuilderImpl implements ModelBuilderService {
     def earlibConfiguration = project.configurations.findByName(EarPlugin.EARLIB_CONFIGURATION_NAME)
 
     DependencyResolver dependencyResolver = new DependencyResolverImpl(project, false, false, false, mySourceSetFinder)
+
     def deployDependencies = dependencyResolver.resolveDependencies(deployConfiguration)
     def earlibDependencies = dependencyResolver.resolveDependencies(earlibConfiguration)
     def buildDirPath = project.getBuildDir().absolutePath
@@ -112,9 +114,17 @@ class EarModelBuilderImpl implements ModelBuilderService {
 
         Manifest manifest = earTask.manifest
         if (manifest != null) {
-          def writer = new StringWriter()
-          manifest.writeTo(writer)
-          earModel.manifestContent = writer.toString()
+          if(is4OrBetter) {
+            if(manifest instanceof org.gradle.api.java.archives.internal.ManifestInternal) {
+              ByteArrayOutputStream baos = new ByteArrayOutputStream()
+              manifest.writeTo(baos)
+              earModel.manifestContent = baos.toString(manifest.contentCharset)
+            }
+          } else {
+            def writer = new StringWriter()
+            manifest.writeTo(writer)
+            earModel.manifestContent = writer.toString()
+          }
         }
 
         earModels.add(earModel)

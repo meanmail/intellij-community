@@ -18,6 +18,8 @@ package com.intellij.execution.filters;
 
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
@@ -30,7 +32,7 @@ import java.util.List;
 public class CompositeInputFilter implements InputFilter {
   private static final Logger LOG = Logger.getInstance(CompositeInputFilter.class);
 
-  private final List<Pair<InputFilter, Boolean /* is dumb aware */>> myFilters = ContainerUtilRt.newArrayList();
+  private final List<InputFilterWrapper> myFilters = ContainerUtilRt.newArrayList();
   private final DumbService myDumbService;
 
   public CompositeInputFilter(@NotNull Project project) {
@@ -39,12 +41,11 @@ public class CompositeInputFilter implements InputFilter {
 
   @Override
   @Nullable
-  public List<Pair<String, ConsoleViewContentType>> applyFilter(final String text, final ConsoleViewContentType contentType) {
+  public List<Pair<String, ConsoleViewContentType>> applyFilter(@NotNull final String text, @NotNull final ConsoleViewContentType contentType) {
     boolean dumb = myDumbService.isDumb();
-    for (Pair<InputFilter, Boolean> pair : myFilters) {
-      if (!dumb || pair.second == Boolean.TRUE) {
+    for (InputFilterWrapper filter : myFilters) {
+      if (!dumb || filter.isDumbAware) {
         long t0 = System.currentTimeMillis();
-        InputFilter filter = pair.first;
         List<Pair<String, ConsoleViewContentType>> result = filter.applyFilter(text, contentType);
         t0 = System.currentTimeMillis() - t0;
         if (t0 > 100) {
@@ -58,25 +59,37 @@ public class CompositeInputFilter implements InputFilter {
     return null;
   }
 
-  public void addFilter(@NotNull final InputFilter filter) {
-    InputFilter wrapper = new InputFilter() {
-      boolean isBroken;
+  private static class InputFilterWrapper implements InputFilter {
+    @NotNull private final InputFilter myOriginal;
+    private boolean isBroken;
+    private final boolean isDumbAware;
 
-      @Nullable
-      @Override
-      public List<Pair<String, ConsoleViewContentType>> applyFilter(String text, ConsoleViewContentType contentType) {
-        if (!isBroken) {
-          try {
-            return filter.applyFilter(text, contentType);
-          }
-          catch (Throwable e) {
-            isBroken = true;
-            LOG.error(e);
-          }
+    InputFilterWrapper(@NotNull InputFilter original) {
+      isDumbAware = DumbService.isDumbAware(original);
+      myOriginal = original;
+    }
+
+    @Nullable
+    @Override
+    public List<Pair<String, ConsoleViewContentType>> applyFilter(@NotNull String text, @NotNull ConsoleViewContentType contentType) {
+      if (!isBroken) {
+        try {
+          return myOriginal.applyFilter(text, contentType);
         }
-        return null;
+        catch (ProcessCanceledException ignored) {
+          ProgressManager.checkCanceled();
+        }
+        catch (Throwable e) {
+          isBroken = true;
+          LOG.error(e);
+        }
       }
-    };
-    myFilters.add(Pair.create(wrapper, DumbService.isDumbAware(filter)));
+      return null;
+    }
+  }
+
+  public void addFilter(@NotNull final InputFilter filter) {
+    InputFilterWrapper wrapper = new InputFilterWrapper(filter);
+    myFilters.add(wrapper);
   }
 }

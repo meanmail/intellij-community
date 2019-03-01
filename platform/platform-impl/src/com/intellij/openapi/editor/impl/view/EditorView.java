@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.editor.impl.view;
 
@@ -22,21 +10,29 @@ import com.intellij.openapi.editor.FoldRegion;
 import com.intellij.openapi.editor.LogicalPosition;
 import com.intellij.openapi.editor.VisualPosition;
 import com.intellij.openapi.editor.colors.EditorFontType;
+import com.intellij.openapi.editor.event.VisibleAreaEvent;
+import com.intellij.openapi.editor.event.VisibleAreaListener;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FontInfo;
 import com.intellij.openapi.editor.impl.TextDrawingCallback;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
 import java.awt.*;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.awt.font.FontRenderContext;
+import java.awt.font.LineMetrics;
+import java.awt.geom.Point2D;
 import java.text.Bidi;
 
 /**
@@ -45,8 +41,8 @@ import java.text.Bidi;
  * 
  * Also contains a cache of several font-related quantities (line height, space width, etc).
  */
-public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
-  private static Key<LineLayout> FOLD_REGION_TEXT_LAYOUT = Key.create("text.layout");
+public class EditorView implements TextDrawingCallback, Disposable, Dumpable, HierarchyListener, VisibleAreaListener {
+  private static final Key<LineLayout> FOLD_REGION_TEXT_LAYOUT = Key.create("text.layout");
 
   private final EditorImpl myEditor;
   private final DocumentEx myDocument;
@@ -63,11 +59,11 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   private TextAttributes myPrefixAttributes; // accessed only in EDT
   private int myBidiFlags; // accessed only in EDT
   
-  private int myPlainSpaceWidth; // guarded by myLock
+  private float myPlainSpaceWidth; // guarded by myLock
   private int myLineHeight; // guarded by myLock
-  private int myAscent; // guarded by myLock
+  private int myDescent; // guarded by myLock
   private int myCharHeight; // guarded by myLock
-  private int myMaxCharWidth; // guarded by myLock
+  private float myMaxCharWidth; // guarded by myLock
   private int myTabSize; // guarded by myLock
   private int myTopOverhang; //guarded by myLock
   private int myBottomOverhang; //guarded by myLock
@@ -75,7 +71,6 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   private final Object myLock = new Object();
   
   public EditorView(EditorImpl editor) {
-    setFontRenderContext();
     myEditor = editor;
     myDocument = editor.getDocument();
     
@@ -85,7 +80,10 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     myTextLayoutCache = new TextLayoutCache(this);
     myLogicalPositionCache = new LogicalPositionCache(this);
     myTabFragment = new TabFragment(this);
-    
+
+    myEditor.getContentComponent().addHierarchyListener(this);
+    myEditor.getScrollingModel().addVisibleAreaListener(this);
+
     Disposer.register(this, myLogicalPositionCache);
     Disposer.register(this, myTextLayoutCache);
     Disposer.register(this, mySizeManager);
@@ -119,10 +117,31 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     return myLogicalPositionCache;
   }
 
-  @Override
-  public void dispose() {
+  float getRightAlignmentLineStartX(int visualLine) {
+    return myMapper.getRightAlignmentLineStartX(visualLine);
   }
 
+  int getRightAlignmentMarginX() {
+    return myMapper.getRightAlignmentMarginX();
+  }
+
+  @Override
+  public void dispose() {
+    myEditor.getScrollingModel().removeVisibleAreaListener(this);
+    myEditor.getContentComponent().removeHierarchyListener(this);
+  }
+
+  @Override
+  public void hierarchyChanged(HierarchyEvent e) {
+    if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0 && e.getComponent().isShowing()) {
+      checkFontRenderContext(null);
+    }
+  }
+
+  @Override
+  public void visibleAreaChanged(@NotNull VisibleAreaEvent e) {
+    checkFontRenderContext(null);
+  }
   public int yToVisualLine(int y) {
     return myMapper.yToVisualLine(y);
   }
@@ -188,7 +207,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   }
   
   @NotNull
-  public VisualPosition xyToVisualPosition(@NotNull Point p) {
+  public VisualPosition xyToVisualPosition(@NotNull Point2D p) {
     assertIsDispatchThread();
     assertNotInBulkMode();
     myEditor.getSoftWrapModel().prepareToMapping();
@@ -196,7 +215,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   }
 
   @NotNull
-  public Point visualPositionToXY(@NotNull VisualPosition pos) {
+  public Point2D visualPositionToXY(@NotNull VisualPosition pos) {
     assertIsDispatchThread();
     assertNotInBulkMode();
     myEditor.getSoftWrapModel().prepareToMapping();
@@ -204,7 +223,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   }
 
   @NotNull
-  public Point offsetToXY(int offset, boolean leanTowardsLargerOffsets, boolean beforeSoftWrap) {
+  public Point2D offsetToXY(int offset, boolean leanTowardsLargerOffsets, boolean beforeSoftWrap) {
     assertIsDispatchThread();
     assertNotInBulkMode();
     myEditor.getSoftWrapModel().prepareToMapping();
@@ -241,6 +260,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   public void paint(Graphics2D g) {
     assertIsDispatchThread();
     myEditor.getSoftWrapModel().prepareToMapping();
+    checkFontRenderContext(g.getFontRenderContext());
     myPainter.paint(g);
   }
 
@@ -256,6 +276,22 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     return mySizeManager.getPreferredSize();
   }
 
+  /**
+   * Returns preferred pixel width of the lines in range.
+   * <p>
+   * This method is currently used only with "idea.true.smooth.scrolling" experimental option.
+   *
+   * @param beginLine begin visual line (inclusive)
+   * @param endLine   end visual line (exclusive), may be greater than the actual number of lines
+   * @return preferred pixel width
+   */
+  public int getPreferredWidth(int beginLine, int endLine) {
+    assertIsDispatchThread();
+    assert !myEditor.isPurePaintingMode();
+    myEditor.getSoftWrapModel().prepareToMapping();
+    return mySizeManager.getPreferredWidth(beginLine, endLine);
+  }
+
   public int getPreferredHeight() {
     assertIsDispatchThread();
     assert !myEditor.isPurePaintingMode();
@@ -265,19 +301,21 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
 
   public int getMaxWidthInRange(int startOffset, int endOffset) {
     assertIsDispatchThread();
-    return getMaxWidthInLineRange(offsetToVisualLine(startOffset, false), offsetToVisualLine(endOffset, true));
+    int startVisualLine = offsetToVisualLine(startOffset, false);
+    int endVisualLine = offsetToVisualLine(endOffset, true);
+    return getMaxTextWidthInLineRange(startVisualLine, endVisualLine) + getInsets().left;
   }
 
   /**
-   * If <code>quickEvaluationListener</code> is provided, quick approximate size evaluation becomes enabled, listener will be invoked
+   * If {@code quickEvaluationListener} is provided, quick approximate size evaluation becomes enabled, listener will be invoked
    * if approximation will in fact be used during width calculation.
    */
-  int getMaxWidthInLineRange(int startVisualLine, int endVisualLine) {
+  int getMaxTextWidthInLineRange(int startVisualLine, int endVisualLine) {
     myEditor.getSoftWrapModel().prepareToMapping();
     int maxWidth = 0;
     VisualLinesIterator iterator = new VisualLinesIterator(myEditor, startVisualLine);
     while (!iterator.atEnd() && iterator.getVisualLine() <= endVisualLine) {
-      int width = mySizeManager.getVisualLineWidth(iterator, null);
+      int width = mySizeManager.getVisualLineWidth(iterator, false);
       maxWidth = Math.max(maxWidth, width);
       iterator.advance();
     }
@@ -300,7 +338,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
       default:
         myBidiFlags = Bidi.DIRECTION_DEFAULT_LEFT_TO_RIGHT;
     }
-    setFontRenderContext();
+    setFontRenderContext(null);
     myLogicalPositionCache.reset(false);
     myTextLayoutCache.resetToDocumentSize(false);
     invalidateFoldRegionLayouts();
@@ -335,6 +373,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     if (myDocument.getTextLength() == 0) return false;
     LogicalPosition logicalPosition = visualToLogicalPosition(visualPosition);
     int offset = logicalPositionToOffset(logicalPosition);
+    if (!logicalPosition.equals(offsetToLogicalPosition(offset))) return false; // virtual space
     if (myEditor.getSoftWrapModel().getSoftWrap(offset) != null) {
       VisualPosition beforeWrapPosition = offsetToVisualPosition(offset, true, true);
       if (visualPosition.line == beforeWrapPosition.line && 
@@ -362,7 +401,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   }
 
   /**
-   * Offset of nearest boundary (not equal to <code>offset</code>) on the same line is returned. <code>-1</code> is returned if 
+   * Offset of nearest boundary (not equal to {@code offset}) on the same line is returned. {@code -1} is returned if
    * corresponding boundary is not found.
    */
   public int findNearestDirectionBoundary(int offset, boolean lookForward) {
@@ -376,7 +415,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     return relativeOffset < 0 ? -1 : lineStartOffset + relativeOffset;
   }
 
-  public int getPlainSpaceWidth() {
+  public float getPlainSpaceWidth() {
     synchronized (myLock) {
       initMetricsIfNeeded();
       return myPlainSpaceWidth;
@@ -405,7 +444,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
 
   public int getDescent() {
     synchronized (myLock) {
-      return myLineHeight - myAscent;
+      return myDescent;
     }
   }
 
@@ -416,7 +455,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     }
   }
 
-  int getMaxCharWidth() {
+  float getMaxCharWidth() {
     synchronized (myLock) {
       initMetricsIfNeeded();
       return myMaxCharWidth;
@@ -426,7 +465,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   public int getAscent() {
     synchronized (myLock) {
       initMetricsIfNeeded();
-      return myAscent;
+      return myLineHeight - myDescent;
     }
   }
 
@@ -448,9 +487,10 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   private void initMetricsIfNeeded() {
     if (myPlainSpaceWidth >= 0) return;
 
-    FontMetrics fm = myEditor.getContentComponent().getFontMetrics(myEditor.getColorsScheme().getFont(EditorFontType.PLAIN));
+    Font font = myEditor.getColorsScheme().getFont(EditorFontType.PLAIN);
+    FontMetrics fm = FontInfo.getFontMetrics(font, myFontRenderContext);
 
-    int width = FontLayoutService.getInstance().charWidth(fm, ' ');
+    float width = FontLayoutService.getInstance().charWidth2D(fm, ' ');
     myPlainSpaceWidth = width > 0 ? width : 1;
 
     myCharHeight = FontLayoutService.getInstance().charWidth(fm, 'a');
@@ -458,16 +498,34 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     float verticalScalingFactor = getVerticalScalingFactor();
 
     int fontMetricsHeight = FontLayoutService.getInstance().getHeight(fm);
-    myLineHeight = (int)Math.ceil(fontMetricsHeight * verticalScalingFactor);
+    int lineHeight;
+    if (Registry.is("editor.text.xcode.vertical.spacing")) {
+      //Here we approximate line calculation to the variant used in Xcode 9 editor
+      LineMetrics metrics = font.getLineMetrics("", myFontRenderContext);
 
-    int ascent = FontLayoutService.getInstance().getAscent(fm);
-    myAscent = (int)Math.ceil(ascent * verticalScalingFactor);
-    myTopOverhang = ascent - myAscent;
-    myBottomOverhang = fontMetricsHeight - ascent - myLineHeight + myAscent;
+      double height = Math.ceil(metrics.getHeight()) + metrics.getLeading();
+      double delta = verticalScalingFactor - 1;
+      int spacing;
+      if (Math.round((height * delta) / 2) <= 1) {
+        spacing = delta > 0 ? 2 : 0;
+      }
+      else {
+        spacing = ((int)Math.ceil((height * delta) / 2)) * 2;
+      }
+      lineHeight = (int)Math.ceil(height) + spacing;
+    }
+    else {
+      lineHeight = (int)Math.ceil(fontMetricsHeight * verticalScalingFactor);
+    }
+    myLineHeight = Math.max(1, lineHeight);
+    int descent = FontLayoutService.getInstance().getDescent(fm);
+    myDescent = descent + (myLineHeight - fontMetricsHeight) / 2;
+    myTopOverhang = fontMetricsHeight - myLineHeight + myDescent - descent;
+    myBottomOverhang = descent - myDescent;
 
     // assuming that bold italic 'W' gives a good approximation of font's widest character
-    FontMetrics fmBI = myEditor.getContentComponent().getFontMetrics(myEditor.getColorsScheme().getFont(EditorFontType.BOLD_ITALIC));
-    myMaxCharWidth = FontLayoutService.getInstance().charWidth(fmBI, 'W');
+    FontMetrics fmBI = FontInfo.getFontMetrics(myEditor.getColorsScheme().getFont(EditorFontType.BOLD_ITALIC), myFontRenderContext);
+    myMaxCharWidth = FontLayoutService.getInstance().charWidth2D(fmBI, 'W');
   }
   
   public int getTabSize() {
@@ -479,14 +537,34 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
     }
   }
 
-  private void setFontRenderContext() {
-    Graphics2D g = FontInfo.createReferenceGraphics();
-    try {
-      myFontRenderContext = g.getFontRenderContext();
+  private boolean setFontRenderContext(FontRenderContext context) {
+    FontRenderContext contextToSet = context == null ? FontInfo.getFontRenderContext(myEditor.getContentComponent()) : context;
+    if (areEqualContexts(myFontRenderContext, contextToSet)) return false;
+    myFontRenderContext = contextToSet.getFractionalMetricsHint() == myEditor.myFractionalMetricsHintValue 
+                          ? contextToSet
+                          : new FontRenderContext(contextToSet.getTransform(), 
+                                                  contextToSet.getAntiAliasingHint(), 
+                                                  myEditor.myFractionalMetricsHintValue);
+    return true;
+  }
+
+  private void checkFontRenderContext(FontRenderContext context) {
+    if (setFontRenderContext(context)) {
+      synchronized (myLock) {
+        myPlainSpaceWidth = -1;
+      }
+      myTextLayoutCache.resetToDocumentSize(false);
+      invalidateFoldRegionLayouts();
     }
-    finally {
-      g.dispose();
-    }
+  }
+
+  private static boolean areEqualContexts(FontRenderContext c1, FontRenderContext c2) {
+    if (c1 == c2) return true;
+    if (c1 == null || c2 == null) return false;
+    // We ignore fractional metrics aspect of contexts, because we it's not changing during editor's lifecycle.
+    // And it has different values for component graphics (ON/OFF) and component's font metrics (DEFAULT), causing
+    // unnecessary layout cache resets.
+    return c1.getTransform().equals(c2.getTransform()) && c1.getAntiAliasingHint().equals(c2.getAntiAliasingHint());
   }
 
   LineLayout getFoldRegionLayout(FoldRegion foldRegion) {
@@ -513,7 +591,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   int getBidiFlags() {
     return myBidiFlags;
   }
-  
+
   private static void assertIsDispatchThread() {
     ApplicationManager.getApplication().assertIsDispatchThread();
   }
@@ -537,7 +615,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
              ", prefix attributes: " + prefixAttributes +
              ", space width: " + myPlainSpaceWidth +
              ", line height: " + myLineHeight +
-             ", ascent: " + myAscent +
+             ", descent: " + myDescent +
              ", char height: " + myCharHeight +
              ", max char width: " + myMaxCharWidth +
              ", tab size: " + myTabSize +
@@ -554,6 +632,7 @@ public class EditorView implements TextDrawingCallback, Disposable, Dumpable {
   }
 
   private void assertNotInBulkMode() {
-    if (myDocument.isInBulkUpdate()) throw new IllegalStateException("Current operation is not available in bulk mode");
+    if (myDocument instanceof DocumentImpl) ((DocumentImpl)myDocument).assertNotInBulkUpdate();
+    else if (myDocument.isInBulkUpdate()) throw new IllegalStateException("Current operation is not available in bulk mode");
   }
 }

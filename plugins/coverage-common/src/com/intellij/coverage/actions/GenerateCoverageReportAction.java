@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 20-Nov-2007
- */
 package com.intellij.coverage.actions;
 
 import com.intellij.codeInspection.export.ExportToHTMLDialog;
@@ -29,10 +25,12 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
 public class GenerateCoverageReportAction extends AnAction {
 
-  public void actionPerformed(final AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Project project = e.getProject();
     assert project != null;
@@ -51,7 +49,8 @@ public class GenerateCoverageReportAction extends AnAction {
     coverageEngine.generateReport(project, dataContext, currentSuite);
   }
 
-  public void update(final AnActionEvent e) {
+  @Override
+  public void update(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Presentation presentation = e.getPresentation();
     presentation.setEnabled(false);

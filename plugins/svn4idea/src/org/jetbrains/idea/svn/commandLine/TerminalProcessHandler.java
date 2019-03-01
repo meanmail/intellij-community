@@ -21,7 +21,6 @@ import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.io.BaseOutputReader;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.svn.SvnUtil;
 
@@ -41,6 +40,8 @@ public class TerminalProcessHandler extends SvnProcessHandler {
 
   public TerminalProcessHandler(@NotNull Process process, @NotNull String commandLine, boolean forceUtf8, boolean forceBinary) {
     super(process, commandLine, forceUtf8, forceBinary);
+    setHasPty(true);
+    setShouldDestroyProcessRecursively(false);
   }
 
   public void addInteractiveListener(@NotNull InteractiveCommandListener listener) {
@@ -53,19 +54,7 @@ public class TerminalProcessHandler extends SvnProcessHandler {
   }
 
   @Override
-  protected void destroyProcessImpl() {
-    final Process process = getProcess();
-    process.destroy();
-  }
-
-  @NotNull
-  @Override
-  protected BaseOutputReader.Options readerOptions() {
-    return BaseOutputReader.Options.BLOCKING;
-  }
-
-  @Override
-  public void notifyTextAvailable(String text, Key outputType) {
+  public void notifyTextAvailable(@NotNull String text, @NotNull Key outputType) {
     if (ProcessOutputTypes.SYSTEM.equals(outputType)) {
       super.notifyTextAvailable(text, outputType);
     }

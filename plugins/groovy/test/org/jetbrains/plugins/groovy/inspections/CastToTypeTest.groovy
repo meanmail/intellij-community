@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,6 +39,7 @@ class CastToTypeTest extends LightCodeInsightFixtureTestCase {
     myFixture.checkResultByFile(getTestName(true) + '_after.groovy')
   }
 
-  void testSimple() {doTest('Cast to List<capture of ? extends Abc>')}
+  void testSimple() {doTest('Cast to List<? extends Abc>')}
   void testInReturnType() {doTest('Cast to int')}
+  void testInForCycle() {doTest('Cast to List<Integer>')}
 }

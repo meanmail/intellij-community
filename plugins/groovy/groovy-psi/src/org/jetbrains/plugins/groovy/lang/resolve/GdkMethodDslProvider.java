@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.openapi.util.VolatileNotNullLazyValue;
+import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.ResolveState;
 import com.intellij.psi.scope.ElementClassHint;
@@ -27,13 +14,14 @@ import org.jetbrains.plugins.groovy.dsl.GdslMembersHolderConsumer;
 import org.jetbrains.plugins.groovy.dsl.GroovyClassDescriptor;
 import org.jetbrains.plugins.groovy.dsl.dsltop.GdslMembersProvider;
 import org.jetbrains.plugins.groovy.dsl.holders.CustomMembersHolder;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyPsiManager;
-import org.jetbrains.plugins.groovy.lang.resolve.processors.GroovyResolverProcessor;
+import org.jetbrains.plugins.groovy.lang.completion.closureParameters.ClosureDescriptor;
+import org.jetbrains.plugins.groovy.lang.resolve.processors.MultiProcessor;
+
+import java.util.function.Consumer;
 
 /**
  * @author Maxim.Medvedev
  */
-@SuppressWarnings({"MethodMayBeStatic"})
 public class GdkMethodDslProvider implements GdslMembersProvider {
 
   public void category(String className, GdslMembersHolderConsumer consumer) {
@@ -46,7 +34,7 @@ public class GdkMethodDslProvider implements GdslMembersProvider {
 
   private static void processCategoryMethods(final String className, final GdslMembersHolderConsumer consumer, final boolean isStatic) {
     final GlobalSearchScope scope = consumer.getResolveScope();
-    final PsiClass categoryClass = GroovyPsiManager.getInstance(consumer.getProject()).findClassWithCache(className, scope);
+    final PsiClass categoryClass = JavaPsiFacade.getInstance(consumer.getProject()).findClass(className, scope);
     if (categoryClass == null) {
       return;
     }
@@ -55,7 +43,7 @@ public class GdkMethodDslProvider implements GdslMembersProvider {
       @NotNull
       @Override
       protected GdkMethodHolder compute() {
-        return GdkMethodHolder.getHolderForClass(categoryClass, isStatic, scope);
+        return GdkMethodHolder.getHolderForClass(categoryClass, isStatic);
       }
     };
 
@@ -63,7 +51,7 @@ public class GdkMethodDslProvider implements GdslMembersProvider {
 
       @Override
       public boolean processMembers(GroovyClassDescriptor descriptor, PsiScopeProcessor _processor, ResolveState state) {
-        for (PsiScopeProcessor each : GroovyResolverProcessor.allProcessors(_processor)) {
+        for (PsiScopeProcessor each : MultiProcessor.allProcessors(_processor)) {
           if (ResolveUtil.shouldProcessMethods(each.getHint(ElementClassHint.KEY)) &&
               !methodsMap.getValue().processMethods(each, state, descriptor.getPsiType(), descriptor.getProject())) {
             return false;
@@ -71,6 +59,9 @@ public class GdkMethodDslProvider implements GdslMembersProvider {
         }
         return true;
       }
+
+      @Override
+      public void consumeClosureDescriptors(GroovyClassDescriptor descriptor, Consumer<? super ClosureDescriptor> consumer) {}
     });
   }
 }

@@ -47,13 +47,13 @@ public abstract class FacetModelBase implements FacetModel {
         for (Facet facet : allFacets) {
           addUnderlyingFacets(facets, facet);
         }
-        mySortedFacets = facets.toArray(new Facet[facets.size()]);
+        mySortedFacets = facets.toArray(Facet.EMPTY_ARRAY);
       }
     }
     return mySortedFacets;
   }
 
-  private static void addUnderlyingFacets(final LinkedHashSet<Facet> facets, final Facet facet) {
+  private static void addUnderlyingFacets(final LinkedHashSet<? super Facet> facets, final Facet facet) {
     final Facet underlyingFacet = facet.getUnderlyingFacet();
     if (underlyingFacet != null && !facets.contains(facet)) {
       addUnderlyingFacets(facets, underlyingFacet);
@@ -82,7 +82,7 @@ public abstract class FacetModelBase implements FacetModel {
     }
     //noinspection unchecked
     final Collection<F> facets = (Collection<F>)myChildFacets.get(new Pair(underlyingFacet, typeId));
-    return facets != null ? facets : Collections.<F>emptyList();
+    return facets != null ? facets : Collections.emptyList();
   }
 
   @Override
@@ -134,7 +134,7 @@ public abstract class FacetModelBase implements FacetModel {
     }
 
     final Collection<F> facets = (Collection<F>)myType2Facets.get(typeId);
-    return facets != null ? facets : Collections.<F>emptyList();
+    return facets != null ? facets : Collections.emptyList();
   }
 
   protected void facetsChanged() {

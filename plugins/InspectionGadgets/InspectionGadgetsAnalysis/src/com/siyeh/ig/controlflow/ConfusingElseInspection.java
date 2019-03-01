@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,12 +20,12 @@ import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
+import org.intellij.lang.annotations.Pattern;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,8 +34,9 @@ import javax.swing.*;
 public class ConfusingElseInspection extends BaseInspection {
 
   @SuppressWarnings({"PublicField"})
-  public boolean reportWhenNoStatementFollow = false;
+  public boolean reportWhenNoStatementFollow = true;
 
+  @Pattern(VALID_ID_PATTERN)
   @Override
   @NotNull
   public String getID() {
@@ -45,13 +46,13 @@ public class ConfusingElseInspection extends BaseInspection {
   @Override
   @NotNull
   public String getDisplayName() {
-    return InspectionGadgetsBundle.message("confusing.else.display.name");
+    return InspectionGadgetsBundle.message("redundant.else.display.name");
   }
 
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message("confusing.else.problem.descriptor");
+    return InspectionGadgetsBundle.message("redundant.else.problem.descriptor");
   }
 
   @Override
@@ -67,24 +68,19 @@ public class ConfusingElseInspection extends BaseInspection {
   @Override
   @Nullable
   protected InspectionGadgetsFix buildFix(Object... infos) {
-    return new ConfusingElseFix();
+    return new RemoveRedundantElseFix();
   }
 
-  private static class ConfusingElseFix extends InspectionGadgetsFix {
+  private static class RemoveRedundantElseFix extends InspectionGadgetsFix {
+
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("redundant.else.unwrap.quickfix");
     }
 
     @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("confusing.else.unwrap.quickfix");
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement ifKeyword = descriptor.getPsiElement();
       final PsiIfStatement ifStatement = (PsiIfStatement)ifKeyword.getParent();
       if (ifStatement == null) {

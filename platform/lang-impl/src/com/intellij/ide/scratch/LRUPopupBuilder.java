@@ -1,29 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.scratch;
 
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageUtil;
 import com.intellij.lang.PerFileMappings;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.undo.BasicUndoableAction;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.command.undo.UnexpectedUndoException;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.*;
@@ -45,14 +31,14 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author gregsh
  */
 public abstract class LRUPopupBuilder<T> {
-
+  private static final Logger LOG = Logger.getInstance(LRUPopupBuilder.class);
   private static final int MAX_VISIBLE_SIZE = 20;
   private static final int LRU_ITEMS = 4;
 
@@ -61,26 +47,43 @@ public abstract class LRUPopupBuilder<T> {
   private final Map<T, Pair<String, Icon>> myPresentations = ContainerUtil.newIdentityHashMap();
 
   private T mySelection;
-  private Consumer<T> myOnChosen;
+  private Consumer<? super T> myOnChosen;
   private Comparator<? super T> myComparator;
   private Iterable<? extends T> myItemsIterable;
   private JBIterable<T> myExtraItems = JBIterable.empty();
 
   @NotNull
-  public static ListPopup forFileLanguages(@NotNull Project project, @NotNull Iterable<VirtualFile> files, @NotNull final PerFileMappings<Language> mappings) {
-    final VirtualFile[] filesCopy = VfsUtilCore.toVirtualFileArray(JBIterable.from(files).toList());
+  public static ListPopup forFileLanguages(@NotNull Project project,
+                                           @NotNull String title,
+                                           @NotNull Iterable<? extends VirtualFile> files,
+                                           @NotNull PerFileMappings<Language> mappings) {
+    VirtualFile[] filesCopy = VfsUtilCore.toVirtualFileArray(JBIterable.from(files).toList());
     Arrays.sort(filesCopy, (o1, o2) -> StringUtil.compare(o1.getName(), o2.getName(), !o1.getFileSystem().isCaseSensitive()));
-    return forFileLanguages(project, null, t -> new WriteCommandAction(project, "Change Language") {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        changeLanguageWithUndo(project, t, filesCopy, mappings);
+    return forFileLanguages(project, title, null, t -> {
+      try {
+        WriteCommandAction.writeCommandAction(project).withName("Change Language").run(
+          () -> changeLanguageWithUndo(project, t, filesCopy, mappings));
       }
-    }.execute());
+      catch (UnexpectedUndoException e) {
+        LOG.error(e);
+      }
+    });
+  }
+
+  @Deprecated
+  @NotNull
+  public static ListPopup forFileLanguages(@NotNull Project project,
+                                           @Nullable Language selection,
+                                           @NotNull Consumer<? super Language> onChosen) {
+    return forFileLanguages(project, "Languages", selection, onChosen);
   }
 
   @NotNull
-  public static ListPopup forFileLanguages(@NotNull Project project, @Nullable final Language selection, @NotNull final Consumer<Language> onChosen) {
-    return languagePopupBuilder(project, "Languages").
+  public static ListPopup forFileLanguages(@NotNull Project project,
+                                           @NotNull String title,
+                                           @Nullable Language selection,
+                                           @NotNull Consumer<? super Language> onChosen) {
+    return languagePopupBuilder(project, title).
       forValues(LanguageUtil.getFileLanguages()).
       withSelection(selection).
       onChosen(onChosen).
@@ -88,7 +91,7 @@ public abstract class LRUPopupBuilder<T> {
   }
 
   @NotNull
-  public static LRUPopupBuilder<Language> languagePopupBuilder(@NotNull final Project project, @NotNull final String title) {
+  public static LRUPopupBuilder<Language> languagePopupBuilder(@NotNull Project project, @NotNull String title) {
     return new LRUPopupBuilder<Language>(project, title) {
       @Override
       public String getDisplayName(Language language) {
@@ -117,23 +120,27 @@ public abstract class LRUPopupBuilder<T> {
   public abstract String getStorageId(T t);
   public abstract Icon getIcon(T t);
 
+  @NotNull
   public LRUPopupBuilder<T> forValues(@Nullable Iterable<? extends T> items) {
     myItemsIterable = items;
     return this;
   }
 
+  @NotNull
   public LRUPopupBuilder<T> withSelection(@Nullable T t) {
     mySelection = t;
     return this;
   }
 
+  @NotNull
   public LRUPopupBuilder<T> withExtra(@NotNull T extra, @NotNull String displayName, @Nullable Icon icon) {
     myExtraItems = myExtraItems.append(extra);
     myPresentations.put(extra, Pair.create(displayName, icon));
     return this;
   }
 
-  public LRUPopupBuilder<T> onChosen(@Nullable Consumer<T> consumer) {
+  @NotNull
+  public LRUPopupBuilder<T> onChosen(@Nullable Consumer<? super T> consumer) {
     myOnChosen = consumer;
     return this;
   }
@@ -145,26 +152,28 @@ public abstract class LRUPopupBuilder<T> {
 
   @NotNull
   public ListPopup buildPopup() {
-    final List<String> ids = ContainerUtil.newArrayList(restoreLRUItems());
+    List<String> ids = ContainerUtil.newArrayList(restoreLRUItems());
     if (mySelection != null) {
       ids.add(getStorageId(mySelection));
     }
     List<T> lru = ContainerUtil.newArrayListWithCapacity(LRU_ITEMS);
     List<T> items = ContainerUtil.newArrayListWithCapacity(MAX_VISIBLE_SIZE);
-    final List<T> extra = myExtraItems.toList();
-    for (T t : myItemsIterable) {
-      (ContainerUtil.indexOf(ids, getStorageId(t)) != -1 ? lru : items).add(t);
+    List<T> extra = myExtraItems.toList();
+    if (myItemsIterable != null) {
+      for (T t : myItemsIterable) {
+        (ids.indexOf(getStorageId(t)) != -1 ? lru : items).add(t);
+      }
     }
     if (myComparator != null) {
       Collections.sort(items, myComparator);
     }
     if (!lru.isEmpty()) {
-      Collections.sort(lru, (o1, o2) -> ContainerUtil.indexOf(ids, getStorageId(o1)) - ContainerUtil.indexOf(ids, getStorageId(o2)));
+      Collections.sort(lru, Comparator.comparingInt(o -> ids.indexOf(getStorageId(o))));
     }
-    final T separator1 = !lru.isEmpty() && !items.isEmpty()? items.get(0) : null;
-    final T separator2 = !lru.isEmpty() || !items.isEmpty()? ContainerUtil.getFirstItem(extra) : null;
+    T separator1 = !lru.isEmpty() && !items.isEmpty()? items.get(0) : null;
+    T separator2 = !lru.isEmpty() || !items.isEmpty()? ContainerUtil.getFirstItem(extra) : null;
 
-    final List<T> combinedItems = ContainerUtil.concat(lru, items, extra);
+    List<T> combinedItems = ContainerUtil.concat(lru, items, extra);
     BaseListPopupStep<T> step =
       new BaseListPopupStep<T>(myTitle, combinedItems) {
         @NotNull
@@ -257,10 +266,10 @@ public abstract class LRUPopupBuilder<T> {
 
 
   private static void changeLanguageWithUndo(@NotNull Project project,
-                                             @NotNull final Language t,
-                                             @NotNull final VirtualFile[] sortedFiles,
-                                             @NotNull final PerFileMappings<Language> mappings) throws UnexpectedUndoException {
-    ReadonlyStatusHandler.OperationStatus status = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(sortedFiles);
+                                             @NotNull Language t,
+                                             @NotNull VirtualFile[] sortedFiles,
+                                             @NotNull PerFileMappings<Language> mappings) throws UnexpectedUndoException {
+    ReadonlyStatusHandler.OperationStatus status = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(Arrays.asList(sortedFiles));
     if (status.hasReadonlyFiles()) return;
 
     final Set<VirtualFile> matchedExtensions = ContainerUtil.newLinkedHashSet();
@@ -274,14 +283,14 @@ public abstract class LRUPopupBuilder<T> {
 
     BasicUndoableAction action = new BasicUndoableAction(sortedFiles) {
       @Override
-      public void undo() throws UnexpectedUndoException {
+      public void undo() {
         for (VirtualFile file : sortedFiles) {
           mappings.setMapping(file, oldMapping.get(file));
         }
       }
 
       @Override
-      public void redo() throws UnexpectedUndoException {
+      public void redo() {
         for (VirtualFile file : sortedFiles) {
           mappings.setMapping(file, t);
         }

@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.settings;
 
+import com.intellij.openapi.options.CompositeConfigurable;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.text.StringUtil;
@@ -30,8 +16,10 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.util.Arrays;
+import java.util.List;
 
-class MergedCompositeConfigurable implements SearchableConfigurable {
+class MergedCompositeConfigurable extends CompositeConfigurable<Configurable> implements SearchableConfigurable {
   static final EmptyBorder BOTTOM_INSETS = new EmptyBorder(0, 0, IdeBorderFactory.TITLED_BORDER_BOTTOM_INSET, 0);
 
   private static final Insets FIRST_COMPONENT_INSETS = new Insets(0, 0, IdeBorderFactory.TITLED_BORDER_BOTTOM_INSET, 0);
@@ -42,11 +30,16 @@ class MergedCompositeConfigurable implements SearchableConfigurable {
 
   private final String id;
   private final String displayName;
+  private final String helpTopic;
 
-  public MergedCompositeConfigurable(@NotNull String id, @NotNull String displayName, @NotNull Configurable[] children) {
+  MergedCompositeConfigurable(@NotNull String id,
+                                     @NotNull String displayName,
+                                     @Nullable String helpTopic,
+                                     @NotNull Configurable[] children) {
     this.children = children;
     this.id = id;
     this.displayName = displayName;
+    this.helpTopic = helpTopic;
   }
 
   @NotNull
@@ -64,6 +57,9 @@ class MergedCompositeConfigurable implements SearchableConfigurable {
   @Nullable
   @Override
   public String getHelpTopic() {
+    if (helpTopic != null) {
+      return helpTopic;
+    }
     return children.length == 1 ? children[0].getHelpTopic() : null;
   }
 
@@ -82,11 +78,13 @@ class MergedCompositeConfigurable implements SearchableConfigurable {
     if (rootComponent == null) {
       Configurable firstConfigurable = children[0];
       if (children.length == 1) {
-        rootComponent = firstConfigurable.createComponent();
+        JComponent component = firstConfigurable.createComponent();
         String rootComponentDisplayName = firstConfigurable.getDisplayName();
         if (!StringUtil.isEmpty(rootComponentDisplayName) && !isTargetedToProduct(firstConfigurable)) {
-          rootComponent.setBorder(IdeBorderFactory.createTitledBorder(rootComponentDisplayName, false, FIRST_COMPONENT_INSETS));
+          component.setBorder(IdeBorderFactory.createTitledBorder(rootComponentDisplayName, false, FIRST_COMPONENT_INSETS));
         }
+        rootComponent = createPanel(true);
+        rootComponent.add(component);
       }
       else {
         boolean isFirstNamed = true;
@@ -119,12 +117,7 @@ class MergedCompositeConfigurable implements SearchableConfigurable {
   }
 
   static boolean isTargetedToProduct(@NotNull Configurable configurable) {
-    for (DebuggerConfigurableProvider provider : DebuggerConfigurableProvider.EXTENSION_POINT.getExtensions()) {
-      if (provider.isTargetedToProduct(configurable)) {
-        return true;
-      }
-    }
-    return false;
+    return DebuggerConfigurableProvider.EXTENSION_POINT.extensions().anyMatch(provider -> provider.isTargetedToProduct(configurable));
   }
 
   @NotNull
@@ -139,37 +132,14 @@ class MergedCompositeConfigurable implements SearchableConfigurable {
   }
 
   @Override
-  public boolean isModified() {
-    for (Configurable child : children) {
-      if (child.isModified()) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  @Override
-  public void apply() throws ConfigurationException {
-    for (Configurable child : children) {
-      if (child.isModified()) {
-        child.apply();
-      }
-    }
-  }
-
-  @Override
-  public void reset() {
-    for (Configurable child : children) {
-      child.reset();
-    }
-  }
-
-  @Override
   public void disposeUIResources() {
     rootComponent = null;
+    super.disposeUIResources();
+  }
 
-    for (Configurable child : children) {
-      child.disposeUIResources();
-    }
+  @NotNull
+  @Override
+  protected List<Configurable> createConfigurables() {
+    return Arrays.asList(children);
   }
 }

@@ -29,19 +29,12 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Created by IntelliJ IDEA.
  * Author: Alexey.Ivanov
- * Date:   06.03.2010
- * Time:   16:16:52
  */
 public class ReplaceNotEqOperatorQuickFix implements LocalQuickFix {
   @NotNull
   @Override
-  public String getName() {
-    return PyBundle.message("INTN.replace.noteq.operator");
-  }
-
-  @NotNull
   public String getFamilyName() {
-    return getName();
+    return PyBundle.message("INTN.replace.noteq.operator");
   }
 
   @Override

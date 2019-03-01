@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,12 @@
  */
 package org.jetbrains.plugins.groovy.lang.completion.smartEnter;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.SmartEnterProcessorWithFixers;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.IncorrectOperationException;
@@ -28,6 +28,7 @@ import com.intellij.util.containers.OrderedSet;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.completion.smartEnter.fixers.*;
 import org.jetbrains.plugins.groovy.lang.completion.smartEnter.processors.GroovyPlainEnterProcessor;
 import org.jetbrains.plugins.groovy.lang.groovydoc.psi.api.GrDocComment;
@@ -50,10 +51,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 29.07.2008
- */
 public class GroovySmartEnterProcessor extends SmartEnterProcessorWithFixers {
   public GroovySmartEnterProcessor() {
     final List<SmartEnterProcessorWithFixers.Fixer<GroovySmartEnterProcessor>> ourFixers = Arrays.asList(
@@ -95,7 +92,7 @@ public class GroovySmartEnterProcessor extends SmartEnterProcessorWithFixers {
         new GrListFixer(),
         new GrMethodCallWithSingleClosureArgFixer()
       );
-    addFixers(ourFixers.toArray(new Fixer[ourFixers.size()]));
+    addFixers(ourFixers.toArray(new Fixer[0]));
     addEnterProcessors(new GroovyPlainEnterProcessor());
   }
 
@@ -182,12 +179,16 @@ public class GroovySmartEnterProcessor extends SmartEnterProcessorWithFixers {
     if (CharArrayUtil.regionMatches(chars, caretOffset - "{}".length(), "{}") ||
         CharArrayUtil.regionMatches(chars, caretOffset - "{\n}".length(), "{\n}")) {
       commit(editor);
-      final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(file.getProject());
+      final CommonCodeStyleSettings settings = CodeStyle.getLanguageSettings(file, GroovyLanguage.INSTANCE);
       final boolean old = settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE;
-      settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = false;
-      PsiElement elt = PsiTreeUtil.getParentOfType(file.findElementAt(caretOffset - 1), GrCodeBlock.class, GrTypeDefinitionBody.class);
-      reformat(elt);
-      settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = old;
+      try {
+        settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = false;
+        PsiElement elt = PsiTreeUtil.getParentOfType(file.findElementAt(caretOffset - 1), GrCodeBlock.class, GrTypeDefinitionBody.class);
+        if (elt != null) reformat(elt);
+      }
+      finally {
+        settings.KEEP_SIMPLE_BLOCKS_IN_ONE_LINE = old;
+      }
       editor.getCaretModel().moveToOffset(caretOffset - 1);
     }
   }

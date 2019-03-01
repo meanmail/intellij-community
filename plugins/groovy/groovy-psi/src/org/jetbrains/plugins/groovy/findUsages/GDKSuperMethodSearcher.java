@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.findUsages;
 
@@ -26,11 +12,11 @@ import com.intellij.util.Processor;
 import com.intellij.util.QueryExecutor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.dgm.DGMMemberContributor;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
-import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
 import org.jetbrains.plugins.groovy.lang.resolve.processors.MethodResolverProcessor;
 
 import java.util.ArrayList;
@@ -42,8 +28,9 @@ import java.util.List;
  * @author Maxim.Medvedev
  */
 public class GDKSuperMethodSearcher implements QueryExecutor<MethodSignatureBackedByPsiMethod, SuperMethodsSearch.SearchParameters> {
+
   @Override
-  public boolean execute(@NotNull SuperMethodsSearch.SearchParameters queryParameters, @NotNull Processor<MethodSignatureBackedByPsiMethod> consumer) {
+  public boolean execute(@NotNull SuperMethodsSearch.SearchParameters queryParameters, @NotNull Processor<? super MethodSignatureBackedByPsiMethod> consumer) {
     final PsiMethod method = queryParameters.getMethod();
     if (!(method instanceof GrMethod)) {
       return true;
@@ -60,9 +47,9 @@ public class GDKSuperMethodSearcher implements QueryExecutor<MethodSignatureBack
     final Project project = method.getProject();
 
     final String name = method.getName();
-    final MethodResolverProcessor processor = new MethodResolverProcessor(name, ((GrMethod)method), false, null, null, PsiType.EMPTY_ARRAY);
-    ResolveUtil.processNonCodeMembers(JavaPsiFacade.getElementFactory(project).createType(psiClass), processor, (GrMethod)method,
-                                      ResolveState.initial());
+    final MethodResolverProcessor processor = new MethodResolverProcessor(name, method, false, null, null, PsiType.EMPTY_ARRAY);
+    DGMMemberContributor.processDgmMethods(JavaPsiFacade.getElementFactory(project).createType(psiClass),
+                                           processor, method, ResolveState.initial());
 
     final GroovyResolveResult[] candidates = processor.getCandidates();
 
@@ -126,7 +113,7 @@ public class GDKSuperMethodSearcher implements QueryExecutor<MethodSignatureBack
 
   private static PsiMethod getRealMethod(PsiMethod method) {
     final PsiElement element = method.getNavigationElement();
-    if (element instanceof PsiMethod && ((PsiMethod)element).getParameterList().getParametersCount() > 0) {
+    if (element instanceof PsiMethod && !((PsiMethod)element).getParameterList().isEmpty()) {
       return (PsiMethod)element;
     }
     else {

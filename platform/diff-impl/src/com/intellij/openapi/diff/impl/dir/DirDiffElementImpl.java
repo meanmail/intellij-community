@@ -28,16 +28,16 @@ import static com.intellij.ide.diff.DirDiffOperation.*;
  * @author Konstantin Bulenkov
  */
 public class DirDiffElementImpl implements DirDiffElement {
-  private DTree myParent;
+  private final DTree myParent;
   private DiffType myType;
   private DiffElement mySource;
   private long mySourceLength;
   private DiffElement myTarget;
   private long myTargetLength;
-  private String myName;
+  private final String myName;
   private DirDiffOperation myOperation;
   private DirDiffOperation myDefaultOperation;
-  private DTree myNode;
+  private final DTree myNode;
 
   private DirDiffElementImpl(DTree parent, @Nullable DiffElement source, @Nullable DiffElement target, DiffType type, String name,
                          @Nullable DirDiffOperation defaultOperation) {
@@ -105,11 +105,11 @@ public class DirDiffElementImpl implements DirDiffElement {
         defaultOperation = COPY_FROM;
       }
     }
-    return new DirDiffElementImpl(parent, source, target, DiffType.CHANGED, source.getName(), defaultOperation);
+    return new DirDiffElementImpl(parent, source, target, DiffType.CHANGED, source.getPresentableName(), defaultOperation);
   }
 
   public static DirDiffElementImpl createError(DTree parent, @Nullable DiffElement source, @Nullable DiffElement target) {
-    return new DirDiffElementImpl(parent, source, target, DiffType.ERROR, source == null ? target.getName() : source.getName(), null);
+    return new DirDiffElementImpl(parent, source, target, DiffType.ERROR, source == null ? target.getPresentableName() : source.getPresentableName(), null);
   }
 
   public static DirDiffElementImpl createSourceOnly(DTree parent, @NotNull DiffElement source) {
@@ -125,29 +125,37 @@ public class DirDiffElementImpl implements DirDiffElement {
   }
 
   public static DirDiffElementImpl createEqual(DTree parent, @NotNull DiffElement source, @NotNull DiffElement target) {
-    return new DirDiffElementImpl(parent, source, target, DiffType.EQUAL, source.getName(), null);
+    return new DirDiffElementImpl(parent, source, target, DiffType.EQUAL, source.getPresentableName(), null);
   }
 
+  @Override
   public DiffType getType() {
     return myType;
   }
 
+  @Override
   public DiffElement getSource() {
     return mySource;
   }
 
+  @Override
   public DiffElement getTarget() {
     return myTarget;
   }
 
+  @Override
   public String getName() {
     return myName;
   }
 
   @Nullable
   public String getSourceName() {
-    return myType == DiffType.CHANGED || myType == DiffType.SOURCE || myType == DiffType.EQUAL
-           ? mySource.getName() : mySource == null ? null : mySource.getName();
+    return mySource == null ? null : mySource.getName();
+  }
+
+  @Nullable
+  public String getSourcePresentableName() {
+    return mySource == null ? null : mySource.getPresentableName();
   }
 
   @Nullable
@@ -166,8 +174,12 @@ public class DirDiffElementImpl implements DirDiffElement {
 
   @Nullable
   public String getTargetName() {
-    return myType == DiffType.CHANGED || myType == DiffType.TARGET || myType == DiffType.EQUAL
-           ? myTarget.getName() : myTarget == null ? null : myTarget.getName();
+    return myTarget == null ? null : myTarget.getName();
+  }
+
+  @Nullable
+  public String getTargetPresentableName() {
+    return myTarget == null ? null : myTarget.getPresentableName();
   }
 
   @Nullable
@@ -187,6 +199,7 @@ public class DirDiffElementImpl implements DirDiffElement {
     return myType == DiffType.TARGET;
   }
 
+  @Override
   public DirDiffOperation getOperation() {
     return myOperation == null ? myDefaultOperation : myOperation;
   }

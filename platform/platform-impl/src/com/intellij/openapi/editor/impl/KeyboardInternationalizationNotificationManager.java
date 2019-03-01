@@ -38,22 +38,27 @@ public class KeyboardInternationalizationNotificationManager {
   private KeyboardInternationalizationNotificationManager() {
   }
 
-  public static void showNotification() {
+/*  public static void showNotification() {
 
-    if (notificationHasBeenShown || !KeyboardSettingsExternalizable.isSupportedKeyboardLayout(WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow())) return;
+    Window mostRecentFocusedWindow = WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow();
+    if (notificationHasBeenShown || (mostRecentFocusedWindow != null && !KeyboardSettingsExternalizable.isSupportedKeyboardLayout(mostRecentFocusedWindow))) return;
 
     MyNotificationListener listener =
       new MyNotificationListener();
 
     Notifications.Bus.notify(createNotification(LOCALIZATION_GROUP_DISPLAY_ID, listener));
     notificationHasBeenShown = true;
-  }
+  }*/
 
-  public static Notification createNotification(@NotNull final String groupDisplayId, @Nullable NotificationListener listener) {
-
-    final String productName = ApplicationNamesInfo.getInstance().getProductName();
+/*  public static Notification createNotification(@NotNull final String groupDisplayId, @Nullable NotificationListener listener) {
 
     Window recentFocusedWindow = WindowManagerEx.getInstanceEx().getMostRecentFocusedWindow();
+
+    if (recentFocusedWindow == null) {
+      recentFocusedWindow = Window.getWindows()[0];
+    }
+
+    final String productName = ApplicationNamesInfo.getInstance().getProductName();
 
     String text =
       "<html>We have found out that you are using a non-english keyboard layout. You can <a href='enable'>enable</a> smart layout support for " +
@@ -66,11 +71,11 @@ public class KeyboardInternationalizationNotificationManager {
                             text,
                             NotificationType.INFORMATION,
                             listener);
-  }
+  }*/
 
   private static class MyNotificationListener implements NotificationListener {
 
-    public MyNotificationListener() {
+    MyNotificationListener() {
     }
 
     @Override
@@ -78,7 +83,7 @@ public class KeyboardInternationalizationNotificationManager {
       if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
         final String description = event.getDescription();
         if ("enable".equals(description)) {
-          KeyboardSettingsExternalizable.getInstance().setNonEnglishKeyboardSupportEnabled(true);
+          KeyboardSettingsExternalizable.getInstance().setPreferKeyPositionOverCharOption(true);
         }
         else if ("settings".equals(description)) {
           final ShowSettingsUtil util = ShowSettingsUtil.getInstance();

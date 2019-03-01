@@ -19,7 +19,6 @@ package com.intellij.refactoring.rename;
 import com.intellij.codeInsight.daemon.impl.quickfix.RenameWrongRefFix;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -32,7 +31,8 @@ import org.jetbrains.annotations.NotNull;
 public class RenameWrongRefHandler implements RenameHandler {
 
 
-  public final boolean isAvailableOnDataContext(final DataContext dataContext) {
+  @Override
+  public final boolean isAvailableOnDataContext(@NotNull final DataContext dataContext) {
     final Editor editor = CommonDataKeys.EDITOR.getData(dataContext);
     final PsiFile file = CommonDataKeys.PSI_FILE.getData(dataContext);
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
@@ -45,22 +45,20 @@ public class RenameWrongRefHandler implements RenameHandler {
     return reference instanceof PsiReferenceExpression && new RenameWrongRefFix((PsiReferenceExpression)reference, true).isAvailable(project, editor, file);
   }
 
-  public final boolean isRenaming(final DataContext dataContext) {
+  @Override
+  public final boolean isRenaming(@NotNull final DataContext dataContext) {
     return isAvailableOnDataContext(dataContext);
   }
 
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file, final DataContext dataContext) {
     final PsiReference reference = file.findReferenceAt(editor.getCaretModel().getOffset());
     if (reference instanceof PsiReferenceExpression) {
-      new WriteCommandAction(project){
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          new RenameWrongRefFix((PsiReferenceExpression)reference).invoke(project, editor, file);
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(project).run(() -> new RenameWrongRefFix((PsiReferenceExpression)reference).invoke(project, editor, file));
     }
   }
 
+  @Override
   public void invoke(@NotNull final Project project, @NotNull final PsiElement[] elements, final DataContext dataContext) {
   }
 }

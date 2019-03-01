@@ -1,12 +1,20 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.credentialStore
 
+import com.intellij.credentialStore.keePass.InMemoryCredentialStore
 import com.intellij.openapi.util.SystemInfo
 import com.intellij.testFramework.UsefulTestCase
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.Test
 import java.util.*
 
-private const val TEST_SERVICE_NAME = "IntelliJ Platform Test"
+private val TEST_SERVICE_NAME = generateServiceName("Test", "test")
+
+inline fun macTest(task: () -> Unit) {
+  if (SystemInfo.isMacIntel64 && !UsefulTestCase.IS_UNDER_TEAMCITY) {
+    task()
+  }
+}
 
 internal class CredentialStoreTest {
   @Test
@@ -20,53 +28,77 @@ internal class CredentialStoreTest {
 
   @Test
   fun mac() {
-    if (!SystemInfo.isMacIntel64 || UsefulTestCase.IS_UNDER_TEAMCITY) {
-      return
-    }
-
-    doTest(KeyChainCredentialStore())
+    macTest { doTest(KeyChainCredentialStore()) }
   }
 
   @Test
-  fun KeePass() {
-    doTest(KeePassCredentialStore())
+  fun keePass() {
+    doTest(InMemoryCredentialStore())
   }
 
   @Test
   fun `mac - testEmptyAccountName`() {
-    if (!SystemInfo.isMacIntel64 || UsefulTestCase.IS_UNDER_TEAMCITY) {
-      return
-    }
-
-    testEmptyAccountName(KeyChainCredentialStore())
+    macTest { testEmptyAccountName(KeyChainCredentialStore()) }
   }
 
   @Test
   fun `mac - changedAccountName`() {
-    if (!SystemInfo.isMacIntel64 || UsefulTestCase.IS_UNDER_TEAMCITY) {
-      return
-    }
-
-    testChangedAccountName(KeyChainCredentialStore())
+    macTest { testChangedAccountName(KeyChainCredentialStore()) }
   }
 
   @Test
   fun `linux - testEmptyAccountName`() {
-    if (!SystemInfo.isLinux || UsefulTestCase.IS_UNDER_TEAMCITY) {
-      return
+    if (isLinuxSupported()) {
+      testEmptyAccountName(SecretCredentialStore("com.intellij.test"))
     }
-
-    testEmptyAccountName(SecretCredentialStore("com.intellij.test"))
   }
+
+  private fun isLinuxSupported() = SystemInfo.isLinux && !UsefulTestCase.IS_UNDER_TEAMCITY
 
   @Test
   fun `KeePass - testEmptyAccountName`() {
-    testEmptyAccountName(KeePassCredentialStore())
+    testEmptyAccountName(InMemoryCredentialStore())
+  }
+
+  @Test
+  fun `KeePass - testEmptyStrAccountName`() {
+    testEmptyStrAccountName(InMemoryCredentialStore())
   }
 
   @Test
   fun `KeePass - changedAccountName`() {
-    testChangedAccountName(KeePassCredentialStore())
+    testChangedAccountName(InMemoryCredentialStore())
+  }
+
+  @Test
+  fun `KeePass - memoryOnlyPassword`() {
+    memoryOnlyPassword(InMemoryCredentialStore())
+  }
+
+  @Test
+  fun `Keychain - memoryOnlyPassword`() {
+    macTest { memoryOnlyPassword(KeyChainCredentialStore()) }
+  }
+
+  @Test
+  fun `linux - memoryOnlyPassword`() {
+    if (isLinuxSupported()) {
+      memoryOnlyPassword(SecretCredentialStore("com.intellij.test"))
+    }
+  }
+
+
+  private fun memoryOnlyPassword(store: CredentialStore) {
+    val pass = randomString()
+    val userName = randomString()
+    val serviceName = randomString()
+    store.set(CredentialAttributes(serviceName, userName, isPasswordMemoryOnly = true), Credentials(userName, pass))
+
+    val credentials = store.get(CredentialAttributes(serviceName, userName))
+    @Suppress("UsePropertyAccessSyntax")
+    assertThat(credentials).isNotNull()
+    assertThat(credentials!!.userName).isEqualTo(userName)
+    assertThat(credentials.password).isNullOrEmpty()
   }
 
   private fun doTest(store: CredentialStore) {
@@ -108,6 +140,19 @@ internal class CredentialStoreTest {
     }
   }
 
+  private fun testEmptyStrAccountName(store: CredentialStore) {
+    val attributes = CredentialAttributes("Test IJ — ${randomString()}", "")
+    try {
+      val credentials = Credentials("", "pass")
+      store.set(attributes, credentials)
+      assertThat(store.get(attributes)).isEqualTo(credentials)
+    }
+    finally {
+      store.set(attributes, null)
+    }
+    assertThat(store.get(attributes)).isNull()
+  }
+
   private fun testChangedAccountName(store: CredentialStore) {
     val serviceNameOnlyAttributes = CredentialAttributes("Test IJ — ${randomString()}")
     try {
@@ -129,4 +174,4 @@ internal class CredentialStoreTest {
   }
 }
 
-private fun randomString() = UUID.randomUUID().toString()
+internal fun randomString() = UUID.randomUUID().toString()

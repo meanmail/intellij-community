@@ -1,6 +1,6 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -8,6 +8,8 @@ import com.google.common.collect.Sets;
 import com.intellij.execution.ExecutionException;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Pair;
+import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.SuspendPolicy;
 import com.intellij.xdebugger.frame.XValueChildrenList;
 import com.jetbrains.python.console.pydev.PydevCompletionVariant;
@@ -31,13 +33,13 @@ public class MultiProcessDebugger implements ProcessDebugger {
   private final ServerSocket myServerSocket;
   private final int myTimeoutInMillis;
 
-  private RemoteDebugger myMainDebugger;
+  private final RemoteDebugger myMainDebugger;
   private final List<RemoteDebugger> myOtherDebuggers = Lists.newArrayList();
   private ServerSocket myDebugServerSocket;
   private DebuggerProcessAcceptor myDebugProcessAcceptor;
-  private List<DebuggerProcessListener> myOtherDebuggerCloseListener = Lists.newArrayList();
+  private final List<DebuggerProcessListener> myOtherDebuggerCloseListener = Lists.newArrayList();
 
-  private ThreadRegistry myThreadRegistry = new ThreadRegistry();
+  private final ThreadRegistry myThreadRegistry = new ThreadRegistry();
 
   public MultiProcessDebugger(@NotNull final IPyDebugProcess debugProcess,
                               @NotNull final ServerSocket serverSocket,
@@ -62,31 +64,25 @@ public class MultiProcessDebugger implements ProcessDebugger {
 
   @Override
   public void waitForConnect() throws Exception {
-    try {
-      //noinspection SocketOpenedButNotSafelyClosed
-      final Socket socket = myServerSocket.accept();
+    //noinspection SocketOpenedButNotSafelyClosed
+    final Socket socket = myServerSocket.accept();
 
-      ApplicationManager.getApplication().executeOnPooledThread(() -> {
-        try {
-          //do we need any synchronization here with myMainDebugger.waitForConnect() ??? TODO
-          sendDebuggerPort(socket, myDebugServerSocket, myDebugProcess);
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
-      });
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      try {
+        //do we need any synchronization here with myMainDebugger.waitForConnect() ??? TODO
+        sendDebuggerPort(socket, myDebugServerSocket, myDebugProcess);
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
+      }
+    });
 
-      myMainDebugger.waitForConnect();
+    myMainDebugger.waitForConnect();
 
+    disposeAcceptor();
 
-      disposeAcceptor();
-
-      myDebugProcessAcceptor = new DebuggerProcessAcceptor(this, myServerSocket);
-      ApplicationManager.getApplication().executeOnPooledThread(myDebugProcessAcceptor);
-    }
-    finally {
-
-    }
+    myDebugProcessAcceptor = new DebuggerProcessAcceptor(this, myServerSocket);
+    ApplicationManager.getApplication().executeOnPooledThread(myDebugProcessAcceptor);
   }
 
   private static void sendDebuggerPort(Socket socket, ServerSocket serverSocket, IPyDebugProcess processHandler) throws IOException {
@@ -180,6 +176,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     return debugger(threadId).loadVariable(threadId, frameId, var);
   }
 
+  @Override
   public ArrayChunk loadArrayItems(String threadId,
                                    String frameId,
                                    PyDebugValue var,
@@ -224,13 +221,20 @@ public class MultiProcessDebugger implements ProcessDebugger {
   }
 
   @Override
+  public void loadFullVariableValues(@NotNull String threadId,
+                                     @NotNull String frameId,
+                                     @NotNull List<PyFrameAccessor.PyAsyncValue<String>> vars) throws PyDebuggerException {
+    debugger(threadId).loadFullVariableValues(threadId, frameId, vars);
+  }
+
+  @Override
   public String loadSource(String path) {
     return myMainDebugger.loadSource(path);
   }
 
 
   private static class ThreadRegistry {
-    private Map<String, RemoteDebugger> myThreadIdToDebugger = Maps.newHashMap();
+    private final Map<String, RemoteDebugger> myThreadIdToDebugger = Maps.newHashMap();
 
     public void register(String id, RemoteDebugger debugger) {
       myThreadIdToDebugger.put(id, debugger);
@@ -258,17 +262,14 @@ public class MultiProcessDebugger implements ProcessDebugger {
 
     if (myOtherDebuggers.size() > 0) {
       //here we add process id to thread name in case there are more then one process
-      return Collections.unmodifiableCollection(Collections2.transform(threads, new Function<PyThreadInfo, PyThreadInfo>() {
-        @Override
-        public PyThreadInfo apply(PyThreadInfo t) {
-          String threadName = ThreadRegistry.threadName(t.getName(), t.getId());
-          PyThreadInfo newThread =
-            new PyThreadInfo(t.getId(), threadName, t.getFrames(),
-                             t.getStopReason(),
-                             t.getMessage());
-          newThread.updateState(t.getState(), t.getFrames());
-          return newThread;
-        }
+      return Collections.unmodifiableCollection(Collections2.transform(threads, t -> {
+        String threadName = ThreadRegistry.threadName(t.getName(), t.getId());
+        PyThreadInfo newThread =
+          new PyThreadInfo(t.getId(), threadName, t.getFrames(),
+                           t.getStopReason(),
+                           t.getMessage());
+        newThread.updateState(t.getState(), t.getFrames());
+        return newThread;
       }));
     }
     else {
@@ -364,6 +365,14 @@ public class MultiProcessDebugger implements ProcessDebugger {
   }
 
   @Override
+  public void setNextStatement(@NotNull String threadId,
+                               @NotNull XSourcePosition sourcePosition,
+                               @Nullable String functionName,
+                               @NotNull PyDebugCallback<Pair<Boolean, String>> callback) {
+    debugger(threadId).setNextStatement(threadId, sourcePosition, functionName, callback);
+  }
+
+  @Override
   public void setTempBreakpoint(@NotNull String type, @NotNull String file, int line) {
     for (ProcessDebugger d : allDebuggers()) {
       d.setTempBreakpoint(type, file, line);
@@ -409,7 +418,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     private final MultiProcessDebugger myMultiProcessDebugger;
     private ServerSocket myServerSocket;
 
-    public DebuggerProcessAcceptor(@NotNull MultiProcessDebugger multiProcessDebugger, @NotNull ServerSocket serverSocket) {
+    DebuggerProcessAcceptor(@NotNull MultiProcessDebugger multiProcessDebugger, @NotNull ServerSocket serverSocket) {
       myMultiProcessDebugger = multiProcessDebugger;
       myServerSocket = serverSocket;
     }
@@ -509,6 +518,7 @@ public class MultiProcessDebugger implements ProcessDebugger {
     }
   }
 
+  @Override
   public void addCloseListener(RemoteDebuggerCloseListener listener) {
     myMainDebugger.addCloseListener(listener);
   }

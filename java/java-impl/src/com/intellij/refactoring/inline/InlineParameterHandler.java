@@ -20,10 +20,8 @@ import com.intellij.codeInsight.TargetElementUtil;
 import com.intellij.codeInspection.sameParameterValue.SameParameterValueInspection;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
@@ -41,7 +39,6 @@ import com.intellij.refactoring.listeners.RefactoringEventListener;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.InlineUtil;
 import com.intellij.refactoring.util.RefactoringMessageDialog;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -51,10 +48,10 @@ import java.util.*;
  * @author yole
  */
 public class InlineParameterHandler extends JavaInlineActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.inline.InlineParameterHandler");
   public static final String REFACTORING_NAME = RefactoringBundle.message("inline.parameter.refactoring");
-  public static final String REFACTORING_ID = "refactoring.inline.parameter";
+  private static final String REFACTORING_ID = "refactoring.inline.parameter";
 
+  @Override
   public boolean canInlineElement(PsiElement element) {
     if (element instanceof PsiParameter) {
       final PsiElement parent = element.getParent();
@@ -67,7 +64,8 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     return false;
   }
 
-  public void inlineElement(final Project project, final Editor editor, final PsiElement psiElement) {
+  @Override
+  public void inlineElement(final Project project, final Editor editor, @NotNull PsiElement psiElement) {
     final PsiParameter psiParameter = (PsiParameter) psiElement;
     final PsiParameterList parameterList = (PsiParameterList) psiParameter.getParent();
     if (!(parameterList.getParent() instanceof PsiMethod)) {
@@ -85,8 +83,8 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     final Ref<PsiExpression> refInitializer = new Ref<>();
     final Ref<PsiExpression> refConstantInitializer = new Ref<>();
     final Ref<PsiCallExpression> refMethodCall = new Ref<>();
-    final List<PsiReference> occurrences = Collections.synchronizedList(new ArrayList<PsiReference>());
-    final Collection<PsiFile> containingFiles = Collections.synchronizedSet(new HashSet<PsiFile>());
+    final List<PsiReference> occurrences = Collections.synchronizedList(new ArrayList<>());
+    final Collection<PsiFile> containingFiles = Collections.synchronizedSet(new HashSet<>());
     containingFiles.add(psiParameter.getContainingFile());
     boolean[] result = new boolean[1];
     if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
@@ -112,7 +110,8 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
             else if (!isSameConstant(argument, refConstantInitializer.get())) {
               return false;
             }
-          } else if (!isRecursiveReferencedParameter(argument, psiParameter)) {
+          }
+          else if (!isRecursiveReferencedParameter(argument, psiParameter)) {
             if (!refConstantInitializer.isNull()) return false;
             refInitializer.set(argument);
             refMethodCall.set(methodCall);
@@ -124,7 +123,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
       return;
     }
     final PsiReference reference = TargetElementUtil.findReference(editor);
-    final PsiReferenceExpression refExpr = reference instanceof PsiReferenceExpression ? ((PsiReferenceExpression)reference) : null;
+    final PsiReferenceExpression refExpr = reference instanceof PsiReferenceExpression ? (PsiReferenceExpression)reference : null;
     final PsiCodeBlock codeBlock = PsiTreeUtil.getParentOfType(refExpr, PsiCodeBlock.class);
     if (codeBlock != null) {
       final PsiElement[] defs = DefUseUtil.getDefs(codeBlock, psiParameter, refExpr);
@@ -133,20 +132,17 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
         if (def instanceof PsiReferenceExpression && PsiUtil.isOnAssignmentLeftHand((PsiExpression)def)) {
           final PsiExpression rExpr = ((PsiAssignmentExpression)def.getParent()).getRExpression();
           if (rExpr != null) {
-            PsiExpression toInline = InlineLocalHandler.getDefToInline(psiParameter, refExpr, codeBlock);
+            PsiExpression toInline = InlineLocalHandler.getDefToInline(psiParameter, refExpr, codeBlock, false);
             if (toInline != null) {
               final PsiElement[] refs = DefUseUtil.getRefs(codeBlock, psiParameter, toInline);
 
               if (InlineLocalHandler.checkRefsInAugmentedAssignmentOrUnaryModified(refs, def) == null) {
-                new WriteCommandAction(project) {
-                  @Override
-                  protected void run(@NotNull Result result) throws Throwable {
-                    for (final PsiElement ref : refs) {
-                      InlineUtil.inlineVariable(psiParameter, rExpr, (PsiJavaCodeReferenceElement)ref);
-                    }
-                    def.getParent().delete();
+                WriteCommandAction.writeCommandAction(project).run(() -> {
+                  for (final PsiElement ref : refs) {
+                    InlineUtil.inlineVariable(psiParameter, rExpr, (PsiJavaCodeReferenceElement)ref);
                   }
-                }.execute();
+                  def.getParent().delete();
+                });
                 return;
               }
             }
@@ -190,7 +186,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
       public void visitReferenceExpression(PsiReferenceExpression expression) {
         super.visitReferenceExpression(expression);
         final PsiElement resolved = expression.resolve();
-        if (resolved instanceof PsiMember && !PsiUtil.isAccessible((PsiMember)resolved, method, null)) {
+        if (resolved instanceof PsiMember && !PsiUtil.isMemberAccessibleAt((PsiMember)resolved, method)) {
           isNotConstantAccessible.set(Boolean.TRUE);
         }
       }
@@ -272,7 +268,7 @@ public class InlineParameterHandler extends JavaInlineActionHandler {
     }
     Object value1 = JavaPsiFacade.getInstance(expr1.getProject()).getConstantEvaluationHelper().computeConstantExpression(expr1);
     Object value2 = JavaPsiFacade.getInstance(expr2.getProject()).getConstantEvaluationHelper().computeConstantExpression(expr2);
-    return value1 != null && value2 != null && value1.equals(value2);
+    return value1 != null && value1.equals(value2);
   }
 
   @Nullable

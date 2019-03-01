@@ -21,7 +21,7 @@ import com.intellij.psi.PsiMethod;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * This policy is to create a duplicate <code>toString</code> method.
+ * This policy is to create a duplicate {@code toString} method.
  */
 public class DuplicatePolicy implements ConflictResolutionPolicy {
 
@@ -34,10 +34,12 @@ public class DuplicatePolicy implements ConflictResolutionPolicy {
     return instance;
   }
 
+  @Override
   public void setNewMethodStrategy(InsertNewMethodStrategy strategy) {
     newMethodStrategy = strategy;
   }
 
+  @Override
   public PsiMethod applyMethod(PsiClass clazz, PsiMethod existingMethod, @NotNull PsiMethod newMethod, Editor editor) {
     return newMethodStrategy.insertNewMethod(clazz, newMethod, editor);
   }

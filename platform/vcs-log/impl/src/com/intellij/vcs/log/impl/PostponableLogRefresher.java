@@ -19,12 +19,13 @@ import com.intellij.ide.PowerSaveMode;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.VcsLogRefresher;
 import com.intellij.vcs.log.data.VcsLogData;
-import com.intellij.vcs.log.data.VcsLogFilterer;
+import com.intellij.vcs.log.visible.VisiblePackRefresher;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
@@ -32,6 +33,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class PostponableLogRefresher implements VcsLogRefresher {
+  private static final Logger LOG = Logger.getInstance(PostponableLogRefresher.class);
   @NotNull protected final VcsLogData myLogData;
   @NotNull private final Set<VirtualFile> myRootsToRefresh = ContainerUtil.newHashSet();
   @NotNull private final Set<VcsLogWindow> myLogWindows = ContainerUtil.newHashSet();
@@ -39,8 +41,9 @@ public class PostponableLogRefresher implements VcsLogRefresher {
   public PostponableLogRefresher(@NotNull VcsLogData logData) {
     myLogData = logData;
     myLogData.addDataPackChangeListener(dataPack -> {
+      LOG.debug("Refreshing log windows " + myLogWindows);
       for (VcsLogWindow window : myLogWindows) {
-        dataPackArrived(window.getFilterer(), window.isVisible());
+        dataPackArrived(window.getRefresher(), window.isVisible());
       }
     });
   }
@@ -48,13 +51,16 @@ public class PostponableLogRefresher implements VcsLogRefresher {
   @NotNull
   public Disposable addLogWindow(@NotNull VcsLogWindow window) {
     myLogWindows.add(window);
-    filtererActivated(window.getFilterer(), true);
-    return () -> myLogWindows.remove(window);
+    refresherActivated(window.getRefresher(), true);
+    return () -> {
+      LOG.debug("Removing disposed log window " + window.toString());
+      myLogWindows.remove(window);
+    };
   }
 
   @NotNull
-  public Disposable addLogWindow(@NotNull VcsLogFilterer filterer) {
-    return addLogWindow(new VcsLogWindow(filterer));
+  public Disposable addLogWindow(@NotNull VisiblePackRefresher refresher) {
+    return addLogWindow(new VcsLogWindow(refresher));
   }
 
   public static boolean keepUpToDate() {
@@ -73,31 +79,34 @@ public class PostponableLogRefresher implements VcsLogRefresher {
     return false;
   }
 
-  public void filtererActivated(@NotNull VcsLogFilterer filterer, boolean firstTime) {
+  public void refresherActivated(@NotNull VisiblePackRefresher refresher, boolean firstTime) {
+    myLogData.initialize();
+
     if (!myRootsToRefresh.isEmpty()) {
       refreshPostponedRoots();
     }
     else {
-      if (firstTime) {
-        filterer.onRefresh();
-      }
-      filterer.setValid(true);
+      refresher.setValid(true, firstTime);
     }
   }
 
-  private static void dataPackArrived(@NotNull VcsLogFilterer filterer, boolean visible) {
+  private static void dataPackArrived(@NotNull VisiblePackRefresher refresher, boolean visible) {
     if (!visible) {
-      filterer.setValid(false);
+      refresher.setValid(false, true);
     }
-    filterer.onRefresh();
+    else {
+      refresher.onRefresh();
+    }
   }
 
+  @Override
   public void refresh(@NotNull final VirtualFile root) {
     ApplicationManager.getApplication().invokeLater(() -> {
       if (canRefreshNow()) {
         myLogData.refresh(Collections.singleton(root));
       }
       else {
+        LOG.debug("Postponed refresh for " + root);
         myRootsToRefresh.add(root);
       }
     }, ModalityState.any());
@@ -115,19 +124,24 @@ public class PostponableLogRefresher implements VcsLogRefresher {
   }
 
   public static class VcsLogWindow {
-    @NotNull private final VcsLogFilterer myFilterer;
+    @NotNull private final VisiblePackRefresher myRefresher;
 
-    public VcsLogWindow(@NotNull VcsLogFilterer filterer) {
-      myFilterer = filterer;
+    public VcsLogWindow(@NotNull VisiblePackRefresher refresher) {
+      myRefresher = refresher;
     }
 
     @NotNull
-    public VcsLogFilterer getFilterer() {
-      return myFilterer;
+    public VisiblePackRefresher getRefresher() {
+      return myRefresher;
     }
 
     public boolean isVisible() {
       return true;
+    }
+
+    @Override
+    public String toString() {
+      return "VcsLogWindow \'" + myRefresher + "\'";
     }
   }
 }

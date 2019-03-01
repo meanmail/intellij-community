@@ -1,32 +1,18 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic;
 
 import com.intellij.concurrency.JobScheduler;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Consumer;
-import com.intellij.util.SystemProperties;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.concurrency.AppScheduledExecutorService;
 import com.intellij.util.containers.ContainerUtil;
@@ -39,104 +25,77 @@ import javax.management.NotificationEmitter;
 import javax.management.NotificationListener;
 import javax.swing.*;
 import java.io.File;
-import java.io.FilenameFilter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.ThreadMXBean;
-import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author yole
  */
-public class PerformanceWatcher implements ApplicationComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.diagnostic.PerformanceWatcher");
+public class PerformanceWatcher implements Disposable {
+  private static final Logger LOG = Logger.getInstance(PerformanceWatcher.class);
   private static final int TOLERABLE_LATENCY = 100;
-  private final ScheduledFuture<?> myThread;
-  private final ThreadMXBean myThreadMXBean;
-  private final DateFormat myDateFormat = new SimpleDateFormat("yyyyMMdd-HHmmss");
-  private final File mySessionLogDir;
-  private File myCurHangLogDir;
+  private static final String THREAD_DUMPS_PREFIX = "threadDumps-";
+  private ScheduledFuture<?> myThread;
+  private final ThreadMXBean myThreadMXBean = ManagementFactory.getThreadMXBean();
+  private final File myLogDir = new File(PathManager.getLogPath());
   private List<StackTraceElement> myStacktraceCommonPart;
-  private final IdePerformanceListener myPublisher;
+  private final IdePerformanceListener myPublisher =
+    ApplicationManager.getApplication().getMessageBus().syncPublisher(IdePerformanceListener.TOPIC);
 
   private volatile ApdexData mySwingApdex = ApdexData.EMPTY;
   private volatile ApdexData myGeneralApdex = ApdexData.EMPTY;
   private volatile long myLastSampling = System.currentTimeMillis();
-  private volatile long myLastAliveEdt = System.currentTimeMillis();
   private long myLastDumpTime;
   private long myFreezeStart;
+  private final AtomicInteger myEdtRequestsQueued = new AtomicInteger(0);
 
-  /**
-   * If the product is unresponsive for UNRESPONSIVE_THRESHOLD_SECONDS, dump threads every UNRESPONSIVE_INTERVAL_SECONDS
-   */
-  private int UNRESPONSIVE_THRESHOLD_SECONDS = 5;
-  private int UNRESPONSIVE_INTERVAL_SECONDS = 5;
-  private static final int SAMPLING_INTERVAL_MS = 1000;
+  private static final long ourIdeStart = System.currentTimeMillis();
+  private long myLastEdtAlive = System.currentTimeMillis();
 
   public static PerformanceWatcher getInstance() {
     return ApplicationManager.getApplication().getComponent(PerformanceWatcher.class);
   }
 
-  @Override
-  @NotNull
-  public String getComponentName() {
-    return "PerformanceWatcher";
-  }
-
   public PerformanceWatcher() {
-    myCurHangLogDir = mySessionLogDir = new File(PathManager.getLogPath() + "/threadDumps-" + myDateFormat.format(new Date())
-                               + "-" + ApplicationInfo.getInstance().getBuild().asString());
-    myPublisher = ApplicationManager.getApplication().getMessageBus().syncPublisher(IdePerformanceListener.TOPIC);
-    myThreadMXBean = ManagementFactory.getThreadMXBean();
-    myThread = JobScheduler.getScheduler().scheduleWithFixedDelay(new Runnable() {
+    if (!shouldWatch()) return;
+
+    AppScheduledExecutorService service = (AppScheduledExecutorService)AppExecutorUtil.getAppScheduledExecutorService();
+    service.setNewThreadListener(new Consumer<Thread>() {
+      private final int ourReasonableThreadPoolSize = Registry.intValue("core.pooled.threads");
+
       @Override
-      public void run() {
-        samplePerformance();
+      public void consume(Thread thread) {
+        if (service.getBackendPoolExecutorSize() > ourReasonableThreadPoolSize
+            && ApplicationInfoImpl.getShadowInstance().isEAP()) {
+          File file = dumpThreads("newPooledThread/", true);
+          LOG.info("Not enough pooled threads" + (file != null ? "; dumped threads into file '" + file.getPath() + "'" : ""));
+        }
       }
-    }, SAMPLING_INTERVAL_MS, SAMPLING_INTERVAL_MS, TimeUnit.MILLISECONDS);
-  }
+    });
 
-  @Override
-  public void initComponent() {
-    UNRESPONSIVE_THRESHOLD_SECONDS = SystemProperties.getIntProperty("performance.watcher.threshold", 5);
-    UNRESPONSIVE_INTERVAL_SECONDS = SystemProperties.getIntProperty("performance.watcher.interval", 5);
+    ApplicationManager.getApplication().executeOnPooledThread(() -> cleanOldFiles(myLogDir, 0));
 
-    if (shouldWatch()) {
-      final AppScheduledExecutorService service = (AppScheduledExecutorService)AppExecutorUtil.getAppScheduledExecutorService();
-      service.setNewThreadListener(new Consumer<Thread>() {
-        private final int ourReasonableThreadPoolSize = Registry.intValue("core.pooled.threads");
-
-        @Override
-        public void consume(Thread thread) {
-          if (service.getBackendPoolExecutorSize() > ourReasonableThreadPoolSize
-              && ApplicationInfoImpl.getShadowInstance().isEAP()) {
-            File file = dumpThreads("newPooledThread/", true);
-            LOG.info("Not enough pooled threads" + (file != null ? "; dumped threads into file '" + file.getPath() + "'" : ""));
-          }
-        }
-      });
-
-      ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-        @Override
-        public void run() {
-          deleteOldThreadDumps();
-        }
-      });
-
-      for (MemoryPoolMXBean bean : ManagementFactory.getMemoryPoolMXBeans()) {
-        if ("Code Cache".equals(bean.getName())) {
-          watchCodeCache(bean);
-          break;
-        }
+    for (MemoryPoolMXBean bean : ManagementFactory.getMemoryPoolMXBeans()) {
+      if ("Code Cache".equals(bean.getName())) {
+        watchCodeCache(bean);
+        break;
       }
     }
+
+    myThread = JobScheduler.getScheduler().scheduleWithFixedDelay(this::samplePerformance, getSamplingInterval(), getSamplingInterval(), TimeUnit.MILLISECONDS);
+  }
+
+  private static int getMaxAttempts() {
+    return Registry.intValue("performance.watcher.unresponsive.max.attempts.before.log");
   }
 
   private void watchCodeCache(final MemoryPoolMXBean bean) {
@@ -162,106 +121,139 @@ public class PerformanceWatcher implements ApplicationComponent {
     }, null, null);
   }
 
-  private static void deleteOldThreadDumps() {
-    File allLogsDir = new File(PathManager.getLogPath());
-    if (allLogsDir.isDirectory()) {
-      final String[] dirs = allLogsDir.list(new FilenameFilter() {
-        @Override
-        public boolean accept(@NotNull final File dir, @NotNull final String name) {
-          return name.startsWith("threadDumps-");
-        }
-      });
-      if (dirs != null) {
-        Arrays.sort(dirs);
-        for (int i = 0; i < dirs.length - 11; i++) {
-          FileUtil.delete(new File(allLogsDir, dirs [i]));
-        }
+  private static void cleanOldFiles(File dir, final int level) {
+    File[] children = dir.listFiles((dir1, name) -> level > 0 || name.startsWith(THREAD_DUMPS_PREFIX));
+    if (children == null) return;
+
+    Arrays.sort(children);
+    for (int i = 0; i < children.length; i++) {
+      File child = children[i];
+      if (i < children.length - 100 || ageInDays(child) > 10) {
+        FileUtil.delete(child);
+      } else if (level < 3) {
+        cleanOldFiles(child, level + 1);
       }
     }
   }
 
+  private static long ageInDays(File file) {
+    return TimeUnit.DAYS.convert(System.currentTimeMillis() - file.lastModified(), TimeUnit.MILLISECONDS);
+  }
+
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     if (myThread != null) {
       myThread.cancel(true);
     }
   }
 
-  private boolean shouldWatch() {
+  private static boolean shouldWatch() {
     return !ApplicationManager.getApplication().isHeadlessEnvironment() &&
-           UNRESPONSIVE_INTERVAL_SECONDS != 0 &&
-           UNRESPONSIVE_THRESHOLD_SECONDS != 0;
+           Registry.intValue("performance.watcher.unresponsive.interval.ms") != 0 &&
+           getMaxAttempts() != 0;
   }
 
   private void samplePerformance() {
     long millis = System.currentTimeMillis();
-    long diff = millis - myLastSampling - SAMPLING_INTERVAL_MS;
+    long diff = millis - myLastSampling - getSamplingInterval();
     myLastSampling = millis;
 
     // an unexpected delay of 3 seconds is considered as several delays: of 3, 2 and 1 seconds, because otherwise
     // this background thread would be sampled 3 times.
     while (diff >= 0) {
       myGeneralApdex = myGeneralApdex.withEvent(TOLERABLE_LATENCY, diff);
-      diff -= SAMPLING_INTERVAL_MS;
+      diff -= getSamplingInterval();
     }
 
-    long sinceLastEdt = millis - myLastAliveEdt;
-    if (sinceLastEdt >= UNRESPONSIVE_THRESHOLD_SECONDS * 1000 + 10) {
+    int edtRequests = myEdtRequestsQueued.get();
+    if (edtRequests >= getMaxAttempts()) {
       edtFrozen(millis);
     }
-    else if (sinceLastEdt <= SAMPLING_INTERVAL_MS) {
+    else if (edtRequests == 0) {
       edtResponds(millis);
     }
+
+    myEdtRequestsQueued.incrementAndGet();
     //noinspection SSBasedInspection
     SwingUtilities.invokeLater(new SwingThreadRunnable(millis));
   }
 
+  @NotNull
+  public static String printStacktrace(@NotNull String headerMsg, @NotNull Thread thread, @NotNull StackTraceElement[] stackTrace) {
+    @SuppressWarnings("NonConstantStringShouldBeStringBuffer")
+    String trace = headerMsg + thread + " (" + (thread.isAlive() ? "alive" : "dead") + ") " + thread.getState() + "\n--- its stacktrace:\n";
+    for (final StackTraceElement stackTraceElement : stackTrace) {
+      trace += " at "+stackTraceElement +"\n";
+    }
+    trace += "---\n";
+    return trace;
+  }
+
+  private static int getSamplingInterval() {
+    return Registry.intValue("performance.watcher.sampling.interval.ms");
+  }
+
   private void edtFrozen(long currentMillis) {
-    if (currentMillis - myLastDumpTime >= UNRESPONSIVE_INTERVAL_SECONDS * 1000) {
+    if (currentMillis - myLastDumpTime >= Registry.intValue("performance.watcher.unresponsive.interval.ms")) {
       myLastDumpTime = currentMillis;
       if (myFreezeStart == 0) {
-        myFreezeStart = myLastAliveEdt;
+        myFreezeStart = myLastEdtAlive;
         myPublisher.uiFreezeStarted();
       }
-      if (myCurHangLogDir == mySessionLogDir) {
-        //System.out.println("EDT is not responding at " + myPrintDateFormat.format(new Date()));
-        myCurHangLogDir = new File(mySessionLogDir, myDateFormat.format(new Date()));
-      }
-      dumpThreads("", false);
+      dumpThreads(getFreezeFolderName(myFreezeStart) + "/", false);
     }
+  }
+
+  @NotNull
+  private static String getFreezeFolderName(long freezeStartMs) {
+    return THREAD_DUMPS_PREFIX + "freeze-" + formatTime(freezeStartMs) + "-" + buildName();
+  }
+
+  private static String buildName() {
+    return ApplicationInfo.getInstance().getBuild().asString();
+  }
+
+  private static String formatTime(long timeMs) {
+    return new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date(timeMs));
   }
 
   private void edtResponds(long currentMillis) {
     if (myFreezeStart != 0) {
-      if (myCurHangLogDir != mySessionLogDir && myCurHangLogDir.exists()) {
-        int unresponsiveDuration = (int)(currentMillis - myFreezeStart) / 1000;
+      int unresponsiveDuration = (int)(currentMillis - myFreezeStart) / 1000;
+      File dir = new File(myLogDir, getFreezeFolderName(myFreezeStart));
+      if (dir.exists()) {
         //noinspection ResultOfMethodCallIgnored
-        myCurHangLogDir.renameTo(new File(mySessionLogDir, getLogDirForHang(unresponsiveDuration)));
-        myPublisher.uiFreezeFinished(unresponsiveDuration);
+        dir.renameTo(new File(myLogDir, dir.getName() + "-" + unresponsiveDuration + "sec" + getFreezePlaceSuffix()));
       }
+      myPublisher.uiFreezeFinished(unresponsiveDuration);
       myFreezeStart = 0;
-      myCurHangLogDir = mySessionLogDir;
 
       myStacktraceCommonPart = null;
     }
   }
 
-  private String getLogDirForHang(int unresponsiveDuration) {
-    StringBuilder name = new StringBuilder("freeze-" + myCurHangLogDir.getName());
-    name.append("-").append(unresponsiveDuration);
+  private String getFreezePlaceSuffix() {
     if (myStacktraceCommonPart != null && !myStacktraceCommonPart.isEmpty()) {
       final StackTraceElement element = myStacktraceCommonPart.get(0);
-      name.append("-").append(StringUtil.getShortName(element.getClassName())).append(".").append(element.getMethodName());
+      return "-" + StringUtil.getShortName(element.getClassName()) + "." + element.getMethodName();
     }
-    return name.toString();
+    return "";
   }
 
   @Nullable
   public File dumpThreads(@NotNull String pathPrefix, boolean millis) {
     if (!shouldWatch()) return null;
 
-    String suffix = millis ? "-" + System.currentTimeMillis() : "";
-    File file = new File(myCurHangLogDir, pathPrefix + "threadDump-" + myDateFormat.format(new Date()) + suffix + ".txt");
+    if (!pathPrefix.contains("/")) {
+      pathPrefix = THREAD_DUMPS_PREFIX + pathPrefix + "-" + formatTime(ourIdeStart) + "-" + buildName() + "/";
+    }
+    else if (!pathPrefix.startsWith(THREAD_DUMPS_PREFIX)) {
+      pathPrefix = THREAD_DUMPS_PREFIX + pathPrefix;
+    }
+
+    long now = System.currentTimeMillis();
+    String suffix = millis ? "-" + now : "";
+    File file = new File(myLogDir, pathPrefix + "threadDump-" + formatTime(now) + suffix + ".txt");
 
     File dir = file.getParentFile();
     if (!(dir.isDirectory() || dir.mkdirs())) {
@@ -329,9 +321,13 @@ public class PerformanceWatcher implements ApplicationComponent {
 
     @Override
     public void run() {
-      long millis = System.currentTimeMillis();
-      mySwingApdex = mySwingApdex.withEvent(TOLERABLE_LATENCY, millis - myCreationMillis);
-      myLastAliveEdt = millis;
+      myEdtRequestsQueued.decrementAndGet();
+      myLastEdtAlive = System.currentTimeMillis();
+      final long latency = System.currentTimeMillis() - myCreationMillis;
+      mySwingApdex = mySwingApdex.withEvent(TOLERABLE_LATENCY, latency);
+      final Application application = ApplicationManager.getApplication();
+      if (application.isDisposed()) return;
+      application.getMessageBus().syncPublisher(IdePerformanceListener.TOPIC).uiResponded(latency);
     }
   }
 
@@ -347,7 +343,6 @@ public class PerformanceWatcher implements ApplicationComponent {
                "; general responsiveness: " + myGeneralApdex.summarizePerformanceSince(myStartGeneralSnapshot) +
                "; EDT responsiveness: " + mySwingApdex.summarizePerformanceSince(myStartSwingSnapshot));
     }
-
   }
 
   @NotNull

@@ -16,9 +16,6 @@
 package org.jetbrains.java.generate.psi;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.projectRoots.JavaSdkVersion;
-import com.intellij.openapi.projectRoots.JavaVersionService;
-import com.intellij.openapi.projectRoots.JdkVersionUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
@@ -26,8 +23,7 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.psi.util.PropertyUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -46,7 +42,7 @@ public class PsiAdapter {
      * Returns true if a field is constant.
      * <p/>
      * This is identified as the name of the field is only in uppercase and it has
-     * a <code>static</code> modifier.
+     * a {@code static} modifier.
      *
      * @param field field to check if it's a constant
      * @return true if constant.
@@ -275,7 +271,7 @@ public class PsiAdapter {
      *          is thrown if there is an error creating the import statement.
      */
     public static void addImportStatement(PsiJavaFile javaFile, String importStatementOnDemand) {
-        PsiElementFactory factory = JavaPsiFacade.getInstance(javaFile.getProject()).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(javaFile.getProject());
         PsiImportStatement is = factory.createImportStatementOnDemand(fixImportStatement(importStatementOnDemand));
 
         // add the import to the file, and optimize the imports
@@ -414,7 +410,7 @@ public class PsiAdapter {
     @Nullable
     public static PsiComment addOrReplaceJavadoc(PsiMethod method, String javadoc, boolean replace) {
         final Project project = method.getProject();
-        PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
         PsiComment comment = factory.createCommentFromText(javadoc, null);
 
         // does a method already exists?
@@ -452,8 +448,8 @@ public class PsiAdapter {
     /**
      * Is the method a getter method?
      * <p/>
-     * The name of the method must start with <code>get</code> or <code>is</code>.
-     * And if the method is a <code>isXXX</code> then the method must return a java.lang.Boolean or boolean.
+     * The name of the method must start with {@code get} or {@code is}.
+     * And if the method is a {@code isXXX} then the method must return a java.lang.Boolean or boolean.
      *
      *
      * @param method  the method
@@ -465,7 +461,7 @@ public class PsiAdapter {
             return false;
         }
         final PsiParameterList parameterList = method.getParameterList();
-        if (parameterList.getParametersCount() != 0) {
+        if (!parameterList.isEmpty()) {
             return false;
         }
         return true;
@@ -477,7 +473,7 @@ public class PsiAdapter {
      * The method must be a getter method for a field.
      * Returns null if this method is not a getter.
      * <p/>
-     * The fieldname is the part of the name that is after the <code>get</code> or <code>is</code> part
+     * The fieldname is the part of the name that is after the {@code get} or {@code is} part
      * of the name.
      * <p/>
      * Example: methodName=getName will return fieldname=name
@@ -493,7 +489,7 @@ public class PsiAdapter {
         if (!isGetterMethod(method)) {
             return null;
         }
-        return PropertyUtil.getPropertyNameByGetter(method);
+        return PropertyUtilBase.getPropertyNameByGetter(method);
     }
 
     /**
@@ -599,7 +595,7 @@ public class PsiAdapter {
 
             // must not have a parameter
             PsiParameterList parameters = method.getParameterList();
-            if (parameters.getParametersCount() != 0) {
+            if (!parameters.isEmpty()) {
                 continue;
             }
 
@@ -643,6 +639,7 @@ public class PsiAdapter {
      * @param clazz the class
      * @return the names.
      */
+    @NotNull
     public static String[] getImplementsClassnames(PsiClass clazz) {
         PsiClass[] interfaces = clazz.getInterfaces();
 
@@ -668,46 +665,6 @@ public class PsiAdapter {
     public static boolean isPrimitiveType(PsiType type) {
         return type instanceof PsiPrimitiveType;
     }
-
-  public static int getJavaVersion(@NotNull PsiElement element) {
-    JavaSdkVersion sdkVersion = JavaVersionService.getInstance().getJavaSdkVersion(element);
-    if (sdkVersion == null) {
-      sdkVersion = JavaSdkVersion.fromLanguageLevel(PsiUtil.getLanguageLevel(element));
-    }
-
-    int version = 0;
-    switch (sdkVersion) {
-      case JDK_1_0:
-      case JDK_1_1:
-        version = 1;
-        break;
-      case JDK_1_2:
-        version = 2;
-        break;
-      case JDK_1_3:
-        version = 3;
-        break;
-      case JDK_1_4:
-        version = 4;
-        break;
-      case JDK_1_5:
-        version = 5;
-        break;
-      case JDK_1_6:
-        version = 6;
-        break;
-      case JDK_1_7:
-        version = 7;
-        break;
-      case JDK_1_8:
-        version = 8;
-        break;
-      case JDK_1_9:
-        version = 9;
-        break;
-    }
-    return version;
-  }
 
   public static boolean isNestedArray(PsiType aType) {
     if (!(aType instanceof PsiArrayType)) return false;

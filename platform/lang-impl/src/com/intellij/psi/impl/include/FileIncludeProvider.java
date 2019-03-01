@@ -44,7 +44,7 @@ public abstract class FileIncludeProvider {
   public abstract FileIncludeInfo[] getIncludeInfos(FileContent content);
 
   /**
-   * If all providers return <code>null</code> then <code>FileIncludeInfo</code> is resolved in a standard way using <code>FileReferenceSet</code>
+   * If all providers return {@code null} then {@code FileIncludeInfo} is resolved in a standard way using {@code FileReferenceSet}
    */
   @Nullable
   public PsiFileSystemItem resolveIncludedFile(@NotNull final FileIncludeInfo info, @NotNull final PsiFile context) {
@@ -56,5 +56,13 @@ public abstract class FileIncludeProvider {
    */
   public int getVersion() {
     return 0;
+  }
+
+  /**
+   * @return  Possible name in included paths. For example if a provider returns FileIncludeInfos without file extensions 
+   */
+  @NotNull
+  public String getIncludeName(@NotNull PsiFile file, @NotNull String originalName) {
+    return originalName;
   }
 }

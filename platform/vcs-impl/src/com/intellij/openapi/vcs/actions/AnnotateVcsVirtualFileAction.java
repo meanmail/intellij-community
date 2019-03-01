@@ -17,24 +17,26 @@ package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vcs.*;
-import com.intellij.openapi.vcs.annotate.AnnotationProvider;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import com.intellij.openapi.vcs.changes.ContentRevision;
+import com.intellij.openapi.vcs.changes.TextRevisionNumber;
 import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.vfs.ContentRevisionVirtualFile;
 import com.intellij.openapi.vcs.vfs.VcsVirtualFile;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.AnnotationProviderEx;
 import com.intellij.vcsUtil.VcsUtil;
@@ -47,7 +49,7 @@ import java.util.List;
 public class AnnotateVcsVirtualFileAction {
   private static final Logger LOG = Logger.getInstance(AnnotateVcsVirtualFileAction.class);
 
-  private static boolean isEnabled(AnActionEvent e) {
+  private static boolean isEnabled(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null || project.isDisposed()) return false;
 
@@ -57,36 +59,33 @@ public class AnnotateVcsVirtualFileAction {
     VirtualFile file = selectedFiles[0];
     if (file.isDirectory() || file.getFileType().isBinary()) return false;
 
-    if (VcsAnnotateUtil.getEditors(project, file).isEmpty()) return false;
+    if (getEditors(project, file, e.getDataContext()).isEmpty()) return false;
 
     AnnotationData data = extractData(project, file);
     if (data == null) return false;
 
-    AnnotationProvider provider = data.vcs.getAnnotationProvider();
-    return provider instanceof AnnotationProviderEx;
+    AnnotationProviderEx provider = ObjectUtils.tryCast(data.vcs.getAnnotationProvider(), AnnotationProviderEx.class);
+    if (provider == null) return false;
+
+    return provider.isAnnotationValid(data.filePath, data.revisionNumber);
   }
 
-  private static boolean isSuspended(AnActionEvent e) {
+  private static boolean isSuspended(@NotNull AnActionEvent e) {
     VirtualFile file = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY)[0];
     return VcsAnnotateUtil.getBackgroundableLock(e.getRequiredData(CommonDataKeys.PROJECT), file).isLocked();
   }
 
-  private static boolean isAnnotated(AnActionEvent e) {
-    Project project = e.getRequiredData(CommonDataKeys.PROJECT);
-    VirtualFile file = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY)[0];
-    List<Editor> editors = VcsAnnotateUtil.getEditors(project, file);
-    return ContainerUtil.exists(editors, new Condition<Editor>() {
-      @Override
-      public boolean value(Editor editor) {
-        return editor.getGutter().isAnnotationsShown();
-      }
-    });
+  private static boolean isAnnotated(@NotNull AnActionEvent e) {
+    final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
+    final VirtualFile file = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY)[0];
+    List<Editor> editors = getEditors(project, file, e.getDataContext());
+    return ContainerUtil.exists(editors, editor -> editor.getGutter().isAnnotationsShown());
   }
 
   private static void perform(AnActionEvent e, boolean selected) {
     final Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     final VirtualFile file = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY)[0];
-    List<Editor> editors = VcsAnnotateUtil.getEditors(project, file);
+    List<Editor> editors = getEditors(project, file, e.getDataContext());
 
     if (!selected) {
       for (Editor editor : editors) {
@@ -144,7 +143,7 @@ public class AnnotateVcsVirtualFileAction {
         }
 
         if (!fileAnnotationRef.isNull()) {
-          AnnotateToggleAction.doAnnotate(editor, project, null, fileAnnotationRef.get(), data.vcs);
+          AnnotateToggleAction.doAnnotate(editor, project, fileAnnotationRef.get(), data.vcs);
         }
       }
     };
@@ -166,9 +165,23 @@ public class AnnotateVcsVirtualFileAction {
       revisionNumber = revision.getRevisionNumber();
     }
     if (filePath == null || revisionNumber == null) return null;
+    if (revisionNumber instanceof TextRevisionNumber ||
+        revisionNumber == VcsRevisionNumber.NULL) {
+      return null;
+    }
 
     AbstractVcs vcs = VcsUtil.getVcsFor(project, filePath);
     return vcs != null ? new AnnotationData(vcs, filePath, revisionNumber) : null;
+  }
+
+  @NotNull
+  private static List<Editor> getEditors(@NotNull Project project, @NotNull VirtualFile file, @NotNull DataContext context) {
+    Editor editor = context.getData(CommonDataKeys.EDITOR);
+    if (editor instanceof EditorEx && file.equals(((EditorEx)editor).getVirtualFile())) {
+      return Collections.singletonList(editor);
+    }
+
+    return VcsAnnotateUtil.getEditors(project, file);
   }
 
   private static class AnnotationData {
@@ -176,7 +189,7 @@ public class AnnotateVcsVirtualFileAction {
     @NotNull public final FilePath filePath;
     @NotNull public final VcsRevisionNumber revisionNumber;
 
-    public AnnotationData(@NotNull AbstractVcs vcs,
+    AnnotationData(@NotNull AbstractVcs vcs,
                           @NotNull FilePath filePath,
                           @NotNull VcsRevisionNumber revisionNumber) {
       this.vcs = vcs;
@@ -192,7 +205,7 @@ public class AnnotateVcsVirtualFileAction {
     }
 
     @Override
-    public boolean isSuspended(AnActionEvent e) {
+    public boolean isSuspended(@NotNull AnActionEvent e) {
       return AnnotateVcsVirtualFileAction.isSuspended(e);
     }
 
@@ -202,7 +215,7 @@ public class AnnotateVcsVirtualFileAction {
     }
 
     @Override
-    public void perform(AnActionEvent e, boolean selected) {
+    public void perform(@NotNull AnActionEvent e, boolean selected) {
       AnnotateVcsVirtualFileAction.perform(e, selected);
     }
   }

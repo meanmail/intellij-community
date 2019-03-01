@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.jetbrains.python.inspections;
 
+import com.intellij.codeInsight.controlflow.ConditionalInstruction;
 import com.intellij.codeInsight.controlflow.ControlFlowUtil;
 import com.intellij.codeInsight.controlflow.Instruction;
 import com.intellij.codeInspection.LocalInspectionToolSession;
@@ -26,7 +27,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.Function;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
@@ -35,6 +35,8 @@ import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.inspections.quickfix.PyRenameElementQuickFix;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.impl.PyEvaluator;
+import com.jetbrains.python.pyi.PyiUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,6 +51,7 @@ import java.util.List;
  * @author vlan
  */
 public class PyRedeclarationInspection extends PyInspection {
+  @Override
   @Nls
   @NotNull
   public String getDisplayName() {
@@ -64,19 +67,21 @@ public class PyRedeclarationInspection extends PyInspection {
   }
 
   private static class Visitor extends PyInspectionVisitor {
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
     @Override
     public void visitPyFunction(final PyFunction node) {
-      if (!isDecorated(node)) {
+      if (!PyKnownDecoratorUtil.hasUnknownDecorator(node, myTypeEvalContext) &&
+          !PyKnownDecoratorUtil.hasRedeclarationDecorator(node, myTypeEvalContext)) {
         processElement(node);
       }
     }
 
     @Override
     public void visitPyTargetExpression(final PyTargetExpression node) {
+      if (node.isQualified() || PyNames.UNDERSCORE.equals(node.getText())) return;
       final ScopeOwner owner = ScopeUtil.getScopeOwner(node);
       if (owner instanceof PyFile || owner instanceof PyClass) {
         processElement(node);
@@ -88,10 +93,6 @@ public class PyRedeclarationInspection extends PyInspection {
       if (!isDecorated(node)) {
         processElement(node);
       }
-    }
-
-    private static boolean isConditional(@NotNull PsiElement node) {
-      return PsiTreeUtil.getParentOfType(node, PyIfStatement.class, PyConditionalExpression.class, PyTryExceptStatement.class) != null;
     }
 
     private static boolean isDecorated(@NotNull PyDecoratable node) {
@@ -107,9 +108,6 @@ public class PyRedeclarationInspection extends PyInspection {
     }
 
     private void processElement(@NotNull final PsiNameIdentifierOwner element) {
-      if (isConditional(element)) {
-        return;
-      }
       final String name = element.getName();
       final ScopeOwner owner = ScopeUtil.getScopeOwner(element);
       if (owner != null && name != null) {
@@ -127,6 +125,7 @@ public class PyRedeclarationInspection extends PyInspection {
         }
         final Ref<PsiElement> readElementRef = Ref.create(null);
         final Ref<PsiElement> writeElementRef = Ref.create(null);
+        final Ref<Boolean> underPossiblyFalseCondition = Ref.create(false);
         ControlFlowUtil.iteratePrev(startInstruction, instructions, instruction -> {
           if (instruction instanceof ReadWriteInstruction && instruction.num() != startInstruction) {
             final ReadWriteInstruction rwInstruction = (ReadWriteInstruction)instruction;
@@ -136,8 +135,11 @@ public class PyRedeclarationInspection extends PyInspection {
                 if (rwInstruction.getAccess().isReadAccess()) {
                   readElementRef.set(originalElement);
                 }
-                if (rwInstruction.getAccess().isWriteAccess()) {
-                  if (originalElement != element) {
+                if (rwInstruction.getAccess().isWriteAccess() && originalElement != element) {
+                  if (PyiUtil.isOverload(originalElement, myTypeEvalContext)) {
+                    return ControlFlowUtil.Operation.NEXT;
+                  }
+                  else if (!underPossiblyFalseCondition.get()) {
                     writeElementRef.set(originalElement);
                   }
                 }
@@ -145,22 +147,49 @@ public class PyRedeclarationInspection extends PyInspection {
               return ControlFlowUtil.Operation.CONTINUE;
             }
           }
+          if (possiblyFalseCondition(instruction)) {
+            underPossiblyFalseCondition.set(true);
+          }
           return ControlFlowUtil.Operation.NEXT;
         });
         final PsiElement writeElement = writeElementRef.get();
         if (writeElement != null && readElementRef.get() == null) {
           final List<LocalQuickFix> quickFixes = new ArrayList<>();
           if (suggestRename(element, writeElement)) {
-            quickFixes.add(new PyRenameElementQuickFix());
+            quickFixes.add(new PyRenameElementQuickFix(element));
           }
           final PsiElement identifier = element.getNameIdentifier();
           registerProblem(identifier != null ? identifier : element,
                           PyBundle.message("INSP.redeclared.name", name),
                           ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
                           null,
-                          quickFixes.toArray(new LocalQuickFix[quickFixes.size()]));
+                          quickFixes.toArray(LocalQuickFix.EMPTY_ARRAY));
         }
       }
+    }
+
+    private static boolean possiblyFalseCondition(@NotNull Instruction instruction) {
+      final PsiElement element = instruction.getElement();
+      if (element == null) return false;
+
+      if (element instanceof PyTryPart || element instanceof PyExceptPart || element instanceof PyConditionalExpression) return true;
+
+      if (element instanceof PyForStatement) {
+        final PyForPart forPart = ((PyForStatement)element).getForPart();
+        return !PyEvaluator.evaluateAsBoolean(forPart.getSource(), false);
+      }
+
+      if (instruction instanceof ConditionalInstruction) {
+        final ConditionalInstruction conditionalInstruction = (ConditionalInstruction)instruction;
+        final PsiElement condition = conditionalInstruction.getCondition();
+        if (condition instanceof PyExpression) {
+          return conditionalInstruction.getResult()
+                 ? !PyEvaluator.evaluateAsBoolean((PyExpression)condition, false)
+                 : PyEvaluator.evaluateAsBoolean((PyExpression)condition, true);
+        }
+      }
+
+      return false;
     }
 
     private static boolean suggestRename(@NotNull PsiNameIdentifierOwner element, @NotNull PsiElement originalElement) {

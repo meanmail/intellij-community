@@ -16,6 +16,7 @@
 package com.jetbrains.python.sdk.flavors;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.PatternUtil;
 import icons.PythonIcons;
@@ -39,7 +40,7 @@ public class IronPythonSdkFlavor extends PythonSdkFlavor {
   public static IronPythonSdkFlavor INSTANCE = new IronPythonSdkFlavor();
 
   @Override
-  public Collection<String> suggestHomePaths() {
+  public Collection<String> suggestHomePaths(@Nullable Module module) {
     Set<String> result = new TreeSet<>();
     String root = System.getenv("ProgramFiles(x86)");
     if (root == null) {
@@ -87,12 +88,12 @@ public class IronPythonSdkFlavor extends PythonSdkFlavor {
   }
 
   @Override
-  public void initPythonPath(GeneralCommandLine cmd, Collection<String> path) {
-    initPythonPath(path, cmd.getEnvironment());
+  public void initPythonPath(GeneralCommandLine cmd, boolean passParentEnvs, Collection<String> path) {
+    initPythonPath(path, passParentEnvs, cmd.getEnvironment());
   }
 
   @Override
-  public void initPythonPath(Collection<String> path, Map<String, String> env) {
+  public void initPythonPath(Collection<String> path, boolean passParentEnvs, Map<String, String> env) {
     addToEnv("IRONPYTHONPATH", StringUtil.join(path, File.pathSeparator), env);
   }
 

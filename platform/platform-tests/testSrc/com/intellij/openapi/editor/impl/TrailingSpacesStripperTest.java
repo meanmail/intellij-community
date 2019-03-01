@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
@@ -23,7 +24,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.EditorTestUtil;
@@ -35,9 +35,6 @@ import java.awt.event.FocusEvent;
 import java.awt.event.FocusListener;
 import java.io.IOException;
 
-/**
- * User: cdr
- */
 public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase {
   private EditorSettingsExternalizable.OptionSet oldSettings;
 
@@ -53,8 +50,15 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
 
   @Override
   protected void tearDown() throws Exception {
-    EditorSettingsExternalizable.getInstance().loadState(oldSettings);
-    super.tearDown();
+    try {
+      EditorSettingsExternalizable.getInstance().loadState(oldSettings);
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   private void doTest(@NonNls String before, @NonNls String after) {
@@ -67,25 +71,35 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
 
   private static void stripTrailingSpaces() {
     WriteCommandAction.runWriteCommandAction(null, () -> {
-      TrailingSpacesStripper.stripIfNotCurrentLine(getEditor().getDocument(), true);
+      TrailingSpacesStripper.strip(getEditor().getDocument(), true, true);
     });
   }
 
-  public void testDoNotStripModifiedOnCurrentLine() throws IOException {
+  public void testDoNotStripModifiedOnCurrentLine() {
     doTest("xxx\n   <caret>\nyyy",
            "xxx\n   <caret>\nyyy");
   }
-  public void testDoStripModifiedOnCurrentLineIfCaretWouldNotJump() throws IOException {
+  public void testDoStripModifiedOnCurrentLineIfCaretWouldNotJump() {
     doTest("xxx\n   222<caret>    \nyyy",
            "xxx\n   222<caret>\nyyy");
   }
+  public void testDoNotStripModifiedOnCurrentLastLine() {
+    EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
+    settings.setEnsureNewLineAtEOF(true);
 
-  public void testStrippingWithMultipleCarets() throws Exception {
+    configureFromFileText("x.txt", "xxx\n        <caret>");
+    type(' ');
+
+    FileDocumentManager.getInstance().saveAllDocuments();
+    checkResultByText("xxx\n         <caret>\n");
+  }
+
+  public void testStrippingWithMultipleCarets() {
     doTest("xxx\n   <caret>\nyyy<caret>  ",
            "xxx\n   <caret>\nyyy<caret>");
   }
 
-  public void testModifyAndAltTabAway() throws IOException {
+  public void testModifyAndAltTabAway() {
     configureFromFileText("x.txt", "xxx<caret>\nyyy");
     type(' ');
 
@@ -99,7 +113,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxx <caret>\nyyy");
   }
 
-  public void testOnlyModifiedLinesGetStripped() throws IOException {
+  public void testOnlyModifiedLinesGetStripped() {
     @NonNls String text = "xxx<caret>   \nyyy   ";
     configureFromFileText("x.txt", text);
     ((DocumentEx)myEditor.getDocument()).clearLineModificationFlags();
@@ -111,7 +125,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxxz<caret>\nyyy   ");
   }
 
-  public void testOnlyModifiedLinesWhenDoesNotAllowCaretAfterEndOfLine() throws IOException {
+  public void testOnlyModifiedLinesWhenDoesNotAllowCaretAfterEndOfLine() {
     configureFromFileText("x.txt", "xxx<caret>   \nZ   ");
     type(' ');
     myEditor.getCaretModel().moveToOffset(myEditor.getDocument().getText().indexOf('Z') + 1);
@@ -121,7 +135,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxx\nZZ<caret>");
   }
 
-  public void testModifyLineAndExitApplication_ShouldStripEvenWhenCaretIsAtTheChangedLine() throws IOException {
+  public void testModifyLineAndExitApplication_ShouldStripEvenWhenCaretIsAtTheChangedLine() {
     configureFromFileText("x.txt", "xxx        <caret>\n");
     type(' ');
 
@@ -137,7 +151,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     }
   }
 
-  public void testModifyLine_Save_MoveCaret_SaveAgain_ShouldStrip() throws IOException {
+  public void testModifyLine_Save_MoveCaret_SaveAgain_ShouldStrip() {
     configureFromFileText("x.txt", "xxx <caret>\nyyy\n");
     type(' ');
     FileDocumentManager.getInstance().saveAllDocuments();
@@ -148,7 +162,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxx\n<caret>yyy\n"); // now we can strip
   }
 
-  public void testDisableStrip_Modify_Save_EnableOnModifiedLines_Modify_Save_ShouldStripModifiedOnly() throws IOException {
+  public void testDisableStrip_Modify_Save_EnableOnModifiedLines_Modify_Save_ShouldStripModifiedOnly() {
     EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
     settings.setStripTrailingSpaces(EditorSettingsExternalizable.STRIP_TRAILING_SPACES_NONE);
 
@@ -166,7 +180,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxx\nyyy   \nzzz   \n<caret>");
   }
 
-  public void testDoNotStripModifiedLines_And_EnsureBlankLineAtTheEnd_LeavesWhitespacesAtTheEndOfFileAlone() throws IOException {
+  public void testDoNotStripModifiedLines_And_EnsureBlankLineAtTheEnd_LeavesWhitespacesAtTheEndOfFileAlone() {
     EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
     settings.setStripTrailingSpaces(EditorSettingsExternalizable.STRIP_TRAILING_SPACES_NONE);
     settings.setEnsureNewLineAtEOF(true);
@@ -181,7 +195,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText(" xxx <caret>\nyyy\n\t\t\t\n");
   }
 
-  public void testOverrideStripTrailingSpaces() throws IOException {
+  public void testOverrideStripTrailingSpaces() {
     EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
     settings.setStripTrailingSpaces(EditorSettingsExternalizable.STRIP_TRAILING_SPACES_NONE);
     configureFromFileText("x.txt", "xxx<caret>\n   222    \nyyy");
@@ -192,7 +206,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("xxx <caret>\n   222\nyyy");
   }
 
-  public void testOverrideEnsureNewline() throws  IOException {
+  public void testOverrideEnsureNewline() {
     EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
     settings.setEnsureNewLineAtEOF(false);
     configureFromFileText("x.txt", "XXX<caret>\nYYY");
@@ -202,7 +216,7 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     checkResultByText("XXX <caret>\nYYY\n");
   }
 
-  public void testModifySameLineInTwoFilesAndSaveAllShouldStripAtLeastOneFile() throws IOException {
+  public void testModifySameLineInTwoFilesAndSaveAllShouldStripAtLeastOneFile() {
     EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
     settings.setStripTrailingSpaces(EditorSettingsExternalizable.STRIP_TRAILING_SPACES_CHANGED);
 
@@ -215,20 +229,36 @@ public class TrailingSpacesStripperTest extends LightPlatformCodeInsightTestCase
     assertEquals("x11\nyyy\n", editor1.getDocument().getText());
     assertEquals("x22  \nyyy\n", editor2.getDocument().getText()); // caret in the way in second but not in the first
   }
+  
+  public void testStripTrailingSpacesAtCaretLineOnExplicitSave() {
+    EditorSettingsExternalizable settings = EditorSettingsExternalizable.getInstance();
+    settings.setStripTrailingSpaces(EditorSettingsExternalizable.STRIP_TRAILING_SPACES_WHOLE);
+    settings.setKeepTrailingSpacesOnCaretLine(false);
+    configureFromFileText(
+      "x.txt",
+      "xxx   <caret>\nyyy   "
+    );
+    type(' ');
+    backspace();
+    EditorTestUtil.executeAction(
+      getEditor(),
+      "SaveAll"
+    );
+    checkResultByText(
+      "xxx<caret>\nyyy"
+    );
+  }
 
   @NotNull
-  private static Editor createHeavyEditor(@NotNull String name, @NotNull String text) throws IOException {
-    VirtualFile myVFile = ApplicationManager.getApplication().runWriteAction(new Computable<VirtualFile>() {
-      @Override
-      public VirtualFile compute() {
-        try {
-          VirtualFile file = getSourceRoot().createChildData(null, name);
-          VfsUtil.saveText(file, text);
-          return file;
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
+  private static Editor createHeavyEditor(@NotNull String name, @NotNull String text) {
+    VirtualFile myVFile = WriteAction.compute(() -> {
+      try {
+        VirtualFile file = getSourceRoot().createChildData(null, name);
+        VfsUtil.saveText(file, text);
+        return file;
+      }
+      catch (IOException e) {
+        throw new RuntimeException(e);
       }
     });
     final FileDocumentManager manager = FileDocumentManager.getInstance();

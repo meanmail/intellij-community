@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 04.09.2006
- * Time: 21:00:01
- */
 package com.intellij.cvsSupport2.actions;
 
 import com.intellij.CvsBundle;
@@ -33,10 +27,12 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 public class ToggleOfflineAction extends ToggleAction implements DumbAware {
 
-  public boolean isSelected(AnActionEvent e) {
+  @Override
+  public boolean isSelected(@NotNull AnActionEvent e) {
     CvsContext cvsContext = CvsContextWrapper.createInstance(e);
     if (!cvsContext.cvsIsActive()) return false;
     VirtualFile root = cvsContext.getSelectedFile();
@@ -49,7 +45,8 @@ public class ToggleOfflineAction extends ToggleAction implements DumbAware {
     return settings.isOffline();
   }
 
-  public void setSelected(AnActionEvent e, boolean state) {
+  @Override
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
     CvsContext cvsContext = CvsContextWrapper.createInstance(e);
     final CvsEntriesManager entriesManager = CvsEntriesManager.getInstance();
     final VirtualFile file = cvsContext.getSelectedFile();
@@ -71,7 +68,7 @@ public class ToggleOfflineAction extends ToggleAction implements DumbAware {
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     super.update(e);
     CvsContext cvsContext = CvsContextWrapper.createInstance(e);
     final VirtualFile[] files = cvsContext.getSelectedFiles();

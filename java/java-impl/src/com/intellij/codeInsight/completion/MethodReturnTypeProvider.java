@@ -21,6 +21,7 @@ import com.intellij.codeInsight.lookup.PsiTypeLookupItem;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.ProcessingContext;
@@ -28,6 +29,7 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
 import static com.intellij.patterns.PsiJavaPatterns.psiElement;
@@ -42,24 +44,24 @@ class MethodReturnTypeProvider extends CompletionProvider<CompletionParameters> 
 
   @Override
   protected void addCompletions(@NotNull CompletionParameters parameters,
-                                ProcessingContext context,
+                                @NotNull ProcessingContext context,
                                 @NotNull final CompletionResultSet result) {
     addProbableReturnTypes(parameters, result);
     
   }
 
-  static void addProbableReturnTypes(@NotNull CompletionParameters parameters, final Consumer<LookupElement> consumer) {
+  static void addProbableReturnTypes(@NotNull CompletionParameters parameters, final Consumer<? super LookupElement> consumer) {
     final PsiElement position = parameters.getPosition();
     PsiMethod method = PsiTreeUtil.getParentOfType(position, PsiMethod.class);
     assert method != null;
 
     final PsiTypeVisitor<PsiType> eachProcessor = new PsiTypeVisitor<PsiType>() {
-      private Set<PsiType> myProcessed = ContainerUtil.newHashSet();
+      private final Set<PsiType> myProcessed = ContainerUtil.newHashSet();
       
       @Nullable
       @Override
       public PsiType visitType(PsiType type) {
-        if (myProcessed.add(type)) {
+        if (!(type instanceof PsiPrimitiveType) && PsiTypesUtil.isDenotableType(type, position) && myProcessed.add(type)) {
           int priority = type.equalsToText(CommonClassNames.JAVA_LANG_OBJECT) ? 1 : 1000 - myProcessed.size();
           consumer.consume(PrioritizedLookupElement.withPriority(PsiTypeLookupItem.createLookupItem(type, position), priority));
         }
@@ -68,7 +70,7 @@ class MethodReturnTypeProvider extends CompletionProvider<CompletionParameters> 
     };
     for (PsiType type : getReturnTypeCandidates(method)) {
       eachProcessor.visitType(type);
-      ExpectedTypesProvider.processAllSuperTypes(type, eachProcessor, position.getProject(), ContainerUtil.<PsiType>newHashSet());
+      ExpectedTypesProvider.processAllSuperTypes(type, eachProcessor, position.getProject(), new HashSet<>(), new HashSet<>());
     }
   }
 

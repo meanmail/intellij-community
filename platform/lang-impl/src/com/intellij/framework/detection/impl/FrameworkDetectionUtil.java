@@ -20,7 +20,6 @@ import com.intellij.framework.FrameworkType;
 import com.intellij.framework.detection.DetectedFrameworkDescription;
 import com.intellij.framework.detection.FacetBasedFrameworkDetector;
 import com.intellij.framework.detection.FrameworkDetector;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.roots.ModifiableModelsProvider;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
@@ -50,8 +49,8 @@ public class FrameworkDetectionUtil {
     return null;
   }
 
-  public static List<? extends DetectedFrameworkDescription> removeDisabled(List<DetectedFrameworkDescription> descriptions) {
-    return removeDisabled(descriptions, Collections.<DetectedFrameworkDescription>emptyList());
+  public static List<? extends DetectedFrameworkDescription> removeDisabled(List<? extends DetectedFrameworkDescription> descriptions) {
+    return removeDisabled(descriptions, Collections.emptyList());
   }
 
   public static List<DetectedFrameworkDescription> getDisabledDescriptions(@NotNull List<? extends DetectedFrameworkDescription> currentDescriptions,
@@ -86,8 +85,7 @@ public class FrameworkDetectionUtil {
 
   public static void setupFrameworks(List<? extends DetectedFrameworkDescription> descriptions,
                                      final ModifiableModelsProvider modelsProvider, final ModulesProvider modulesProvider) {
-    AccessToken token = WriteAction.start();
-    try {
+    WriteAction.run(() -> {
       List<DetectedFrameworkDescription> sortedDescriptions = new ArrayList<>();
       //todo[nik] perform real sorting
       for (DetectedFrameworkDescription description : descriptions) {
@@ -103,9 +101,6 @@ public class FrameworkDetectionUtil {
       for (DetectedFrameworkDescription description : sortedDescriptions) {
         description.setupFramework(modelsProvider, modulesProvider);
       }
-    }
-    finally {
-      token.finish();
-    }
+    });
   }
 }

@@ -22,7 +22,8 @@ import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Consumer;
+import com.intellij.pom.java.LanguageLevel;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
 import org.jetbrains.idea.maven.importing.MavenFoldersImporter;
 import org.jetbrains.idea.maven.importing.MavenRootModelAdapter;
@@ -31,10 +32,9 @@ import org.jetbrains.jps.model.java.JavaSourceRootProperties;
 import org.jetbrains.jps.model.java.JavaSourceRootType;
 
 import java.io.File;
-import java.io.IOException;
 
 public class MavenFoldersImporterTest extends MavenImportingTestCase {
-  public void testUpdatingExternallyCreatedFolders() throws Exception {
+  public void testUpdatingExternallyCreatedFolders() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -45,13 +45,13 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     new File(myProjectRoot.getPath(), "target/generated-sources/xxx/z").mkdirs();
     updateProjectFolders();
 
-    assertExcludes("project", "target/foo");
+    assertExcludes("project", "target");
     assertGeneratedSources("project", "target/generated-sources/xxx");
-    
+
     assertNull(myProjectRoot.findChild("target"));
   }
 
-  public void testIgnoreTargetFolder() throws Exception {
+  public void testIgnoreTargetFolder() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -68,7 +68,7 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     }
   }
 
-  public void testUpdatingFoldersForAllTheProjects() throws Exception {
+  public void testUpdatingFoldersForAllTheProjects() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<packaging>pom</packaging>" +
@@ -101,14 +101,14 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
 
     updateProjectFolders();
 
-    assertExcludes("m1", "target/foo");
+    assertExcludes("m1", "target");
     assertGeneratedSources("m1", "target/generated-sources/xxx");
 
-    assertExcludes("m2", "target/bar");
+    assertExcludes("m2", "target");
     assertGeneratedSources("m2", "target/generated-sources/yyy");
   }
 
-  public void testDoesNotTouchSourceFolders() throws Exception {
+  public void testDoesNotTouchSourceFolders() {
     createStdProjectFolders();
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
@@ -127,7 +127,7 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     assertTestResources("project", "src/test/resources");
   }
 
-  public void testDoesNotExcludeRegisteredSources() throws Exception {
+  public void testDoesNotExcludeRegisteredSources() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -148,10 +148,10 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     updateProjectFolders();
 
     assertSources("project", "target/src");
-    assertExcludes("project", "target/foo");
+    assertExcludes("project", "target");
   }
 
-  public void testDoesNothingWithNonMavenModules() throws Exception {
+  public void testDoesNothingWithNonMavenModules() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -160,7 +160,7 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     updateProjectFolders(); // shouldn't throw exceptions
   }
 
-  public void testDoNotUpdateOutputFoldersWhenUpdatingExcludedFolders() throws Exception {
+  public void testDoNotUpdateOutputFoldersWhenUpdatingExcludedFolders() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -183,15 +183,15 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     assertTrue(compiler.getCompilerOutputUrlForTests(), compiler.getCompilerOutputUrlForTests().endsWith("my-test-classes"));
   }
 
-  public void testDoNotCommitIfFoldersWasNotChanged() throws Exception {
+  public void testDoNotCommitIfFoldersWasNotChanged() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
 
     final int[] count = new int[]{0};
-    myProject.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    myProject.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         count[0]++;
       }
     });
@@ -201,7 +201,7 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     assertEquals(0, count[0]);
   }
 
-  public void testCommitOnlyOnceForAllModules() throws Exception {
+  public void testCommitOnlyOnceForAllModules() {
     createProjectPom("<groupId>test</groupId>" +
                      "<artifactId>project</artifactId>" +
                      "<packaging>pom</packaging>" +
@@ -225,9 +225,9 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     importProject();
 
     final int[] count = new int[]{0};
-    myProject.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    myProject.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         count[0]++;
       }
     });
@@ -241,7 +241,7 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
     assertEquals(1, count[0]);
   }
 
-  public void testMarkSourcesAsGeneratedOnReImport() throws IOException {
+  public void testMarkSourcesAsGeneratedOnReImport() {
     importProject("<groupId>test</groupId>" +
                   "<artifactId>project</artifactId>" +
                   "<version>1</version>");
@@ -261,6 +261,231 @@ public class MavenFoldersImporterTest extends MavenImportingTestCase {
 
     importProject();
     assertGeneratedSources("project", "target/generated-sources/xxx");
+  }
+
+  public void testCustomPomFileNameDefaultContentRoots() throws Exception {
+    createProjectSubFile("m1/customName.xml", createPomXml(
+                  "<artifactId>m1</artifactId>" +
+                  "<version>1</version>" +
+
+                  "<parent>" +
+                  "  <groupId>test</groupId>" +
+                  "  <artifactId>project</artifactId>" +
+                  "  <version>1</version>" +
+                  "</parent>" +
+
+                  "<build>" +
+                  "  <sourceDirectory>sources</sourceDirectory>" +
+                  "  <testSourceDirectory>tests</testSourceDirectory>" +
+                  "</build>"));
+
+    new File(myProjectRoot.getPath(), "m1/sources").mkdirs();
+    new File(myProjectRoot.getPath(), "m1/tests").mkdirs();
+
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<packaging>pom</packaging>" +
+                  "<version>1</version>" +
+
+                  "<modules>" +
+                  "  <module>m1/customName.xml</module>" +
+                  "</modules>");
+
+    assertContentRoots("m1", getProjectPath() + "/m1");
+  }
+
+  public void testCustomPomFileNameCustomContentRoots() throws Exception {
+    createProjectSubFile("m1/pom.xml", createPomXml(
+                  "<artifactId>m1-pom</artifactId>" +
+                  "<version>1</version>" +
+
+                  "<parent>" +
+                  "  <groupId>test</groupId>" +
+                  "  <artifactId>project</artifactId>" +
+                  "  <version>1</version>" +
+                  "</parent>"));
+
+    createProjectSubFile("m1/custom.xml", createPomXml(
+                  "<artifactId>m1-custom</artifactId>" +
+                  "<version>1</version>" +
+
+                  "<parent>" +
+                  "  <groupId>test</groupId>" +
+                  "  <artifactId>project</artifactId>" +
+                  "  <version>1</version>" +
+                  "</parent>" +
+
+                  "<build>" +
+                  "  <resources><resource><directory>sources/resources</directory></resource></resources>" +
+                  "  <sourceDirectory>sources</sourceDirectory>" +
+                  "  <testSourceDirectory>tests</testSourceDirectory>" +
+                  "</build>"));
+
+    new File(myProjectRoot.getPath(), "m1/sources/resources").mkdirs();
+    new File(myProjectRoot.getPath(), "m1/tests").mkdirs();
+
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<packaging>pom</packaging>" +
+                  "<version>1</version>" +
+
+                  "<modules>" +
+                  "  <module>m1</module>" +
+                  "  <module>m1/custom.xml</module>" +
+                  "</modules>");
+
+    assertModules("project", "m1-pom", "m1-custom");
+
+    assertContentRoots("m1-pom", getProjectPath() + "/m1");
+    assertContentRoots("m1-custom", getProjectPath() + "/m1/sources", getProjectPath() + "/m1/tests");
+  }
+
+  public void testContentRootOutsideOfModuleDir() throws Exception {
+    createProjectSubFile("m1/pom.xml", createPomXml(
+      "<artifactId>m1-pom</artifactId>" +
+      "<version>1</version>" +
+
+      "<parent>" +
+      "  <groupId>test</groupId>" +
+      "  <artifactId>project</artifactId>" +
+      "  <version>1</version>" +
+      "</parent>" +
+
+      "<build>" +
+      "  <sourceDirectory>../pom-sources</sourceDirectory>" +
+      "</build>"));
+
+    createProjectSubFile("m1/custom.xml", createPomXml(
+      "<artifactId>m1-custom</artifactId>" +
+      "<version>1</version>" +
+
+      "<parent>" +
+      "  <groupId>test</groupId>" +
+      "  <artifactId>project</artifactId>" +
+      "  <version>1</version>" +
+      "</parent>" +
+
+      "<build>" +
+      "  <sourceDirectory>../custom-sources</sourceDirectory>" +
+      "</build>"));
+
+    new File(myProjectRoot.getPath(), "pom-sources").mkdirs();
+    new File(myProjectRoot.getPath(), "custom-sources").mkdirs();
+
+    importProject("<groupId>test</groupId>" +
+                  "<artifactId>project</artifactId>" +
+                  "<packaging>pom</packaging>" +
+                  "<version>1</version>" +
+
+                  "<modules>" +
+                  "  <module>m1</module>" +
+                  "  <module>m1/custom.xml</module>" +
+                  "</modules>");
+
+    assertModules("project", "m1-pom", "m1-custom");
+
+    assertContentRoots("m1-pom", getProjectPath() + "/m1", getProjectPath() + "/pom-sources");
+    assertContentRoots("m1-custom", getProjectPath() + "/custom-sources");
+  }
+
+  public void testOverrideLanguageLevelFromParentPom() throws Exception {
+    createProjectPom("<groupId>test</groupId>" +
+                     "<artifactId>project</artifactId>" +
+                     "<packaging>pom</packaging>" +
+                     "<version>1</version>" +
+
+                     "<modules>" +
+                     "  <module>m1</module>" +
+                     "</modules>" +
+
+                     "<build>" +
+                     "  <plugins>" +
+                     "    <plugin>" +
+                     "      <groupId>org.apache.maven.plugins</groupId>" +
+                     "      <artifactId>maven-compiler-plugin</artifactId>" +
+                     "      <configuration>" +
+                     "       <source>7</source>" +
+                     "      </configuration>" +
+                     "    </plugin>" +
+                     "  </plugins>" +
+                     "</build>"
+    );
+
+    createProjectSubFile("m1/pom.xml", createPomXml(
+      "<artifactId>m1-pom</artifactId>" +
+      "<version>1</version>" +
+
+      "<parent>" +
+      "  <groupId>test</groupId>" +
+      "  <artifactId>project</artifactId>" +
+      "  <version>1</version>" +
+      "</parent>" +
+
+      "<build>" +
+      "  <plugins>" +
+      "    <plugin>" +
+      "      <groupId>org.apache.maven.plugins</groupId>" +
+      "      <artifactId>maven-compiler-plugin</artifactId>" +
+      "      <configuration>" +
+      "        <release>11</release>" +
+      "      </configuration>" +
+      "    </plugin>" +
+      "  </plugins>" +
+      "</build>"));
+
+    importProject();
+
+    assertEquals(LanguageLevel.JDK_11, LanguageLevelModuleExtensionImpl.getInstance(getModule("m1-pom")).getLanguageLevel());
+  }
+
+  public void testReleaseHasPriorityInParentPom() throws Exception {
+    createProjectPom("<groupId>test</groupId>" +
+                     "<artifactId>project</artifactId>" +
+                     "<packaging>pom</packaging>" +
+                     "<version>1</version>" +
+
+                     "<modules>" +
+                     "  <module>m1</module>" +
+                     "</modules>" +
+
+                     "<build>" +
+                     "  <plugins>" +
+                     "    <plugin>" +
+                     "      <groupId>org.apache.maven.plugins</groupId>" +
+                     "      <artifactId>maven-compiler-plugin</artifactId>" +
+                     "      <configuration>" +
+                     "       <release>9</release>" +
+                     "      </configuration>" +
+                     "    </plugin>" +
+                     "  </plugins>" +
+                     "</build>"
+    );
+
+    createProjectSubFile("m1/pom.xml", createPomXml(
+      "<artifactId>m1-pom</artifactId>" +
+      "<version>1</version>" +
+
+      "<parent>" +
+      "  <groupId>test</groupId>" +
+      "  <artifactId>project</artifactId>" +
+      "  <version>1</version>" +
+      "</parent>" +
+
+      "<build>" +
+      "  <plugins>" +
+      "    <plugin>" +
+      "      <groupId>org.apache.maven.plugins</groupId>" +
+      "      <artifactId>maven-compiler-plugin</artifactId>" +
+      "      <configuration>" +
+      "        <source>11</source>" +
+      "      </configuration>" +
+      "    </plugin>" +
+      "  </plugins>" +
+      "</build>"));
+
+    importProject();
+
+    assertEquals(LanguageLevel.JDK_1_9, LanguageLevelModuleExtensionImpl.getInstance(getModule("m1-pom")).getLanguageLevel());
   }
 
   private void updateProjectFolders() {

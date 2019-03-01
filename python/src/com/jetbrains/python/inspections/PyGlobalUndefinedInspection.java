@@ -21,6 +21,7 @@ import com.intellij.psi.PsiElementVisitor;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.PyGlobalStatement;
 import com.jetbrains.python.psi.PyTargetExpression;
+import com.jetbrains.python.psi.resolve.PyResolveContext;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -48,7 +49,7 @@ public class PyGlobalUndefinedInspection extends PyInspection {
 
 
   private static class Visitor extends PyInspectionVisitor {
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -57,7 +58,8 @@ public class PyGlobalUndefinedInspection extends PyInspection {
       final PyTargetExpression[] globals = node.getGlobals();
 
       for (PyTargetExpression global : globals) {
-        if (global.getReference().resolve() == global) {
+        final PyResolveContext resolveContext = PyResolveContext.noImplicits().withTypeEvalContext(myTypeEvalContext);
+        if (global.getReference(resolveContext).resolve() == global) {
           registerProblem(global, PyBundle.message("INSP.NAME.global.$0.undefined", global.getName()));
         }
       }

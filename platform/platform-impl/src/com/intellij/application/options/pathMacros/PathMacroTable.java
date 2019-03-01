@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.application.options.pathMacros;
 
 import com.intellij.application.options.PathMacrosCollector;
@@ -21,9 +7,11 @@ import com.intellij.openapi.application.PathMacros;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Couple;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.JBColor;
-import com.intellij.util.ui.Table;
+import com.intellij.ui.table.JBTable;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.table.AbstractTableModel;
@@ -31,21 +19,21 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableColumn;
 import java.awt.*;
 import java.io.File;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  *  @author dsl
  */
-public class PathMacroTable extends Table {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.application.options.pathMacros.PathMacroTable");
+public class PathMacroTable extends JBTable {
+  private static final Logger LOG = Logger.getInstance(PathMacroTable.class);
   private final PathMacros myPathMacros = PathMacros.getInstance();
   private final MyTableModel myTableModel = new MyTableModel();
   private static final int NAME_COLUMN = 0;
   private static final int VALUE_COLUMN = 1;
 
   private final List<Couple<String>> myMacros = new ArrayList<>();
-  private static final Comparator<Couple<String>> MACRO_COMPARATOR = (pair, pair1) -> pair.getFirst().compareTo(pair1.getFirst());
+  private static final Comparator<Couple<String>> MACRO_COMPARATOR = Comparator.comparing(pair -> pair.getFirst());
 
   private final Collection<String> myUndefinedMacroNames;
 
@@ -58,6 +46,7 @@ public class PathMacroTable extends Table {
     setModel(myTableModel);
     TableColumn column = getColumnModel().getColumn(NAME_COLUMN);
     column.setCellRenderer(new DefaultTableCellRenderer() {
+      @Override
       public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
         final Component component = super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
         final String macroValue = getMacroValueAt(row);
@@ -159,11 +148,11 @@ public class PathMacroTable extends Table {
     myTableModel.fireTableDataChanged();
   }
 
-  private void obtainMacroPairs(final List<Couple<String>> macros) {
+  private void obtainMacroPairs(@NotNull List<Couple<String>> macros) {
     macros.clear();
-    final Set<String> macroNames = myPathMacros.getUserMacroNames();
-    for (String name : macroNames) {
-      macros.add(Couple.of(name, myPathMacros.getValue(name).replace('/', File.separatorChar)));
+    final Map<String, String> macroNames = myPathMacros.getUserMacros();
+    for (String name : macroNames.keySet()) {
+      macros.add(Couple.of(name, FileUtilRt.toSystemDependentName(macroNames.get(name))));
     }
 
     if (myUndefinedMacroNames != null) {
@@ -198,18 +187,22 @@ public class PathMacroTable extends Table {
   }
 
   private class MyTableModel extends AbstractTableModel{
+    @Override
     public int getColumnCount() {
       return 2;
     }
 
+    @Override
     public int getRowCount() {
       return myMacros.size();
     }
 
+    @Override
     public Class getColumnClass(int columnIndex) {
       return String.class;
     }
 
+    @Override
     public Object getValueAt(int rowIndex, int columnIndex) {
       final Couple<String> pair = myMacros.get(rowIndex);
       switch (columnIndex) {
@@ -220,9 +213,11 @@ public class PathMacroTable extends Table {
       return null;
     }
 
+    @Override
     public void setValueAt(Object aValue, int rowIndex, int columnIndex) {
     }
 
+    @Override
     public String getColumnName(int columnIndex) {
       switch (columnIndex) {
         case NAME_COLUMN: return ApplicationBundle.message("column.name");
@@ -231,6 +226,7 @@ public class PathMacroTable extends Table {
       return null;
     }
 
+    @Override
     public boolean isCellEditable(int rowIndex, int columnIndex) {
       return false;
     }
@@ -239,15 +235,17 @@ public class PathMacroTable extends Table {
   private class AddValidator implements PathMacroEditor.Validator {
     private final String myTitle;
 
-    public AddValidator(String title) {
+    AddValidator(String title) {
       myTitle = title;
     }
 
+    @Override
     public boolean checkName(String name) {
       if (name.length() == 0) return false;
       return PathMacrosCollector.MACRO_PATTERN.matcher("$" + name + "$").matches();
     }
 
+    @Override
     public boolean isOK(String name, String value) {
       if(name.length() == 0) return false;
       if (hasMacroWithName(name)) {
@@ -260,6 +258,7 @@ public class PathMacroTable extends Table {
   }
 
   private static class EditValidator implements PathMacroEditor.Validator {
+    @Override
     public boolean checkName(String name) {
       if (name.isEmpty() || PathMacros.getInstance().getSystemMacroNames().contains(name)) {
         return false;
@@ -268,6 +267,7 @@ public class PathMacroTable extends Table {
       return PathMacrosCollector.MACRO_PATTERN.matcher("$" + name + "$").matches();
     }
 
+    @Override
     public boolean isOK(String name, String value) {
       return checkName(name);
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,10 +22,10 @@ import com.intellij.application.options.colors.TextAttributesDescription;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.ui.ComboBox;
 import com.intellij.openapi.ui.DialogWrapper;
+import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.psi.search.TodoAttributes;
 import com.intellij.psi.search.TodoAttributesUtil;
 import com.intellij.psi.search.TodoPattern;
@@ -33,11 +33,14 @@ import com.intellij.ui.ListCellRendererWrapper;
 import com.intellij.ui.components.JBCheckBox;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ui.FormBuilder;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.Collections;
+import java.util.List;
 
 class PatternDialog extends DialogWrapper {
   private final TodoPattern myPattern;
@@ -48,9 +51,13 @@ class PatternDialog extends DialogWrapper {
   private final ColorAndFontDescriptionPanel myColorAndFontDescriptionPanel;
   private final ColorAndFontDescription myColorAndFontDescription;
   private final JBCheckBox myUsedDefaultColorsCheckBox;
+  private final int myPatternIndex;
+  private final List<? extends TodoPattern> myExistingPatterns;
 
-  public PatternDialog(Component parent, TodoPattern pattern) {
+  PatternDialog(Component parent, TodoPattern pattern, int patternIndex, List<? extends TodoPattern> existingPatterns) {
     super(parent, true);
+    myPatternIndex = patternIndex;
+    myExistingPatterns = existingPatterns;
     setTitle(IdeBundle.message("title.add.todo.pattern"));
     setResizable(false);
 
@@ -78,10 +85,6 @@ class PatternDialog extends DialogWrapper {
     TextAttributes attributes = myPattern.getAttributes().getCustomizedTextAttributes();
     myColorAndFontDescription = new TextAttributesDescription("null", null, attributes, null,
                                                               EditorColorsManager.getInstance().getGlobalScheme(), null, null) {
-      @Override
-      public void apply(EditorColorsScheme scheme) {
-      }
-
       @Override
       public boolean isErrorStripeEnabled() {
         return true;
@@ -135,6 +138,21 @@ class PatternDialog extends DialogWrapper {
     super.doOKAction();
   }
 
+  @NotNull
+  @Override
+  protected List<ValidationInfo> doValidateAll() {
+    String patternString = myPatternStringField.getText().trim();
+    if (patternString.isEmpty()) {
+      return Collections.singletonList(new ValidationInfo(IdeBundle.message("error.pattern.should.be.specified"), myPatternStringField));
+    }
+    for (int i = 0; i < myExistingPatterns.size(); i++) {
+      TodoPattern pattern = myExistingPatterns.get(i);
+      if (myPatternIndex != i && patternString.equals(pattern.getPatternString())) {
+        return Collections.singletonList(new ValidationInfo(IdeBundle.message("error.same.pattern.already.exists"), myPatternStringField));
+      }
+    }
+    return super.doValidateAll();
+  }
 
   private boolean useCustomTodoColor() {
     return !myUsedDefaultColorsCheckBox.isSelected();

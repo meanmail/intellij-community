@@ -1,10 +1,10 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.folding;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.folding.FoldingBuilderEx;
+import com.intellij.lang.folding.CustomFoldingBuilder;
 import com.intellij.lang.folding.FoldingDescriptor;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
@@ -18,26 +18,25 @@ import org.jetbrains.yaml.psi.impl.YAMLBlockMappingImpl;
 import org.jetbrains.yaml.psi.impl.YAMLBlockSequenceImpl;
 import org.jetbrains.yaml.psi.impl.YAMLHashImpl;
 
-import java.util.LinkedList;
 import java.util.List;
 
 /**
  * @author oleg
  */
-public class YAMLFoldingBuilder extends FoldingBuilderEx implements DumbAware {
+public class YAMLFoldingBuilder extends CustomFoldingBuilder {
 
-  private static final int PLACEHOLDER_LEN = 10;
+  private static final int PLACEHOLDER_LEN = 20;
 
-  @NotNull
   @Override
-  public FoldingDescriptor[] buildFoldRegions(@NotNull PsiElement root, @NotNull Document document, boolean quick) {
-    List<FoldingDescriptor> descriptors = new LinkedList<>();
+  protected void buildLanguageFoldRegions(@NotNull List<FoldingDescriptor> descriptors,
+                                          @NotNull PsiElement root,
+                                          @NotNull Document document,
+                                          boolean quick) {
     collectDescriptors(root, descriptors);
-    return descriptors.toArray(new FoldingDescriptor[descriptors.size()]);
   }
 
-  private static void collectDescriptors(@NotNull final PsiElement element, @NotNull final List<FoldingDescriptor> descriptors) {
-    final TextRange nodeTextRange = element.getTextRange();
+  private static void collectDescriptors(@NotNull final PsiElement element, @NotNull final List<? super FoldingDescriptor> descriptors) {
+    TextRange nodeTextRange = element.getTextRange();
     if (nodeTextRange.getLength() < 2) {
       return;
     }
@@ -48,7 +47,10 @@ public class YAMLFoldingBuilder extends FoldingBuilderEx implements DumbAware {
       }
     }
     else if (element instanceof YAMLScalar
-             || element instanceof YAMLKeyValue && ((YAMLKeyValue)element).getValue() instanceof YAMLCompoundValue) {
+             ||
+             element instanceof YAMLKeyValue && ((YAMLKeyValue)element).getValue() instanceof YAMLCompoundValue
+             ||
+             element instanceof YAMLSequenceItem && ((YAMLSequenceItem)element).getValue() instanceof YAMLCompoundValue) {
       descriptors.add(new FoldingDescriptor(element, nodeTextRange));
     }
 
@@ -57,13 +59,15 @@ public class YAMLFoldingBuilder extends FoldingBuilderEx implements DumbAware {
     }
   }
 
+  @Override
   @Nullable
-  public String getPlaceholderText(@NotNull ASTNode node) {
+  protected String getLanguagePlaceholderText(@NotNull ASTNode node, @NotNull TextRange range) {
     return getPlaceholderText(SourceTreeToPsiMap.treeElementToPsi(node));
   }
 
   @NotNull
   private static String getPlaceholderText(@Nullable PsiElement psiElement) {
+
     if (psiElement instanceof YAMLDocument) {
       return "---";
     }
@@ -95,10 +99,15 @@ public class YAMLFoldingBuilder extends FoldingBuilderEx implements DumbAware {
              + ": "
              + getPlaceholderText(((YAMLKeyValue)psiElement).getValue());
     }
+    else if (psiElement instanceof YAMLSequenceItem) {
+      return "- "
+             + getPlaceholderText(((YAMLSequenceItem)psiElement).getValue());
+    }
     return "...";
   }
 
-  public boolean isCollapsedByDefault(@NotNull ASTNode node) {
+  @Override
+  protected boolean isRegionCollapsedByDefault(@NotNull ASTNode node) {
     return false;
   }
 
@@ -110,6 +119,6 @@ public class YAMLFoldingBuilder extends FoldingBuilderEx implements DumbAware {
     if (text.length() <= PLACEHOLDER_LEN) {
       return text;
     }
-    return text.substring(0, Math.min(text.length(), PLACEHOLDER_LEN)) + "...";
+    return StringUtil.trimMiddle(text, PLACEHOLDER_LEN);
   }
 }

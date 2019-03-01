@@ -18,15 +18,16 @@ package com.intellij.openapi.vcs.annotate;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.localVcs.UpToDateLineNumberProvider;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vcs.VcsKey;
-import com.intellij.openapi.vcs.diff.DiffProvider;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
-import com.intellij.openapi.vcs.vfs.VcsVirtualFile;
+import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
+import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,8 +42,9 @@ public abstract class FileAnnotation {
 
   @NotNull private final Project myProject;
 
+  private boolean myIsClosed;
   private Runnable myCloser;
-  private Consumer<FileAnnotation> myReloader;
+  private Consumer<? super FileAnnotation> myReloader;
 
   protected FileAnnotation(@NotNull Project project) {
     myProject = project;
@@ -173,11 +175,21 @@ public abstract class FileAnnotation {
   }
 
 
+  public synchronized boolean isClosed() {
+    return myIsClosed;
+  }
+
   /**
    * Notify that annotations should be closed
    */
-  public final void close() {
-    myCloser.run();
+  public synchronized final void close() {
+    myIsClosed = true;
+    if (myCloser != null) {
+      myCloser.run();
+
+      myCloser = null;
+      myReloader = null;
+    }
   }
 
   /**
@@ -185,23 +197,26 @@ public abstract class FileAnnotation {
    * If `this` is visible, hide it and show new one instead.
    * If `this` is not visible, do nothing.
    *
-   * @param newFileAnnotation annotations to be shown
+   * @param newFileAnnotation annotations to be shown or `null` to load annotations again
    */
-  public final void reload(@NotNull FileAnnotation newFileAnnotation) {
+  @CalledInAwt
+  public synchronized final void reload(@Nullable FileAnnotation newFileAnnotation) {
     if (myReloader != null) myReloader.consume(newFileAnnotation);
   }
 
   /**
    * @see #close()
    */
-  public final void setCloser(@NotNull Runnable closer) {
+  public synchronized final void setCloser(@NotNull Runnable closer) {
+    if (myIsClosed) return;
     myCloser = closer;
   }
 
   /**
-   * @see #reload()
+   * @see #reload(FileAnnotation)
    */
-  public final void setReloader(@Nullable Consumer<FileAnnotation> reloader) {
+  public synchronized final void setReloader(@Nullable Consumer<? super FileAnnotation> reloader) {
+    if (myIsClosed) return;
     myReloader = reloader;
   }
 
@@ -232,6 +247,11 @@ public abstract class FileAnnotation {
     return createDefaultRevisionsOrderProvider(this);
   }
 
+  @Nullable
+  public RevisionChangesProvider getRevisionsChangesProvider() {
+    return createDefaultRevisionsChangesProvider(this);
+  }
+
 
   public interface CurrentFileRevisionProvider {
     @Nullable
@@ -254,6 +274,11 @@ public abstract class FileAnnotation {
   public interface RevisionsOrderProvider {
     @NotNull
     List<List<VcsRevisionNumber>> getOrderedRevisions();
+  }
+
+  public interface RevisionChangesProvider {
+    @Nullable
+    Pair<? extends CommittedChangeList, FilePath> getChangesIn(int lineNumber) throws VcsException;
   }
 
 
@@ -333,10 +358,31 @@ public abstract class FileAnnotation {
     List<VcsFileRevision> revisions = annotation.getRevisions();
     if (revisions == null) return null;
 
-    List<List<VcsRevisionNumber>> orderedRevisions = ContainerUtil.map(revisions, (revision) -> {
-      return Collections.singletonList(revision.getRevisionNumber());
-    });
+    List<List<VcsRevisionNumber>> orderedRevisions = ContainerUtil.map(revisions, (revision) -> Collections.singletonList(revision.getRevisionNumber()));
 
     return () -> orderedRevisions;
+  }
+
+  @Nullable
+  private static RevisionChangesProvider createDefaultRevisionsChangesProvider(@NotNull FileAnnotation annotation) {
+    VirtualFile file = annotation.getFile();
+    if (file == null) return null;
+
+    AbstractVcs vcs = ProjectLevelVcsManager.getInstance(annotation.getProject()).getVcsFor(file);
+    if (vcs == null) return null;
+
+    CommittedChangesProvider<?, ?> changesProvider = vcs.getCommittedChangesProvider();
+    if (changesProvider == null) return null;
+
+    return (lineNumber) -> {
+      VcsRevisionNumber revisionNumber = annotation.getLineRevisionNumber(lineNumber);
+      if (revisionNumber == null) return null;
+
+      Pair<? extends CommittedChangeList, FilePath> pair = changesProvider.getOneList(file, revisionNumber);
+      if (pair == null || pair.getFirst() == null) return null;
+      if (pair.getSecond() == null) return Pair.create(pair.getFirst(), VcsUtil.getFilePath(file));
+
+      return pair;
+    };
   }
 }

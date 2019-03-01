@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.codeInsight.navigation.NavigationUtil;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.actions.searcheverywhere.ClassSearchEverywhereContributor;
 import com.intellij.ide.structureView.StructureView;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.ide.structureView.StructureViewTreeElement;
@@ -31,8 +18,6 @@ import com.intellij.navigation.AnonymousElementProvider;
 import com.intellij.navigation.ChooseByNameRegistry;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
@@ -41,6 +26,8 @@ import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.playback.commands.ActionCommand;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiDocumentManager;
@@ -63,10 +50,15 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
     if (project == null) return;
 
     if (!DumbService.getInstance(project).isDumb()) {
-      super.actionPerformed(e);
+      if (Registry.is("new.search.everywhere")) {
+        showInSearchEverywherePopup(ClassSearchEverywhereContributor.class.getSimpleName(), e, true, true);
+      } else {
+        super.actionPerformed(e);
+      }
     }
     else {
-      DumbService.getInstance(project).showDumbModeNotification(IdeBundle.message("go.to.class.dumb.mode.message"));
+      String message = IdeBundle.message("go.to.class.dumb.mode.message", GotoClassPresentationUpdater.getActionTitle());
+      DumbService.getInstance(project).showDumbModeNotification(message);
       AnAction action = ActionManager.getInstance().getAction(GotoFileAction.ID);
       InputEvent event = ActionCommand.getInputEvent(GotoFileAction.ID);
       Component component = e.getData(PlatformDataKeys.CONTEXT_COMPONENT);
@@ -84,6 +76,9 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
     PsiDocumentManager.getInstance(project).commitAllDocuments();
 
     final GotoClassModel2 model = new GotoClassModel2(project);
+    String pluralKinds = StringUtil.capitalize(
+      StringUtil.join(GotoClassPresentationUpdater.getElementKinds(), s -> StringUtil.pluralize(s), "/"));
+    String title = IdeBundle.message("go.to.class.toolwindow.title", pluralKinds);
     showNavigationPopup(e, model, new GotoActionCallback<Language>() {
       @Override
       protected ChooseByNameFilter<Language> createFilter(@NotNull ChooseByNamePopup popup) {
@@ -92,41 +87,43 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
 
       @Override
       public void elementChosen(ChooseByNamePopup popup, Object element) {
-        ApplicationManager.getApplication().runReadAction(() -> {
-          if (element instanceof PsiElement && ((PsiElement)element).isValid()) {
-            PsiElement psiElement = getElement(((PsiElement)element), popup);
-            psiElement = psiElement.getNavigationElement();
-            VirtualFile file = PsiUtilCore.getVirtualFile(psiElement);
-
-            if (file != null && popup.getLinePosition() != -1) {
-              OpenFileDescriptor descriptor = new OpenFileDescriptor(project, file, popup.getLinePosition(), popup.getColumnPosition());
-              Navigatable n = descriptor.setUseCurrentWindow(popup.isOpenInCurrentWindowRequested());
-              if (n.canNavigate()) {
-                n.navigate(true);
-                return;
-              }
-            }
-
-            if (file != null && popup.getMemberPattern() != null) {
-              NavigationUtil.activateFileWithPsiElement(psiElement, !popup.isOpenInCurrentWindowRequested());
-              Navigatable member = findMember(popup.getMemberPattern(), psiElement, file);
-              if (member != null) {
-                member.navigate(true);
-              }
-            }
-
-            NavigationUtil.activateFileWithPsiElement(psiElement, !popup.isOpenInCurrentWindowRequested());
-          }
-          else {
-            EditSourceUtil.navigate(((NavigationItem)element), true, popup.isOpenInCurrentWindowRequested());
-          }
-        });
+        handleSubMemberNavigation(popup, element);
       }
-    }, IdeBundle.message("go.to.class.toolwindow.title"), true);
+    }, title, true);
+  }
+
+  static void handleSubMemberNavigation(ChooseByNamePopup popup, Object element) {
+    if (element instanceof PsiElement && ((PsiElement)element).isValid()) {
+      PsiElement psiElement = getElement(((PsiElement)element), popup);
+      psiElement = psiElement.getNavigationElement();
+      VirtualFile file = PsiUtilCore.getVirtualFile(psiElement);
+
+      if (file != null && popup.getLinePosition() != -1) {
+        OpenFileDescriptor descriptor = new OpenFileDescriptor(psiElement.getProject(), file, popup.getLinePosition(), popup.getColumnPosition());
+        Navigatable n = descriptor.setUseCurrentWindow(popup.isOpenInCurrentWindowRequested());
+        if (n.canNavigate()) {
+          n.navigate(true);
+          return;
+        }
+      }
+
+      if (file != null && popup.getMemberPattern() != null) {
+        NavigationUtil.activateFileWithPsiElement(psiElement, !popup.isOpenInCurrentWindowRequested());
+        Navigatable member = findMember(popup.getMemberPattern(), popup.getTrimmedText(), psiElement, file);
+        if (member != null) {
+          member.navigate(true);
+        }
+      }
+
+      NavigationUtil.activateFileWithPsiElement(psiElement, !popup.isOpenInCurrentWindowRequested());
+    }
+    else {
+      EditSourceUtil.navigate(((NavigationItem)element), true, popup.isOpenInCurrentWindowRequested());
+    }
   }
 
   @Nullable
-  private static Navigatable findMember(String pattern, PsiElement psiElement, VirtualFile file) {
+  public static Navigatable findMember(String memberPattern, String fullPattern, PsiElement psiElement, VirtualFile file) {
     final PsiStructureViewFactory factory = LanguageStructureViewBuilder.INSTANCE.forLanguage(psiElement.getLanguage());
     final StructureViewBuilder builder = factory == null ? null : factory.getStructureViewBuilder(psiElement.getContainingFile());
     final FileEditor[] editors = FileEditorManager.getInstance(psiElement.getProject()).getEditors(file);
@@ -140,11 +137,18 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
       if (element == null) {
         return null;
       }
-      final MinusculeMatcher matcher = NameUtil.buildMatcher(pattern).build();
+
+      MinusculeMatcher matcher = NameUtil.buildMatcher(memberPattern).build();
       int max = Integer.MIN_VALUE;
       Object target = null;
       for (TreeElement treeElement : element.getChildren()) {
         if (treeElement instanceof StructureViewTreeElement) {
+          Object value = ((StructureViewTreeElement)treeElement).getValue();
+          if (value instanceof PsiElement && value instanceof Navigatable &&
+              fullPattern.equals(CopyReferenceAction.elementToFqn((PsiElement)value))) {
+            return (Navigatable)value;
+          }
+
           String presentableText = treeElement.getPresentation().getPresentableText();
           if (presentableText != null) {
             final int degree = matcher.matchingDegree(presentableText);
@@ -185,35 +189,40 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
   private static PsiElement getElement(@NotNull PsiElement element, ChooseByNamePopup popup) {
     final String path = popup.getPathToAnonymous();
     if (path != null) {
-      final String[] classes = path.split("\\$");
-      List<Integer> indexes = new ArrayList<>();
-      for (String cls : classes) {
-        if (cls.isEmpty()) continue;
-        try {
-          indexes.add(Integer.parseInt(cls) - 1);
-        }
-        catch (Exception e) {
-          return element;
-        }
-      }
-      PsiElement current = element;
-      for (int index : indexes) {
-        final PsiElement[] anonymousClasses = getAnonymousClasses(current);
-        if (index >= 0 && index < anonymousClasses.length) {
-          current = anonymousClasses[index];
-        }
-        else {
-          return current;
-        }
-      }
-      return current;
+      return getElement(element, path);
     }
     return element;
   }
 
   @NotNull
+  public static PsiElement getElement(@NotNull PsiElement element, @NotNull String path) {
+    final String[] classes = path.split("\\$");
+    List<Integer> indexes = new ArrayList<>();
+    for (String cls : classes) {
+      if (cls.isEmpty()) continue;
+      try {
+        indexes.add(Integer.parseInt(cls) - 1);
+      }
+      catch (Exception e) {
+        return element;
+      }
+    }
+    PsiElement current = element;
+    for (int index : indexes) {
+      final PsiElement[] anonymousClasses = getAnonymousClasses(current);
+      if (index >= 0 && index < anonymousClasses.length) {
+        current = anonymousClasses[index];
+      }
+      else {
+        return current;
+      }
+    }
+    return current;
+  }
+
+  @NotNull
   private static PsiElement[] getAnonymousClasses(@NotNull PsiElement element) {
-    for (AnonymousElementProvider provider : Extensions.getExtensions(AnonymousElementProvider.EP_NAME)) {
+    for (AnonymousElementProvider provider : AnonymousElementProvider.EP_NAME.getExtensionList()) {
       final PsiElement[] elements = provider.getAnonymousElements(element);
       if (elements.length > 0) {
         return elements;
@@ -223,7 +232,7 @@ public class GotoClassAction extends GotoActionBase implements DumbAware {
   }
 
   @Override
-  protected boolean hasContributors(DataContext dataContext) {
+  protected boolean hasContributors(@NotNull DataContext dataContext) {
     return ChooseByNameRegistry.getInstance().getClassModelContributors().length > 0;
   }
 }

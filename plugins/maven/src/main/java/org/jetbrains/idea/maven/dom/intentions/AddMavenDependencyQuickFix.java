@@ -17,7 +17,6 @@ package org.jetbrains.idea.maven.dom.intentions;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.intention.LowPriorityAction;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -51,16 +50,19 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     myRef = ref;
   }
 
+  @Override
   @NotNull
   public String getText() {
     return "Add Maven Dependency...";
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return MavenDomBundle.message("inspection.group");
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     return myRef.isValid() && MavenDomUtil.findContainingProject(file) != null && looksLikeClassName(getReferenceText());
   }
@@ -71,6 +73,7 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     return CLASSNAME_PATTERN.matcher(text).matches();
   }
 
+  @Override
   public void invoke(@NotNull final Project project, Editor editor, final PsiFile file) throws IncorrectOperationException {
     if (!myRef.isValid()) return;
 
@@ -83,24 +86,21 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     final MavenDomProjectModel model = MavenDomUtil.getMavenDomProjectModel(project, mavenProject.getFile());
     if (model == null) return;
 
-    new WriteCommandAction(project, "Add Maven Dependency", DomUtil.getFile(model)) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        boolean isTestSource = false;
+    WriteCommandAction.writeCommandAction(project, DomUtil.getFile(model)).withName("Add Maven Dependency").run(() -> {
+      boolean isTestSource = false;
 
-        VirtualFile virtualFile = file.getOriginalFile().getVirtualFile();
-        if (virtualFile != null) {
-          isTestSource = ProjectRootManager.getInstance(project).getFileIndex().isInTestSourceContent(virtualFile);
-        }
+      VirtualFile virtualFile = file.getOriginalFile().getVirtualFile();
+      if (virtualFile != null) {
+        isTestSource = ProjectRootManager.getInstance(project).getFileIndex().isInTestSourceContent(virtualFile);
+      }
 
-        for (MavenId each : ids) {
-          MavenDomDependency dependency = MavenDomUtil.createDomDependency(model, null, each);
-          if (isTestSource) {
-            dependency.getScope().setStringValue("test");
-          }
+      for (MavenId each : ids) {
+        MavenDomDependency dependency = MavenDomUtil.createDomDependency(model, null, each);
+        if (isTestSource) {
+          dependency.getScope().setStringValue("test");
         }
       }
-    }.execute();
+    });
   }
 
   public String getReferenceText() {
@@ -117,6 +117,7 @@ public class AddMavenDependencyQuickFix implements IntentionAction, LowPriorityA
     return result.getQualifiedName();
   }
 
+  @Override
   public boolean startInWriteAction() {
     return false;
   }

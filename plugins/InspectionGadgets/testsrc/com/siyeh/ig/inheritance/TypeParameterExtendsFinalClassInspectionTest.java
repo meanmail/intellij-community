@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
  */
 public class TypeParameterExtendsFinalClassInspectionTest extends LightInspectionTestCase {
 
-  public void testTypeParameterExtendsFinalClass() throws Exception {
+  public void testTypeParameterExtendsFinalClass() {
     doTest();
   }
 
@@ -19,6 +19,7 @@ public class TypeParameterExtendsFinalClassInspectionTest extends LightInspectio
     return new TypeParameterExtendsFinalClassInspection();
   }
 
+  @Override
   @NotNull
   protected LightProjectDescriptor getProjectDescriptor() {
     return JAVA_1_7;

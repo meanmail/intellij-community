@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.uiDesigner.snapShooter;
 
@@ -23,7 +9,6 @@ import com.intellij.execution.application.ApplicationConfiguration;
 import com.intellij.execution.application.ApplicationConfigurationType;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
-import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.execution.util.JreVersionDetector;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeView;
@@ -84,7 +69,7 @@ public class CreateSnapShotAction extends AnAction {
   private static final Logger LOG = Logger.getInstance("com.intellij.uiDesigner.snapShooter.CreateSnapShotAction");
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final IdeView view = e.getData(LangDataKeys.IDE_VIEW);
     e.getPresentation().setVisible(project != null && view != null && hasDirectoryInPackage(project, view));
@@ -101,7 +86,8 @@ public class CreateSnapShotAction extends AnAction {
     return false;
   }
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final IdeView view = e.getData(LangDataKeys.IDE_VIEW);
     if (project == null || view == null) {
@@ -123,7 +109,7 @@ public class CreateSnapShotAction extends AnAction {
       if (config.getConfiguration() instanceof ApplicationConfiguration) {
         ApplicationConfiguration appConfig = (ApplicationConfiguration) config.getConfiguration();
         appConfigurations.add(config);
-        if (appConfig.ENABLE_SWING_INSPECTOR) {
+        if (appConfig.isSwingInspectorEnabled()) {
           SnapShooterConfigurationSettings settings = SnapShooterConfigurationSettings.get(appConfig);
           snapshotConfiguration = config;
           if (settings.getLastPort() > 0) {
@@ -151,7 +137,7 @@ public class CreateSnapShotAction extends AnAction {
       if (rc == Messages.NO) return;
       final ApplicationConfiguration appConfig = (ApplicationConfiguration) snapshotConfiguration.getConfiguration();
       final SnapShooterConfigurationSettings settings = SnapShooterConfigurationSettings.get(appConfig);
-      settings.setNotifyRunnable(() -> SwingUtilities.invokeLater(() -> {
+      settings.setNotifyRunnable(() -> ApplicationManager.getApplication().invokeLater(() -> {
         Messages.showMessageDialog(project, UIDesignerBundle.message("snapshot.prepare.notice"),
                                    UIDesignerBundle.message("snapshot.title"), Messages.getInformationIcon());
         try {
@@ -293,7 +279,7 @@ public class CreateSnapShotAction extends AnAction {
       if (rc < 0) return null;
       snapshotConfiguration = configurations.get(rc);
     }
-    ((ApplicationConfiguration) snapshotConfiguration.getConfiguration()).ENABLE_SWING_INSPECTOR = true;
+    ((ApplicationConfiguration)snapshotConfiguration.getConfiguration()).setSwingInspectorEnabled(true);
     return snapshotConfiguration;
   }
 
@@ -318,6 +304,7 @@ public class CreateSnapShotAction extends AnAction {
       myComponentTree.setModel(model);
       myComponentTree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
       myComponentTree.getSelectionModel().addTreeSelectionListener(new TreeSelectionListener() {
+        @Override
         public void valueChanged(TreeSelectionEvent e) {
           updateOKAction();
         }
@@ -336,6 +323,7 @@ public class CreateSnapShotAction extends AnAction {
         new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, attributes.getForegroundColor());
 
       myComponentTree.setCellRenderer(new ColoredTreeCellRenderer() {
+        @Override
         public void customizeCellRenderer(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
           SnapShotRemoteComponent rc = (SnapShotRemoteComponent) value;
 
@@ -370,7 +358,8 @@ public class CreateSnapShotAction extends AnAction {
         }
       });
       myFormNameTextField.getDocument().addDocumentListener(new DocumentAdapter() {
-        protected void textChanged(DocumentEvent e) {
+        @Override
+        protected void textChanged(@NotNull DocumentEvent e) {
           updateOKAction();
         }
       });
@@ -516,6 +505,7 @@ public class CreateSnapShotAction extends AnAction {
       }
     }
 
+    @Override
     @Nullable
     protected JComponent createCenterPanel() {
       return myRootPanel;

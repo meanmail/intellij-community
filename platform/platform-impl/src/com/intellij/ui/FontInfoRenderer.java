@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,10 +16,8 @@
 package com.intellij.ui;
 
 import com.intellij.ide.ui.AntialiasingType;
-import com.intellij.ide.ui.UISettings;
 import com.intellij.util.ui.FontInfo;
-import com.intellij.util.ui.UIUtil;
-import sun.swing.SwingUtilities2;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -27,35 +25,44 @@ import java.awt.*;
 /**
  * @author Sergey.Malenkov
  */
-public class FontInfoRenderer extends ListCellRendererWrapper {
+public class FontInfoRenderer extends ColoredListCellRenderer<Object> {
   @Override
-  public void customize(JList list, Object value, int index, boolean selected, boolean focused) {
+  protected void customizeCellRenderer(@NotNull JList<?> list, Object value, int index, boolean selected, boolean focused) {
     Font font = list.getFont();
     String text = value == null ? "" : value.toString();
-    setText(text);
+    append(text);
     if (value instanceof FontInfo) {
       FontInfo info = (FontInfo)value;
       Integer size = getFontSize();
       Font f = info.getFont(size != null ? size : font.getSize());
       if (f.canDisplayUpTo(text) == -1) {
-        font = f;
+        setFont(f);
+      }
+      else {
+        append("  Non-latin", SimpleTextAttributes.GRAYED_ATTRIBUTES);
       }
     }
-    setFont(font);
-    setForeground(list.isEnabled()
-                  ? UIUtil.getListForeground(selected)
-                  : UIUtil.getLabelDisabledForeground());
+  }
 
-    AntialiasingType type = getAntialiasingType();
-    if (type == null) type = AntialiasingType.GREYSCALE;
-    setClientProperty(SwingUtilities2.AA_TEXT_PROPERTY_KEY, type.getTextInfo());
+  @NotNull
+  @Override
+  public Dimension getPreferredSize() {
+    // Existing usages (e.g. FontComboBox) ignore returned preferred width. 
+    // Calculating preferred width can be quite consuming though (in particular, when a large number of fonts is available),
+    // so we avoid such a calculation here.
+    return new Dimension(1, computePreferredHeight());
+  }
+
+  @Override
+  protected void applyAdditionalHints(@NotNull Graphics2D g) {
+    g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, AntialiasingType.getKeyForCurrentScope(isEditorFont()));
   }
 
   protected Integer getFontSize() {
     return null;
   }
 
-  protected AntialiasingType getAntialiasingType() {
-    return UISettings.getShadowInstance().IDE_AA_TYPE;
+  protected boolean isEditorFont() {
+    return false;
   }
 }

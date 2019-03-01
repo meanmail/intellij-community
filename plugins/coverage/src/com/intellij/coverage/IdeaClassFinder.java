@@ -22,12 +22,12 @@ import java.util.regex.Pattern;
 * @author anna
 */
 class IdeaClassFinder extends ClassFinder {
-  private static final Logger LOG = Logger.getInstance("#" + IdeaClassFinder.class.getName());
+  private static final Logger LOG = Logger.getInstance(IdeaClassFinder.class);
 
   private final Project myProject;
   private final CoverageSuitesBundle myCurrentSuite;
 
-  public IdeaClassFinder(Project project, CoverageSuitesBundle currentSuite) {
+  IdeaClassFinder(Project project, CoverageSuitesBundle currentSuite) {
     super(obtainPatternsFromSuite(currentSuite), new ArrayList());
     myProject = project;
     myCurrentSuite = currentSuite;

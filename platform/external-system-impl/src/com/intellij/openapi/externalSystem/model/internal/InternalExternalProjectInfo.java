@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.externalSystem.model.internal;
 
+import com.intellij.openapi.application.ApplicationInfo;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalProjectInfo;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
@@ -22,24 +23,24 @@ import com.intellij.openapi.externalSystem.model.project.ProjectData;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.Serializable;
+import java.io.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 9/22/2014
  */
 public class InternalExternalProjectInfo implements ExternalProjectInfo, Serializable {
 
   private static final long serialVersionUID = 1L;
 
   @NotNull
-  private final ProjectSystemId myProjectSystemId;
+  private ProjectSystemId myProjectSystemId;
   @NotNull
-  private final String myExternalProjectPath;
+  private String myExternalProjectPath;
   @Nullable
   private DataNode<ProjectData> myExternalProjectStructure;
   private long lastSuccessfulImportTimestamp = -1;
   private long lastImportTimestamp = -1;
+  private String myBuildNumber;
 
   public InternalExternalProjectInfo(@NotNull ProjectSystemId projectSystemId,
                                      @NotNull String externalProjectPath,
@@ -47,6 +48,7 @@ public class InternalExternalProjectInfo implements ExternalProjectInfo, Seriali
     myProjectSystemId = projectSystemId;
     myExternalProjectPath = externalProjectPath;
     myExternalProjectStructure = externalProjectStructure;
+    myBuildNumber = ApplicationInfo.getInstance().getBuild().asString();
   }
 
   @Override
@@ -58,6 +60,11 @@ public class InternalExternalProjectInfo implements ExternalProjectInfo, Seriali
   @Override
   @NotNull
   public String getExternalProjectPath() {
+    return myExternalProjectPath;
+  }
+
+  @Nullable
+  public String getNullSafeExternalProjectPath() {
     return myExternalProjectPath;
   }
 
@@ -77,16 +84,17 @@ public class InternalExternalProjectInfo implements ExternalProjectInfo, Seriali
     return lastImportTimestamp;
   }
 
-  public void setExternalProjectStructure(@Nullable DataNode<ProjectData> externalProjectStructure) {
-    myExternalProjectStructure = externalProjectStructure;
-  }
-
   public void setLastSuccessfulImportTimestamp(long lastSuccessfulImportTimestamp) {
     this.lastSuccessfulImportTimestamp = lastSuccessfulImportTimestamp;
   }
 
   public void setLastImportTimestamp(long lastImportTimestamp) {
     this.lastImportTimestamp = lastImportTimestamp;
+  }
+
+  @Override
+  public String getBuildNumber() {
+    return myBuildNumber;
   }
 
   @Override
@@ -110,5 +118,28 @@ public class InternalExternalProjectInfo implements ExternalProjectInfo, Seriali
            ", lastSuccessfulImportTimestamp=" + lastSuccessfulImportTimestamp +
            ", lastImportTimestamp=" + lastImportTimestamp +
            '}';
+  }
+
+  private void writeObject(ObjectOutputStream out) throws IOException {
+    out.writeObject(myProjectSystemId);
+    out.writeObject(myExternalProjectPath);
+    out.writeObject(myExternalProjectStructure);
+    out.writeLong(lastSuccessfulImportTimestamp);
+    out.writeLong(lastImportTimestamp);
+    out.writeObject(myBuildNumber);
+  }
+
+  private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+    myProjectSystemId = (ProjectSystemId)in.readObject();
+    myExternalProjectPath = (String)in.readObject();
+    //noinspection unchecked
+    myExternalProjectStructure = (DataNode<ProjectData>)in.readObject();
+    lastSuccessfulImportTimestamp = in.readLong();
+    lastImportTimestamp = in.readLong();
+    try {
+      myBuildNumber = (String)in.readObject();
+    }
+    catch (OptionalDataException ignore) {
+    }
   }
 }

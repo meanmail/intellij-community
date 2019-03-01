@@ -36,7 +36,6 @@ import static org.junit.Assert.*;
 
 /**
  * @author Denis Zhdanov
- * @since 07/18/2012
  */
 public class DefaultArrangementEntryMatcherSerializerTest {
 
@@ -145,8 +144,8 @@ public class DefaultArrangementEntryMatcherSerializerTest {
   private void doTest(@NotNull ArrangementMatchCondition condition) {
     Element element = mySerializer.serialize(new StdArrangementEntryMatcher(condition));
     assertNotNull(String.format("Can't serialize match condition '%s'", condition), element);
-    ArrangementEntryMatcher matcher = mySerializer.deserialize(element);
+    StdArrangementEntryMatcher matcher = mySerializer.deserialize(element);
     assertNotNull(matcher);
-    assertEquals(condition, ((StdArrangementEntryMatcher)matcher).getCondition());
+    assertEquals(condition, matcher.getCondition());
   }
 }

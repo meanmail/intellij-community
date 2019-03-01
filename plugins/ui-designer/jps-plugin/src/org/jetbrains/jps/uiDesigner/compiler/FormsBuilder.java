@@ -30,7 +30,6 @@ import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/20/12
  */
 public abstract class FormsBuilder extends ModuleLevelBuilder {
   protected static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.uiDesigner.compiler.FormsInstrumenter");
@@ -55,7 +54,7 @@ public abstract class FormsBuilder extends ModuleLevelBuilder {
   protected static void addBinding(File srcFile, File form, Map<File, Collection<File>> container) {
     Collection<File> forms = container.get(srcFile);
     if (forms == null) {
-      forms = new ArrayList<File>();
+      forms = new ArrayList<>();
       container.put(srcFile, forms);
     }
     forms.add(form);

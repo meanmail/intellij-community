@@ -1,25 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
 import com.intellij.debugger.*;
-import com.intellij.debugger.apiAdapters.TransportServiceWrapper;
 import com.intellij.debugger.engine.*;
 import com.intellij.debugger.settings.DebuggerSettings;
-import com.intellij.debugger.ui.GetJPDADialog;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.debugger.ui.tree.render.BatchEvaluator;
 import com.intellij.execution.ExecutionException;
@@ -41,35 +25,26 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.projectRoots.JavaSdk;
-import com.intellij.openapi.projectRoots.JavaSdkVersion;
-import com.intellij.openapi.projectRoots.JdkUtil;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.ex.JavaSdkUtil;
-import com.intellij.openapi.startup.StartupManager;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiClass;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.Function;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBusConnection;
 import org.jdom.Element;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.io.File;
 import java.util.*;
-import java.util.jar.Attributes;
 import java.util.stream.Stream;
 
 @State(name = "DebuggerManager", storages = {@Storage(StoragePathMacros.WORKSPACE_FILE)})
 public class DebuggerManagerImpl extends DebuggerManagerEx implements PersistentStateComponent<Element> {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.impl.DebuggerManagerImpl");
+  public static final String LOCALHOST_ADDRESS_FALLBACK = "127.0.0.1";
 
   private final Project myProject;
   private final HashMap<ProcessHandler, DebuggerSession> mySessions = new HashMap<>();
@@ -109,7 +84,6 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
       }
     }
   };
-  @NonNls private static final String DEBUG_KEY_NAME = "idea.xdebug.key";
 
   @Override
   public void addClassNameMapper(final NameMapper mapper) {
@@ -142,27 +116,26 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     myDispatcher.removeListener(listener);
   }
 
-  public DebuggerManagerImpl(Project project, StartupManager startupManager) {
+  public DebuggerManagerImpl(@NotNull Project project) {
     myProject = project;
-    myBreakpointManager = new BreakpointManager(myProject, startupManager, this);
+    myBreakpointManager = new BreakpointManager(myProject, this);
+    MessageBusConnection busConnection = project.getMessageBus().connect();
     if (!project.isDefault()) {
-      project.getMessageBus().connect().subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
+      busConnection.subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
         @Override
         public void globalSchemeChange(EditorColorsScheme scheme) {
           getBreakpointManager().updateBreakpointsUI();
         }
       });
     }
+    myBreakpointManager.addListeners(busConnection);
   }
 
   @Nullable
   @Override
   public DebuggerSession getSession(DebugProcess process) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    for (final DebuggerSession debuggerSession : getSessions()) {
-      if (process == debuggerSession.getProcess()) return debuggerSession;
-    }
-    return null;
+    return getSessions().stream().filter(debuggerSession -> process == debuggerSession.getProcess()).findFirst().orElse(null);
   }
 
   @NotNull
@@ -174,23 +147,6 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     }
   }
 
-  @Override
-  public void disposeComponent() {
-  }
-
-  @Override
-  public void initComponent() {
-  }
-
-  @Override
-  public void projectClosed() {
-  }
-
-  @Override
-  public void projectOpened() {
-    myBreakpointManager.init();
-  }
-
   @Nullable
   @Override
   public Element getState() {
@@ -200,7 +156,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     myBreakpointManager.readExternal(state);
   }
 
@@ -221,7 +177,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   public DebuggerSession attachVirtualMachine(@NotNull DebugEnvironment environment) throws ExecutionException {
     ApplicationManager.getApplication().assertIsDispatchThread();
     DebugProcessEvents debugProcess = new DebugProcessEvents(myProject);
-    DebuggerSession session = DebuggerSession.create(environment.getSessionName(), debugProcess, environment);
+    DebuggerSession session = DebuggerSession.create(debugProcess, environment);
     ExecutionResult executionResult = session.getProcess().getExecutionResult();
     if (executionResult == null) {
       return null;
@@ -245,12 +201,13 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
       // so we shouldn't add the listener to avoid calling stop() twice
       processHandler.addProcessListener(new ProcessAdapter() {
         @Override
-        public void processWillTerminate(ProcessEvent event, boolean willBeDestroyed) {
-          final DebugProcessImpl debugProcess = getDebugProcess(event.getProcessHandler());
+        public void processWillTerminate(@NotNull ProcessEvent event, boolean willBeDestroyed) {
+          ProcessHandler processHandler = event.getProcessHandler();
+          final DebugProcessImpl debugProcess = getDebugProcess(processHandler);
           if (debugProcess != null) {
             // if current thread is a "debugger manager thread", stop will execute synchronously
             // it is KillableColoredProcessHandler responsibility to terminate VM
-            debugProcess.stop(willBeDestroyed && !(event.getProcessHandler() instanceof KillableColoredProcessHandler));
+            debugProcess.stop(willBeDestroyed && !(processHandler instanceof KillableColoredProcessHandler && ((KillableColoredProcessHandler)processHandler).shouldKillProcessSoftly()));
 
             // wait at most 10 seconds: the problem is that debugProcess.stop() can hang if there are troubles in the debuggee
             // if processWillTerminate() is called from AWT thread debugProcess.waitFor() will block it and the whole app will hang
@@ -309,7 +266,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     else {
       processHandler.addProcessListener(new ProcessAdapter() {
         @Override
-        public void startNotified(ProcessEvent event) {
+        public void startNotified(@NotNull ProcessEvent event) {
           DebugProcessImpl debugProcess = getDebugProcess(processHandler);
           if (debugProcess != null) {
             debugProcess.addDebugProcessListener(listener);
@@ -329,7 +286,7 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     else {
       processHandler.addProcessListener(new ProcessAdapter() {
         @Override
-        public void startNotified(ProcessEvent event) {
+        public void startNotified(@NotNull ProcessEvent event) {
           DebugProcessImpl debugProcess = getDebugProcess(processHandler);
           if (debugProcess != null) {
             debugProcess.removeDebugProcessListener(listener);
@@ -343,12 +300,6 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
   @Override
   public boolean isDebuggerManagerThread() {
     return DebuggerManagerThreadImpl.isManagerThread();
-  }
-
-  @Override
-  @NotNull
-  public String getComponentName() {
-    return "DebuggerManager";
   }
 
   @NotNull
@@ -374,206 +325,32 @@ public class DebuggerManagerImpl extends DebuggerManagerEx implements Persistent
     myCustomPositionManagerFactories.add(factory);
   }
 
-  @Override
-  public void unregisterPositionManagerFactory(final Function<DebugProcess, PositionManager> factory) {
-    myCustomPositionManagerFactories.remove(factory);
-  }
-
-  private static boolean hasWhitespace(String string) {
-    int length = string.length();
-    for (int i = 0; i < length; i++) {
-      if (Character.isWhitespace(string.charAt(i))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /* Remoting */
-  private static void checkTargetJPDAInstalled(JavaParameters parameters) throws ExecutionException {
-    final Sdk jdk = parameters.getJdk();
-    if (jdk == null) {
-      throw new ExecutionException(DebuggerBundle.message("error.jdk.not.specified"));
-    }
-    final JavaSdkVersion version = JavaSdk.getInstance().getVersion(jdk);
-    String versionString = jdk.getVersionString();
-    if (version == JavaSdkVersion.JDK_1_0 || version == JavaSdkVersion.JDK_1_1) {
-      throw new ExecutionException(DebuggerBundle.message("error.unsupported.jdk.version", versionString));
-    }
-    if (SystemInfo.isWindows && version == JavaSdkVersion.JDK_1_2) {
-      final VirtualFile homeDirectory = jdk.getHomeDirectory();
-      if (homeDirectory == null || !homeDirectory.isValid()) {
-        throw new ExecutionException(DebuggerBundle.message("error.invalid.jdk.home", versionString));
-      }
-      //noinspection HardCodedStringLiteral
-      File dllFile = new File(
-        homeDirectory.getPath().replace('/', File.separatorChar) + File.separator + "bin" + File.separator + "jdwp.dll"
-      );
-      if (!dllFile.exists()) {
-        GetJPDADialog dialog = new GetJPDADialog();
-        dialog.show();
-        throw new ExecutionException(DebuggerBundle.message("error.debug.libraries.missing"));
-      }
-    }
-  }
-
   /**
-   * for Target JDKs versions 1.2.x - 1.3.0 the Classic VM should be used for debugging
+   * @deprecated use {@link RemoteConnectionBuilder}
    */
-  private static boolean shouldForceClassicVM(Sdk jdk) {
-    if (SystemInfo.isMac) {
-      return false;
-    }
-    if (jdk == null) return false;
-
-    String version = JdkUtil.getJdkMainAttribute(jdk, Attributes.Name.IMPLEMENTATION_VERSION);
-    if (version == null || StringUtil.compareVersionNumbers(version, "1.4") >= 0) {
-      return false;
-    }
-
-    if (version.startsWith("1.2") && SystemInfo.isWindows) {
-      return true;
-    }
-    version += ".0";
-    if (version.startsWith("1.3.0") && SystemInfo.isWindows) {
-      return true;
-    }
-    if ((version.startsWith("1.3.1_07") || version.startsWith("1.3.1_08")) && SystemInfo.isWindows) {
-      return false; // fixes bug for these JDKs that it cannot start with -classic option
-    }
-    return DebuggerSettings.getInstance().FORCE_CLASSIC_VM;
-  }
-
-  @SuppressWarnings({"HardCodedStringLiteral"})
+  @Deprecated
   public static RemoteConnection createDebugParameters(final JavaParameters parameters,
                                                        final boolean debuggerInServerMode,
                                                        int transport, final String debugPort,
-                                                       boolean checkValidity)
+                                                       boolean checkValidity) throws ExecutionException {
+    return createDebugParameters(parameters, debuggerInServerMode, transport, debugPort, checkValidity, true);
+  }
+
+  /**
+   * @deprecated use {@link RemoteConnectionBuilder}
+   */
+  @Deprecated
+  public static RemoteConnection createDebugParameters(final JavaParameters parameters,
+                                                       final boolean debuggerInServerMode,
+                                                       int transport, final String debugPort,
+                                                       boolean checkValidity,
+                                                       boolean addAsyncDebuggerAgent)
     throws ExecutionException {
-    if (checkValidity) {
-      checkTargetJPDAInstalled(parameters);
-    }
-
-    final boolean useSockets = transport == DebuggerSettings.SOCKET_TRANSPORT;
-
-    String address = "";
-    if (StringUtil.isEmptyOrSpaces(debugPort)) {
-      try {
-        address = DebuggerUtils.getInstance().findAvailableDebugAddress(useSockets);
-      }
-      catch (ExecutionException e) {
-        if (checkValidity) {
-          throw e;
-        }
-      }
-    }
-    else {
-      address = debugPort;
-    }
-
-    final TransportServiceWrapper transportService = TransportServiceWrapper.getTransportService(useSockets);
-    final String debugAddress = debuggerInServerMode && useSockets ? "127.0.0.1:" + address : address;
-    String debuggeeRunProperties = "transport=" + transportService.transportId() + ",address=" + debugAddress;
-    if (debuggerInServerMode) {
-      debuggeeRunProperties += ",suspend=y,server=n";
-    }
-    else {
-      debuggeeRunProperties += ",suspend=n,server=y";
-    }
-
-    if (hasWhitespace(debuggeeRunProperties)) {
-      debuggeeRunProperties = "\"" + debuggeeRunProperties + "\"";
-    }
-    final String _debuggeeRunProperties = debuggeeRunProperties;
-
-    ApplicationManager.getApplication().runReadAction(() -> {
-      JavaSdkUtil.addRtJar(parameters.getClassPath());
-
-      final Sdk jdk = parameters.getJdk();
-      final boolean forceClassicVM = shouldForceClassicVM(jdk);
-      final boolean forceNoJIT = shouldForceNoJIT(jdk);
-      final String debugKey = System.getProperty(DEBUG_KEY_NAME, "-Xdebug");
-      final boolean needDebugKey = shouldAddXdebugKey(jdk) || !"-Xdebug".equals(debugKey) /*the key is non-standard*/;
-
-      if (forceClassicVM || forceNoJIT || needDebugKey || !isJVMTIAvailable(jdk)) {
-        parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "-Xrunjdwp:" + _debuggeeRunProperties);
-      }
-      else {
-        // use newer JVMTI if available
-        parameters.getVMParametersList().replaceOrPrepend("-Xrunjdwp:", "");
-        parameters.getVMParametersList().replaceOrPrepend("-agentlib:jdwp=", "-agentlib:jdwp=" + _debuggeeRunProperties);
-      }
-
-      if (forceNoJIT) {
-        parameters.getVMParametersList().replaceOrPrepend("-Djava.compiler=", "-Djava.compiler=NONE");
-        parameters.getVMParametersList().replaceOrPrepend("-Xnoagent", "-Xnoagent");
-      }
-
-      if (needDebugKey) {
-        parameters.getVMParametersList().replaceOrPrepend(debugKey, debugKey);
-      }
-      else {
-        // deliberately skip outdated parameter because it can disable full-speed debugging for some jdk builds
-        // see http://bugs.sun.com/bugdatabase/view_bug.do?bug_id=6272174
-        parameters.getVMParametersList().replaceOrPrepend("-Xdebug", "");
-      }
-
-      parameters.getVMParametersList().replaceOrPrepend("-classic", forceClassicVM ? "-classic" : "");
-    });
-
-    return new RemoteConnection(useSockets, "127.0.0.1", address, debuggerInServerMode);
-  }
-
-  private static boolean shouldForceNoJIT(Sdk jdk) {
-    if (DebuggerSettings.getInstance().DISABLE_JIT) {
-      return true;
-    }
-    if (jdk != null) {
-      final String version = JdkUtil.getJdkMainAttribute(jdk, Attributes.Name.IMPLEMENTATION_VERSION);
-      if (version != null && (version.startsWith("1.2") || version.startsWith("1.3"))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  private static boolean shouldAddXdebugKey(Sdk jdk) {
-    if (jdk == null) {
-      return true; // conservative choice
-    }
-    if (DebuggerSettings.getInstance().DISABLE_JIT) {
-      return true;
-    }
-
-    //if (ApplicationManager.getApplication().isUnitTestMode()) {
-    // need this in unit tests to avoid false alarms when comparing actual output with expected output
-    //return true;
-    //}
-
-    final String version = JdkUtil.getJdkMainAttribute(jdk, Attributes.Name.IMPLEMENTATION_VERSION);
-    return version == null ||
-           //version.startsWith("1.5") ||
-           version.startsWith("1.4") ||
-           version.startsWith("1.3") ||
-           version.startsWith("1.2") ||
-           version.startsWith("1.1") ||
-           version.startsWith("1.0");
-  }
-
-  private static boolean isJVMTIAvailable(Sdk jdk) {
-    if (jdk == null) {
-      return false; // conservative choice
-    }
-
-    final String version = JdkUtil.getJdkMainAttribute(jdk, Attributes.Name.IMPLEMENTATION_VERSION);
-    if (version == null) {
-      return false;
-    }
-    return !(version.startsWith("1.4") ||
-             version.startsWith("1.3") ||
-             version.startsWith("1.2") ||
-             version.startsWith("1.1") ||
-             version.startsWith("1.0"));
+    return new RemoteConnectionBuilder(debuggerInServerMode, transport, debugPort)
+      .checkValidity(checkValidity)
+      .asyncAgent(addAsyncDebuggerAgent)
+      .memoryAgent(DebuggerSettings.getInstance().ENABLE_MEMORY_AGENT)
+      .create(parameters);
   }
 
   public static RemoteConnection createDebugParameters(final JavaParameters parameters,

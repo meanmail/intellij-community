@@ -37,7 +37,7 @@ import java.util.List;
 class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
   private final boolean myInStructureViewPopup;
 
-  public HtmlFileTreeElement(final boolean inStructureViewPopup, final XmlFile xmlFile) {
+  HtmlFileTreeElement(final boolean inStructureViewPopup, final XmlFile xmlFile) {
     super(xmlFile);
     myInStructureViewPopup = inStructureViewPopup;
   }
@@ -72,7 +72,7 @@ class HtmlFileTreeElement extends PsiTreeElementBase<XmlFile> {
         return new HtmlTagTreeElement(rootTag).getChildrenBase();
       }
 
-      return Collections.<StructureViewTreeElement>singletonList(new HtmlTagTreeElement(rootTag));
+      return Collections.singletonList(new HtmlTagTreeElement(rootTag));
     }
     else {
       final Collection<StructureViewTreeElement> result = new ArrayList<>(rootTags.size());

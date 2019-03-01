@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,18 +22,23 @@ import org.jetbrains.intellij.build.*
  */
 class PyCharmCommunityProperties extends PyCharmPropertiesBase {
   PyCharmCommunityProperties(String communityHome) {
-    productCode = "PC"
     platformPrefix = "PyCharmCore"
-    applicationInfoModule = "python-community-ide-resources"
+    applicationInfoModule = "intellij.pycharm.community.resources"
     brandingResourcePaths = ["$communityHome/python/resources"]
 
-    productLayout.platformApiModules = CommunityRepositoryModules.PLATFORM_API_MODULES + ["dom-openapi"]
-    productLayout.platformImplementationModules = CommunityRepositoryModules.PLATFORM_IMPLEMENTATION_MODULES + [
-      "dom-impl", "python-community", "python-community-ide-resources",
-      "python-ide-community", "python-community-configure", "python-openapi", "python-psi-api", "platform-main"
+    productLayout.productApiModules = ["intellij.xml.dom"]
+    productLayout.productImplementationModules = [
+      "intellij.xml.dom.impl",
+      "intellij.python.community.impl",
+      "intellij.pycharm.community.resources",
+      "intellij.pycharm.community",
+      "intellij.python.configure",
+      "intellij.python.community",
+      "intellij.python.psi",
+      "intellij.platform.main"
     ]
     productLayout.bundledPluginModules = new File("$communityHome/python/build/plugin-list.txt").readLines()
-    productLayout.mainModule = "main_pycharm_ce"
+    productLayout.mainModules = ["intellij.pycharm.community.main"]
   }
 
   @Override
@@ -46,12 +51,12 @@ class PyCharmCommunityProperties extends PyCharmPropertiesBase {
   }
 
   @Override
-  String systemSelector(ApplicationInfoProperties applicationInfo) {
+  String getSystemSelector(ApplicationInfoProperties applicationInfo) {
     "PyCharmCE${applicationInfo.majorVersion}.${applicationInfo.minorVersionMainPart}"
   }
 
   @Override
-  String baseArtifactName(ApplicationInfoProperties applicationInfo, String buildNumber) {
+  String getBaseArtifactName(ApplicationInfoProperties applicationInfo, String buildNumber) {
     "pycharmPC-$buildNumber"
   }
 
@@ -59,20 +64,19 @@ class PyCharmCommunityProperties extends PyCharmPropertiesBase {
   WindowsDistributionCustomizer createWindowsCustomizer(String projectHome) {
     return new PyCharmWindowsDistributionCustomizer() {
       {
+        icoPath = "$projectHome/python/resources/PyCharmCore.ico"
+        icoPathForEAP = "$projectHome/python/resources/PyCharmCore_EAP.ico"
         installerImagesPath = "$projectHome/python/build/resources"
-        fileAssociations = [".py"]
+        fileAssociations = ["py"]
       }
 
       @Override
-      String fullNameIncludingEdition(ApplicationInfoProperties applicationInfo) {
+      String getFullNameIncludingEdition(ApplicationInfoProperties applicationInfo) {
         "PyCharm Community Edition"
       }
 
       @Override
-      void copyAdditionalFiles(BuildContext context, String targetDirectory) {
-        super.copyAdditionalFiles(context, targetDirectory)
-        context.ant.copy(file: "$context.paths.projectHome/python/help/pycharmhelp.jar", todir: "$targetDirectory/help", failonerror: false)
-      }
+      String getBaseDownloadUrlForJre() { "https://download.jetbrains.com/python" }
     }
   }
 
@@ -81,15 +85,16 @@ class PyCharmCommunityProperties extends PyCharmPropertiesBase {
     return new LinuxDistributionCustomizer() {
       {
         iconPngPath = "$projectHome/python/resources/PyCharmCore128.png"
-      }
-      @Override
-      String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
-        "pycharm-community-${applicationInfo.isEAP ? buildNumber : applicationInfo.fullVersion}"
+        iconPngPathForEAP = "$projectHome/python/resources/PyCharmCore128_EAP.png"
+        snapName = "pycharm-community"
+        snapDescription =
+          "Python IDE for professional developers. Save time while PyCharm takes care of the routine. "
+          "Focus on bigger things and embrace the keyboard-centric approach to get the most of PyCharm’s many productivity features."
       }
 
       @Override
-      void copyAdditionalFiles(BuildContext context, String targetDirectory) {
-        context.ant.copy(file: "$context.paths.projectHome/python/help/pycharmhelp.jar", todir: "$targetDirectory/help", failonerror: false)
+      String getRootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
+        "pycharm-community-${applicationInfo.isEAP ? buildNumber : applicationInfo.fullVersion}"
       }
     }
   }
@@ -99,13 +104,13 @@ class PyCharmCommunityProperties extends PyCharmPropertiesBase {
     return new PyCharmMacDistributionCustomizer() {
       {
         icnsPath = "$projectHome/python/resources/PyCharmCore.icns"
+        icnsPathForEAP = "$projectHome/python/resources/PyCharmCore_EAP.icns"
         bundleIdentifier = "com.jetbrains.pycharm"
-        helpId = "PY"
-        dmgImagePath = "$projectHome/python/build/DMG_background.png"
+        dmgImagePath = "$projectHome/python/build/dmg_background.tiff"
       }
 
       @Override
-      String rootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
+      String getRootDirectoryName(ApplicationInfoProperties applicationInfo, String buildNumber) {
         String suffix = applicationInfo.isEAP ? " ${applicationInfo.majorVersion}.${applicationInfo.minorVersion} EAP" : ""
         "PyCharm CE${suffix}.app"
       }
@@ -113,7 +118,7 @@ class PyCharmCommunityProperties extends PyCharmPropertiesBase {
   }
 
   @Override
-  String outputDirectoryName(ApplicationInfoProperties applicationInfo) {
+  String getOutputDirectoryName(ApplicationInfoProperties applicationInfo) {
     "pycharm-ce"
   }
 }

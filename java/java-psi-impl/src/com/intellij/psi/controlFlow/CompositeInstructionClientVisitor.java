@@ -16,14 +16,17 @@
 
 package com.intellij.psi.controlFlow;
 
+import org.jetbrains.annotations.NotNull;
+
 class CompositeInstructionClientVisitor extends InstructionClientVisitor<Object[]> {
   private final InstructionClientVisitor[] myVisitors;
 
-  public CompositeInstructionClientVisitor(InstructionClientVisitor[] visitors) {
+  CompositeInstructionClientVisitor(InstructionClientVisitor[] visitors) {
     myVisitors = visitors;
   }
 
   @Override
+  @NotNull
   public Object[] getResult() {
     Object[] result = new Object[myVisitors.length];
     for (int i = 0; i < myVisitors.length; i++) {

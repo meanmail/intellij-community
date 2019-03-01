@@ -8,6 +8,7 @@ import com.intellij.tasks.trello.TrelloTask;
 import com.intellij.tasks.trello.model.*;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.xmlb.XmlSerializer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -150,7 +151,7 @@ public class TrelloIntegrationTest extends LiveIntegrationTestCase<TrelloReposit
     assertFalse(card.isVisible());
   }
 
-  public void testTestConnection() throws Exception {
+  public void testTestConnection() {
     assertNull(myRepository.createCancellableConnection().call());
 
     myRepository.setPassword("illegal password");
@@ -230,11 +231,24 @@ public class TrelloIntegrationTest extends LiveIntegrationTestCase<TrelloReposit
   private static void assertObjectsNamed(@NotNull String message,
                                          @NotNull Collection<? extends TrelloModel> objects,
                                          @NotNull String... names) {
-    assertEquals(message, ContainerUtil.newHashSet(names), ContainerUtil.map2Set(objects, new Function<TrelloModel, String>() {
-      @Override
-      public String fun(TrelloModel model) {
-        return model.getName();
-      }
-    }));
+    assertEquals(message, ContainerUtil.newHashSet(names), ContainerUtil.map2Set(objects,
+                                                                                 (Function<TrelloModel, String>)model -> model.getName()));
+  }
+
+  // IDEA-187507
+  public void testSerialization() {
+    final TrelloRepository repository = new TrelloRepository(new TrelloRepositoryType());
+    final TrelloBoard board = new TrelloBoard();
+    // Otherwise it will be replaced by TrelloRepository.UNSPECIFIED_BOARD excluded from serialization
+    board.setId("realID");
+    repository.setCurrentBoard(board);
+
+    final TrelloList list = new TrelloList();
+    list.setId("realID");
+    repository.setCurrentList(list);
+
+    repository.setCurrentUser(new TrelloUser());
+
+    XmlSerializer.serialize(repository);
   }
 }

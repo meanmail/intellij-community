@@ -18,17 +18,29 @@ package com.intellij.codeInspection;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
-import com.intellij.util.Function;
+import com.intellij.psi.PsiFile;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ThreeState;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class SuppressIntentionActionFromFix extends SuppressIntentionAction {
   private final SuppressQuickFix myFix;
 
   private SuppressIntentionActionFromFix(@NotNull SuppressQuickFix fix) {
     myFix = fix;
+  }
+
+  @Override
+  public boolean startInWriteAction() {
+    return myFix.startInWriteAction();
+  }
+
+  @Nullable
+  @Override
+  public PsiElement getElementToMakeWritable(@NotNull PsiFile currentFile) {
+    return myFix.getElementToMakeWritable(currentFile);
   }
 
   @NotNull
@@ -38,7 +50,8 @@ public class SuppressIntentionActionFromFix extends SuppressIntentionAction {
 
   @NotNull
   public static SuppressIntentionAction[] convertBatchToSuppressIntentionActions(@NotNull SuppressQuickFix[] actions) {
-    return ContainerUtil.map2Array(actions, SuppressIntentionAction.class, fix -> convertBatchToSuppressIntentionAction(fix));
+    return ContainerUtil.map2Array(actions, SuppressIntentionAction.class,
+                                   SuppressIntentionActionFromFix::convertBatchToSuppressIntentionAction);
   }
 
   @Override
@@ -81,6 +94,7 @@ public class SuppressIntentionActionFromFix extends SuppressIntentionAction {
     return myFix.getFamilyName();
   }
 
+  @Override
   public boolean isSuppressAll() {
     return myFix.isSuppressAll();
   }

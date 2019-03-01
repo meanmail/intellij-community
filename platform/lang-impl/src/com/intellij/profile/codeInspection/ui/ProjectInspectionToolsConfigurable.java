@@ -14,13 +14,8 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 17-Apr-2009
- */
 package com.intellij.profile.codeInspection.ui;
 
-import com.intellij.codeInspection.ex.ApplicationInspectionProfileManager;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.profile.codeInspection.ui.header.InspectionToolsConfigurable;
@@ -33,7 +28,7 @@ public class ProjectInspectionToolsConfigurable extends InspectionToolsConfigura
 
   @Override
   protected InspectionProfileImpl getCurrentProfile() {
-    return (InspectionProfileImpl)myProjectProfileManager.getCurrentProfile();
+    return myProjectProfileManager.getCurrentProfile();
   }
 
   @Override
@@ -43,8 +38,7 @@ public class ProjectInspectionToolsConfigurable extends InspectionToolsConfigura
     }
     else {
       myApplicationProfileManager.setRootProfile(name);
-      myProjectProfileManager.setRootProfile(null);
+      myProjectProfileManager.useApplicationProfile(name);
     }
-    ApplicationInspectionProfileManager.onProfilesChanged();
   }
 }

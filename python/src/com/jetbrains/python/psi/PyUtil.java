@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi;
 
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Maps;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.completion.PrioritizedLookupElement;
 import com.intellij.codeInsight.lookup.LookupElement;
@@ -27,15 +14,15 @@ import com.intellij.ide.scratch.ScratchFileService;
 import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.lang.ASTFactory;
 import com.intellij.lang.ASTNode;
+import com.intellij.notebook.editor.BackedVirtualFile;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleUtilCore;
@@ -45,6 +32,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.impl.FilePropertyPusher;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
@@ -56,27 +44,23 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.*;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.*;
-import com.intellij.util.containers.*;
-import com.intellij.util.containers.HashSet;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.NotNullPredicate;
 import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.codeInsight.completion.OverwriteEqualsInsertHandler;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
-import com.jetbrains.python.codeInsight.stdlib.PyNamedTupleType;
 import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.magicLiteral.PyMagicLiteralTools;
-import com.jetbrains.python.psi.impl.PyBuiltinCache;
-import com.jetbrains.python.psi.impl.PyPsiUtils;
-import com.jetbrains.python.psi.impl.PyStringLiteralExpressionImpl;
-import com.jetbrains.python.psi.impl.PythonLanguageLevelPusher;
+import com.jetbrains.python.psi.impl.*;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
 import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
 import com.jetbrains.python.psi.resolve.RatedResolveResult;
@@ -86,35 +70,24 @@ import com.jetbrains.python.refactoring.classes.PyDependenciesComparator;
 import com.jetbrains.python.refactoring.classes.extractSuperclass.PyExtractSuperclassHelper;
 import com.jetbrains.python.refactoring.classes.membersManager.PyMemberInfo;
 import com.jetbrains.python.sdk.PythonSdkType;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.*;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.io.IOException;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.jetbrains.python.psi.PyFunction.Modifier.CLASSMETHOD;
 import static com.jetbrains.python.psi.PyFunction.Modifier.STATICMETHOD;
 
 public class PyUtil {
-  private PyUtil() {
-  }
 
-  @NotNull
-  public static <T extends PyElement> T[] getAllChildrenOfType(@NotNull PsiElement element, @NotNull Class<T> aClass) {
-    List<T> result = new SmartList<>();
-    for (PsiElement child : element.getChildren()) {
-      if (instanceOf(child, aClass)) {
-        //noinspection unchecked
-        result.add((T)child);
-      }
-      else {
-        ContainerUtil.addAll(result, getAllChildrenOfType(child, aClass));
-      }
-    }
-    return ArrayUtil.toObjectArray(result, aClass);
+  private static final boolean VERBOSE_MODE = System.getenv().get("_PYCHARM_VERBOSE_MODE") != null;
+
+  private PyUtil() {
   }
 
   /**
@@ -149,7 +122,7 @@ public class PyUtil {
   /**
    * Flattens the representation of every element in targets, and puts all results together.
    * Elements of every tuple nested in target item are brought to the top level: (a, (b, (c, d))) -> (a, b, c, d)
-   * Typical usage: <code>flattenedParensAndTuples(some_tuple.getExpressions())</code>.
+   * Typical usage: {@code flattenedParensAndTuples(some_tuple.getExpressions())}.
    *
    * @param targets target elements.
    * @return the list of flattened expressions.
@@ -168,18 +141,6 @@ public class PyUtil {
   public static List<PyExpression> flattenedParensAndStars(PyExpression... targets) {
     return unfoldParentheses(targets, new ArrayList<>(targets.length), false, true);
   }
-
-  // Poor man's filter
-  // TODO: move to a saner place
-
-  public static boolean instanceOf(Object obj, Class... possibleClasses) {
-    if (obj == null || possibleClasses == null) return false;
-    for (Class cls : possibleClasses) {
-      if (cls.isInstance(obj)) return true;
-    }
-    return false;
-  }
-
 
   /**
    * Produce a reasonable representation of a PSI element, good for debugging.
@@ -248,8 +209,8 @@ public class PyUtil {
     final RelativePoint point = new RelativePoint(component, p);
 
     JBPopupFactory.getInstance().createHtmlTextBalloonBuilder(message, messageType.getDefaultIcon(), messageType.getPopupBackground(), null)
-      .setShowCallout(false).setCloseButtonEnabled(true)
-      .createBalloon().show(point, Balloon.Position.atLeft);
+                  .setShowCallout(false).setCloseButtonEnabled(true)
+                  .createBalloon().show(point, Balloon.Position.atLeft);
   }
 
   @NonNls
@@ -290,21 +251,6 @@ public class PyUtil {
     if (!isLast) node.addChild(gen.createComma(), beforeThis);
     if (addWhitespace) node.addChild(ASTFactory.whitespace(" "), beforeThis);
   }
-
-  /**
-   * Collects superclasses of a class all the way up the inheritance chain. The order is <i>not</i> necessarily the MRO.
-   */
-  @NotNull
-  public static List<PyClass> getAllSuperClasses(@NotNull PyClass pyClass) {
-    List<PyClass> superClasses = new ArrayList<>();
-    for (PyClass ancestor : pyClass.getAncestorClasses(null)) {
-      if (!PyNames.FAKE_OLD_BASE.equals(ancestor.getName())) {
-        superClasses.add(ancestor);
-      }
-    }
-    return superClasses;
-  }
-
 
   // TODO: move to a more proper place?
 
@@ -402,10 +348,12 @@ public class PyUtil {
       if (binaryExpression.getOperator() == PyTokenTypes.OR_KEYWORD) {
         return isNameEqualsMain(binaryExpression.getLeftExpression()) || isNameEqualsMain(binaryExpression.getRightExpression());
       }
-      final PyExpression rhs = binaryExpression.getRightExpression();
-      return binaryExpression.getOperator() == PyTokenTypes.EQEQ &&
-             binaryExpression.getLeftExpression().getText().equals(PyNames.NAME) &&
-             rhs != null && rhs.getText().contains("__main__");
+      if (binaryExpression.getRightExpression() instanceof PyStringLiteralExpression) {
+        final PyStringLiteralExpression rhs = (PyStringLiteralExpression) binaryExpression.getRightExpression();
+        return binaryExpression.getOperator() == PyTokenTypes.EQEQ &&
+               binaryExpression.getLeftExpression().getText().equals(PyNames.NAME) &&
+               rhs.getStringValue().equals("__main__");
+      }
     }
     return false;
   }
@@ -568,11 +516,8 @@ public class PyUtil {
       return ((PsiDirectory)element).getName();
     }
     // Magic literals are always represented by their string values
-    if ((element instanceof PyStringLiteralExpression) && PyMagicLiteralTools.isMagicLiteral(element)) {
-      final String name = ((StringLiteralExpression)element).getStringValue();
-      if (name != null) {
-        return name;
-      }
+    if ((element instanceof PyStringLiteralExpression) && PyMagicLiteralTools.couldBeMagicLiteral(element)) {
+      return ((StringLiteralExpression)element).getStringValue();
     }
     if (element instanceof PyElement) {
       final String name = ((PyElement)element).getName();
@@ -580,21 +525,13 @@ public class PyUtil {
         return name;
       }
     }
-    return element.getNode().getText();
+    return element.getNode() != null ? element.getNode().getText() : element.getText();
   }
 
   public static boolean isOwnScopeComprehension(@NotNull PyComprehensionElement comprehension) {
-    final boolean isAtLeast30 = LanguageLevel.forElement(comprehension).isAtLeast(LanguageLevel.PYTHON30);
+    final boolean isAtLeast30 = !LanguageLevel.forElement(comprehension).isPython2();
     final boolean isListComprehension = comprehension instanceof PyListCompExpression;
     return !isListComprehension || isAtLeast30;
-  }
-
-  public static boolean hasCustomDecorators(@NotNull PyDecoratable decoratable) {
-    return PyKnownDecoratorUtil.hasNonBuiltinDecorator(decoratable, TypeEvalContext.codeInsightFallback(null));
-  }
-
-  public static boolean isDecoratedAsAbstract(@NotNull final PyDecoratable decoratable) {
-    return PyKnownDecoratorUtil.hasAbstractDecorator(decoratable, TypeEvalContext.codeInsightFallback(null));
   }
 
   public static ASTNode createNewName(PyElement element, String name) {
@@ -617,7 +554,7 @@ public class PyUtil {
         break;
       }
       final PsiElement resolve = reference.resolve();
-      if ((resolve == null) ||  checkedElements.contains(resolve) || resolve.equals(currentElement) || !inSameFile(resolve, currentElement)) {
+      if (resolve == null || checkedElements.contains(resolve) || resolve.equals(currentElement) || !inSameFile(resolve, currentElement)) {
         break;
       }
       currentElement = resolve;
@@ -638,7 +575,7 @@ public class PyUtil {
     }
     else {
       final PsiReference reference = element.getReference();
-      return reference != null ? Collections.singletonList(reference.resolve()) : Collections.<PsiElement>emptyList();
+      return reference != null ? Collections.singletonList(reference.resolve()) : Collections.emptyList();
     }
   }
 
@@ -649,34 +586,35 @@ public class PyUtil {
 
   @NotNull
   public static List<PsiElement> filterTopPriorityResults(@NotNull ResolveResult[] resolveResults) {
-    if (resolveResults.length == 0) {
-      return Collections.emptyList();
-    }
-    final List<PsiElement> filtered = new ArrayList<>();
-    final int maxRate = getMaxRate(resolveResults);
-    for (ResolveResult resolveResult : resolveResults) {
-      final int rate = resolveResult instanceof RatedResolveResult ? ((RatedResolveResult)resolveResult).getRate() : 0;
-      if (rate >= maxRate) {
-        final PsiElement element = resolveResult.getElement();
-        if (element != null) {
-          filtered.add(element);
-        }
-      }
-    }
-    return filtered;
+    if (resolveResults.length == 0) return Collections.emptyList();
+
+    final int maxRate = getMaxRate(Arrays.asList(resolveResults));
+    return StreamEx
+      .of(resolveResults)
+      .filter(resolveResult -> getRate(resolveResult) >= maxRate)
+      .map(ResolveResult::getElement)
+      .nonNull()
+      .toList();
   }
 
-  private static int getMaxRate(@NotNull ResolveResult[] resolveResults) {
-    int maxRate = Integer.MIN_VALUE;
-    for (ResolveResult resolveResult : resolveResults) {
-      if (resolveResult instanceof RatedResolveResult) {
-        final int rate = ((RatedResolveResult)resolveResult).getRate();
-        if (rate > maxRate) {
-          maxRate = rate;
-        }
-      }
-    }
-    return maxRate;
+  @NotNull
+  public static <E extends ResolveResult> List<E> filterTopPriorityResults(@NotNull List<? extends E> resolveResults) {
+    if (resolveResults.isEmpty()) return Collections.emptyList();
+
+    final int maxRate = getMaxRate(resolveResults);
+    return ContainerUtil.filter(resolveResults, resolveResult -> getRate(resolveResult) >= maxRate);
+  }
+
+  private static int getMaxRate(@NotNull List<? extends ResolveResult> resolveResults) {
+    return resolveResults
+      .stream()
+      .mapToInt(PyUtil::getRate)
+      .max()
+      .orElse(Integer.MIN_VALUE);
+  }
+
+  private static int getRate(@NotNull ResolveResult resolveResult) {
+    return resolveResult instanceof RatedResolveResult ? ((RatedResolveResult)resolveResult).getRate() : 0;
   }
 
   /**
@@ -687,19 +625,22 @@ public class PyUtil {
    */
   @Nullable
   public static PyFunction getInitMethod(@NotNull final PyClass pyClass) {
-    return pyClass.findMethodByName(PyNames.INIT, false,  null);
+    return pyClass.findMethodByName(PyNames.INIT, false, null);
   }
 
   /**
    * Returns Python language level for a virtual file.
    *
-   * @see {@link LanguageLevel#forElement}
+   * @see LanguageLevel#forElement
    */
   @NotNull
   public static LanguageLevel getLanguageLevelForVirtualFile(@NotNull Project project,
                                                              @NotNull VirtualFile virtualFile) {
     if (virtualFile instanceof VirtualFileWindow) {
       virtualFile = ((VirtualFileWindow)virtualFile).getDelegate();
+    }
+    if (virtualFile instanceof BackedVirtualFile) {
+      virtualFile = ((BackedVirtualFile)virtualFile).getOriginFile();
     }
 
     // Most of the cases should be handled by this one, PyLanguageLevelPusher pushes folders only
@@ -728,6 +669,11 @@ public class PyUtil {
       }
     }
     return guessLanguageLevelWithCaching(project);
+  }
+
+  @NotNull
+  public static LanguageLevel getLanguageLevelForModule(@NotNull Module module) {
+    return FilePropertyPusher.EP_NAME.findExtensionOrFail(PythonLanguageLevelPusher.class).getImmediateValue(module);
   }
 
   public static void invalidateLanguageLevelCache(@NotNull Project project) {
@@ -777,7 +723,6 @@ public class PyUtil {
    * @return expression casted to appropriate type (if could be casted). Null otherwise.
    */
   @Nullable
-  @SuppressWarnings("unchecked")
   public static <T> T as(@Nullable final Object expression, @NotNull final Class<T> clazz) {
     return ObjectUtils.tryCast(expression, clazz);
   }
@@ -813,7 +758,7 @@ public class PyUtil {
    * @return list of elements of expected element type
    */
   @NotNull
-  public static <T> List<T> asList(@Nullable final Collection<?> expression, @NotNull final Class<T> elementClass) {
+  public static <T> List<T> asList(@Nullable final Collection<?> expression, @NotNull final Class<? extends T> elementClass) {
     if ((expression == null) || expression.isEmpty()) {
       return Collections.emptyList();
     }
@@ -845,66 +790,191 @@ public class PyUtil {
     });
   }
 
-  public static <T, P> T getParameterizedCachedValue(@NotNull PsiElement element, @NotNull P param, @NotNull NotNullFunction<P, T> f) {
-    final Map<P, T> cache = CachedValuesManager.getCachedValue(element, new CachedValueProvider<Map<P, T>>() {
-      @Nullable
-      @Override
-      public Result<Map<P, T>> compute() {
-        return Result.create(Maps.newHashMap(), PsiModificationTracker.MODIFICATION_COUNT);
-      }
-    });
-    T result = cache.get(param);
-    if (result == null) {
-      result = f.fun(param);
-      cache.put(param, result);
-    }
+  /**
+   * Calculates and caches value based on param. Think about it as about map with param as key which flushes on each psi modification.
+   * <p>
+   * For nullable function see {@link #getNullableParameterizedCachedValue(PsiElement, Object, NullableFunction)}.
+   * <p>
+   * This function is used instead of {@link CachedValuesManager#createParameterizedCachedValue(ParameterizedCachedValueProvider, boolean)}
+   * because parameter is not used as key there but used only for first calculation. Hence this should have functional dependency on element.
+   *
+   * @param element place to store cache
+   * @param param   param to be used as key
+   * @param f       function to produce value for key
+   * @param <T>     value type
+   * @param <P>     key type
+   */
+  @NotNull
+  public static <T, P> T getParameterizedCachedValue(@NotNull PsiElement element, @Nullable P param, @NotNull NotNullFunction<P, T> f) {
+    final T result = getNullableParameterizedCachedValue(element, param, f);
+    assert result != null;
     return result;
   }
 
+  /**
+   * Same as {@link #getParameterizedCachedValue(PsiElement, Object, NotNullFunction)} but allows nulls.
+   */
+  @Nullable
+  public static <T, P> T getNullableParameterizedCachedValue(@NotNull PsiElement element,
+                                                             @Nullable P param,
+                                                             @NotNull NullableFunction<P, T> f) {
+    final CachedValuesManager manager = CachedValuesManager.getManager(element.getProject());
+    final Map<Optional<P>, Optional<T>> cache = CachedValuesManager.getCachedValue(element, manager.getKeyForClass(f.getClass()), () -> {
+      // concurrent hash map is a null-hostile collection
+      return CachedValueProvider.Result.create(Maps.newConcurrentMap(), PsiModificationTracker.MODIFICATION_COUNT);
+    });
+    // Don't use ConcurrentHashMap#computeIfAbsent(), it blocks if the function tries to update the cache recursively for the same key
+    // during computation. We can accept here that some values will be computed several times due to non-atomic updates.
+    final Optional<P> wrappedParam = Optional.ofNullable(param);
+    Optional<T> value = cache.get(wrappedParam);
+    if (value == null) {
+      value = Optional.ofNullable(f.fun(param));
+      cache.put(wrappedParam, value);
+    }
+    return value.orElse(null);
+  }
+
+  /**
+   * This method is allowed to be called from any thread, but in general you should not set {@code modal=true} if you're calling it
+   * from the write action, because in this case {@code function} will be executed right in the current thread (presumably EDT)
+   * without any progress whatsoever to avoid possible deadlock.
+   *
+   * @see ApplicationImpl#runProcessWithProgressSynchronously(Runnable, String, boolean, Project, JComponent, String)
+   */
   public static void runWithProgress(@Nullable Project project, @Nls(capitalization = Nls.Capitalization.Title) @NotNull String title,
-                                     boolean modal, boolean canBeCancelled, @NotNull final Consumer<ProgressIndicator> function) {
-    ApplicationManager.getApplication().invokeAndWait(() -> {
-      if (modal) {
-        ProgressManager.getInstance().run(new Task.Modal(project, title, canBeCancelled) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            function.consume(indicator);
-          }
-        });
-      }
-      else {
-        ProgressManager.getInstance().run(new Task.Backgroundable(project, title, canBeCancelled) {
-          @Override
-          public void run(@NotNull ProgressIndicator indicator) {
-            function.consume(indicator);
-          }
-        });
-      }
-    }, ModalityState.current());
+                                     boolean modal, boolean canBeCancelled, @NotNull final Consumer<? super ProgressIndicator> function) {
+    if (modal) {
+      ProgressManager.getInstance().run(new Task.Modal(project, title, canBeCancelled) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          function.consume(indicator);
+        }
+      });
+    }
+    else {
+      ProgressManager.getInstance().run(new Task.Backgroundable(project, title, canBeCancelled) {
+        @Override
+        public void run(@NotNull ProgressIndicator indicator) {
+          function.consume(indicator);
+        }
+      });
+    }
   }
 
   /**
    * Executes code only if <pre>_PYCHARM_VERBOSE_MODE</pre> is set in env (which should be done for debug purposes only)
+   *
    * @param runnable code to call
    */
   public static void verboseOnly(@NotNull final Runnable runnable) {
-    if (System.getenv().get("_PYCHARM_VERBOSE_MODE") != null) {
+    if (VERBOSE_MODE) {
       runnable.run();
     }
   }
 
   /**
    * Returns the line comment that immediately precedes statement list of the given compound statement. Python parser ensures
-   * that it follows the statement header, i.e. it's directly after the colon, not on its own line. 
+   * that it follows the statement header, i.e. it's directly after the colon, not on its own line.
    */
   @Nullable
   public static PsiComment getCommentOnHeaderLine(@NotNull PyStatementListContainer container) {
+    return as(getHeaderEndAnchor(container), PsiComment.class);
+  }
+
+  @NotNull
+  public static PsiElement getHeaderEndAnchor(@NotNull PyStatementListContainer container) {
     final PyStatementList statementList = container.getStatementList();
-    return as(PyPsiUtils.getPrevNonWhitespaceSibling(statementList), PsiComment.class);
+    return ObjectUtils.notNull(PyPsiUtils.getPrevNonWhitespaceSibling(statementList));
+  }
+
+  public static boolean isPy2ReservedWord(@NotNull PyReferenceExpression node) {
+    if (LanguageLevel.forElement(node).isPython2()) {
+      if (!node.isQualified()) {
+        final String name = node.getName();
+        if (PyNames.NONE.equals(name) || PyNames.FALSE.equals(name) || PyNames.TRUE.equals(name)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Retrieves the document from {@link PsiDocumentManager} using the anchor PSI element and, if it's not null,
+   * passes it to the consumer function.
+   * <p>
+   * The document is first released from pending PSI operations and then committed after the function has been applied
+   * in a {@code try/finally} block, so that subsequent operations on PSI could be performed.
+   *
+   * @see PsiDocumentManager#doPostponedOperationsAndUnblockDocument(Document)
+   * @see PsiDocumentManager#commitDocument(Document)
+   * @see #updateDocumentUnblockedAndCommitted(PsiElement, Function)
+   */
+  public static void updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Consumer<? super Document> consumer) {
+    updateDocumentUnblockedAndCommitted(anchor, document -> {
+      consumer.consume(document);
+      return null;
+    });
+  }
+
+  @Nullable
+  public static <T> T updateDocumentUnblockedAndCommitted(@NotNull PsiElement anchor, @NotNull Function<? super Document, ? extends T> func) {
+    final PsiDocumentManager manager = PsiDocumentManager.getInstance(anchor.getProject());
+    final Document document = manager.getDocument(anchor.getContainingFile());
+    if (document != null) {
+      manager.doPostponedOperationsAndUnblockDocument(document);
+      try {
+        return func.fun(document);
+      }
+      finally {
+        manager.commitDocument(document);
+      }
+    }
+    return null;
+  }
+
+  @Nullable
+  public static PyType getReturnTypeToAnalyzeAsCallType(@NotNull PyFunction function, @NotNull TypeEvalContext context) {
+    if (isInit(function)) {
+      final PyClass cls = function.getContainingClass();
+      if (cls != null) {
+        for (PyTypeProvider provider : PyTypeProvider.EP_NAME.getExtensionList()) {
+          final PyType providedClassType = provider.getGenericType(cls, context);
+          if (providedClassType != null) {
+            return providedClassType;
+          }
+        }
+
+        final PyInstantiableType classType = as(context.getType(cls), PyInstantiableType.class);
+        if (classType != null) {
+          return classType.toInstance();
+        }
+      }
+    }
+
+    return context.getReturnType(function);
+  }
+
+  /**
+   * Create a new expressions fragment from the given text, setting the specified element as its context,
+   * and return the contained expression of the first expression statement in it.
+   *
+   * @param expressionText text of the expression
+   * @param context        context element used to resolve symbols in the expression
+   * @return instance of {@link PyExpression} as described
+   * @see PyExpressionCodeFragment
+   */
+  @Nullable
+  public static PyExpression createExpressionFromFragment(@NotNull String expressionText, @NotNull PsiElement context) {
+    final PyExpressionCodeFragmentImpl codeFragment =
+      new PyExpressionCodeFragmentImpl(context.getProject(), "dummy.py", expressionText, false);
+    codeFragment.setContext(context);
+    final PyExpressionStatement statement = as(codeFragment.getFirstChild(), PyExpressionStatement.class);
+    return statement != null ? statement.getExpression() : null;
   }
 
   public static class KnownDecoratorProviderHolder {
-    public static PyKnownDecoratorProvider[] KNOWN_DECORATOR_PROVIDERS = Extensions.getExtensions(PyKnownDecoratorProvider.EP_NAME);
+    public static final List<PyKnownDecoratorProvider> KNOWN_DECORATOR_PROVIDERS = PyKnownDecoratorProvider.EP_NAME.getExtensionList();
 
     private KnownDecoratorProviderHolder() {
     }
@@ -924,9 +994,13 @@ public class PyUtil {
   public static PsiElement turnDirIntoInit(@Nullable PsiElement target) {
     if (target instanceof PsiDirectory) {
       final PsiDirectory dir = (PsiDirectory)target;
-      final PsiFile file = dir.findFile(PyNames.INIT_DOT_PY);
-      if (file != null) {
-        return file; // ResolveImportUtil will extract directory part as needed, everyone else are better off with a file.
+      final PsiFile initStub = dir.findFile(PyNames.INIT_DOT_PYI);
+      if (initStub != null) {
+        return initStub;
+      }
+      final PsiFile initFile = dir.findFile(PyNames.INIT_DOT_PY);
+      if (initFile != null) {
+        return initFile; // ResolveImportUtil will extract directory part as needed, everyone else are better off with a file.
       }
       else {
         return null;
@@ -944,7 +1018,7 @@ public class PyUtil {
    * accepts only PsiDirectories as target.
    *
    * @param directory directory to check
-   * @param anchor optional PSI element to determine language level as for {@link #isPackage(PsiDirectory, PsiElement)}
+   * @param anchor    optional PSI element to determine language level as for {@link #isPackage(PsiDirectory, PsiElement)}
    * @return PsiFile or PsiDirectory, if target is a Python package and {@code null} null otherwise
    */
   @Nullable
@@ -961,10 +1035,11 @@ public class PyUtil {
 
   /**
    * If target is a Python module named __init__.py file, return its directory. Otherwise return target unchanged.
+   *
    * @param target PSI element to check
    * @return PsiDirectory or target unchanged
    */
-  @Contract("null -> null; !null -> !null")
+  @Contract("null -> null")
   @Nullable
   public static PsiElement turnInitIntoDir(@Nullable PsiElement target) {
     if (target instanceof PyFile && isPackage((PsiFile)target)) {
@@ -987,28 +1062,42 @@ public class PyUtil {
    * Also note that this method does not check that directory itself and its parents have valid importable names,
    * use {@link PyNames#isIdentifier(String)} for this purpose.
    *
-   * @param directory PSI directory to check
+   * @param directory               PSI directory to check
    * @param checkSetupToolsPackages whether setuptools namespace packages should be considered as well
-   * @param anchor    optional anchor element to determine language level
+   * @param anchor                  optional anchor element to determine language level
    * @return whether given directory is Python package
-   *
    * @see PyNames#isIdentifier(String)
    */
   public static boolean isPackage(@NotNull PsiDirectory directory, boolean checkSetupToolsPackages, @Nullable PsiElement anchor) {
+    for (PyCustomPackageIdentifier customPackageIdentifier : PyCustomPackageIdentifier.EP_NAME.getExtensions()) {
+      if (customPackageIdentifier.isPackage(directory)) {
+        return true;
+      }
+    }
     if (directory.findFile(PyNames.INIT_DOT_PY) != null) {
       return true;
     }
     final LanguageLevel level = anchor != null ?
                                 LanguageLevel.forElement(anchor) :
                                 getLanguageLevelForVirtualFile(directory.getProject(), directory.getVirtualFile());
-    if (level.isAtLeast(LanguageLevel.PYTHON33)) {
+    if (!level.isPython2()) {
       return true;
     }
     return checkSetupToolsPackages && isSetuptoolsNamespacePackage(directory);
   }
 
   public static boolean isPackage(@NotNull PsiFile file) {
+    for (PyCustomPackageIdentifier customPackageIdentifier : PyCustomPackageIdentifier.EP_NAME.getExtensions()) {
+      if (customPackageIdentifier.isPackageFile(file)) {
+        return true;
+      }
+    }
     return PyNames.INIT_DOT_PY.equals(file.getName());
+  }
+
+  public static boolean isPackage(@NotNull PsiFileSystemItem anchor, @Nullable PsiElement location) {
+    return anchor instanceof PsiFile ? isPackage((PsiFile)anchor) :
+           anchor instanceof PsiDirectory && isPackage((PsiDirectory)anchor, location);
   }
 
   private static boolean isSetuptoolsNamespacePackage(@NotNull PsiDirectory directory) {
@@ -1026,18 +1115,10 @@ public class PyUtil {
    * Counts initial underscores of an identifier.
    *
    * @param name identifier
-   * @return 0 if no initial underscores found, 1 if there's only one underscore, 2 if there's two or more initial underscores.
+   * @return 0 if null or no initial underscores found, 1 if there's only one underscore, 2 if there's two or more initial underscores.
    */
-  public static int getInitialUnderscores(String name) {
-    if (name == null) {
-      return 0;
-    }
-    int underscores = 0;
-    if (name.startsWith("__")) {
-      underscores = 2;
-    }
-    else if (name.startsWith("_")) underscores = 1;
-    return underscores;
+  public static int getInitialUnderscores(@Nullable String name) {
+    return name == null ? 0 : name.startsWith("__") ? 2 : name.startsWith(PyNames.UNDERSCORE) ? 1 : 0;
   }
 
   /**
@@ -1055,14 +1136,14 @@ public class PyUtil {
   /**
    * Constructs new lookup element for completion of keyword argument with equals sign appended.
    *
-   * @param name    name of the parameter
-   * @param project project instance to check code style settings and surround equals sign with spaces if necessary
+   * @param name name of the parameter
+   * @param settingsAnchor file to check code style settings and surround equals sign with spaces if necessary
    * @return lookup element
    */
   @NotNull
-  public static LookupElement createNamedParameterLookup(@NotNull String name, @Nullable Project project) {
+  public static LookupElement createNamedParameterLookup(@NotNull String name, @NotNull PsiFile settingsAnchor) {
     final String suffix;
-    if (CodeStyleSettingsManager.getSettings(project).getCustomSettings(PyCodeStyleSettings.class).SPACE_AROUND_EQ_IN_KEYWORD_ARGUMENT) {
+    if (CodeStyle.getCustomSettings(settingsAnchor, PyCodeStyleSettings.class).SPACE_AROUND_EQ_IN_KEYWORD_ARGUMENT) {
       suffix = " = ";
     }
     else {
@@ -1135,11 +1216,6 @@ public class PyUtil {
       }
     }
     return null;
-  }
-
-  @Nullable
-  public static List<String> getStringListFromTargetExpression(PyTargetExpression attr) {
-    return strListValue(attr.findAssignedValue());
   }
 
   @Nullable
@@ -1342,45 +1418,6 @@ public class PyUtil {
     return (PyFile)psi;
   }
 
-  /**
-   * counts elements in iterable
-   *
-   * @param expression to count containing elements (iterable)
-   * @return element count
-   */
-  public static int getElementsCount(PyExpression expression, TypeEvalContext evalContext) {
-    int valuesLength = -1;
-    PyType type = evalContext.getType(expression);
-    if (type instanceof PyTupleType) {
-      valuesLength = ((PyTupleType)type).getElementCount();
-    }
-    else if (type instanceof PyNamedTupleType) {
-      valuesLength = ((PyNamedTupleType)type).getElementCount();
-    }
-    else if (expression instanceof PySequenceExpression) {
-      valuesLength = ((PySequenceExpression)expression).getElements().length;
-    }
-    else if (expression instanceof PyStringLiteralExpression) {
-      valuesLength = ((PyStringLiteralExpression)expression).getStringValue().length();
-    }
-    else if (expression instanceof PyNumericLiteralExpression) {
-      valuesLength = 1;
-    }
-    else if (expression instanceof PyCallExpression) {
-      PyCallExpression call = (PyCallExpression)expression;
-      if (call.isCalleeText("dict")) {
-        valuesLength = call.getArguments().length;
-      }
-      else if (call.isCalleeText("tuple")) {
-        PyExpression[] arguments = call.getArguments();
-        if (arguments.length > 0 && arguments[0] instanceof PySequenceExpression) {
-          valuesLength = ((PySequenceExpression)arguments[0]).getElements().length;
-        }
-      }
-    }
-    return valuesLength;
-  }
-
   @Nullable
   public static PsiElement findPrevAtOffset(PsiFile psiFile, int caretOffset, Class... toSkip) {
     PsiElement element;
@@ -1397,8 +1434,8 @@ public class PyUtil {
       caretOffset--;
       element = psiFile.findElementAt(caretOffset);
     }
-    while (caretOffset >= lineStartOffset && instanceOf(element, toSkip));
-    return instanceOf(element, toSkip) ? null : element;
+    while (caretOffset >= lineStartOffset && PsiTreeUtil.instanceOf(element, toSkip));
+    return PsiTreeUtil.instanceOf(element, toSkip) ? null : element;
   }
 
   @Nullable
@@ -1432,11 +1469,11 @@ public class PyUtil {
       int lineNumber = document.getLineNumber(caretOffset);
       lineEndOffset = document.getLineEndOffset(lineNumber);
     }
-    while (caretOffset < lineEndOffset && instanceOf(element, toSkip)) {
+    while (caretOffset < lineEndOffset && PsiTreeUtil.instanceOf(element, toSkip)) {
       caretOffset++;
       element = psiFile.findElementAt(caretOffset);
     }
-    return instanceOf(element, toSkip) ? null : element;
+    return PsiTreeUtil.instanceOf(element, toSkip) ? null : element;
   }
 
   /**
@@ -1548,75 +1585,10 @@ public class PyUtil {
     return element;
   }
 
-  @NotNull
-  public static List<List<PyParameter>> getOverloadedParametersSet(@NotNull PyCallable callable, @NotNull TypeEvalContext context) {
-    final List<List<PyParameter>> parametersSet = getOverloadedParametersSet(context.getType(callable), context);
-    return parametersSet != null ? parametersSet : Collections.singletonList(Arrays.asList(callable.getParameterList().getParameters()));
-  }
-
-  @Nullable
-  private static List<PyParameter> getParametersOfCallableType(@NotNull PyCallableType type, @NotNull TypeEvalContext context) {
-    final List<PyCallableParameter> callableTypeParameters = type.getParameters(context);
-    if (callableTypeParameters != null) {
-      boolean allParametersDefined = true;
-      final List<PyParameter> parameters = new ArrayList<>();
-      for (PyCallableParameter callableParameter : callableTypeParameters) {
-        final PyParameter parameter = callableParameter.getParameter();
-        if (parameter == null) {
-          allParametersDefined = false;
-          break;
-        }
-        parameters.add(parameter);
-      }
-      if (allParametersDefined) {
-        return parameters;
-      }
-    }
-    return null;
-  }
-
-  @Nullable
-  private static List<List<PyParameter>> getOverloadedParametersSet(@Nullable PyType type, @NotNull TypeEvalContext context) {
-    if (type instanceof PyUnionType) {
-      type = ((PyUnionType)type).excludeNull(context);
-    }
-
-    if (type instanceof PyCallableType) {
-      final List<PyParameter> results = getParametersOfCallableType((PyCallableType)type, context);
-      if (results != null) {
-        return Collections.singletonList(results);
-      }
-    }
-    else if (type instanceof PyUnionType) {
-      final List<List<PyParameter>> results = new ArrayList<>();
-      final Collection<PyType> members = ((PyUnionType)type).getMembers();
-      for (PyType member : members) {
-        if (member instanceof PyCallableType) {
-          final List<PyParameter> parameters = getParametersOfCallableType((PyCallableType)member, context);
-          if (parameters != null) {
-            results.add(parameters);
-          }
-        }
-      }
-      if (!results.isEmpty()) {
-        return results;
-      }
-    }
-
-    return null;
-  }
-
-  @NotNull
-  public static List<PyParameter> getParameters(@NotNull PyCallable callable, @NotNull TypeEvalContext context) {
-    final List<List<PyParameter>> parametersSet = getOverloadedParametersSet(callable, context);
-    assert !parametersSet.isEmpty();
-    return parametersSet.get(0);
-  }
-
   public static boolean isSignatureCompatibleTo(@NotNull PyCallable callable, @NotNull PyCallable otherCallable,
                                                 @NotNull TypeEvalContext context) {
-    final List<PyParameter> parameters = getParameters(callable, context);
-    final List<PyParameter> otherParameters = getParameters(otherCallable, context);
+    final List<PyCallableParameter> parameters = callable.getParameters(context);
+    final List<PyCallableParameter> otherParameters = otherCallable.getParameters(context);
     final int optionalCount = optionalParametersCount(parameters);
     final int otherOptionalCount = optionalParametersCount(otherParameters);
     final int requiredCount = requiredParametersCount(callable, parameters);
@@ -1632,9 +1604,9 @@ public class PyUtil {
     return requiredCount <= otherRequiredCount && parameters.size() >= otherParameters.size() && optionalCount >= otherOptionalCount;
   }
 
-  private static int optionalParametersCount(@NotNull List<PyParameter> parameters) {
+  private static int optionalParametersCount(@NotNull List<PyCallableParameter> parameters) {
     int n = 0;
-    for (PyParameter parameter : parameters) {
+    for (PyCallableParameter parameter : parameters) {
       if (parameter.hasDefaultValue()) {
         n++;
       }
@@ -1642,11 +1614,11 @@ public class PyUtil {
     return n;
   }
 
-  private static int requiredParametersCount(@NotNull PyCallable callable, @NotNull List<PyParameter> parameters) {
+  private static int requiredParametersCount(@NotNull PyCallable callable, @NotNull List<PyCallableParameter> parameters) {
     return parameters.size() - optionalParametersCount(parameters) - specialParametersCount(callable, parameters);
   }
 
-  private static int specialParametersCount(@NotNull PyCallable callable, @NotNull List<PyParameter> parameters) {
+  private static int specialParametersCount(@NotNull PyCallable callable, @NotNull List<PyCallableParameter> parameters) {
     int n = 0;
     if (hasPositionalContainer(parameters)) {
       n++;
@@ -1654,36 +1626,39 @@ public class PyUtil {
     if (hasKeywordContainer(parameters)) {
       n++;
     }
-    if (callable.asMethod() != null) {
+    if (isFirstParameterSpecial(callable, parameters)) {
       n++;
-    }
-    else {
-      if (parameters.size() > 0) {
-        final PyParameter first = parameters.get(0);
-        if (PyNames.CANONICAL_SELF.equals(first.getName())) {
-          n++;
-        }
-      }
     }
     return n;
   }
 
-  private static boolean hasPositionalContainer(@NotNull List<PyParameter> parameters) {
-    for (PyParameter parameter : parameters) {
-      if (parameter instanceof PyNamedParameter && ((PyNamedParameter)parameter).isPositionalContainer()) {
+  private static boolean hasPositionalContainer(@NotNull List<PyCallableParameter> parameters) {
+    for (PyCallableParameter parameter : parameters) {
+      if (parameter.isPositionalContainer()) {
         return true;
       }
     }
     return false;
   }
 
-  private static boolean hasKeywordContainer(@NotNull List<PyParameter> parameters) {
-    for (PyParameter parameter : parameters) {
-      if (parameter instanceof PyNamedParameter && ((PyNamedParameter)parameter).isKeywordContainer()) {
+  private static boolean hasKeywordContainer(@NotNull List<PyCallableParameter> parameters) {
+    for (PyCallableParameter parameter : parameters) {
+      if (parameter.isKeywordContainer()) {
         return true;
       }
     }
     return false;
+  }
+
+  private static boolean isFirstParameterSpecial(@NotNull PyCallable callable, @NotNull List<PyCallableParameter> parameters) {
+    final PyFunction method = callable.asMethod();
+    if (method != null) {
+      return PyNames.NEW.equals(method.getName()) || method.getModifier() != STATICMETHOD;
+    }
+    else {
+      final PyCallableParameter first = ContainerUtil.getFirstItem(parameters);
+      return first != null && PyNames.CANONICAL_SELF.equals(first.getName());
+    }
   }
 
   public static boolean isInit(@NotNull final PyFunction function) {
@@ -1733,14 +1708,17 @@ public class PyUtil {
 
   /**
    * Sometimes you do not know real FQN of some class, but you know class name and its package.
-   * I.e. <code>django.apps.conf.AppConfig</code> is not documented, but you know
-   * <code>AppConfig</code> and <code>django</code> package.
+   * I.e. {@code django.apps.conf.AppConfig} is not documented, but you know
+   * {@code AppConfig} and {@code django} package.
    *
-   * @param symbol element to check (class or function)
+   * @param symbol          element to check (class or function)
    * @param expectedPackage package like "django"
-   * @param expectedName expected name (i.e. AppConfig)
+   * @param expectedName    expected name (i.e. AppConfig)
    * @return true if element in package
+   * @deprecated use {@link com.jetbrains.python.nameResolver.FQNamesProvider#isNameMatches(PyQualifiedNameOwner)}
+   * Remove in 2018
    */
+  @Deprecated
   public static boolean isSymbolInPackage(@NotNull final PyQualifiedNameOwner symbol,
                                           @NotNull final String expectedPackage,
                                           @NotNull final String expectedName) {
@@ -1757,17 +1735,9 @@ public class PyUtil {
     return expectedName.equals(symbolName);
   }
 
-  /**
-   * Checks that given class is the root of class hierarchy, i.e. it's either {@code object} or
-   * special {@link PyNames#FAKE_OLD_BASE} class for old-style classes.
-   *
-   * @param cls    Python class to check
-   * @see PyBuiltinCache
-   * @see PyNames#FAKE_OLD_BASE
-   */
   public static boolean isObjectClass(@NotNull PyClass cls) {
-    final PyBuiltinCache builtinCache = PyBuiltinCache.getInstance(cls);
-    return cls == builtinCache.getClass(PyNames.OBJECT) || cls == builtinCache.getClass(PyNames.FAKE_OLD_BASE);
+    final String name = cls.getQualifiedName();
+    return PyNames.OBJECT.equals(name) || PyNames.TYPES_INSTANCE_TYPE.equals(name);
   }
 
   public static boolean isInScratchFile(@NotNull PsiElement element) {
@@ -1841,29 +1811,35 @@ public class PyUtil {
       return true;
     }
     else if (statements.length == 1) {
-      if (isStringLiteral(statements[0]) || isPassOrRaiseOrEmptyReturn(statements[0])) {
+      if (isStringLiteral(statements[0]) || isPassOrRaiseOrEmptyReturnOrEllipsis(statements[0])) {
         return true;
       }
     }
     else if (statements.length == 2) {
-      if (isStringLiteral(statements[0]) && (isPassOrRaiseOrEmptyReturn(statements[1]))) {
+      if (isStringLiteral(statements[0]) && (isPassOrRaiseOrEmptyReturnOrEllipsis(statements[1]))) {
         return true;
       }
     }
     return false;
   }
 
-  private static boolean isPassOrRaiseOrEmptyReturn(PyStatement stmt) {
+  private static boolean isPassOrRaiseOrEmptyReturnOrEllipsis(PyStatement stmt) {
     if (stmt instanceof PyPassStatement || stmt instanceof PyRaiseStatement) {
       return true;
     }
     if (stmt instanceof PyReturnStatement && ((PyReturnStatement)stmt).getExpression() == null) {
       return true;
     }
+    if (stmt instanceof PyExpressionStatement) {
+      final PyExpression expression = ((PyExpressionStatement)stmt).getExpression();
+      if (expression instanceof PyNoneLiteralExpression && ((PyNoneLiteralExpression)expression).isEllipsis()) {
+        return true;
+      }
+    }
     return false;
   }
 
-  private static boolean isStringLiteral(PyStatement stmt) {
+  public static boolean isStringLiteral(@Nullable PyStatement stmt) {
     if (stmt instanceof PyExpressionStatement) {
       final PyExpression expr = ((PyExpressionStatement)stmt).getExpression();
       if (expr instanceof PyStringLiteralExpression) {
@@ -1871,6 +1847,65 @@ public class PyUtil {
       }
     }
     return false;
+  }
+
+  @Nullable
+  public static PyLoopStatement getCorrespondingLoop(@NotNull PsiElement breakOrContinue) {
+    return breakOrContinue instanceof PyContinueStatement || breakOrContinue instanceof PyBreakStatement
+           ? getCorrespondingLoopImpl(breakOrContinue)
+           : null;
+  }
+
+  @Nullable
+  private static PyLoopStatement getCorrespondingLoopImpl(@NotNull PsiElement element) {
+    final PyLoopStatement loop = PsiTreeUtil.getParentOfType(element, PyLoopStatement.class, true, ScopeOwner.class);
+
+    if (loop instanceof PyStatementWithElse && PsiTreeUtil.isAncestor(((PyStatementWithElse)loop).getElsePart(), element, true)) {
+      return getCorrespondingLoopImpl(loop);
+    }
+
+    return loop;
+  }
+
+  public static boolean isForbiddenMutableDefault(@Nullable PyTypedElement value, @NotNull TypeEvalContext context) {
+    if (value == null) return false;
+
+    final PyClassType type = as(context.getType(value), PyClassType.class);
+    if (type != null && !type.isDefinition()) {
+      final PyBuiltinCache builtinCache = PyBuiltinCache.getInstance(value);
+      final Set<PyClass> forbiddenClasses = StreamEx
+        .of(builtinCache.getListType(), builtinCache.getSetType(), builtinCache.getDictType())
+        .nonNull()
+        .map(PyClassType::getPyClass)
+        .toSet();
+
+      final PyClass cls = type.getPyClass();
+      return forbiddenClasses.contains(cls) || ContainerUtil.exists(cls.getAncestorClasses(context), forbiddenClasses::contains);
+    }
+
+    return false;
+  }
+
+  public static void addDecorator(@NotNull PyFunction function, @NotNull String decorator) {
+    final PyDecoratorList currentDecorators = function.getDecoratorList();
+
+    final List<String> decoTexts = new ArrayList<>();
+    decoTexts.add(decorator);
+    if (currentDecorators != null) {
+      for (PyDecorator deco : currentDecorators.getDecorators()) {
+        decoTexts.add(deco.getText());
+      }
+    }
+
+    final PyElementGenerator generator = PyElementGenerator.getInstance(function.getProject());
+    final PyDecoratorList newDecorators = generator.createDecoratorList(ArrayUtil.toStringArray(decoTexts));
+
+    if (currentDecorators != null) {
+      currentDecorators.replace(newDecorators);
+    }
+    else {
+      function.addBefore(newDecorators, function.getFirstChild());
+    }
   }
 
   /**
@@ -1883,14 +1918,16 @@ public class PyUtil {
     private final TextRange myContentRange;
 
     public StringNodeInfo(@NotNull ASTNode node) {
-      if (!PyTokenTypes.STRING_NODES.contains(node.getElementType())) {
-        throw new IllegalArgumentException("Node must be valid Python string literal token, but " + node.getElementType() + " was given");
+      final IElementType nodeType = node.getElementType();
+      // TODO Migrate to newer PyStringElement API
+      if (!PyTokenTypes.STRING_NODES.contains(nodeType) && nodeType != PyElementTypes.FSTRING_NODE) {
+        throw new IllegalArgumentException("Node must be valid Python string literal token, but " + nodeType + " was given");
       }
       myNode = node;
       final String nodeText = node.getText();
-      final int prefixLength = PyStringLiteralExpressionImpl.getPrefixLength(nodeText);
+      final int prefixLength = PyStringLiteralUtil.getPrefixLength(nodeText);
       myPrefix = nodeText.substring(0, prefixLength);
-      myContentRange = PyStringLiteralExpressionImpl.getNodeTextRange(nodeText);
+      myContentRange = PyStringLiteralUtil.getContentRange(nodeText);
       myQuote = nodeText.substring(prefixLength, myContentRange.getStartOffset());
     }
 
@@ -1964,21 +2001,28 @@ public class PyUtil {
      * @return true if given string node contains "u" or "U" prefix
      */
     public boolean isUnicode() {
-      return StringUtil.containsIgnoreCase(myPrefix, "u");
+      return PyStringLiteralUtil.isUnicodePrefix(myPrefix);
     }
 
     /**
      * @return true if given string node contains "r" or "R" prefix
      */
     public boolean isRaw() {
-      return StringUtil.containsIgnoreCase(myPrefix, "r");
+      return PyStringLiteralUtil.isRawPrefix(myPrefix);
     }
 
     /**
      * @return true if given string node contains "b" or "B" prefix
      */
     public boolean isBytes() {
-      return StringUtil.containsIgnoreCase(myPrefix, "b");
+      return PyStringLiteralUtil.isBytesPrefix(myPrefix);
+    }
+
+    /**
+     * @return true if given string node contains "f" or "F" prefix
+     */
+    public boolean isFormatted() {
+      return PyStringLiteralUtil.isFormattedPrefix(myPrefix);
     }
 
     /**
@@ -2000,8 +2044,9 @@ public class PyUtil {
 
   public static class IterHelper {  // TODO: rename sanely
     private IterHelper() {}
+
     @Nullable
-    public static PsiNamedElement findName(Iterable<PsiNamedElement> it, String name) {
+    public static PsiNamedElement findName(Iterable<? extends PsiNamedElement> it, String name) {
       PsiNamedElement ret = null;
       for (PsiNamedElement elt : it) {
         if (elt != null) {

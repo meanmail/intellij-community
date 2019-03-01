@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 Bas Leijdekkers
+ * Copyright 2011-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.siyeh.ig.errorhandling;
 
-import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
 import com.siyeh.InspectionGadgetsBundle;
@@ -24,13 +23,11 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-
 public class NewExceptionWithoutArgumentsInspection extends BaseInspection {
 
   @Deprecated
-  @SuppressWarnings({"PublicField", "UnusedDeclaration"})
-  public boolean ignoreWithoutParameters = false;
+  @SuppressWarnings("PublicField")
+  public boolean ignoreWithoutParameters;
 
   @Nls
   @NotNull
@@ -50,17 +47,13 @@ public class NewExceptionWithoutArgumentsInspection extends BaseInspection {
     return new NewExceptionWithoutArgumentsVisitor();
   }
 
-  private class NewExceptionWithoutArgumentsVisitor extends BaseInspectionVisitor {
+  private static class NewExceptionWithoutArgumentsVisitor extends BaseInspectionVisitor {
 
     @Override
     public void visitNewExpression(PsiNewExpression expression) {
       super.visitNewExpression(expression);
       final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList == null) {
-        return;
-      }
-      final PsiExpression[] expressions = argumentList.getExpressions();
-      if (expressions.length != 0) {
+      if (argumentList == null || !argumentList.isEmpty()) {
         return;
       }
       final PsiJavaCodeReferenceElement classReference = expression.getClassReference();
@@ -80,7 +73,7 @@ public class NewExceptionWithoutArgumentsInspection extends BaseInspection {
       }
     }
 
-    private boolean hasAccessibleConstructorWithParameters(PsiClass aClass, PsiElement context) {
+    private static boolean hasAccessibleConstructorWithParameters(PsiClass aClass, PsiElement context) {
       final PsiMethod[] constructors = aClass.getConstructors();
       for (PsiMethod constructor : constructors) {
         final PsiParameterList parameterList = constructor.getParameterList();

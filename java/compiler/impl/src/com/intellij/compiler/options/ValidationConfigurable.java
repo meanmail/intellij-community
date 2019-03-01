@@ -36,6 +36,7 @@ import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.util.NullableFunction;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import gnu.trove.TObjectHashingStrategy;
@@ -69,6 +70,7 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
     final ExcludesConfiguration configuration = ValidationConfiguration.getExcludedEntriesConfiguration(project);
     final ProjectFileIndex index = ProjectRootManager.getInstance(project).getFileIndex();
     final FileChooserDescriptor descriptor = new FileChooserDescriptor(true, true, false, false, false, true) {
+      @Override
       public boolean isFileVisible(VirtualFile file, boolean showHiddenFiles) {
         return super.isFileVisible(file, showHiddenFiles) && (project.isDefault() || !index.isExcluded(file));
       }
@@ -83,19 +85,23 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
     return new ExcludedEntriesConfigurable(project, descriptor, configuration);
   }
 
+  @Override
   @NotNull
   public String getId() {
     return "project.validation";
   }
 
+  @Override
   public String getDisplayName() {
     return CompilerBundle.message("validation.display.name");
   }
 
+  @Override
   public String getHelpTopic() {
     return "reference.projectsettings.compiler.validation";
   }
 
+  @Override
   public JComponent createComponent() {
     final GridConstraints constraints = new GridConstraints();
     constraints.setFill(GridConstraints.FILL_BOTH);
@@ -103,6 +109,7 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
     return myPanel;
   }
 
+  @Override
   public boolean isModified() {
     List<Compiler> selectedElements = myValidators.getMarkedElements();
     List<Compiler> markedValidators = getMarkedValidators();
@@ -110,21 +117,24 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
       return true;
     }
     Set<Compiler> set = new THashSet<>(selectedElements, new TObjectHashingStrategy<Compiler>() {
+      @Override
       public int computeHashCode(Compiler object) {
         return object.getDescription().hashCode();
       }
 
+      @Override
       public boolean equals(Compiler o1, Compiler o2) {
         return o1.getDescription().equals(o2.getDescription());
       }
     });
-    return myConfiguration.VALIDATE_ON_BUILD != myValidateBox.isSelected() ||
+    return myConfiguration.isValidateOnBuild() != myValidateBox.isSelected() ||
         set.retainAll(markedValidators) ||
         myExcludedConfigurable.isModified();
   }
 
+  @Override
   public void apply() throws ConfigurationException {
-    myConfiguration.VALIDATE_ON_BUILD = myValidateBox.isSelected();
+    myConfiguration.setValidateOnBuild(myValidateBox.isSelected());
     for (int i = 0; i < myValidators.getElementCount(); i++) {
       final Compiler validator = myValidators.getElementAt(i);
       myConfiguration.setSelected(validator,  myValidators.isElementMarked(validator));
@@ -132,8 +142,9 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
     myExcludedConfigurable.apply();
   }
 
+  @Override
   public void reset() {
-    myValidateBox.setSelected(myConfiguration.VALIDATE_ON_BUILD);
+    myValidateBox.setSelected(myConfiguration.isValidateOnBuild());
     final List<Compiler> validators = getValidators();
     Collections.sort(validators, Comparator.comparing(Compiler::getDescription));
     myValidators.setElements(validators, false);
@@ -148,8 +159,7 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
 
   private List<Compiler> getValidators() {
     final CompilerManager compilerManager = CompilerManager.getInstance(myProject);
-    final List<Compiler> validators = new ArrayList<>();
-    validators.addAll(Arrays.asList(compilerManager.getCompilers(Validator.class)));
+    final List<Compiler> validators = new SmartList<>(compilerManager.getCompilers(Validator.class));
     for (GenericCompiler compiler : compilerManager.getCompilers(GenericCompiler.class)) {
       if (compiler.getOrderPlace() == GenericCompiler.CompileOrderPlace.VALIDATING) {
         validators.add(compiler);
@@ -158,6 +168,7 @@ public class ValidationConfigurable implements SearchableConfigurable, Configura
     return validators;
   }
 
+  @Override
   public void disposeUIResources() {
     myExcludedConfigurable.disposeUIResources();
   }

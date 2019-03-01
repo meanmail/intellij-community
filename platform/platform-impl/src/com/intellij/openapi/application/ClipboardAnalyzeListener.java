@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,18 +18,17 @@ package com.intellij.openapi.application;
 import com.intellij.Patches;
 import com.intellij.openapi.application.ex.ClipboardUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.util.Alarm;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public abstract class ClipboardAnalyzeListener extends ApplicationActivationListener.Adapter {
+public abstract class ClipboardAnalyzeListener implements ApplicationActivationListener {
   private static final int MAX_SIZE = 100 * 1024;
   @Nullable private String myCachedClipboardValue;
 
   @Override
-  public void applicationActivated(final IdeFrame ideFrame) {
+  public void applicationActivated(@NotNull final IdeFrame ideFrame) {
     final Runnable processClipboard = () -> {
       final String clipboard = ClipboardUtil.getTextInClipboard();
       if (clipboard != null && clipboard.length() < MAX_SIZE && !clipboard.equals(myCachedClipboardValue)) {
@@ -53,8 +52,7 @@ public abstract class ClipboardAnalyzeListener extends ApplicationActivationList
   protected abstract void handle(@NotNull Project project, @NotNull String value);
 
   @Override
-  public void applicationDeactivated(IdeFrame ideFrame) {
-    if (SystemInfo.isMac) return;
+  public void applicationDeactivated(@NotNull IdeFrame ideFrame) {
     myCachedClipboardValue = ClipboardUtil.getTextInClipboard();
   }
 

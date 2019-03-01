@@ -1,22 +1,5 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/**
- * @author Alexey
- */
 package com.intellij.lang.properties.editor;
 
 import com.intellij.icons.AllIcons;
@@ -27,7 +10,6 @@ import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.containers.MultiMap;
 import gnu.trove.TObjectIntHashMap;
 import gnu.trove.TObjectIntProcedure;
@@ -36,17 +18,23 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 public class ResourceBundleFileStructureViewElement implements StructureViewTreeElement, ResourceBundleEditorViewElement {
+  @NotNull
   private final ResourceBundle myResourceBundle;
+  @NotNull
+  private final BooleanSupplier myGrouped;
 
   private volatile boolean myShowOnlyIncomplete;
-  private final Map<String, ResourceBundlePropertyStructureViewElement> myElements = ContainerUtil.newLinkedHashMap();
+  private final Map<String, PropertyStructureViewElement> myElements = ContainerUtil.newLinkedHashMap();
 
-  public ResourceBundleFileStructureViewElement(final ResourceBundle resourceBundle) {
+  public ResourceBundleFileStructureViewElement(@NotNull ResourceBundle resourceBundle, @NotNull BooleanSupplier grouped) {
     myResourceBundle = resourceBundle;
+    myGrouped = grouped;
   }
 
   public void setShowOnlyIncomplete(boolean showOnlyIncomplete) {
@@ -59,9 +47,10 @@ public class ResourceBundleFileStructureViewElement implements StructureViewTree
 
   @Override
   public ResourceBundle getValue() {
-    return myResourceBundle;
+    return myResourceBundle.isValid() ? myResourceBundle : null;
   }
 
+  @Override
   @NotNull
   public synchronized StructureViewTreeElement[] getChildren() {
     final MultiMap<String, IProperty> propertyNames = getPropertiesMap(myResourceBundle, myShowOnlyIncomplete);
@@ -69,34 +58,37 @@ public class ResourceBundleFileStructureViewElement implements StructureViewTree
     final HashSet<String> remains = new HashSet<>(myElements.keySet());
     for (Map.Entry<String, Collection<IProperty>> entry : propertyNames.entrySet()) {
       final String propKey = entry.getKey();
-      final IProperty representative = entry.getValue().iterator().next();
-      final ResourceBundlePropertyStructureViewElement oldPropertyNode = myElements.get(propKey);
-      if (oldPropertyNode != null && oldPropertyNode.getProperty() == representative) {
+      Collection<IProperty> properties = entry.getValue();
+      final PropertyStructureViewElement oldPropertyNode = myElements.get(propKey);
+      if (oldPropertyNode != null && properties.contains(oldPropertyNode.getProperty())) {
         remains.remove(propKey);
         continue;
       }
-      final ResourceBundlePropertyStructureViewElement node = new ResourceBundlePropertyStructureViewElement(representative);
-      myElements.put(propKey, node);
+      if (myElements.containsKey(propKey)) {
+        remains.remove(propKey);
+      }
+      final IProperty representative = properties.iterator().next();
+      myElements.put(propKey, new PropertyStructureViewElement(representative, myGrouped));
     }
 
     for (String remain : remains) {
       myElements.remove(remain);
     }
 
-    StructureViewTreeElement[] result = new StructureViewTreeElement[propertyNames.size()];
-    int i = 0;
-    for (String key : propertyNames.keySet()) {
-      result[i++] = myElements.get(key);
-    }
-    return result;
+    return myElements.values().toArray(StructureViewTreeElement.EMPTY_ARRAY);
   }
 
   public static MultiMap<String, IProperty> getPropertiesMap(ResourceBundle resourceBundle, boolean onlyIncomplete) {
+    if (!resourceBundle.isValid()) {
+      //noinspection unchecked
+      return MultiMap.EMPTY;
+    }
     List<PropertiesFile> propertiesFiles = resourceBundle.getPropertiesFiles();
     final MultiMap<String, IProperty> propertyNames;
     if (onlyIncomplete) {
       propertyNames = getChildrenIdShowOnlyIncomplete(resourceBundle);
-    } else {
+    }
+    else {
       propertyNames = MultiMap.createLinked();
       for (PropertiesFile propertiesFile : propertiesFiles) {
         List<IProperty> properties = propertiesFile.getProperties();
@@ -141,17 +133,21 @@ public class ResourceBundleFileStructureViewElement implements StructureViewTree
     return propertyNames;
   }
 
+  @Override
   @NotNull
   public ItemPresentation getPresentation() {
     return new ItemPresentation() {
+      @Override
       public String getPresentableText() {
-        return myResourceBundle.getBaseName();
+        return myResourceBundle.isValid() ? myResourceBundle.getBaseName() : null;
       }
 
+      @Override
       public String getLocationString() {
         return null;
       }
 
+      @Override
       public Icon getIcon(boolean open) {
         return AllIcons.FileTypes.Properties;
       }
@@ -161,24 +157,29 @@ public class ResourceBundleFileStructureViewElement implements StructureViewTree
   @Nullable
   @Override
   public IProperty[] getProperties() {
-    return new IProperty[0];
+    return IProperty.EMPTY_ARRAY;
   }
 
   @Nullable
   @Override
   public PsiFile[] getFiles() {
-    final List<PropertiesFile> files = getValue().getPropertiesFiles();
+    ResourceBundle rb = getValue();
+    if (rb == null) return null;
+    final List<PropertiesFile> files = rb.getPropertiesFiles();
     return ContainerUtil.map2Array(files, new PsiFile[files.size()], propertiesFile -> propertiesFile.getContainingFile());
   }
 
+  @Override
   public void navigate(boolean requestFocus) {
 
   }
 
+  @Override
   public boolean canNavigate() {
     return false;
   }
 
+  @Override
   public boolean canNavigateToSource() {
     return false;
   }

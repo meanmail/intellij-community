@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.ui;
 
+import com.intellij.ide.RemoteDesktopService;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.ui.components.JBLayeredPane;
@@ -58,14 +59,16 @@ public class LoadingDecorator {
     setLoadingText("Loading...");
 
 
-    myFadeOutAnimator = new Animator("Loading", 10, 500, false) {
+    myFadeOutAnimator = new Animator("Loading", 10, RemoteDesktopService.isRemoteSession()? 2500 : 500, false) {
+      @Override
       public void paintNow(final int frame, final int totalFrames, final int cycle) {
         myLoadingLayer.setAlpha(1f - ((float)frame) / ((float)totalFrames));
       }
 
       @Override
       protected void paintCycleEnd() {
-        myLoadingLayer.setVisible(false);
+        myLoadingLayer.setAlpha(0); // paint with zero alpha before hiding completely
+        hideLoadingLayer();
         myLoadingLayer.setAlpha(-1);
       }
     };
@@ -73,9 +76,29 @@ public class LoadingDecorator {
 
 
     myPane.add(content, JLayeredPane.DEFAULT_LAYER, 0);
-    myPane.add(myLoadingLayer, JLayeredPane.DRAG_LAYER, 1);
 
     Disposer.register(parent, myLoadingLayer.myProgress);
+  }
+
+  /**
+   * Removes a loading layer to restore a blit-accelerated scrolling.
+   */
+  private void hideLoadingLayer() {
+    myPane.remove(myLoadingLayer);
+    myLoadingLayer.setVisible(false);
+  }
+
+  /* Placing the invisible layer on top of JViewport suppresses blit-accelerated scrolling
+     as JViewport.canUseWindowBlitter() doesn't take component's visibility into account.
+
+     We need to add / remove the loading layer on demand to preserve the blit-based scrolling.
+
+     Blit-acceleration copies as much of the rendered area as possible and then repaints only newly exposed region.
+     This helps to improve scrolling performance and to reduce CPU usage (especially if drawing is compute-intensive). */
+  private void addLoadingLayerOnDemand() {
+    if (myPane != myLoadingLayer.getParent()) {
+      myPane.add(myLoadingLayer, JLayeredPane.DRAG_LAYER, 1);
+    }
   }
 
   protected NonOpaquePanel customizeLoadingLayer(JPanel parent, JLabel text, AsyncProcessIcon icon) {
@@ -114,6 +137,7 @@ public class LoadingDecorator {
   }
 
   protected void _startLoading(final boolean takeSnapshot) {
+    addLoadingLayerOnDemand();
     myLoadingLayer.setVisible(true, takeSnapshot);
   }
 
@@ -173,7 +197,7 @@ public class LoadingDecorator {
         myCurrentAlpha = -1;
 
         if (takeSnapshot && getWidth() > 0 && getHeight() > 0) {
-          mySnapshot = UIUtil.createImage(getWidth(), getHeight(), BufferedImage.TYPE_INT_RGB);
+          mySnapshot = UIUtil.createImage(getGraphics(), getWidth(), getHeight(), BufferedImage.TYPE_INT_RGB);
           final Graphics2D g = mySnapshot.createGraphics();
           myPane.paint(g);
           final Component opaque = UIUtil.findNearestOpaque(this);

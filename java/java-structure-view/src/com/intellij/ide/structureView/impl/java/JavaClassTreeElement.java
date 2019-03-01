@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,12 +27,15 @@ import java.util.*;
  * @author Konstantin Bulenkov
  */
 public class JavaClassTreeElement extends JavaClassTreeElementBase<PsiClass> {
-  private final Set<PsiClass> myParents;
 
-  public JavaClassTreeElement(PsiClass cls, boolean inherited, Set<PsiClass> parents) {
+  public JavaClassTreeElement(PsiClass cls, boolean inherited) {
     super(inherited, cls);
-    myParents = parents;
-    myParents.add(cls);
+  }
+
+  /** @noinspection unused*/
+  @Deprecated
+  public JavaClassTreeElement(PsiClass cls, boolean inherited, Set<PsiClass> parents) {
+    this(cls, inherited);
   }
 
   @Override
@@ -48,12 +51,10 @@ public class JavaClassTreeElement extends JavaClassTreeElementBase<PsiClass> {
     LinkedHashSet<PsiElement> members = getOwnChildren(aClass);
     List<StructureViewTreeElement> children = new ArrayList<>(members.size());
 
-    //aClass.processDeclarations(new AddAllMembersProcessor(inherited, aClass), ResolveState.initial(), null, aClass);
-
     for (PsiElement child : members) {
       if (!child.isValid()) continue;
-      if (child instanceof PsiClass && !myParents.contains((PsiClass)child)) {
-        children.add(new JavaClassTreeElement((PsiClass)child, false, myParents));
+      if (child instanceof PsiClass) {
+        children.add(new JavaClassTreeElement((PsiClass)child, false));
       }
       else if (child instanceof PsiField) {
         children.add(new PsiFieldTreeElement((PsiField)child, false));
@@ -68,35 +69,34 @@ public class JavaClassTreeElement extends JavaClassTreeElementBase<PsiClass> {
     return children;
   }
 
-  static LinkedHashSet<PsiElement> getOwnChildren(PsiClass aClass) {
+  static LinkedHashSet<PsiElement> getOwnChildren(@NotNull PsiClass aClass) {
     LinkedHashSet<PsiElement> members = new LinkedHashSet<>();
-    addPhysicalElements(aClass.getFields(), members);
-    addPhysicalElements(aClass.getMethods(), members);
-    addPhysicalElements(aClass.getInnerClasses(), members);
-    addPhysicalElements(aClass.getInitializers(), members);
+    addPhysicalElements(aClass.getFields(), members, aClass);
+    addPhysicalElements(aClass.getMethods(), members, aClass);
+    addPhysicalElements(aClass.getInnerClasses(), members, aClass);
+    addPhysicalElements(aClass.getInitializers(), members, aClass);
     return members;
   }
 
-  private static void addPhysicalElements(PsiElement[] elements, LinkedHashSet<PsiElement> to) {
-    for (PsiElement element : elements) {
+  private static void addPhysicalElements(@NotNull PsiMember[] elements, @NotNull Collection<? super PsiElement> to, @NotNull PsiClass aClass) {
+    for (PsiMember element : elements) {
       PsiElement mirror = PsiImplUtil.handleMirror(element);
-      if (!(mirror instanceof LightElement)) {
+      if (mirror instanceof LightElement) continue;
+      if (mirror instanceof PsiMember && aClass.equals(((PsiMember)mirror).getContainingClass())) {
         to.add(mirror);
       }
     }
   }
 
-  public Set<PsiClass> getParents() {
-    return myParents;
-  }
-
   @Override
   public String getPresentableText() {
-    return getElement().getName();
+    PsiClass o = getElement();
+    return o == null ? "" : o.getName();
   }
 
   @Override
   public boolean isPublic() {
-    return getElement().getParent() instanceof PsiFile || super.isPublic();
+    PsiClass o = getElement();
+    return o != null && o.getParent() instanceof PsiFile || super.isPublic();
   }
 }

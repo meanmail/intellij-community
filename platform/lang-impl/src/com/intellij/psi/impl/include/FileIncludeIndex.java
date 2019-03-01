@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.psi.impl.include;
 
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -46,32 +31,28 @@ public class FileIncludeIndex extends FileBasedIndexExtension<FileIncludeIndex.K
 
   private static final int BASE_VERSION = 5;
 
-  public static List<FileIncludeInfoImpl> getIncludes(VirtualFile file, GlobalSearchScope scope) {
-    final List<FileIncludeInfoImpl> result = new ArrayList<>();
-    FileBasedIndex.getInstance().processValues(INDEX_ID, new FileKey(file), file, new FileBasedIndex.ValueProcessor<List<FileIncludeInfoImpl>>() {
-      @Override
-      public boolean process(VirtualFile file, List<FileIncludeInfoImpl> value) {
-        result.addAll(value);
-        return true;
-      }
+  @NotNull
+  public static List<FileIncludeInfo> getIncludes(@NotNull VirtualFile file, @NotNull GlobalSearchScope scope) {
+    final List<FileIncludeInfo> result = new ArrayList<>();
+    FileBasedIndex.getInstance().processValues(INDEX_ID, new FileKey(file), file, (file1, value) -> {
+      result.addAll(value);
+      return true;
     }, scope);
     return result;
   }
 
-  public static MultiMap<VirtualFile, FileIncludeInfoImpl> getIncludingFileCandidates(String fileName, GlobalSearchScope scope) {
+  @NotNull
+  public static MultiMap<VirtualFile, FileIncludeInfoImpl> getIncludingFileCandidates(String fileName, @NotNull GlobalSearchScope scope) {
     final MultiMap<VirtualFile, FileIncludeInfoImpl> result = new MultiMap<>();
-    FileBasedIndex.getInstance().processValues(INDEX_ID, new IncludeKey(fileName), null, new FileBasedIndex.ValueProcessor<List<FileIncludeInfoImpl>>() {
-      @Override
-      public boolean process(VirtualFile file, List<FileIncludeInfoImpl> value) {
-        result.put(file, value);
-        return true;
-      }
+    FileBasedIndex.getInstance().processValues(INDEX_ID, new IncludeKey(fileName), null, (file, value) -> {
+      result.put(file, value);
+      return true;
     }, scope);
     return result;
   }
 
   private static class Holder {
-    private static final FileIncludeProvider[] myProviders = Extensions.getExtensions(FileIncludeProvider.EP_NAME);
+    private static final List<FileIncludeProvider> myProviders = FileIncludeProvider.EP_NAME.getExtensionList();
   }
 
   @NotNull
@@ -88,12 +69,7 @@ public class FileIncludeIndex extends FileBasedIndexExtension<FileIncludeIndex.K
       @NotNull
       public Map<Key, List<FileIncludeInfoImpl>> map(@NotNull FileContent inputData) {
 
-        Map<Key, List<FileIncludeInfoImpl>> map = new FactoryMap<Key, List<FileIncludeInfoImpl>>() {
-          @Override
-          protected List<FileIncludeInfoImpl> create(Key key) {
-            return new ArrayList<>();
-          }
-        };
+        Map<Key, List<FileIncludeInfoImpl>> map = FactoryMap.create(key -> new ArrayList<>());
 
         for (FileIncludeProvider provider : Holder.myProviders) {
           if (!provider.acceptFile(inputData.getFile())) continue;
@@ -216,7 +192,7 @@ public class FileIncludeIndex extends FileBasedIndexExtension<FileIncludeIndex.K
   private static class IncludeKey implements Key {
     private final String myFileName;
 
-    public IncludeKey(String fileName) {
+    IncludeKey(String fileName) {
       myFileName = fileName;
     }
 

@@ -21,13 +21,12 @@ import javax.swing.*;
 import javax.swing.text.html.StyleSheet;
 
 /**
- * Enumerates common font size values (inspired by CSS <code>'font-size'</code> property values).
+ * Enumerates common font size values (inspired by CSS {@code 'font-size'} property values).
  * <p/>
  * Note that such elements selection (and this enum existence at all) is based on the fact that standard Swing {@link JEditorPane}
  * used by IJ for providing quick doc works only with predefined set of font sizes (see {@link StyleSheet#sizeMapDefault}).
  *
  * @author Denis Zhdanov
- * @since 1/26/11 10:22 AM
  */
 public enum FontSize {
 

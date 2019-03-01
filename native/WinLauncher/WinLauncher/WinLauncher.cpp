@@ -1,5 +1,5 @@
 /*
-* Copyright 2000-2013 JetBrains s.r.o.
+* Copyright 2000-2018 JetBrains s.r.o.
 *
 * Licensed under the Apache License, Version 2.0 (the "License");
 * you may not use this file except in compliance with the License.
@@ -13,7 +13,7 @@
 * See the License for the specific language governing permissions and
 * limitations under the License.
 */
-
+#define _UNICODE
 #include "stdafx.h"
 #include "WinLauncher.h"
 
@@ -29,7 +29,9 @@ JNI_createJavaVM pCreateJavaVM = NULL;
 JavaVM* jvm = NULL;
 JNIEnv* env = NULL;
 volatile bool terminating = false;
-bool nativesplash = false;
+
+//tools.jar doesn't exist in jdk 9 and later. So check it for jdk 1.8 only.
+bool toolsArchiveExists = true;
 
 HANDLE hFileMapping;
 HANDLE hEvent;
@@ -81,8 +83,10 @@ bool IsValidJRE(const char* path)
 bool Is64BitJRE(const char* path)
 {
   std::string cfgPath(path);
+  std::string cfgJava9Path(path);
   cfgPath += "\\lib\\amd64\\jvm.cfg";
-  return FileExists(cfgPath);
+  cfgJava9Path += "\\lib\\jvm.cfg";
+  return FileExists(cfgPath) || FileExists(cfgJava9Path);
 }
 
 bool FindValidJVM(const char* path)
@@ -155,7 +159,7 @@ bool FindJVMInSettings() {
   if (LoadString(hInst, IDS_VM_OPTIONS_PATH, buffer, _MAX_PATH)) {
     ExpandEnvironmentStrings(buffer, copy, _MAX_PATH - 1);
     std::wstring path(copy);
-    path += L"\\config" + module.substr(module.find_last_of('\\')) + L".jdk";
+    path += module.substr(module.find_last_of('\\')) + L".jdk";
     FILE *f = _tfopen(path.c_str(), _T("rt"));
     if (!f) return false;
 
@@ -192,13 +196,34 @@ bool FindJVMInRegistryKey(const char* key, bool wow64_32)
 
 bool FindJVMInRegistryWithVersion(const char* version, bool wow64_32)
 {
-  const char* keyName = LoadStdString(IDS_JDK_ONLY) == std::string("true")
-    ? "Java Development Kit"
-    : "Java Runtime Environment";
+  char* keyName = "Java Runtime Environment";
+  // starting from java 9 key name has been changed
+  char* jreKeyName = "JRE";
+  char* jdkKeyName = "JDK";
 
+  bool foundJava = false;
   char buf[_MAX_PATH];
-  sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", keyName, version);
-  return FindJVMInRegistryKey(buf, wow64_32);
+  //search jre in registry if the product doesn't require tools.jar
+  if (LoadStdString(IDS_JDK_ONLY) != std::string("true")) {
+    sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", keyName, version);
+    foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    if (!foundJava) {
+      sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", jreKeyName, version);
+      foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    }
+  }
+
+  //search jdk in registry if the product requires tools.jar or jre isn't installed.
+  if (!foundJava) {
+    keyName = "Java Development Kit";
+    sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", keyName, version);
+    foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    if (!foundJava) {
+      sprintf_s(buf, "Software\\JavaSoft\\%s\\%s", jdkKeyName, version);
+      foundJava = FindJVMInRegistryKey(buf, wow64_32);
+    }
+  }
+  return foundJava;
 }
 
 bool FindJVMInRegistry()
@@ -206,6 +231,14 @@ bool FindJVMInRegistry()
 #ifndef _M_X64
   if (FindJVMInRegistryWithVersion("1.8", true))
     return true;
+  if (FindJVMInRegistryWithVersion("9", true))
+    toolsArchiveExists = false;
+    return true;
+  if (FindJVMInRegistryWithVersion("10", true))
+    toolsArchiveExists = false;
+    return true;
+
+  //obsolete java versions
   if (FindJVMInRegistryWithVersion("1.7", true))
     return true;
   if (FindJVMInRegistryWithVersion("1.6", true))
@@ -214,6 +247,14 @@ bool FindJVMInRegistry()
 
   if (FindJVMInRegistryWithVersion("1.8", false))
     return true;
+  if (FindJVMInRegistryWithVersion("9", false))
+    toolsArchiveExists = false;
+    return true;
+  if (FindJVMInRegistryWithVersion("10", false))
+    toolsArchiveExists = false;
+    return true;
+
+  //obsolete java versions
   if (FindJVMInRegistryWithVersion("1.7", false))
     return true;
   if (FindJVMInRegistryWithVersion("1.6", false))
@@ -258,6 +299,7 @@ bool LocateJVM()
 
   std::vector<std::string> jrePaths;
   if(need64BitJRE) jrePaths.push_back(GetAdjacentDir("jre64"));
+  jrePaths.push_back(GetAdjacentDir("jre32"));
   jrePaths.push_back(GetAdjacentDir("jre"));
   for(std::vector<std::string>::iterator it = jrePaths.begin(); it != jrePaths.end(); ++it) {
     if (FindValidJVM((*it).c_str()) && Is64BitJRE(jvmPath) == need64BitJRE)
@@ -292,7 +334,7 @@ bool LocateJVM()
   }
 
   std::string error = LoadStdString(IDS_ERROR_LAUNCHING_APP);
-  MessageBoxA(NULL, jvmError.c_str(),  error.c_str(), MB_OK);
+  MessageBoxA(NULL, jvmError.c_str(), error.c_str(), MB_OK);
   return false;
 }
 
@@ -335,11 +377,24 @@ bool LoadVMOptionsFile(const TCHAR* path, std::vector<std::string>& vmOptionLine
 
 std::string FindToolsJar()
 {
-  std::string toolsJarPath = jvmPath;
-  size_t lastSlash = toolsJarPath.rfind('\\');
+  std::string baseToolsJarPath = jvmPath;
+  // remove trailing slash if any
+  size_t lastSlash = baseToolsJarPath.rfind('\\');
+  if (lastSlash == baseToolsJarPath.length() - 1)
+  {
+      baseToolsJarPath = baseToolsJarPath.substr(0, lastSlash);
+  }
+  // 1) look in the base dir
+  std::string toolsJarPath = baseToolsJarPath + "\\lib\\tools.jar";
+  if (FileExists(toolsJarPath))
+  {
+    return toolsJarPath;
+  }
+  // 2) look in the up dir
+  lastSlash = baseToolsJarPath.rfind('\\');
   if (lastSlash != std::string::npos)
   {
-    toolsJarPath = toolsJarPath.substr(0, lastSlash + 1) + "lib\\tools.jar";
+    toolsJarPath = baseToolsJarPath.substr(0, lastSlash + 1) + "lib\\tools.jar";
     if (FileExists(toolsJarPath))
     {
       return toolsJarPath;
@@ -381,11 +436,14 @@ std::string BuildClassPath()
   std::string classpathLibs = LoadStdString(IDS_CLASSPATH_LIBS);
   std::string result = CollectLibJars(classpathLibs);
 
-  std::string toolsJar = FindToolsJar();
-  if (toolsJar.size() > 0)
+  if (toolsArchiveExists)
   {
-    result += ";";
-    result += toolsJar;
+    std::string toolsJar = FindToolsJar();
+    if (toolsJar.size() > 0)
+    {
+      result += ";";
+      result += toolsJar;
+    }
   }
 
   return result;
@@ -396,13 +454,6 @@ bool AddClassPathOptions(std::vector<std::string>& vmOptionLines)
   std::string classPath = BuildClassPath();
   if (classPath.size() == 0) return false;
   vmOptionLines.push_back(std::string("-Djava.class.path=") + classPath);
-
-  std::string bootClassPathLibs = LoadStdString(IDS_BOOTCLASSPATH_LIBS);
-  std::string bootClassPath = CollectLibJars(bootClassPathLibs);
-  if (bootClassPath.size() > 0)
-  {
-    vmOptionLines.push_back(std::string("-Xbootclasspath/a:") + bootClassPath);
-  }
 
   return true;
 }
@@ -485,6 +536,12 @@ bool LoadVMOptions()
     }
   }
 
+  std::wstring::size_type pos = module.find_last_of('\\');
+  if (pos > 0)
+  {
+    files.push_back(module.substr(0, pos - 4) + L".vmoptions");
+  }
+
   if (LoadString(hInst, IDS_VM_OPTIONS_PATH, buffer, _MAX_PATH))
   {
     ExpandEnvironmentStrings(buffer, copy, _MAX_PATH - 1);
@@ -493,6 +550,7 @@ bool LoadVMOptions()
   }
 
   files.push_back(module + L".vmoptions");
+
   std::wstring used;
   std::vector<std::string> vmOptionLines;
 
@@ -534,8 +592,8 @@ bool LoadJVMLibrary()
     dllName = clientDllName;
   }
 
-  // ensure we can find msvcr100.dll which is located in jre/bin directory; jvm.dll depends on it.
-  SetCurrentDirectoryA(binDir.c_str());
+  // ensure we can find msvcr<ver>.dll which is located in jre/bin directory; jvm.dll (awt.dll) depends on it.
+  SetDllDirectoryA(binDir.c_str());
   hJVM = LoadLibraryA(dllName.c_str());
   if (hJVM)
   {
@@ -553,6 +611,51 @@ bool LoadJVMLibrary()
     return false;
   }
   return true;
+}
+
+bool IsJBRE()
+{
+  if (!env) return false;
+
+  jclass cls = env->FindClass("java/lang/System");
+  if (!cls) return false;
+
+  jmethodID method = env->GetStaticMethodID(cls, "getProperty", "(Ljava/lang/String;)Ljava/lang/String;");
+  if (!method) return false;
+
+  jstring jvendor = (jstring)env->CallStaticObjectMethod(cls, method, env->NewStringUTF("java.vendor"));
+  if (!jvendor) return false;
+
+  const char *cvendor = env->GetStringUTFChars(jvendor, NULL);
+  bool isJB = strstr(cvendor, "JetBrains") != NULL;
+  env->ReleaseStringUTFChars(jvendor, cvendor);
+
+  return isJB;
+}
+
+void SetProcessDPIAwareProperty()
+{
+    typedef BOOL (WINAPI SetProcessDPIAwareFunc)(void);
+    HMODULE hLibUser32Dll = ::LoadLibraryA("user32.dll");
+
+    if (hLibUser32Dll != NULL) {
+        SetProcessDPIAwareFunc *lpSetProcessDPIAware =
+            (SetProcessDPIAwareFunc*)::GetProcAddress(hLibUser32Dll, "SetProcessDPIAware");
+        if (lpSetProcessDPIAware != NULL) {
+            lpSetProcessDPIAware();
+        }
+        ::FreeLibrary(hLibUser32Dll);
+    }
+}
+
+std::string getErrorMessage(int errorCode)
+{
+  std::string errorMessage = "";
+  if (errorCode == -6)
+  {
+      errorMessage = "MaxJavaStackTraceDepth=-1 is outside the allowed range [ 0 ... 1073741823 ].\nImproperly specified VM option 'MaxJavaStackTraceDepth=-1'\n";
+  }
+  return errorMessage;
 }
 
 bool CreateJVM()
@@ -575,34 +678,118 @@ bool CreateJVM()
   if (result != JNI_OK)
   {
     std::stringstream buf;
+    std::string jvmError = getErrorMessage(result);
+    if (jvmError == "") {
+        jvmError = "If you already have a " BITS_STR " JDK installed, define a JAVA_HOME variable in \n";
+        jvmError += "Computer > System Properties > System Settings > Environment Variables.\n";
+    }
 
-    buf << "Failed to create JVM: error code " << result << ".\n";
-    buf << "JVM Path: " << jvmPath << "\n";
-    buf << "If you already have a " BITS_STR " JDK installed, define a JAVA_HOME variable in \n";
-    buf << "Computer > System Properties > System Settings > Environment Variables.";
+    buf << jvmError;
+    buf << "\nFailed to create JVM. ";
+    buf << "JVM Path: " << jvmPath;
     std::string error = LoadStdString(IDS_ERROR_LAUNCHING_APP);
     MessageBoxA(NULL, buf.str().c_str(), error.c_str(), MB_OK);
   }
 
+  // Set DPI-awareness here or let JBRE do that.
+  if (!IsJBRE()) SetProcessDPIAwareProperty();
+
   return result == JNI_OK;
 }
 
-jobjectArray PrepareCommandLine()
+jobjectArray ArgsToJavaArray(std::vector<LPWSTR> args)
 {
-  int numArgs;
-  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &numArgs);
   jclass stringClass = env->FindClass("java/lang/String");
-  jobjectArray args = env->NewObjectArray(numArgs - (nativesplash ? 2 : 1), stringClass, NULL);
-  for (int i = 1, k = 0; i < numArgs; i++)
+  jobjectArray result = env->NewObjectArray(args.size(), stringClass, NULL);
+  for (int i = 0; i < args.size(); i++)
   {
-    const wchar_t* arg = argv[i];
-    if (_wcsicmp(arg, _T("/nativesplash")) == 0) continue;
-    env->SetObjectArrayElement(args, k++, env->NewString((const jchar *)arg, wcslen(argv[i])));
+     env->SetObjectArrayElement(result, i, env->NewString((const jchar *)args[i], wcslen(args[i])));
   }
-  return args;
+  return result;
 }
 
-bool RunMainClass()
+void PrintUsage()
+{
+  char fullPath[_MAX_PATH];
+  GetModuleFileNameA(NULL, fullPath, _MAX_PATH);
+  std::string::size_type pos = std::string(fullPath).find_last_of("\\/");
+  std::string fileName = std::string(fullPath).substr(pos+1);
+
+  std::stringstream buf;
+  buf << "Usage:\n   ";
+  buf << fileName + " -h | -? | --help\n   ";
+  buf << fileName + " [project_dir]\n   ";
+  buf << fileName + " [-l|--line line] [project_dir|--temp-project] file[:line]\n   ";
+  buf << fileName + " diff <left> <right>\n   ";
+  buf << fileName + " merge <local> <remote> [base] <merged>";
+  std::string title = "Command line options.";
+  MessageBoxA(NULL, buf.str().c_str(), title.c_str(), MB_OK);
+}
+
+bool isNumber(std::string line)
+{
+  char* p;
+  strtol(line.c_str(), &p, 10);
+  return *p == 0;
+}
+
+std::vector<LPWSTR> ParseCommandLine(LPCWSTR commandLine)
+{
+  int numArgs;
+  LPWSTR* argv = CommandLineToArgvW(commandLine, &numArgs);
+
+  // skip process name
+  std::vector<LPWSTR> result;
+  for (int i = 1; i < numArgs; i++)
+  {
+    if ((wcscmp(L"-h", argv[i]) == 0) ||
+        (wcscmp(L"-?", argv[i]) == 0) ||
+        (wcscmp(L"--help", argv[i]) == 0))
+    {
+      PrintUsage();
+      std::exit(0);
+    }
+
+    std::wstring arg(argv[i]);
+    std::string command(arg.begin(), arg.end());
+    if (command.find_last_of(":") != std::string::npos)
+    {
+      std::string line = command.substr(command.find_last_of(":") + 1);
+      if (isNumber(line))
+      {
+        result.push_back(L"-l");
+        int numArgs;
+        LPWSTR* lineNumberArg = CommandLineToArgvW(std::wstring(line.begin(), line.end()).c_str(), &numArgs);
+        result.push_back(lineNumberArg[0]);
+        std::string fileName = command.substr(0, command.find_last_of(":"));
+        LPWSTR* fileNameArg = CommandLineToArgvW(std::wstring(fileName.begin(), fileName.end()).c_str(), &numArgs);
+        result.push_back(fileNameArg[0]);
+      }
+      else
+      {
+        result.push_back(argv[i]);
+      }
+    }
+    else
+    {
+      result.push_back(argv[i]);
+    }
+  }
+  return result;
+}
+
+std::vector<LPWSTR> RemovePredefinedArgs(std::vector<LPWSTR> args)
+{
+  std::vector<LPWSTR> result;
+  for (int i = 0; i < args.size(); i++)
+  {
+    if (_wcsicmp(args[i], _T("/nativesplash")) == 0) continue;
+    result.push_back(args[i]);
+  }
+  return result;
+}
+
+bool RunMainClass(std::vector<LPWSTR> args)
 {
   std::string mainClassName = LoadStdString(IDS_MAIN_CLASS);
   jclass mainClass = env->FindClass(mainClassName.c_str());
@@ -623,8 +810,7 @@ bool RunMainClass()
     return false;
   }
 
-  jobjectArray args = PrepareCommandLine();
-  env->CallStaticVoidMethod(mainClass, mainMethod, args);
+  env->CallStaticVoidMethod(mainClass, mainMethod, ArgsToJavaArray(args));
   jthrowable exc = env->ExceptionOccurred();
   if (exc)
   {
@@ -648,11 +834,11 @@ void CallCommandLineProcessor(const std::wstring& curDir, const std::wstring& ar
   jclass processorClass = env->FindClass(processorClassName.c_str());
   if (processorClass)
   {
-    jmethodID processMethodID = env->GetStaticMethodID(processorClass, "processWindowsLauncherCommandLine", "(Ljava/lang/String;Ljava/lang/String;)V");
+    jmethodID processMethodID = env->GetStaticMethodID(processorClass, "processWindowsLauncherCommandLine", "(Ljava/lang/String;[Ljava/lang/String;)V");
     if (processMethodID)
     {
       jstring jCurDir = env->NewString((const jchar *)curDir.c_str(), curDir.size());
-      jstring jArgs = env->NewString((const jchar *)args.c_str(), args.size());
+      jobjectArray jArgs = ArgsToJavaArray(RemovePredefinedArgs(ParseCommandLine(args.c_str())));
       env->CallStaticVoidMethod(processorClass, processMethodID, jCurDir, jArgs);
       jthrowable exc = env->ExceptionOccurred();
       if (exc)
@@ -900,9 +1086,19 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
     return 0;
   }
 
-  if (!CheckSingleInstance()) return 1;
+  //it's OK to return 0 here, because the control is transferred to the first instance
+  if (!CheckSingleInstance()) return 0;
 
-  if (nativesplash = wcsstr(lpCmdLine, _T("/nativesplash")) != NULL) StartSplashProcess();
+  std::vector<LPWSTR> args = ParseCommandLine(GetCommandLineW());
+
+  bool nativesplash = false;
+  for (int i = 0; i < args.size(); i++)
+  {
+    if (_wcsicmp(args[i], _T("/nativesplash")) == 0) nativesplash = true;
+  }
+  args = RemovePredefinedArgs(args);
+
+  if (nativesplash) StartSplashProcess();
 
   if (!LocateJVM()) return 1;
   if (!LoadVMOptions()) return 1;
@@ -911,7 +1107,7 @@ int APIENTRY _tWinMain(HINSTANCE hInstance,
 
   hSingleInstanceWatcherThread = CreateThread(NULL, 0, SingleInstanceThread, NULL, 0, NULL);
 
-  if (!RunMainClass()) return 1;
+  if (!RunMainClass(args)) return 1;
 
   jvm->DestroyJavaVM();
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,28 +15,25 @@
  */
 package com.intellij.psi.impl;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
+import com.intellij.psi.augment.PsiAugmentProvider;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.infos.MethodCandidateInfo;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * User: anna
- */
 public class PsiDiamondTypeUtil {
-  private static final Logger LOG = Logger.getInstance("#" + PsiDiamondTypeUtil.class.getName());
+  private static final Logger LOG = Logger.getInstance(PsiDiamondTypeUtil.class);
 
   private PsiDiamondTypeUtil() {
   }
@@ -79,10 +76,9 @@ public class PsiDiamondTypeUtil {
                 final PsiElement resolve = classReference.resolve();
                 if (resolve instanceof PsiClass) {
                   final PsiTypeParameter[] typeParameters = ((PsiClass)resolve).getTypeParameters();
-                  return areTypeArgumentsRedundant(typeArguments, expression, true, method, typeParameters);
+                  return areTypeArgumentsRedundant(typeArguments, context, true, method, typeParameters);
                 }
               }
-              return true;
             }
           }
         }
@@ -91,18 +87,28 @@ public class PsiDiamondTypeUtil {
     return false;
   }
 
+  /**
+   * Please use {@link com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil#replaceExplicitWithDiamond(com.intellij.psi.PsiElement)}
+   * To be deleted in 2019.3
+   */
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public static PsiElement replaceExplicitWithDiamond(PsiElement psiElement) {
+    PsiElement replacement = createExplicitReplacement(psiElement);
+    return replacement == null ? psiElement : psiElement.replace(replacement);
+  }
+
+  public static PsiElement createExplicitReplacement(PsiElement psiElement) {
     if (psiElement instanceof PsiReferenceParameterList) {
-      if (!FileModificationService.getInstance().prepareFileForWrite(psiElement.getContainingFile())) return psiElement;
       final PsiNewExpression expression =
         (PsiNewExpression)JavaPsiFacade.getElementFactory(psiElement.getProject()).createExpressionFromText("new a<>()", psiElement);
       final PsiJavaCodeReferenceElement classReference = expression.getClassReference();
       LOG.assertTrue(classReference != null);
       final PsiReferenceParameterList parameterList = classReference.getParameterList();
       LOG.assertTrue(parameterList != null);
-      return psiElement.replace(parameterList);
+      return parameterList;
     }
-    return psiElement;
+    return null;
   }
 
   public static PsiElement replaceDiamondWithExplicitTypes(PsiElement element) {
@@ -111,21 +117,22 @@ public class PsiDiamondTypeUtil {
       return parent;
     }
     final PsiJavaCodeReferenceElement javaCodeReferenceElement = (PsiJavaCodeReferenceElement) parent;
+    PsiReferenceParameterList parameterList = javaCodeReferenceElement.getParameterList();
+    if (parameterList == null) return javaCodeReferenceElement;
+
     final StringBuilder text = new StringBuilder();
     text.append(javaCodeReferenceElement.getQualifiedName());
     text.append('<');
     final PsiNewExpression newExpression = PsiTreeUtil.getParentOfType(element, PsiNewExpression.class);
     final PsiDiamondType.DiamondInferenceResult result = PsiDiamondTypeImpl.resolveInferredTypesNoCheck(newExpression, newExpression);
-    text.append(StringUtil.join(result.getInferredTypes(), new Function<PsiType, String>() {
-      @Override
-      public String fun(PsiType psiType) {
-        return psiType.getCanonicalText();
-      }
-    }, ","));
+    text.append(StringUtil.join(result.getInferredTypes(), psiType -> psiType.getCanonicalText(), ","));
     text.append('>');
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(element.getProject());
     final PsiJavaCodeReferenceElement newReference = elementFactory.createReferenceFromText(text.toString(), element);
-    return CodeStyleManager.getInstance(javaCodeReferenceElement.getProject()).reformat(javaCodeReferenceElement.replace(newReference));
+    PsiReferenceParameterList newReferenceParameterList = newReference.getParameterList();
+    LOG.assertTrue(newReferenceParameterList != null);
+    CodeStyleManager.getInstance(javaCodeReferenceElement.getProject()).reformat(parameterList.replace(newReferenceParameterList));
+    return javaCodeReferenceElement;
   }
 
   public static PsiExpression expandTopLevelDiamondsInside(PsiExpression expr) {
@@ -155,37 +162,50 @@ public class PsiDiamondTypeUtil {
     return typeText;
   }
 
+  private static boolean isAugmented(PsiExpression expression) {
+    PsiElement gParent = PsiUtil.skipParenthesizedExprUp(expression.getParent());
+    PsiTypeElement typeElement = null;
+    if (gParent instanceof PsiVariable) {
+      typeElement = ((PsiVariable)gParent).getTypeElement();
+    }
+    else if (gParent instanceof PsiReturnStatement) {
+      PsiElement method = PsiTreeUtil.getParentOfType(gParent, PsiMethod.class, PsiLambdaExpression.class);
+      typeElement = method instanceof PsiMethod ? ((PsiMethod)method).getReturnTypeElement() : null;
+    }
+    return typeElement != null && PsiAugmentProvider.getInferredType(typeElement) != null;
+  }
+  
   public static boolean areTypeArgumentsRedundant(PsiType[] typeArguments,
-                                                  PsiCallExpression expression,
+                                                  PsiExpression context,
                                                   boolean constructorRef,
                                                   @Nullable PsiMethod method, 
                                                   PsiTypeParameter[] typeParameters) {
     try {
       final PsiElement copy;
-      final PsiType typeByParent = PsiTypesUtil.getExpectedTypeByParent(expression);
+      final PsiType typeByParent = PsiTypesUtil.getExpectedTypeByParent(context);
       if (typeByParent != null) {
-        final String arrayInitializer = "new " + typeByParent.getCanonicalText() + "[]{0}";
-        final Project project = expression.getProject();
-        final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(project).getElementFactory();
-        PsiNewExpression newExpr = (PsiNewExpression)elementFactory.createExpressionFromText(arrayInitializer, expression);
-        //ensure refs to inner classes are collapsed to avoid raw types (container type would be raw in qualified text)
-        newExpr = (PsiNewExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(newExpr);
-        final PsiArrayInitializerExpression initializer = newExpr.getArrayInitializer();
-        LOG.assertTrue(initializer != null);
-        copy = initializer.getInitializers()[0].replace(expression);
+        if (isAugmented(context)) {
+          return false;
+        }
+        copy = LambdaUtil.copyWithExpectedType(context, typeByParent);
       }
       else {
-        final PsiExpressionList argumentList = expression.getArgumentList();
-        final int offset = (argumentList != null ? argumentList : expression).getTextRange().getStartOffset();
-        final PsiCall call = LambdaUtil.treeWalkUp(expression);
+        final PsiExpressionList argumentList = context instanceof PsiCallExpression ? ((PsiCallExpression)context).getArgumentList() : null;
+        final Object marker = new Object();
+        PsiTreeUtil.mark(argumentList != null ? argumentList : context, marker);
+        final PsiCall call = LambdaUtil.treeWalkUp(context);
         if (call != null) {
           final PsiCall callCopy = LambdaUtil.copyTopLevelCall(call);
-          copy = callCopy != null ? callCopy.findElementAt(offset - call.getTextRange().getStartOffset()) : null;
+          copy = callCopy != null ? PsiTreeUtil.releaseMark(callCopy, marker) : null;
         }
         else  {
-          final PsiFile containingFile = expression.getContainingFile();
+          final InjectedLanguageManager injectedLanguageManager = InjectedLanguageManager.getInstance(context.getProject());
+          if (injectedLanguageManager.getInjectionHost(context) != null) {
+            return false;
+          }
+          final PsiFile containingFile = context.getContainingFile();
           final PsiFile fileCopy = (PsiFile)containingFile.copy();
-          copy = fileCopy.findElementAt(offset);
+          copy = PsiTreeUtil.releaseMark(fileCopy, marker);
           if (method != null && method.getContainingFile() == containingFile) {
             final PsiElement startMethodElementInCopy = fileCopy.findElementAt(method.getTextOffset());
             method = PsiTreeUtil.getParentOfType(startMethodElementInCopy, PsiMethod.class);
@@ -196,9 +216,16 @@ public class PsiDiamondTypeUtil {
           }
         }
       }
+      if (context instanceof PsiMethodReferenceExpression) {
+        PsiMethodReferenceExpression methodRefCopy = PsiTreeUtil.getParentOfType(copy, PsiMethodReferenceExpression.class, false);
+        if (methodRefCopy != null && !isInferenceEquivalent(typeArguments, typeParameters, method, methodRefCopy)) {
+          return false;
+        }
+        return true;
+      }
       final PsiCallExpression exprCopy = PsiTreeUtil.getParentOfType(copy, PsiCallExpression.class, false);
       if (exprCopy != null) {
-        final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(exprCopy.getProject()).getElementFactory();
+        final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(exprCopy.getProject());
         if (constructorRef) {
           if (!(exprCopy instanceof PsiNewExpression) || !isInferenceEquivalent(typeArguments, elementFactory, (PsiNewExpression)exprCopy)) {
             return false;
@@ -217,6 +244,36 @@ public class PsiDiamondTypeUtil {
       return false;
     }
     return true;
+  }
+
+  private static boolean isInferenceEquivalent(PsiType[] typeArguments,
+                                               PsiTypeParameter[] typeParameters,
+                                               PsiMethod method,
+                                               PsiMethodReferenceExpression methodRefCopy) {
+    final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(methodRefCopy.getProject());
+    PsiTypeElement qualifierType = methodRefCopy.getQualifierType();
+    if (qualifierType != null) {
+      qualifierType.replace(elementFactory.createTypeElement(((PsiClassType)qualifierType.getType()).rawType()));
+    }
+    else {
+      PsiReferenceParameterList parameterList = methodRefCopy.getParameterList();
+      if (parameterList != null) {
+        parameterList.delete();
+      }
+    }
+
+    JavaResolveResult result = methodRefCopy.advancedResolve(false);
+    if (method != null && result.getElement() != method) return false;
+
+    final PsiSubstitutor psiSubstitutor = result.getSubstitutor();
+    for (int i = 0; i < typeParameters.length; i++) {
+      PsiTypeParameter typeParameter = typeParameters[i];
+      final PsiType inferredType = psiSubstitutor.getSubstitutionMap().get(typeParameter);
+      if (!typeArguments[i].equals(inferredType)) {
+        return false;
+      }
+    }
+    return checkParentApplicability(methodRefCopy);
   }
 
   private static boolean isInferenceEquivalent(PsiType[] typeArguments,
@@ -240,7 +297,8 @@ public class PsiDiamondTypeUtil {
         return false;
       }
     }
-    return true;
+
+    return checkParentApplicability(exprCopy);
   }
 
   private static boolean isInferenceEquivalent(PsiType[] typeArguments, 
@@ -279,6 +337,18 @@ public class PsiDiamondTypeUtil {
       if (!typeArgument.equals(inferredArgs[i])) {
         return false;
       }
+    }
+    
+    return checkParentApplicability(exprCopy);
+  }
+
+  private static boolean checkParentApplicability(PsiExpression exprCopy) {
+    while (exprCopy != null){
+      JavaResolveResult resolveResult = exprCopy instanceof PsiCallExpression ? PsiDiamondType.getDiamondsAwareResolveResult((PsiCall)exprCopy) : null;
+      if (resolveResult instanceof MethodCandidateInfo && !((MethodCandidateInfo)resolveResult).isApplicable()) {
+        return false;
+      }
+      exprCopy = PsiTreeUtil.getParentOfType(exprCopy, PsiCallExpression.class, true);
     }
     return true;
   }

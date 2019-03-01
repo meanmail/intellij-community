@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.help.impl;
 
 import com.intellij.CommonBundle;
@@ -21,15 +7,17 @@ import com.intellij.ide.IdeBundle;
 import com.intellij.ide.plugins.HelpSetPath;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
-import com.intellij.internal.statistic.UsageTrigger;
 import com.intellij.openapi.application.ApplicationInfo;
+import com.intellij.openapi.application.IdeUrlTrackingParametersProvider;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.help.HelpManager;
+import com.intellij.openapi.help.WebHelpProvider;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.reference.SoftReference;
-import com.intellij.util.PlatformUtils;
+import com.intellij.util.io.URLUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,15 +29,26 @@ import java.net.URL;
 
 public class HelpManagerImpl extends HelpManager {
   private static final Logger LOG = Logger.getInstance("#com.intellij.help.impl.HelpManagerImpl");
+  private static final ExtensionPointName<WebHelpProvider>
+    WEB_HELP_PROVIDER_EP_NAME = ExtensionPointName.create("com.intellij.webHelpProvider");
 
   @NonNls private static final String HELP_HS = "Help.hs";
 
   private WeakReference<IdeaHelpBroker> myBrokerReference = null;
 
+  @Override
   public void invokeHelp(@Nullable String id) {
     id = StringUtil.notNullize(id, "top");
-    
-    UsageTrigger.trigger("ide.help." + id);
+
+    for (WebHelpProvider provider : WEB_HELP_PROVIDER_EP_NAME.getExtensions()) {
+      if (id.startsWith(provider.getHelpTopicPrefix())) {
+        String url = provider.getHelpPageUrl(id);
+        if (url != null) {
+          BrowserUtil.browse(url);
+          return;
+        }
+      }
+    }
 
     if (MacHelpUtil.isApplicable() && MacHelpUtil.invokeHelp(id)) {
       return;
@@ -66,23 +65,13 @@ public class HelpManagerImpl extends HelpManager {
 
     if (broker == null) {
       ApplicationInfoEx info = ApplicationInfoEx.getInstanceEx();
-      String minorVersion = info.getMinorVersion();
-      int dot = minorVersion.indexOf('.');
-      if (dot != -1) {
-        minorVersion = minorVersion.substring(0, dot);
-      }
-      String productVersion = info.getMajorVersion() + "." + minorVersion;
+      String productVersion = info.getMajorVersion() + "." + info.getMinorVersionMainPart();
 
-      String url = info.getWebHelpUrl() + "/" + productVersion + "/?" + id;
-      
-      if (PlatformUtils.isJetBrainsProduct()) {
-        String productCode = info.getBuild().getProductCode();
-        if(!StringUtil.isEmpty(productCode)) {
-          url += "&utm_source=from_product&utm_medium=help_link&utm_campaign=" + productCode + "&utm_content=" + productVersion;
-        }
-      }
+      String url = info.getWebHelpUrl();
+      if (!url.endsWith("/")) url += "/";
+      url += productVersion + "/?" + URLUtil.encodeURIComponent(id);
 
-      BrowserUtil.browse(url);
+      BrowserUtil.browse(IdeUrlTrackingParametersProvider.getInstance().augmentUrl(url));
       return;
     }
 
@@ -101,7 +90,11 @@ public class HelpManagerImpl extends HelpManager {
 
   @Nullable
   private static HelpSet createHelpSet() {
-    String urlToHelp = ApplicationInfo.getInstance().getHelpURL() + "/" + HELP_HS;
+    String applicationHelpUrl = ApplicationInfo.getInstance().getHelpURL();
+    if( applicationHelpUrl == null ){
+      return null;
+    }
+    String urlToHelp = applicationHelpUrl + "/" + HELP_HS;
     HelpSet mainHelpSet = loadHelpSet(urlToHelp);
     if (mainHelpSet == null) return null;
 

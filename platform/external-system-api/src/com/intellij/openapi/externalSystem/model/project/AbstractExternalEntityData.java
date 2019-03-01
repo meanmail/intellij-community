@@ -5,13 +5,12 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Denis Zhdanov
- * @since 8/25/11 3:44 PM
  */
 public abstract class AbstractExternalEntityData implements ExternalEntityData {
 
   private static final long serialVersionUID = 1L;
   
-  @NotNull private ProjectSystemId myOwner;
+  @NotNull private final ProjectSystemId myOwner;
   
   public AbstractExternalEntityData(@NotNull ProjectSystemId owner) {
     myOwner = owner;
@@ -28,7 +27,6 @@ public abstract class AbstractExternalEntityData implements ExternalEntityData {
     return myOwner.hashCode();
   }
 
-  @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
   @Override
   public boolean equals(Object obj) {
     if (obj == this) {

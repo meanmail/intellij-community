@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.openapi.application.ReadActionProcessor;
@@ -30,7 +16,6 @@ import com.intellij.psi.stubs.StubTreeLoader;
 import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,7 +23,6 @@ import java.util.*;
 
 /**
  * @author kosyakov
- * @since 05.12.2014
  */
 public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware {
   private final Project myProject;
@@ -68,7 +52,7 @@ public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware 
   @Override
   @NotNull
   public PsiPackage[] getSubPackages(@NotNull PsiPackage psiPackage, @NotNull GlobalSearchScope scope) {
-    final Map<String, PsiPackage> packagesMap = new HashMap<String, PsiPackage>();
+    final Map<String, PsiPackage> packagesMap = new HashMap<>();
     final String qualifiedName = psiPackage.getQualifiedName();
     for (PsiDirectory dir : psiPackage.getDirectories(scope)) {
       PsiDirectory[] subDirs = dir.getSubdirectories();
@@ -84,7 +68,7 @@ public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware 
     }
 
     packagesMap.remove(qualifiedName);    // avoid SOE caused by returning a package as a subpackage of itself
-    return packagesMap.values().toArray(new PsiPackage[packagesMap.size()]);
+    return packagesMap.values().toArray(PsiPackage.EMPTY_ARRAY);
   }
 
   @Override
@@ -101,7 +85,7 @@ public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware 
     for (PsiDirectory dir : psiPackage.getDirectories(scope)) {
       PsiClass[] classes = JavaDirectoryService.getInstance().getClasses(dir);
       if (classes.length == 0) continue;
-      if (list == null) list = new ArrayList<PsiClass>();
+      if (list == null) list = new ArrayList<>();
       for (PsiClass aClass : classes) {
         // class file can be located in wrong place inside file system
         String qualifiedName = aClass.getQualifiedName();
@@ -119,7 +103,7 @@ public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware 
       ContainerUtil.quickSort(list, PsiClassUtil.createScopeComparator(scope));
     }
 
-    return list.toArray(new PsiClass[list.size()]);
+    return list.toArray(PsiClass.EMPTY_ARRAY);
   }
 
   @NotNull
@@ -142,13 +126,13 @@ public class PsiElementFinderImpl extends PsiElementFinder implements DumbAware 
             file instanceof PsiClassOwnerEx ? ((PsiClassOwnerEx)file).getClassNames() : getClassNames(((PsiClassOwner)file).getClasses());
 
           if (inFile.isEmpty()) continue;
-          if (names == null) names = new HashSet<String>();
+          if (names == null) names = new HashSet<>();
           names.addAll(inFile);
         }
       }
 
     }
-    return names == null ? Collections.<String>emptySet() : names;
+    return names == null ? Collections.emptySet() : names;
   }
 
   @Override

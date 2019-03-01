@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.ui;
 
 import com.intellij.openapi.ui.DialogWrapper;
@@ -21,7 +22,7 @@ import static com.intellij.util.ui.UIUtil.DEFAULT_HGAP;
 import static com.intellij.util.ui.UIUtil.DEFAULT_VGAP;
 
 public class HgBookmarkDialog extends DialogWrapper {
-  @NotNull private HgRepository myRepository;
+  @NotNull private final HgRepository myRepository;
   @NotNull private JBTextField myBookmarkName;
   @NotNull private JBCheckBox myActiveCheckbox;
 
@@ -65,7 +66,7 @@ public class HgBookmarkDialog extends DialogWrapper {
     myBookmarkName = new JBTextField(13);
     myBookmarkName.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent e) {
+      public void textChanged(@NotNull DocumentEvent e) {
         validateFields();
       }
     });
@@ -87,7 +88,7 @@ public class HgBookmarkDialog extends DialogWrapper {
     String name = getName();
     if (!validator.checkInput(name)) {
       String message = validator.getErrorText(name);
-      setErrorText(message == null ? "You have to specify bookmark name." : message);
+      setErrorText(message == null ? "You have to specify bookmark name." : message, myBookmarkName);
       setOKActionEnabled(false);
       return;
     }

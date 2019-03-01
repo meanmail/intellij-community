@@ -28,14 +28,14 @@ import java.util.Map;
  * @author nik
  */
 public class JpsPathVariablesConfigurationImpl extends JpsElementBase<JpsPathVariablesConfigurationImpl> implements JpsPathVariablesConfiguration {
-  private Map<String, String> myPathVariables;
+  private final Map<String, String> myPathVariables;
 
   public JpsPathVariablesConfigurationImpl() {
-    myPathVariables = new LinkedHashMap<String, String>();
+    myPathVariables = new LinkedHashMap<>();
   }
 
   private JpsPathVariablesConfigurationImpl(Map<String, String> pathVariables) {
-    myPathVariables = new LinkedHashMap<String, String>(pathVariables);
+    myPathVariables = new LinkedHashMap<>(pathVariables);
   }
 
   @NotNull

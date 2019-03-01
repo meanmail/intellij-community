@@ -16,13 +16,14 @@
 
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.util.IncorrectOperationException;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 public class InsertNewFix implements IntentionAction {
@@ -48,22 +49,28 @@ public class InsertNewFix implements IntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    return myMethodCall.isValid() && myMethodCall.getManager().isInProject(myMethodCall);
+    return myMethodCall.isValid() && BaseIntentionAction.canModify(myMethodCall) && !(myMethodCall.getNextSibling() instanceof PsiErrorElement);
+  }
+
+  @NotNull
+  @Override
+  public PsiElement getElementToMakeWritable(@NotNull PsiFile file) {
+    return myMethodCall;
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(myMethodCall.getContainingFile())) return;
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myMethodCall.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myMethodCall.getProject());
     PsiNewExpression newExpression = (PsiNewExpression)factory.createExpressionFromText("new X()",null);
 
+    CommentTracker tracker = new CommentTracker();
     PsiJavaCodeReferenceElement classReference = newExpression.getClassReference();
     assert classReference != null;
     classReference.replace(factory.createClassReferenceElement(myClass));
     PsiExpressionList argumentList = newExpression.getArgumentList();
     assert argumentList != null;
-    argumentList.replace(myMethodCall.getArgumentList());
-    myMethodCall.replace(newExpression);
+    argumentList.replace(tracker.markUnchanged(myMethodCall.getArgumentList()));
+    tracker.replaceAndRestoreComments(myMethodCall, newExpression);
   }
 
   @Override

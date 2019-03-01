@@ -88,7 +88,7 @@ public class MethodSignatureUtil {
     PsiSubstitutor substitutor = signature.getSubstitutor();
     PsiType[] erasedTypes = PsiType.createArray(parameterTypes.length);
     for (int i = 0; i < parameterTypes.length; i++) {
-      erasedTypes[i] = TypeConversionUtil.erasure(substitutor.substitute(parameterTypes[i]), substitutor);
+      erasedTypes[i] = TypeConversionUtil.erasure(parameterTypes[i], substitutor);
     }
     return erasedTypes;
   }
@@ -157,7 +157,7 @@ public class MethodSignatureUtil {
     return true;
   }
 
-  public static boolean areSignaturesEqualLightweight(@NotNull MethodSignature sig1, @NotNull MethodSignature sig2) {
+  private static boolean areSignaturesEqualLightweight(@NotNull MethodSignature sig1, @NotNull MethodSignature sig2) {
     final boolean isConstructor1 = sig1.isConstructor();
     final boolean isConstructor2 = sig2.isConstructor();
     if (isConstructor1 != isConstructor2) return false;
@@ -184,11 +184,12 @@ public class MethodSignatureUtil {
   }
 
   public static boolean isSuperMethod(@NotNull PsiMethod superMethodCandidate, @NotNull PsiMethod derivedMethod) {
+    if (superMethodCandidate.hasModifierProperty(PsiModifier.PRIVATE)) return false;
     PsiClass superClassCandidate = superMethodCandidate.getContainingClass();
     PsiClass derivedClass = derivedMethod.getContainingClass();
     if (derivedClass == null || superClassCandidate == null || derivedClass == superClassCandidate) return false;
     final PsiSubstitutor superSubstitutor = TypeConversionUtil.getMaybeSuperClassSubstitutor(superClassCandidate, derivedClass,
-                                                                                             PsiSubstitutor.EMPTY, null);
+                                                                                             PsiSubstitutor.EMPTY);
     if (superSubstitutor == null) return false;
     final MethodSignature superSignature = superMethodCandidate.getSignature(superSubstitutor);
     final MethodSignature derivedSignature = derivedMethod.getSignature(PsiSubstitutor.EMPTY);
@@ -282,7 +283,7 @@ public class MethodSignatureUtil {
   }
 
   @NotNull
-  public static PsiMethod[] getOverloads(@NotNull PsiMethod method) {
+  private static PsiMethod[] getOverloads(@NotNull PsiMethod method) {
     PsiClass aClass = method.getContainingClass();
     if (aClass == null) return new PsiMethod[]{method};
     return aClass.findMethodsByName(method.getName(), false);
@@ -300,9 +301,9 @@ public class MethodSignatureUtil {
   /**
    * * 8.4.4 Generic Methods :: same type parameters condition
    * Two methods or constructors M and N have the same type parameters if both of the following are true:
-   * • M and N have same number of type parameters (possibly zero).
-   * • Where A1, ..., An are the type parameters of M and B1, ..., Bn are the type parameters of N, let θ=[B1:=A1, ..., Bn:=An]. 
-   *   Then, for all i (1 ≤ i ≤ n), the bound of Ai is the same type as θ applied to the bound of Bi.
+   * * M and N have same number of type parameters (possibly zero).
+   * * Where A1, ..., An are the type parameters of M and B1, ..., Bn are the type parameters of N, let theta=[B1:=A1, ..., Bn:=An].
+   *   Then, for all i (1 <= i <= n), the bound of Ai is the same type as theta applied to the bound of Bi.
    * 
    * @param methodSignature method signature
    * @param superMethodSignature super method signature
@@ -319,7 +320,7 @@ public class MethodSignatureUtil {
     PsiSubstitutor result = superMethodSignature.getSubstitutor();
     for (int i = 0; i < methodTypeParameters.length; i++) {
       PsiTypeParameter methodTypeParameter = methodTypeParameters[i];
-      PsiElementFactory factory = JavaPsiFacade.getInstance(methodTypeParameter.getProject()).getElementFactory();
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(methodTypeParameter.getProject());
       result = result.put(superTypeParameters[i], factory.createType(methodTypeParameter));
     }
 
@@ -329,12 +330,12 @@ public class MethodSignatureUtil {
     for (int i = 0; i < methodTypeParameters.length; i++) {
       PsiTypeParameter methodTypeParameter = methodTypeParameters[i];
       PsiTypeParameter superTypeParameter = superTypeParameters[i];
-      final Set<PsiType> methodSupers = new HashSet<PsiType>();
+      final Set<PsiType> methodSupers = new HashSet<>();
       for (PsiClassType methodSuper : methodTypeParameter.getSuperTypes()) {
         methodSupers.add(methodSubstitutor.substitute(methodSuper));
       }
 
-      final Set<PsiType> superSupers = new HashSet<PsiType>();
+      final Set<PsiType> superSupers = new HashSet<>();
       for (PsiClassType superSuper : superTypeParameter.getSuperTypes()) {
         superSupers.add(methodSubstitutor.substitute(result.substitute(superSuper)));
       }
@@ -350,7 +351,7 @@ public class MethodSignatureUtil {
   public static PsiSubstitutor combineSubstitutors(@NotNull PsiSubstitutor substitutor1, @NotNull PsiSubstitutor substitutor2) {
     if (substitutor1 == PsiSubstitutor.EMPTY) return substitutor2;
     Set<PsiTypeParameter> parameters1 = substitutor1.getSubstitutionMap().keySet();
-    final PsiTypeParameter[] typeParameters = parameters1.toArray(new PsiTypeParameter[parameters1.size()]);
+    final PsiTypeParameter[] typeParameters = parameters1.toArray(PsiTypeParameter.EMPTY_ARRAY);
     for (PsiTypeParameter typeParameter : typeParameters) {
       final PsiType type = substitutor1.substitute(typeParameter);
       PsiType otherSubstituted;
@@ -410,13 +411,13 @@ public class MethodSignatureUtil {
 
     if (r1 instanceof PsiClassType && r2 != null) {
 
-      //R1, adapted to the type parameters of d2 (§8.4.4), is a subtype of R2.
-      final PsiSubstitutor adaptingSubstitutor = getSuperMethodSignatureSubstitutor(d1, d2);
+      //R1, adapted to the type parameters of d2 (p8.4.4), is a subtype of R2.
+      final PsiSubstitutor adaptingSubstitutor = getSuperMethodSignatureSubstitutor(d2, d1);
       if (adaptingSubstitutor != null && r2.isAssignableFrom(adaptingSubstitutor.substitute(r1))) {
         return true;
       }
 
-      //d1 does not have the same signature as d2 (§8.4.2), and R1 = |R2|.
+      //d1 does not have the same signature as d2 (p8.4.2), and R1 = |R2|.
       if (!areSignaturesEqual(d1, d2)) {
         return r1.equals(TypeConversionUtil.erasure(r2));
       }

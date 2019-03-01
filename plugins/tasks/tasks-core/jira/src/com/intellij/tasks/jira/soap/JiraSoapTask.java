@@ -22,7 +22,6 @@ import com.intellij.tasks.TaskRepository;
 import com.intellij.tasks.TaskState;
 import com.intellij.tasks.TaskType;
 import com.intellij.tasks.jira.JiraTask;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -55,7 +54,7 @@ class JiraSoapTask extends JiraTask {
 
   private final List<Comment> myComments;
 
-  public JiraSoapTask(@NotNull Element element, @NotNull TaskRepository repository) {
+  JiraSoapTask(@NotNull Element element, @NotNull TaskRepository repository) {
     super(repository);
     myKey = element.getChildText("key");
     mySummary = element.getChildText("summary");
@@ -96,23 +95,27 @@ class JiraSoapTask extends JiraTask {
     }
   }
 
+  @Override
   @NotNull
   public String getId() {
     return myKey;
   }
 
+  @Override
   @NotNull
   public String getSummary() {
     return mySummary;
   }
 
+  @Override
   public String getDescription() {
     return myDescription;
   }
 
+  @Override
   @NotNull
   public Comment[] getComments() {
-    return myComments.toArray(new Comment[myComments.size()]);
+    return myComments.toArray(Comment.EMPTY_ARRAY);
   }
 
   @Nullable

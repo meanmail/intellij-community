@@ -15,7 +15,7 @@
  */
 package org.jetbrains.java.generate.inspection
 
-import com.intellij.openapi.application.Result
+
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiFile
@@ -23,12 +23,13 @@ import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiMember
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
 import org.jetbrains.annotations.NotNull
+import org.jetbrains.java.generate.GenerateToStringActionHandlerImpl
+import org.jetbrains.java.generate.GenerateToStringContext
+import org.jetbrains.java.generate.GenerateToStringWorker
 import org.jetbrains.java.generate.config.ConflictResolutionPolicy
 import org.jetbrains.java.generate.config.ReplacePolicy
 import org.jetbrains.java.generate.template.TemplateResource
-import org.jetbrains.java.generate.GenerateToStringWorker
 import org.jetbrains.java.generate.template.toString.ToStringTemplatesManager
-
 /**
  * Created by Max Medvedev on 07/03/14
  */
@@ -69,6 +70,115 @@ public class Foobar  {
 ''', ReplacePolicy.instance)
   }
 
+ void testProtectedFieldInSuper() throws Exception {
+    doTest('''\
+class Foobar extends Foo {
+    private int bar;
+    <caret> 
+}
+class Foo  {
+    protected int foo;
+}
+''', '''\
+class Foobar extends Foo {
+    private int bar;
+
+    @Override
+    public String toString() {
+        return "Foobar{" +
+                "foo=" + foo +
+                ", bar=" + bar +
+                '}';
+    }
+}
+class Foo  {
+    protected int foo;
+}
+''', ReplacePolicy.instance)
+  }
+
+ void testPrivateFieldWithGetterInSuper() throws Exception {
+   def config = GenerateToStringContext.getConfig()
+   config.enableMethods = true
+   try {
+     doTest('''\
+class Foobar extends Foo {
+    private int bar;
+    <caret> 
+}
+class Foo  {
+    private int foo;
+    public int getFoo() {
+       return foo;
+    }
+}
+''', '''\
+class Foobar extends Foo {
+    private int bar;
+
+    @Override
+    public String toString() {
+        return "Foobar{" +
+                "foo=" + getFoo() +
+                ", bar=" + bar +
+                '}';
+    }
+}
+class Foo  {
+    private int foo;
+    public int getFoo() {
+       return foo;
+    }
+}
+''', ReplacePolicy.instance)
+   }
+   finally {
+     config.enableMethods = false
+   }
+  }
+
+  void testPrivateFieldWithGetterInSuperSortSuperFirst() throws Exception {
+   def config = GenerateToStringContext.getConfig()
+   config.enableMethods = true
+   config.sortElements = 3
+   try {
+     doTest('''\
+class Foobar extends Foo {
+    private int bar;
+    <caret> 
+}
+class Foo  {
+    private int foo;
+    public int getFoo() {
+       return foo;
+    }
+}
+''', '''\
+class Foobar extends Foo {
+    private int bar;
+
+    @Override
+    public String toString() {
+        return "Foobar{" +
+                "foo=" + getFoo() +
+                ", bar=" + bar +
+                '}';
+    }
+}
+class Foo  {
+    private int foo;
+    public int getFoo() {
+       return foo;
+    }
+}
+''', ReplacePolicy.instance)
+   }
+   finally {
+     config.enableMethods = false
+     config.sortElements = 0
+   }
+  }
+
   private void doTest(@NotNull String before,
                       @NotNull String after,
                       @NotNull ConflictResolutionPolicy policy,
@@ -79,12 +189,9 @@ public class Foobar  {
     Collection<PsiMember> members = collectMembers(clazz)
     GenerateToStringWorker worker = buildWorker(clazz, policy)
 
-    new WriteCommandAction(myFixture.project, myFixture.file) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        worker.execute(members, template)
-      }
-    }.execute()
+    WriteCommandAction.runWriteCommandAction(myFixture.project, "","", {
+        worker.execute(members, template, policy)
+      }, myFixture.file)
 
     myFixture.checkResult(after)
   }
@@ -109,7 +216,15 @@ public class Foobar  {
 
   @NotNull
   private static Collection<PsiMember> collectMembers(@NotNull PsiClass clazz) {
-    clazz.fields as List
+    def memberElements = GenerateToStringActionHandlerImpl.buildMembersToShow(clazz)
+    memberElements.collect {mem -> (PsiMember) mem.element}. sort { o1, o2 -> compareMembers(o1, o2) }
+  }
+
+  private static int compareMembers(PsiMember o1, PsiMember o2) {
+    def c1 = o1.getContainingClass()
+    def c2 = o2.getContainingClass()
+    c1 == c2 ? o2.getName() <=> o1.getName() //descending
+             : c1.isInheritor(c2, true) ? 1 : -1
   }
 
   @NotNull
@@ -118,7 +233,7 @@ public class Foobar  {
     assert file instanceof PsiJavaFile
     PsiClass[] classes = file.classes
 
-    assert classes.length == 1
+    assert classes.length > 0
     classes[0]
   }
 }

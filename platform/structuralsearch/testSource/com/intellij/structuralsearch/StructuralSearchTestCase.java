@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch;
 
 import com.intellij.codeInsight.daemon.quickFix.LightQuickFixTestCase;
@@ -21,16 +7,20 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.pom.java.LanguageLevel;
-import com.intellij.structuralsearch.impl.matcher.MatcherImpl;
-import com.intellij.structuralsearch.impl.matcher.MatcherImplUtil;
+import com.intellij.psi.PsiElement;
+import com.intellij.structuralsearch.impl.matcher.CompiledPattern;
+import com.intellij.structuralsearch.impl.matcher.compiler.PatternCompiler;
+import com.intellij.structuralsearch.plugin.ui.UIUtil;
+import com.intellij.util.SmartList;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
 
-abstract class StructuralSearchTestCase extends LightQuickFixTestCase {
+public abstract class StructuralSearchTestCase extends LightQuickFixTestCase {
   protected MatchOptions options;
   protected Matcher testMatcher;
 
@@ -38,10 +28,8 @@ abstract class StructuralSearchTestCase extends LightQuickFixTestCase {
   protected void setUp() throws Exception {
     super.setUp();
 
-    StructuralSearchUtil.ourUseUniversalMatchingAlgorithm = false;
     testMatcher = new Matcher(getProject());
     options = new MatchOptions();
-    options.setLooseMatching(true);
     options.setRecursiveSearch(true);
     LanguageLevelProjectExtension.getInstance(getProject()).setLanguageLevel(LanguageLevel.JDK_1_5);
   }
@@ -53,53 +41,70 @@ abstract class StructuralSearchTestCase extends LightQuickFixTestCase {
     super.tearDown();
   }
 
-  protected int findMatchesCount(String in, String pattern, boolean filePattern, FileType fileType) {
-    return findMatches(in,pattern,filePattern, fileType).size();
+  protected int findMatchesCount(String in, String pattern, FileType fileType) {
+    return findMatches(in, pattern, fileType).size();
   }
 
   protected List<MatchResult> findMatches(String in,
                                           String pattern,
-                                          boolean filePattern,
                                           FileType patternFileType,
                                           Language patternLanguage,
                                           FileType sourceFileType,
                                           String sourceExtension,
                                           boolean physicalSourceFile) {
-    return findMatches(in, pattern, filePattern, patternFileType, patternLanguage, sourceFileType, sourceExtension, physicalSourceFile, true);
-  }
-
-  protected List<MatchResult> findMatches(String in,
-                                          String pattern,
-                                          boolean filePattern,
-                                          FileType patternFileType,
-                                          Language patternLanguage,
-                                          FileType sourceFileType,
-                                          String sourceExtension,
-                                          boolean physicalSourceFile,
-                                          boolean transform) {
-    options.clearVariableConstraints();
-    options.setSearchPattern(pattern);
-    if (transform) {
-      MatcherImplUtil.transform(options);
-    }
-    pattern = options.getSearchPattern();
+    options.fillSearchCriteria(pattern);
     options.setFileType(patternFileType);
     options.setDialect(patternLanguage);
 
-    MatcherImpl.validate(getProject(), options);
-    return testMatcher.testFindMatches(in, pattern, options, filePattern, sourceFileType, sourceExtension, physicalSourceFile);
+    final String message = checkApplicableConstraints(options);
+    assertNull(message, message);
+    return testMatcher.testFindMatches(in, options, true, sourceFileType, sourceExtension, physicalSourceFile);
   }
 
-  protected List<MatchResult> findMatches(String in, String pattern, boolean filePattern, FileType patternFileType) {
-    return findMatches(in, pattern, filePattern, patternFileType, null, patternFileType, null, false);
+  public static String checkApplicableConstraints(MatchOptions options) {
+    final CompiledPattern compiledPattern = PatternCompiler.compilePattern(getProject(), options, true);
+    final StructuralSearchProfile profile = StructuralSearchUtil.getProfileByFileType(options.getFileType());
+    assert profile != null;
+    for (String varName : options.getVariableConstraintNames()) {
+      final List<PsiElement> nodes = compiledPattern.getVariableNodes(varName);
+      final MatchVariableConstraint constraint = options.getVariableConstraint(varName);
+      final List<String> usedConstraints = new SmartList<>();
+      if (!StringUtil.isEmpty(constraint.getRegExp())) {
+        usedConstraints.add(UIUtil.TEXT);
+      }
+      if (constraint.isWithinHierarchy()) {
+        usedConstraints.add(UIUtil.TEXT_HIERARCHY);
+      }
+      if (constraint.getMinCount() == 0) {
+        usedConstraints.add(UIUtil.MINIMUM_ZERO);
+      }
+      if (constraint.getMaxCount() > 1) {
+        usedConstraints.add(UIUtil.MAXIMUM_UNLIMITED);
+      }
+      if (!StringUtil.isEmpty(constraint.getNameOfExprType())) {
+        usedConstraints.add(UIUtil.TYPE);
+      }
+      if (!StringUtil.isEmpty(constraint.getNameOfFormalArgType())) {
+        usedConstraints.add(UIUtil.EXPECTED_TYPE);
+      }
+      if (!StringUtil.isEmpty(constraint.getReferenceConstraint())) {
+        usedConstraints.add(UIUtil.REFERENCE);
+      }
+      for (String usedConstraint : usedConstraints) {
+        if (!profile.isApplicableConstraint(usedConstraint, nodes, false, constraint.isPartOfSearchResults())) {
+          return usedConstraint + " not applicable for " + varName;
+        }
+      }
+    }
+    return null;
   }
 
-  protected int findMatchesCount(String in, String pattern, boolean filePattern) {
-    return findMatchesCount(in, pattern,filePattern, StdFileTypes.JAVA);
+  protected List<MatchResult> findMatches(String in, String pattern, FileType patternFileType) {
+    return findMatches(in, pattern, patternFileType, null, patternFileType, null, false);
   }
 
   protected int findMatchesCount(String in, String pattern) {
-    return findMatchesCount(in,pattern,false);
+    return findMatchesCount(in, pattern, StdFileTypes.JAVA);
   }
 
   protected String loadFile(String fileName) throws IOException {

@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tools;
 
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
-import com.intellij.execution.configurations.PathEnvironmentVariableUtil;
+import com.intellij.execution.configurations.PtyCommandLine;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.process.ProcessHandler;
@@ -38,6 +24,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.options.SchemeElement;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -50,17 +37,21 @@ import java.util.Collections;
 
 public class Tool implements SchemeElement {
   private static final Logger LOG = Logger.getInstance("#" + Tool.class.getPackage().getName());
-  
+
   @NonNls public static final String ACTION_ID_PREFIX = "Tool_";
 
   public static final String DEFAULT_GROUP_NAME = "External Tools";
   private String myName;
   private String myDescription;
   @NotNull private String myGroup = DEFAULT_GROUP_NAME;
+
+  // These 4 fields and everything related are effectively not used anymore, see IDEA-190856.
+  // Let's keep them for a while for compatibility in case we have to reconsider.
   private boolean myShownInMainMenu;
   private boolean myShownInEditor;
   private boolean myShownInProjectViews;
   private boolean myShownInSearchResultsPopup;
+
   private boolean myEnabled;
 
   private boolean myUseConsole;
@@ -210,7 +201,7 @@ public class Tool implements SchemeElement {
   }
 
   public FilterInfo[] getOutputFilters() {
-    return myOutputFilters.toArray(new FilterInfo[myOutputFilters.size()]);
+    return myOutputFilters.toArray(new FilterInfo[0]);
   }
 
   public void copyFrom(Tool source) {
@@ -269,9 +260,16 @@ public class Tool implements SchemeElement {
   }
 
   public void execute(AnActionEvent event, DataContext dataContext, long executionId, @Nullable final ProcessListener processListener) {
+    executeIfPossible(event, dataContext, executionId, processListener);
+  }
+
+  public boolean executeIfPossible(AnActionEvent event,
+                                   DataContext dataContext,
+                                   long executionId,
+                                   @Nullable final ProcessListener processListener) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
-      return;
+      return false;
     }
 
     FileDocumentManager.getInstance().saveAllDocuments();
@@ -280,6 +278,10 @@ public class Tool implements SchemeElement {
         ExecutionEnvironment environment = ExecutionEnvironmentBuilder.create(project,
                                                                               DefaultRunExecutor.getRunExecutorInstance(),
                                                                               new ToolRunProfile(this, dataContext)).build();
+        if (environment.getState() == null) {
+          return false;
+        }
+
         environment.setExecutionId(executionId);
         environment.getRunner().execute(environment, new ProgramRunner.Callback() {
           @Override
@@ -295,7 +297,7 @@ public class Tool implements SchemeElement {
       else {
         GeneralCommandLine commandLine = createCommandLine(dataContext);
         if (commandLine == null) {
-          return;
+          return false;
         }
         OSProcessHandler handler = new OSProcessHandler(commandLine);
         handler.addProcessListener(new ToolProcessAdapter(project, synchronizeAfterExecution(), getName()));
@@ -307,7 +309,9 @@ public class Tool implements SchemeElement {
     }
     catch (ExecutionException ex) {
       ExecutionErrorDialog.show(ex, ToolsBundle.message("tools.process.start.error"), project);
+      return false;
     }
+    return true;
   }
 
   @Nullable
@@ -316,7 +320,9 @@ public class Tool implements SchemeElement {
       setWorkingDirectory("$ProjectFileDir$");
     }
 
-    GeneralCommandLine commandLine = new GeneralCommandLine();
+    GeneralCommandLine commandLine = Registry.is("use.tty.for.external.tools", false)
+                                     ? new PtyCommandLine().withConsoleMode(true)
+                                     : new GeneralCommandLine();
     try {
       String paramString = MacroManager.getInstance().expandMacrosInString(getParameters(), true, dataContext);
       String workingDir = MacroManager.getInstance().expandMacrosInString(getWorkingDirectory(), true, dataContext);
@@ -337,14 +343,13 @@ public class Tool implements SchemeElement {
         commandLine.getParametersList().prependAll("-a", exePath);
       }
       else {
-        exePath = PathEnvironmentVariableUtil.toLocatableExePath(exePath);
         commandLine.setExePath(exePath);
       }
     }
     catch (Macro.ExecutionCancelledException ignored) {
       return null;
     }
-    return commandLine;
+    return ToolsCustomizer.customizeCommandLine(commandLine, dataContext);
   }
 
   @Override

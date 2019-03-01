@@ -183,7 +183,7 @@ public class MemberSignature implements Comparable<MemberSignature> {
           }
         }
         if (psiClass != null) {
-          final StringBuilder postFix = new StringBuilder("");
+          final StringBuilder postFix = new StringBuilder();
           PsiClass containingClass = psiClass.getContainingClass();
           while (containingClass != null) {
             // construct name for inner classes
@@ -217,10 +217,7 @@ public class MemberSignature implements Comparable<MemberSignature> {
              signature.equals(other.signature) &&
              modifiers == other.modifiers;
     }
-    catch (ClassCastException ignored) {
-      return false;
-    }
-    catch (NullPointerException ignored) {
+    catch (ClassCastException | NullPointerException ignored) {
       return false;
     }
   }

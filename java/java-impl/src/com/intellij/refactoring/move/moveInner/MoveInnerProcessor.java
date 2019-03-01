@@ -42,10 +42,8 @@ import com.intellij.refactoring.util.NonCodeUsageInfo;
 import com.intellij.refactoring.util.RefactoringUIUtil;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -89,15 +87,19 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
     setup(innerClass, name, passOuterClass, parameterName, true, true, targetContainer);
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return RefactoringBundle.message("move.inner.class.command", myDescriptiveName);
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     return new MoveInnerViewDescriptor(myInnerClass);
   }
 
+  @Override
   @NotNull
   protected UsageInfo[] findUsages() {
     LOG.assertTrue(myTargetContainer != null);
@@ -132,9 +134,10 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
     }
     MoveClassesOrPackagesUtil.findNonCodeUsages(mySearchInComments, mySearchInNonJavaFiles,
                                                 myInnerClass, newQName, usageInfos);
-    return usageInfos.toArray(new UsageInfo[usageInfos.size()]);
+    return usageInfos.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
+  @Override
   protected void refreshElements(@NotNull PsiElement[] elements) {
     boolean condition = elements.length == 1 && elements[0] instanceof PsiClass;
     LOG.assertTrue(condition);
@@ -157,9 +160,10 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
     mySearchInNonJavaFiles = searchInNonJavaFiles;
   }
 
+  @Override
   protected void performRefactoring(@NotNull final UsageInfo[] usages) {
     final PsiManager manager = PsiManager.getInstance(myProject);
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
 
     final RefactoringElementListener elementListener = getTransaction().getElementListener(myInnerClass);
     try {
@@ -188,12 +192,17 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
       }
 
       // replace references in a new class to old inner class with references to itself
-      for (PsiReference ref : ReferencesSearch.search(myInnerClass, new LocalSearchScope(newClass), true)) {
+      for (PsiReference ref : ReferencesSearch.search(myInnerClass, new LocalSearchScope(newClass.getContainingFile()), true)) {
         PsiElement element = ref.getElement();
         if (element.getParent() instanceof PsiJavaCodeReferenceElement) {
           PsiJavaCodeReferenceElement parentRef = (PsiJavaCodeReferenceElement)element.getParent();
           PsiElement parentRefElement = parentRef.resolve();
           if (parentRefElement instanceof PsiClass) { // reference to inner class inside our inner
+            PsiImportStatementBase insertedImport = PsiTreeUtil.getParentOfType(parentRef, PsiImportStatementBase.class);
+            if (insertedImport != null) {
+              insertedImport.delete();
+              continue;
+            }
             final PsiReferenceList referenceList = PsiTreeUtil.getTopmostParentOfType(parentRef, PsiReferenceList.class);
             if (referenceList == null || referenceList.getParent() != newClass) {
               parentRef.getQualifier().delete();
@@ -220,11 +229,14 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
 
       // correct references in usages
       for (UsageInfo usage : usages) {
-        if (usage.isNonCodeUsage || myParameterNameOuterClass == null) continue; // should pass outer as parameter
+        if (usage.isNonCodeUsage) continue; // should pass outer as parameter
 
-        MoveInnerClassUsagesHandler usagesHandler = MoveInnerClassUsagesHandler.EP_NAME.forLanguage(usage.getElement().getLanguage());
+        PsiElement element = usage.getElement();
+        if (element == null) continue;
+
+        MoveInnerClassUsagesHandler usagesHandler = MoveInnerClassUsagesHandler.EP_NAME.forLanguage(element.getLanguage());
         if (usagesHandler != null) {
-          usagesHandler.correctInnerClassUsage(usage, myOuterClass);
+          usagesHandler.correctInnerClassUsage(usage, myOuterClass, myParameterNameOuterClass);
         }
       }
 
@@ -288,7 +300,7 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
           nonCodeUsages.add((NonCodeUsageInfo)usage);
         }
       }
-      myNonCodeUsages = nonCodeUsages.toArray(new NonCodeUsageInfo[nonCodeUsages.size()]);
+      myNonCodeUsages = nonCodeUsages.toArray(new NonCodeUsageInfo[0]);
     }
     catch (IncorrectOperationException e) {
       LOG.error(e);
@@ -308,12 +320,14 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
     return (PsiField)myInnerClass.add(field);
   }
 
+  @Override
   protected void performPsiSpoilingRefactoring() {
     if (myNonCodeUsages != null) {
       RenameUtil.renameNonCodeUsages(myProject, myNonCodeUsages);
     }
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
     final HashMap<PsiElement,HashSet<PsiElement>> reported = new HashMap<>();
@@ -436,7 +450,7 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
     throws IncorrectOperationException {
 
     PsiMethod[] constructors = aClass.getConstructors();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
     if (constructors.length > 0) {
       for (PsiMethod constructor : constructors) {
         if (parameterName != null) {
@@ -477,7 +491,7 @@ public class MoveInnerProcessor extends BaseRefactoringProcessor {
   private PsiStatement createAssignmentStatement(PsiMethod constructor, String fieldName, String parameterName)
     throws IncorrectOperationException {
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myProject);
     @NonNls String pattern = fieldName + "=a;";
     if (fieldName.equals(parameterName)) {
       pattern = "this." + pattern;

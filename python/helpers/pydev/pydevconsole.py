@@ -1,7 +1,10 @@
 '''
 Entry point module to start the interactive console.
 '''
+from _pydev_bundle._pydev_getopt import gnu_getopt
+from _pydev_comm.rpc import make_rpc_client, start_rpc_server, start_rpc_server_and_make_client
 from _pydev_imps._pydev_saved_modules import thread
+
 start_new_thread = thread.start_new_thread
 
 try:
@@ -9,76 +12,29 @@ try:
 except ImportError:
     from _pydevd_bundle.pydevconsole_code_for_ironpython import InteractiveConsole
 
-from code import compile_command
-from code import InteractiveInterpreter
-
 import os
 import sys
 
 from _pydev_imps._pydev_saved_modules import threading
+from _pydevd_bundle.pydevd_constants import INTERACTIVE_MODE_AVAILABLE, dict_keys
+from _pydevd_bundle.pydevd_utils import save_main_module
 
-import traceback
 from _pydev_bundle import fix_getpass
 fix_getpass.fix_getpass()
 
-from _pydevd_bundle import pydevd_vars, pydevd_save_locals
-
-from _pydev_bundle.pydev_imports import Exec, _queue
+from _pydev_bundle.pydev_imports import _queue
 
 try:
     import __builtin__
 except:
     import builtins as __builtin__  # @UnresolvedImport
 
-try:
-    False
-    True
-except NameError: # version < 2.3 -- didn't have the True/False builtins
-    import __builtin__
+from _pydev_bundle.pydev_stdin import BaseStdIn
+from _pydev_bundle.pydev_console_utils import BaseInterpreterInterface
+from _pydev_bundle.pydev_console_types import Command
 
-    setattr(__builtin__, 'True', 1) #Python 3.0 does not accept __builtin__.True = 1 in its syntax
-    setattr(__builtin__, 'False', 0)
-
-from _pydev_bundle.pydev_console_utils import BaseInterpreterInterface, BaseStdIn
-from _pydev_bundle.pydev_console_utils import CodeFragment
-
-IS_PYTHON_3K = False
-IS_PY24 = False
-
-try:
-    if sys.version_info[0] == 3:
-        IS_PYTHON_3K = True
-    elif sys.version_info[0] == 2 and sys.version_info[1] == 4:
-        IS_PY24 = True
-except:
-    #That's OK, not all versions of python have sys.version_info
-    pass
-
-
-class Command:
-    def __init__(self, interpreter, code_fragment):
-        """
-        :type code_fragment: CodeFragment
-        :type interpreter: InteractiveConsole
-        """
-        self.interpreter = interpreter
-        self.code_fragment = code_fragment
-        self.more = None
-
-
-    def symbol_for_fragment(code_fragment):
-        if code_fragment.is_single_line:
-            symbol = 'single'
-        else:
-            symbol = 'exec' # Jython doesn't support this
-        return symbol
-    symbol_for_fragment = staticmethod(symbol_for_fragment)
-
-    def run(self):
-        text = self.code_fragment.text
-        symbol = self.symbol_for_fragment(self.code_fragment)
-
-        self.more = self.interpreter.runsource(text, '<input>', symbol)
+IS_PYTHON_3_ONWARDS = sys.version_info[0] >= 3
+IS_PY24 = sys.version_info[0] == 2 and sys.version_info[1] == 4
 
 try:
     try:
@@ -92,13 +48,13 @@ except:
 
 # Pull in runfile, the interface to UMD that wraps execfile
 from _pydev_bundle.pydev_umd import runfile, _set_globals_function
-try:
+
+if sys.version_info[0] >= 3:
     import builtins  # @UnresolvedImport
     builtins.runfile = runfile
-except:
+else:
     import __builtin__
     __builtin__.runfile = runfile
-
 
 #=======================================================================================================================
 # InterpreterInterface
@@ -108,42 +64,31 @@ class InterpreterInterface(BaseInterpreterInterface):
         The methods in this class should be registered in the xml-rpc server.
     '''
 
-    def __init__(self, host, client_port, mainThread, show_banner=True):
-        BaseInterpreterInterface.__init__(self, mainThread)
-        self.client_port = client_port
-        self.host = host
+    def __init__(self, mainThread, connect_status_queue=None, rpc_client=None):
+        BaseInterpreterInterface.__init__(self, mainThread, connect_status_queue, rpc_client)
         self.namespace = {}
+        self.save_main()
         self.interpreter = InteractiveConsole(self.namespace)
         self._input_error_printed = False
 
+    def save_main(self):
+        m = save_main_module('<input>', 'pydevconsole')
+        self.namespace = m.__dict__
+        try:
+            self.namespace['__builtins__'] = __builtins__
+        except NameError:
+            pass  # Not there on Jython...
 
     def do_add_exec(self, codeFragment):
         command = Command(self.interpreter, codeFragment)
         command.run()
         return command.more
 
-
     def get_namespace(self):
         return self.namespace
 
-
-    def getCompletions(self, text, act_tok):
-        try:
-            from _pydev_bundle._pydev_completer import Completer
-
-            completer = Completer(self.namespace, None)
-            return completer.complete(act_tok)
-        except:
-            import traceback
-
-            traceback.print_exc()
-            return []
-
     def close(self):
         sys.exit(0)
-
-    def get_greeting_msg(self):
-        return 'PyDev console: starting.\n'
 
 
 class _ProcessExecQueueHelper:
@@ -154,9 +99,16 @@ def set_debug_hook(debug_hook):
     _ProcessExecQueueHelper._debug_hook = debug_hook
 
 
-def process_exec_queue(interpreter):
+def activate_mpl_if_already_imported(interpreter):
+    if interpreter.mpl_modules_for_patching:
+        for module in dict_keys(interpreter.mpl_modules_for_patching):
+            if module in sys.modules:
+                activate_function = interpreter.mpl_modules_for_patching.pop(module)
+                activate_function()
 
-    from pydev_ipython.inputhook import get_inputhook, set_return_control_callback
+
+def init_set_return_control_back(interpreter):
+    from pydev_ipython.inputhook import set_return_control_callback
 
     def return_control():
         ''' A function that the inputhooks can call (via inputhook.stdin_ready()) to find
@@ -178,13 +130,22 @@ def process_exec_queue(interpreter):
 
     set_return_control_callback(return_control)
 
+
+def init_mpl_in_console(interpreter):
+    init_set_return_control_back(interpreter)
+
+    if not INTERACTIVE_MODE_AVAILABLE:
+        return
+
+    activate_mpl_if_already_imported(interpreter)
     from _pydev_bundle.pydev_import_hook import import_hook_manager
-    from pydev_ipython.matplotlibtools import activate_matplotlib, activate_pylab, activate_pyplot
-    import_hook_manager.add_module_name("matplotlib", lambda: activate_matplotlib(interpreter.enableGui))
-    # enable_gui_function in activate_matplotlib should be called in main thread. That's why we call
-    # interpreter.enableGui which put it into the interpreter's exec_queue and executes it in the main thread.
-    import_hook_manager.add_module_name("pylab", activate_pylab)
-    import_hook_manager.add_module_name("pyplot", activate_pyplot)
+    for mod in dict_keys(interpreter.mpl_modules_for_patching):
+        import_hook_manager.add_module_name(mod, interpreter.mpl_modules_for_patching.pop(mod))
+
+
+def process_exec_queue(interpreter):
+    init_mpl_in_console(interpreter)
+    from pydev_ipython.inputhook import get_inputhook
 
     while 1:
         # Running the request may have changed the inputhook in use
@@ -246,6 +207,7 @@ except:
     IPYTHON = False
     pass
 
+
 #=======================================================================================================================
 # _DoExit
 #=======================================================================================================================
@@ -266,91 +228,116 @@ def do_exit(*args):
             os._exit(0)
 
 
-def handshake():
-    return "PyCharm"
+def enable_thrift_logging():
+    """Sets up `thriftpy` logger
+
+    The logger is used in `thriftpy/server.py` for logging exceptions.
+    """
+    import logging
+
+    # create logger
+    logger = logging.getLogger('_shaded_thriftpy')
+    logger.setLevel(logging.DEBUG)
+
+    # create console handler and set level to debug
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+
+    # create formatter
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+    # add formatter to ch
+    ch.setFormatter(formatter)
+
+    # add ch to logger
+    logger.addHandler(ch)
 
 
-#=======================================================================================================================
-# start_console_server
-#=======================================================================================================================
-def start_console_server(host, port, interpreter):
-    if port == 0:
-        host = ''
+def create_server_handler_factory(interpreter):
+    def server_handler_factory(rpc_client):
+        interpreter.rpc_client = rpc_client
+        return interpreter
 
-    #I.e.: supporting the internal Jython version in PyDev to create a Jython interactive console inside Eclipse.
-    from _pydev_bundle.pydev_imports import SimpleXMLRPCServer as XMLRPCServer  #@Reimport
+    return server_handler_factory
 
-    try:
-        if IS_PY24:
-            server = XMLRPCServer((host, port), logRequests=False)
-        else:
-            server = XMLRPCServer((host, port), logRequests=False, allow_none=True)
+def start_server(port):
+    if port is None:
+        port = 0
 
-    except:
-        sys.stderr.write('Error starting server with host: "%s", port: "%s", client_port: "%s"\n' % (host, port, interpreter.client_port))
-        sys.stderr.flush()
-        raise
+    # 0. General stuff
 
-    # Tell UMD the proper default namespace
-    _set_globals_function(interpreter.get_namespace)
-
-    server.register_function(interpreter.execLine)
-    server.register_function(interpreter.execMultipleLines)
-    server.register_function(interpreter.getCompletions)
-    server.register_function(interpreter.getFrame)
-    server.register_function(interpreter.getVariable)
-    server.register_function(interpreter.changeVariable)
-    server.register_function(interpreter.getDescription)
-    server.register_function(interpreter.close)
-    server.register_function(interpreter.interrupt)
-    server.register_function(handshake)
-    server.register_function(interpreter.connectToDebugger)
-    server.register_function(interpreter.hello)
-    server.register_function(interpreter.getArray)
-    server.register_function(interpreter.evaluate)
-
-    # Functions for GUI main loop integration
-    server.register_function(interpreter.enableGui)
-
-    if port == 0:
-        (h, port) = server.socket.getsockname()
-
-        print(port)
-        print(interpreter.client_port)
-
-
-    sys.stderr.write(interpreter.get_greeting_msg())
-    sys.stderr.flush()
-
-    while True:
-        try:
-            server.serve_forever()
-        except:
-            # Ugly code to be py2/3 compatible
-            # https://sw-brainwy.rhcloud.com/tracker/PyDev/534:
-            # Unhandled "interrupted system call" error in the pydevconsol.py
-            e = sys.exc_info()[1]
-            retry = False
-            try:
-                retry = e.args[0] == 4 #errno.EINTR
-            except:
-                pass
-            if not retry:
-                raise
-            # Otherwise, keep on going
-    return server
-
-
-def start_server(host, port, client_port):
     #replace exit (see comments on method)
     #note that this does not work in jython!!! (sys method can't be replaced).
     sys.exit = do_exit
 
-    interpreter = InterpreterInterface(host, client_port, threading.currentThread())
+    from pydev_console.protocol import PythonConsoleBackendService, PythonConsoleFrontendService
 
-    start_new_thread(start_console_server,(host, port, interpreter))
+    enable_thrift_logging()
+
+    server_service = PythonConsoleBackendService
+    client_service = PythonConsoleFrontendService
+
+    # 1. Start Python console server
+
+    # `InterpreterInterface` implements all methods required for `server_handler`
+    interpreter = InterpreterInterface(threading.currentThread())
+
+    # Tell UMD the proper default namespace
+    _set_globals_function(interpreter.get_namespace)
+
+    server_socket = start_rpc_server_and_make_client('', port, server_service, client_service, create_server_handler_factory(interpreter))
+
+    # 2. Print server port for the IDE
+
+    _, server_port = server_socket.getsockname()
+    print(server_port)
+
+    # 3. Wait for IDE to connect to the server
 
     process_exec_queue(interpreter)
+
+
+def start_client(host, port):
+    #replace exit (see comments on method)
+    #note that this does not work in jython!!! (sys method can't be replaced).
+    sys.exit = do_exit
+
+    from pydev_console.protocol import PythonConsoleBackendService, PythonConsoleFrontendService
+
+    enable_thrift_logging()
+
+    client_service = PythonConsoleFrontendService
+
+    client, server_transport = make_rpc_client(client_service, host, port)
+
+    interpreter = InterpreterInterface(threading.currentThread(), rpc_client=client)
+
+    # we do not need to start the server in a new thread because it does not need to accept a client connection, it already has it
+
+    # Tell UMD the proper default namespace
+    _set_globals_function(interpreter.get_namespace)
+
+    server_service = PythonConsoleBackendService
+
+    # `InterpreterInterface` implements all methods required for the handler
+    server_handler = interpreter
+
+    start_rpc_server(server_transport, server_service, server_handler)
+
+    process_exec_queue(interpreter)
+
+
+def get_ipython_hidden_vars():
+    if IPYTHON and hasattr(__builtin__, 'interpreter'):
+        interpreter = get_interpreter()
+        return interpreter.get_ipython_hidden_vars_dict()
+    else:
+        try:
+            ipython_shell = get_ipython()
+            from _pydev_bundle.pydev_ipython_console_011 import get_ipython_hidden_vars
+            return get_ipython_hidden_vars(ipython_shell)
+        except:
+            pass
 
 
 def get_interpreter():
@@ -358,9 +345,8 @@ def get_interpreter():
         interpreterInterface = getattr(__builtin__, 'interpreter')
     except AttributeError:
         interpreterInterface = InterpreterInterface(None, None, threading.currentThread())
-        setattr(__builtin__, 'interpreter', interpreterInterface)
-        sys.stderr.write(interpreterInterface.get_greeting_msg())
-        sys.stderr.flush()
+        __builtin__.interpreter = interpreterInterface
+        print(interpreterInterface.get_greeting_msg())
 
     return interpreterInterface
 
@@ -372,125 +358,6 @@ def get_completions(text, token, globals, locals):
 
     return interpreterInterface.getCompletions(text, token)
 
-#===============================================================================
-# Debugger integration
-#===============================================================================
-
-def exec_code(code, globals, locals, debugger):
-    interpreterInterface = get_interpreter()
-    interpreterInterface.interpreter.update(globals, locals)
-
-    res = interpreterInterface.need_more(code)
-
-    if res:
-        return True
-
-    interpreterInterface.add_exec(code, debugger)
-
-    return False
-
-
-
-class ConsoleWriter(InteractiveInterpreter):
-    skip = 0
-
-    def __init__(self, locals=None):
-        InteractiveInterpreter.__init__(self, locals)
-
-    def write(self, data):
-        #if (data.find("global_vars") == -1 and data.find("pydevd") == -1):
-        if self.skip > 0:
-            self.skip -= 1
-        else:
-            if data == "Traceback (most recent call last):\n":
-                self.skip = 1
-            sys.stderr.write(data)
-
-    def showsyntaxerror(self, filename=None):
-        """Display the syntax error that just occurred."""
-        #Override for avoid using sys.excepthook PY-12600
-        type, value, tb = sys.exc_info()
-        sys.last_type = type
-        sys.last_value = value
-        sys.last_traceback = tb
-        if filename and type is SyntaxError:
-            # Work hard to stuff the correct filename in the exception
-            try:
-                msg, (dummy_filename, lineno, offset, line) = value.args
-            except ValueError:
-                # Not the format we expect; leave it alone
-                pass
-            else:
-                # Stuff in the right filename
-                value = SyntaxError(msg, (filename, lineno, offset, line))
-                sys.last_value = value
-        list = traceback.format_exception_only(type, value)
-        sys.stderr.write(''.join(list))
-
-    def showtraceback(self):
-        """Display the exception that just occurred."""
-        #Override for avoid using sys.excepthook PY-12600
-        try:
-            type, value, tb = sys.exc_info()
-            sys.last_type = type
-            sys.last_value = value
-            sys.last_traceback = tb
-            tblist = traceback.extract_tb(tb)
-            del tblist[:1]
-            lines = traceback.format_list(tblist)
-            if lines:
-                lines.insert(0, "Traceback (most recent call last):\n")
-            lines.extend(traceback.format_exception_only(type, value))
-        finally:
-            tblist = tb = None
-        sys.stderr.write(''.join(lines))
-
-def console_exec(thread_id, frame_id, expression, dbg):
-    """returns 'False' in case expression is partially correct
-    """
-    frame = pydevd_vars.find_frame(thread_id, frame_id)
-
-    expression = str(expression.replace('@LINE@', '\n'))
-
-    #Not using frame.f_globals because of https://sourceforge.net/tracker2/?func=detail&aid=2541355&group_id=85796&atid=577329
-    #(Names not resolved in generator expression in method)
-    #See message: http://mail.python.org/pipermail/python-list/2009-January/526522.html
-    updated_globals = {}
-    updated_globals.update(frame.f_globals)
-    updated_globals.update(frame.f_locals) #locals later because it has precedence over the actual globals
-
-    if IPYTHON:
-        need_more =  exec_code(CodeFragment(expression), updated_globals, frame.f_locals, dbg)
-        if not need_more:
-            pydevd_save_locals.save_locals(frame)
-        return need_more
-
-
-    interpreter = ConsoleWriter()
-
-    try:
-        code = compile_command(expression)
-    except (OverflowError, SyntaxError, ValueError):
-        # Case 1
-        interpreter.showsyntaxerror()
-        return False
-
-    if code is None:
-        # Case 2
-        return True
-
-    #Case 3
-
-    try:
-        Exec(code, updated_globals, frame.f_locals)
-
-    except SystemExit:
-        raise
-    except:
-        interpreter.showtraceback()
-    else:
-        pydevd_save_locals.save_locals(frame)
-    return False
 
 #=======================================================================================================================
 # main
@@ -503,12 +370,32 @@ if __name__ == '__main__':
     #'Variables' and 'Expressions' views stopped working when debugging interactive console
     import pydevconsole
     sys.stdin = pydevconsole.BaseStdIn(sys.stdin)
-    port, client_port = sys.argv[1:3]
-    from _pydev_bundle import pydev_localhost
 
-    if int(port) == 0 and int(client_port) == 0:
-        (h, p) = pydev_localhost.get_socket_name()
+    # parse command-line arguments
+    optlist, _ = gnu_getopt(sys.argv, 'm:h:p', ['mode=', 'host=', 'port='])
+    mode = None
+    host = None
+    port = None
+    for opt, arg in optlist:
+        if opt in ('-m', '--mode'):
+            mode = arg
+        elif opt in ('-h', '--host'):
+            host = arg
+        elif opt in ('-p', '--port'):
+            port = int(arg)
 
-        client_port = p
+    if mode not in ('client', 'server'):
+        sys.exit(-1)
 
-    pydevconsole.start_server(pydev_localhost.get_localhost(), int(port), int(client_port))
+    if mode == 'client':
+        if not port:
+            # port must be set for client
+            sys.exit(-1)
+
+        if not host:
+            from _pydev_bundle import pydev_localhost
+            host = client_host = pydev_localhost.get_localhost()
+
+        pydevconsole.start_client(host, port)
+    elif mode == 'server':
+        pydevconsole.start_server(port)

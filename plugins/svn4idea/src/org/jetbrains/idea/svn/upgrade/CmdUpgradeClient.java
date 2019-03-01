@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.upgrade;
 
 import com.intellij.execution.process.ProcessOutputTypes;
@@ -11,7 +12,6 @@ import org.jetbrains.idea.svn.api.*;
 import org.jetbrains.idea.svn.commandLine.CommandUtil;
 import org.jetbrains.idea.svn.commandLine.LineCommandAdapter;
 import org.jetbrains.idea.svn.commandLine.SvnCommandName;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -20,9 +20,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author Konstantin Kolosovsky.
- */
 public class CmdUpgradeClient extends BaseSvnClient implements UpgradeClient {
 
   private static final String STATUS = "\\s*(.+?)\\s*";
@@ -47,7 +44,7 @@ public class CmdUpgradeClient extends BaseSvnClient implements UpgradeClient {
     FileStatusResultParser parser = new FileStatusResultParser(CHANGED_PATH, handler, new UpgradeStatusConvertor());
     UpgradeLineCommandListener listener = new UpgradeLineCommandListener(parser);
 
-    execute(myVcs, SvnTarget.fromFile(path), SvnCommandName.upgrade, parameters, listener);
+    execute(myVcs, Target.on(path), SvnCommandName.upgrade, parameters, listener);
     listener.throwIfException();
   }
 
@@ -62,6 +59,7 @@ public class CmdUpgradeClient extends BaseSvnClient implements UpgradeClient {
 
   private static class UpgradeStatusConvertor implements Convertor<Matcher, ProgressEvent> {
 
+    @Override
     public ProgressEvent convert(@NotNull Matcher matcher) {
       String statusMessage = matcher.group(1);
       String path = matcher.group(2);

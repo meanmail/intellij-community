@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author egor
@@ -34,9 +20,11 @@ import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.util.ArrayUtil;
 import com.sun.jdi.Location;
 import com.sun.jdi.ReferenceType;
+import org.jetbrains.annotations.NotNull;
 
 public class AddSteppingFilterAction extends DebuggerAction {
-  public void actionPerformed(final AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final DebuggerContextImpl debuggerContext = DebuggerAction.getDebuggerContext(e.getDataContext());
     DebugProcessImpl process = debuggerContext.getDebugProcess();
     if (process == null) {
@@ -44,7 +32,8 @@ public class AddSteppingFilterAction extends DebuggerAction {
     }
     final StackFrameProxyImpl proxy = PopFrameAction.getStackFrameProxy(e);
     process.getManagerThread().schedule(new DebuggerCommandImpl() {
-      protected void action() throws Exception {
+      @Override
+      protected void action() {
         final String name = getClassName(proxy != null ? proxy : debuggerContext.getFrameProxy());
         if (name == null) {
           return;
@@ -62,7 +51,8 @@ public class AddSteppingFilterAction extends DebuggerAction {
     });
   }
 
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabledAndVisible(PopFrameAction.getStackFrameProxy(e) != null);
   }
 

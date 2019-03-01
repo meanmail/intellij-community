@@ -27,7 +27,6 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
 import gnu.trove.THashSet;
@@ -38,26 +37,17 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/*
-* Created by IntelliJ IDEA.
-* User: sweinreuter
-* Date: 24.08.2007
-*/
 public class DefinitionResolver extends CommonElement.Visitor implements
         CachedValueProvider<Map<String, Set<Define>>>, Factory<Set<Define>> {
 
   private static final Key<CachedValue<Map<String, Set<Define>>>> KEY = Key.create("CACHED_DEFINES");
 
   private static final ThreadLocal<Set<PsiFile>> myVisitedFiles = new ThreadLocal<>();
-  private static final ThreadLocal<Map<String, Set<Define>>> myDefines = new ThreadLocal<Map<String, Set<Define>>>() {
-    @Override
-    protected Map<String, Set<Define>> initialValue() {
-      return ContainerUtil.newHashMap();
-    }
-  };
+  private static final ThreadLocal<Map<String, Set<Define>>> myDefines = ThreadLocal.withInitial(ContainerUtil::newHashMap);
 
   private final Grammar myScope;
 
@@ -71,7 +61,7 @@ public class DefinitionResolver extends CommonElement.Visitor implements
 
     final PsiFile value = include.getInclude();
     if (myVisitedFiles.get() == null) {
-      myVisitedFiles.set(ContainerUtil.<PsiFile>newIdentityTroveSet());
+      myVisitedFiles.set(ContainerUtil.newIdentityTroveSet());
     }
     if (value != null && myVisitedFiles.get().add(value)) {
       doVisitRncOrRngFile(value, this);
@@ -194,7 +184,7 @@ public class DefinitionResolver extends CommonElement.Visitor implements
     private Define myResult;
     private final Set<PsiFile> myVisitedPsiFiles = new HashSet<>();
 
-    public BackwardDefinitionResolver(String value) {
+    BackwardDefinitionResolver(String value) {
       myValue = value;
     }
 

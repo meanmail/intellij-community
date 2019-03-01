@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.Language;
@@ -33,8 +18,7 @@ import java.util.List;
 public class SharedPsiElementImplUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.SharedPsiElementImplUtil");
 
-  private SharedPsiElementImplUtil() {
-  }
+  private SharedPsiElementImplUtil() { }
 
   @Nullable
   public static PsiReference findReferenceAt(PsiElement thisElement, int offset, @Nullable Language lang) {
@@ -44,7 +28,7 @@ public class SharedPsiElementImplUtil {
     if (element == null || element instanceof OuterLanguageElement) return null;
     offset = thisElement.getTextRange().getStartOffset() + offset - element.getTextRange().getStartOffset();
 
-    List<PsiReference> referencesList = new ArrayList<PsiReference>();
+    List<PsiReference> referencesList = new ArrayList<>();
     while (element != null) {
       addReferences(offset, element, referencesList);
       if (element instanceof PsiFile) break;
@@ -58,7 +42,7 @@ public class SharedPsiElementImplUtil {
 
     if (referencesList.isEmpty()) return null;
     if (referencesList.size() == 1) return referencesList.get(0);
-    return new PsiMultiReference(referencesList.toArray(new PsiReference[referencesList.size()]),
+    return new PsiMultiReference(referencesList.toArray(PsiReference.EMPTY_ARRAY),
                                  referencesList.get(referencesList.size() - 1).getElement());
   }
 
@@ -67,7 +51,7 @@ public class SharedPsiElementImplUtil {
     return findReferenceAt(thisElement, offset, null);
   }
 
-  private static void addReferences(int offset, PsiElement element, final Collection<PsiReference> outReferences) {
+  private static void addReferences(int offset, PsiElement element, final Collection<? super PsiReference> outReferences) {
     PsiReference[] references;
     if (element instanceof HintedReferenceHost) {
       references = ((HintedReferenceHost)element).getReferences(new PsiReferenceService.Hints(null, offset));
@@ -91,8 +75,7 @@ public class SharedPsiElementImplUtil {
   @NotNull
   public static PsiReference[] getReferences(PsiElement thisElement) {
     PsiReference ref = thisElement.getReference();
-    if (ref == null) return PsiReference.EMPTY_ARRAY;
-    return new PsiReference[]{ref};
+    return ref != null ? new PsiReference[]{ref} : PsiReference.EMPTY_ARRAY;
   }
 
   @Nullable

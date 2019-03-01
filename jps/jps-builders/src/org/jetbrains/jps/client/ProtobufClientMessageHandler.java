@@ -24,7 +24,6 @@ import org.jetbrains.jps.api.RequestFuture;
 import org.jetbrains.jps.javac.JavacRemoteProto;
 
 import java.util.ArrayList;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,17 +32,16 @@ import java.util.concurrent.Executor;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: 1/22/12
 */
 @ChannelHandler.Sharable
 final class ProtobufClientMessageHandler<T extends ProtobufResponseHandler> extends SimpleChannelInboundHandler<MessageLite> {
-  private final ConcurrentMap<UUID, RequestFuture<T>> myHandlers = new ConcurrentHashMap<UUID, RequestFuture<T>>(16, 0.75f, 1);
+  private final ConcurrentMap<UUID, RequestFuture<T>> myHandlers = new ConcurrentHashMap<>(16, 0.75f, 1);
   @NotNull
   private final UUIDGetter myUuidGetter;
   private final SimpleProtobufClient myClient;
   private final Executor myAsyncExec;
 
-  public ProtobufClientMessageHandler(@NotNull UUIDGetter uuidGetter, SimpleProtobufClient client, Executor asyncExec) {
+  ProtobufClientMessageHandler(@NotNull UUIDGetter uuidGetter, SimpleProtobufClient client, Executor asyncExec) {
     myUuidGetter = uuidGetter;
     myClient = client;
     myAsyncExec = asyncExec;
@@ -103,20 +101,15 @@ final class ProtobufClientMessageHandler<T extends ProtobufResponseHandler> exte
     finally {
       try {
         //invoke 'keySet()' method via 'Map' class because ConcurrentHashMap#keySet() has return type ('KeySetView') which doesn't exist in JDK 1.6/1.7
-        Set<UUID> keys = ((Map<UUID, RequestFuture<T>>)myHandlers).keySet();
+        Set<UUID> keys = myHandlers.keySet();
 
-        for (UUID uuid : new ArrayList<UUID>(keys)) {
+        for (UUID uuid : new ArrayList<>(keys)) {
           terminateSession(uuid);
         }
       }
       finally {
         // make sure the client is in disconnected state
-        myAsyncExec.execute(new Runnable() {
-          @Override
-          public void run() {
-            myClient.disconnect();
-          }
-        });
+        myAsyncExec.execute(() -> myClient.disconnect());
       }
     }
   }

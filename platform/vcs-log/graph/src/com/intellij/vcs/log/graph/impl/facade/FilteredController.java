@@ -20,6 +20,7 @@ import com.intellij.vcs.log.graph.api.elements.GraphElement;
 import com.intellij.vcs.log.graph.api.permanent.PermanentGraphInfo;
 import com.intellij.vcs.log.graph.collapsing.CollapsedGraph;
 import com.intellij.vcs.log.graph.collapsing.DottedFilterEdgesGenerator;
+import com.intellij.vcs.log.graph.utils.DfsWalk;
 import com.intellij.vcs.log.graph.utils.LinearGraphUtils;
 import com.intellij.vcs.log.graph.utils.UnsignedBitSet;
 import org.jetbrains.annotations.NotNull;
@@ -30,12 +31,28 @@ import java.util.Set;
 public class FilteredController extends CascadeController {
   @NotNull private final CollapsedGraph myCollapsedGraph;
 
-  protected FilteredController(@NotNull CascadeController delegateLinearGraphController,
+  protected FilteredController(@NotNull LinearGraphController delegateLinearGraphController,
                                @NotNull PermanentGraphInfo permanentGraphInfo,
                                @NotNull Set<Integer> matchedIds) {
+    this(delegateLinearGraphController, permanentGraphInfo, matchedIds, null);
+  }
+
+  protected FilteredController(@NotNull LinearGraphController delegateLinearGraphController,
+                               @NotNull PermanentGraphInfo permanentGraphInfo,
+                               @NotNull Set<Integer> matchedIds,
+                               @Nullable Set<Integer> visibleHeadsIds) {
     super(delegateLinearGraphController, permanentGraphInfo);
+
     UnsignedBitSet initVisibility = new UnsignedBitSet();
-    for (Integer matchedId : matchedIds) initVisibility.set(matchedId, true);
+    if (visibleHeadsIds != null) {
+      new DfsWalk(visibleHeadsIds, myPermanentGraphInfo.getLinearGraph()).walk(true, node -> {
+        if (matchedIds.contains(node)) initVisibility.set(node, true);
+        return true;
+      });
+    }
+    else {
+      for (Integer matchedId : matchedIds) initVisibility.set(matchedId, true);
+    }
 
     myCollapsedGraph = CollapsedGraph.newInstance(delegateLinearGraphController.getCompiledGraph(), initVisibility);
     DottedFilterEdgesGenerator.update(myCollapsedGraph, 0, myCollapsedGraph.getDelegatedGraph().nodesCount() - 1);
@@ -74,5 +91,10 @@ public class FilteredController extends CascadeController {
   @Override
   public LinearGraph getCompiledGraph() {
     return myCollapsedGraph.getCompiledGraph();
+  }
+
+  @NotNull
+  public CollapsedGraph getCollapsedGraph() {
+    return myCollapsedGraph;
   }
 }

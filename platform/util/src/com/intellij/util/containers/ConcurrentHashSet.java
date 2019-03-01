@@ -16,7 +16,7 @@
 
 package com.intellij.util.containers;
 
-import gnu.trove.TObjectHashingStrategy;
+import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
@@ -27,17 +27,17 @@ import java.util.concurrent.ConcurrentMap;
 /**
  * @deprecated use {@link ContainerUtil#newConcurrentSet()} instead
  */
-public class ConcurrentHashSet<K> implements Set<K> {
+@Deprecated
+public final class ConcurrentHashSet<K> implements Set<K> {
   private final ConcurrentMap<K, Boolean> map;
 
-  public ConcurrentHashSet(int initialCapacity) {
-    map = ContainerUtil.newConcurrentMap(initialCapacity);
-  }
+  /**
+   * @deprecated use {@link ContainerUtil#newConcurrentSet()} instead
+   */
+  @Deprecated
   public ConcurrentHashSet() {
     map = ContainerUtil.newConcurrentMap();
-  }
-  public ConcurrentHashSet(@NotNull TObjectHashingStrategy<K> hashingStrategy) {
-    map = ContainerUtil.newConcurrentMap(hashingStrategy);
+    DeprecatedMethodException.report("Use com.intellij.util.containers.ContainerUtil.newConcurrentSet() instead");
   }
 
   @Override
@@ -116,6 +116,38 @@ public class ConcurrentHashSet<K> implements Set<K> {
   @Override
   public String toString() {
     return map.keySet().toString();
+  }
+
+  @Override
+  public boolean equals(Object obj) {
+    if (this == obj) {
+      return true;
+    }
+
+    if (obj instanceof ConcurrentHashSet) {
+      return map.equals(((ConcurrentHashSet)obj).map);
+    }
+
+    if (!(obj instanceof Set)) {
+      return false;
+    }
+
+    Set<?> c = (Set<?>)obj;
+    if (c.size() != size()) {
+      return false;
+    }
+
+    try {
+      return containsAll(c);
+    }
+    catch (ClassCastException | NullPointerException ignored) {
+      return false;
+    }
+  }
+
+  @Override
+  public int hashCode() {
+    return map.hashCode();
   }
 }
 

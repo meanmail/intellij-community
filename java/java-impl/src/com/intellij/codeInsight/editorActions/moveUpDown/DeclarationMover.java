@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions.moveUpDown;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -20,15 +6,22 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.LogicalPosition;
+import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.impl.source.jsp.jspJava.JspClassLevelDeclarationStatement;
 import com.intellij.psi.impl.source.tree.Factory;
 import com.intellij.psi.impl.source.tree.TreeElement;
+import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,6 +30,7 @@ import java.util.List;
 
 class DeclarationMover extends LineMover {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.editor.actions.moveUpDown.DeclarationMover");
+  @SuppressWarnings("StatefulEp")
   private PsiEnumConstant myEnumToInsertSemicolonAfter;
   private boolean moveEnumConstant;
 
@@ -79,22 +73,27 @@ class DeclarationMover extends LineMover {
       while (Character.isWhitespace(c2)) {
         c2 = cs.charAt(--end2);
       }
-      if (c1 == c2 || c1 != ',' && c2 != ',') {
+      if (c1 == c2 || !contains(info.range1, end1) || !contains(info.range2, end2)) {
         return;
       }
-      if (c1 == ';' || c2 == ';') {
-        document.replaceString(end1, end1 + 1, String.valueOf(c2));
-        document.replaceString(end2, end2 + 1, String.valueOf(c1));
-      }
-      else if (c1 == ',') {
+      if (c1 == ',' || c1 == ';') {
         document.deleteString(end1, end1 + 1);
-        document.insertString(end2 + 1, ",");
+        if (end1 < end2) {
+          end1--;
+          end2--;
+        }
+        document.insertString(end2 + 1, String.valueOf(c1));
       }
-      else {
+      if (c2 == ',' || c2 == ';'){
         document.deleteString(end2, end2 + 1);
-        document.insertString(end1 + 1, ",");
+        if (end2 < end1) end1--;
+        document.insertString(end1 + 1, String.valueOf(c2));
       }
     }
+  }
+
+  private static boolean contains(RangeMarker rangeMarker, int index) {
+    return rangeMarker.getStartOffset() <= index && rangeMarker.getEndOffset() >= index;
   }
 
   @Override
@@ -106,8 +105,7 @@ class DeclarationMover extends LineMover {
     boolean available = super.checkAvailable(editor, file, info, down);
     if (!available) return false;
 
-    LineRange oldRange = info.toMove;
-    final Pair<PsiElement, PsiElement> psiRange = getElementRange(editor, file, oldRange);
+    final Pair<PsiElement, PsiElement> psiRange = getElementRange(editor, file, info.toMove);
     if (psiRange == null) return false;
 
     final PsiMember firstMember = PsiTreeUtil.getParentOfType(psiRange.getFirst(), PsiMember.class, false);
@@ -118,16 +116,20 @@ class DeclarationMover extends LineMover {
         return info.prohibitMove();
       }
       if (tokenType == JavaTokenType.COMMA || tokenType == JavaTokenType.SEMICOLON) {
-        endElement = PsiTreeUtil.skipSiblingsBackward(endElement, PsiWhiteSpace.class);
+        endElement = PsiTreeUtil.skipWhitespacesBackward(endElement);
       }
     }
-    final PsiMember lastMember = PsiTreeUtil.getParentOfType(endElement, PsiMember.class, false);
+    PsiMember lastMember = PsiTreeUtil.getParentOfType(endElement, PsiMember.class, false);
     if (firstMember == null || lastMember == null) return false;
+    if (lastMember instanceof PsiEnumConstantInitializer) {
+      final PsiEnumConstantInitializer enumConstantInitializer = (PsiEnumConstantInitializer)lastMember;
+      lastMember = enumConstantInitializer.getEnumConstant();
+    }
 
     LineRange range;
     if (firstMember == lastMember) {
       moveEnumConstant = firstMember instanceof PsiEnumConstant;
-      range = memberRange(firstMember, editor, oldRange);
+      range = memberRange(firstMember, editor, info.toMove);
       if (range == null) return false;
       range.firstElement = range.lastElement = firstMember;
     }
@@ -137,9 +139,9 @@ class DeclarationMover extends LineMover {
 
       final Pair<PsiElement, PsiElement> combinedRange = getElementRange(parent, firstMember, lastMember);
       if (combinedRange == null) return false;
-      final LineRange lineRange1 = memberRange(combinedRange.getFirst(), editor, oldRange);
+      final LineRange lineRange1 = memberRange(combinedRange.getFirst(), editor, info.toMove);
       if (lineRange1 == null) return false;
-      final LineRange lineRange2 = memberRange(combinedRange.getSecond(), editor, oldRange);
+      final LineRange lineRange2 = memberRange(combinedRange.getSecond(), editor, info.toMove);
       if (lineRange2 == null) return false;
       range = new LineRange(lineRange1.startLine, lineRange2.endLine);
       range.firstElement = combinedRange.getFirst();
@@ -147,49 +149,100 @@ class DeclarationMover extends LineMover {
     }
     Document document = editor.getDocument();
 
-    PsiElement sibling = down ? range.lastElement.getNextSibling() : range.firstElement.getPrevSibling();
-    sibling = firstNonWhiteElement(sibling, down);
-    if (range.lastElement instanceof PsiEnumConstant && sibling instanceof PsiJavaToken) {
-      final PsiJavaToken token = (PsiJavaToken)sibling;
-      final IElementType tokenType = token.getTokenType();
-      if (down && tokenType == JavaTokenType.SEMICOLON) {
-        return info.prohibitMove();
+    PsiElement sibling = (down ? range.endLine >= document.getLineCount() : range.startLine == 0) ? null :
+                         firstNonWhiteElement(down ? document.getLineStartOffset(range.endLine)
+                                                   : document.getLineEndOffset(range.startLine - 1),
+                                              file, down);
+    if (range.lastElement instanceof PsiEnumConstant) {
+      if (sibling instanceof PsiJavaToken) {
+        final PsiJavaToken token = (PsiJavaToken)sibling;
+        final IElementType tokenType = token.getTokenType();
+        if (down && tokenType == JavaTokenType.SEMICOLON) {
+          return info.prohibitMove();
+        }
+        if (tokenType == JavaTokenType.COMMA) {
+          sibling = down ?
+                    PsiTreeUtil.skipWhitespacesForward(sibling) :
+                    PsiTreeUtil.skipWhitespacesBackward(sibling);
+        }
       }
-      if (tokenType == JavaTokenType.COMMA) {
-        sibling = down ?
-                  PsiTreeUtil.skipSiblingsForward(sibling, PsiWhiteSpace.class) :
-                  PsiTreeUtil.skipSiblingsBackward(sibling, PsiWhiteSpace.class);
+      else if (sibling instanceof PsiField && !(sibling instanceof PsiEnumConstant)) {
+        // do not move enum constant past regular field
+        return info.prohibitMove();
       }
     }
     final boolean areWeMovingClass = range.firstElement instanceof PsiClass;
     info.toMove = range;
-    try {
-      LineRange intraClassRange = moveInsideOutsideClassPosition(editor, sibling, down, areWeMovingClass);
-      if (intraClassRange == null) {
-        info.toMove2 = new LineRange(sibling, sibling, document);
-        if (down && sibling.getNextSibling() == null) return false;
-      }
-      else {
-        info.toMove2 = intraClassRange;
-      }
-      if (down ? info.toMove2.startLine < info.toMove.endLine : info.toMove2.endLine > info.toMove.startLine) {
-        return false;
-      }
+
+    int neighbourLine = down ? range.endLine : range.startLine - 1;
+    if (neighbourLine >= 0 && neighbourLine < document.getLineCount() &&
+        CharArrayUtil.containsOnlyWhiteSpaces(document.getImmutableCharSequence().subSequence(document.getLineStartOffset(neighbourLine),
+                                                                                              document.getLineEndOffset(neighbourLine))) &&
+      emptyLineCanBeDeletedAccordingToCodeStyle(file, document, document.getLineEndOffset(neighbourLine))) {
+      info.toMove2 = new LineRange(neighbourLine, neighbourLine + 1);
     }
-    catch (IllegalMoveException e) {
-      info.toMove2 = null;
+    else {
+      try {
+        LineRange intraClassRange = moveInsideOutsideClassPosition(editor, sibling, down, areWeMovingClass);
+        if (intraClassRange == null) {
+          Couple<LineRange> splitRange = extractCommentRange(sibling);
+          info.toMove2 = splitRange.first.startLine == splitRange.first.endLine || !down ? splitRange.second : splitRange.first;
+          if (down && sibling.getNextSibling() == null) return false;
+        }
+        else {
+          info.toMove2 = intraClassRange;
+        }
+        if (down ? info.toMove2.startLine < info.toMove.endLine : info.toMove2.endLine > info.toMove.startLine) {
+          return false;
+        }
+      }
+      catch (IllegalMoveException e) {
+        info.prohibitMove();
+      }
     }
     return true;
+  }
+
+  private static boolean emptyLineCanBeDeletedAccordingToCodeStyle(PsiFile file, Document document, int offset) {
+    CharSequence text = document.getImmutableCharSequence();
+    String whitespace = " \t\n";
+    int whitespaceStartOffset = CharArrayUtil.shiftBackward(text, offset - 1, whitespace) + 1;
+    int whitespaceEndOffset = CharArrayUtil.shiftForward(text, offset, whitespace);
+    int minLineFeeds = CodeStyleManager.getInstance(file.getProject()).getMinLineFeeds(file, whitespaceEndOffset);
+    int actualLineFeeds = StringUtil.countNewLines(text.subSequence(whitespaceStartOffset, whitespaceEndOffset));
+    return actualLineFeeds > minLineFeeds;
   }
 
   private static LineRange memberRange(@NotNull PsiElement member, Editor editor, LineRange lineRange) {
     final TextRange textRange = member.getTextRange();
     if (editor.getDocument().getTextLength() < textRange.getEndOffset()) return null;
-    final int startLine = editor.offsetToLogicalPosition(textRange.getStartOffset()).line;
-    final int endLine = editor.offsetToLogicalPosition(textRange.getEndOffset()).line+1;
+    int startLine = editor.offsetToLogicalPosition(textRange.getStartOffset()).line;
+    int endLine = editor.offsetToLogicalPosition(textRange.getEndOffset()).line+1;
+
+    // if member includes a comment (non-javadoc) and it wasn't selected by user, don't move it with member
+    Couple<LineRange> splitRanges = extractCommentRange(member);
+    if (lineRange.startLine >= splitRanges.first.endLine) startLine = splitRanges.second.startLine;
+    else if (lineRange.endLine < splitRanges.second.startLine) endLine = splitRanges.first.endLine;
+
     if (!isInsideDeclaration(member, startLine, endLine, lineRange, editor)) return null;
 
     return new LineRange(startLine, endLine);
+  }
+
+  private static Couple<LineRange> extractCommentRange(@NotNull PsiElement member) {
+    PsiElement firstChild = member.getFirstChild();
+    PsiElement firstCoreChild = firstChild;
+    while (firstCoreChild instanceof PsiComment && !(firstCoreChild instanceof PsiDocComment) || firstCoreChild instanceof PsiWhiteSpace) {
+      firstCoreChild = firstCoreChild.getNextSibling();
+    }
+    PsiElement lastAttachedChild = PsiTreeUtil.skipWhitespacesBackward(firstCoreChild);
+    if (lastAttachedChild == null) {
+      LineRange wholeRange = new LineRange(member);
+      return Couple.of(new LineRange(wholeRange.startLine, wholeRange.startLine), wholeRange);
+    }
+    else {
+      return Couple.of(new LineRange(firstChild, lastAttachedChild), new LineRange(firstCoreChild, member));
+    }
   }
 
   private static boolean isInsideDeclaration(@NotNull final PsiElement member,
@@ -256,7 +309,7 @@ class DeclarationMover extends LineMover {
     // trying to move up inside enum constant list, move outside of enum class instead
     if (!isDown
         && sibling.getParent() instanceof PsiClass
-        && (sibling instanceof PsiJavaToken && ((PsiJavaToken)sibling).getTokenType() == JavaTokenType.SEMICOLON || sibling instanceof PsiErrorElement)
+        && (PsiUtil.isJavaToken(sibling, JavaTokenType.SEMICOLON) || sibling instanceof PsiErrorElement)
         && firstNonWhiteElement(sibling.getPrevSibling(), false) instanceof PsiEnumConstant) {
       PsiClass aClass = (PsiClass)sibling.getParent();
       if (!areWeMovingClass && !(aClass.getParent() instanceof PsiClass)) throw new IllegalMoveException();
@@ -294,7 +347,7 @@ class DeclarationMover extends LineMover {
       PsiField field = fields[i];
       if (field instanceof PsiEnumConstant) {
         PsiElement anchor = firstNonWhiteElement(field.getNextSibling(), true);
-        if (!(anchor instanceof PsiJavaToken && ((PsiJavaToken)anchor).getTokenType() == JavaTokenType.SEMICOLON)) {
+        if (!(PsiUtil.isJavaToken(anchor, JavaTokenType.SEMICOLON))) {
           anchor = field;
           myEnumToInsertSemicolonAfter = (PsiEnumConstant)field;
         }

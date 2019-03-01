@@ -5,7 +5,7 @@ import com.intellij.tasks.TaskState;
 import com.intellij.tasks.config.TaskRepositoryEditor;
 import com.intellij.tasks.impl.BaseRepositoryType;
 import com.intellij.util.Consumer;
-import icons.TasksIcons;
+import icons.TasksCoreIcons;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -19,16 +19,19 @@ public class JiraRepositoryType extends BaseRepositoryType<JiraRepository> {
   public JiraRepositoryType() {
   }
 
+  @Override
   @NotNull
   public String getName() {
     return "JIRA";
   }
 
+  @Override
   @NotNull
   public Icon getIcon() {
-    return TasksIcons.Jira;
+    return TasksCoreIcons.Jira;
   }
 
+  @Override
   @NotNull
   public JiraRepository createRepository() {
     return new JiraRepository(this);

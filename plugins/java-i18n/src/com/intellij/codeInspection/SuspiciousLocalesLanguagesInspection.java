@@ -16,14 +16,13 @@
 package com.intellij.codeInspection;
 
 import com.intellij.codeInspection.ex.BaseLocalInspectionTool;
-import com.intellij.lang.properties.*;
 import com.intellij.lang.properties.ResourceBundle;
+import com.intellij.lang.properties.*;
 import com.intellij.lang.properties.customizeActions.DissociateResourceBundleAction;
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidator;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
@@ -33,23 +32,17 @@ import com.intellij.ui.AnActionButton;
 import com.intellij.ui.AnActionButtonRunnable;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBList;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jdom.Element;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-/**
- * @author Dmitry Batkovich
- */
 public class SuspiciousLocalesLanguagesInspection extends BaseLocalInspectionTool {
   private static final String ADDITIONAL_LANGUAGES_ATTR_NAME = "additionalLanguages";
   private final static SoftLazyValue<Set<String>> JAVA_LOCALES = new SoftLazyValue<Set<String>>() {
@@ -65,13 +58,6 @@ public class SuspiciousLocalesLanguagesInspection extends BaseLocalInspectionToo
   };
 
   private final List<String> myAdditionalLanguages = new ArrayList<>();
-
-  @Nls
-  @NotNull
-  @Override
-  public String getDisplayName() {
-    return "Suspicious resource bundle locale languages";
-  }
 
   @TestOnly
   public void setAdditionalLanguages(List<String> additionalLanguages) {
@@ -140,17 +126,15 @@ public class SuspiciousLocalesLanguagesInspection extends BaseLocalInspectionToo
       myResourceBundle = bundle;
     }
 
-    @Nls
-    @NotNull
-    @Override
-    public String getName() {
-      return getFamilyName();
-    }
-
     @NotNull
     @Override
     public String getFamilyName() {
       return PropertiesBundle.message("dissociate.resource.bundle.quick.fix.name");
+    }
+
+    @Override
+    public boolean startInWriteAction() {
+      return false;
     }
 
     @Override
@@ -162,7 +146,7 @@ public class SuspiciousLocalesLanguagesInspection extends BaseLocalInspectionToo
   private class MyOptions {
     private final JBList myAdditionalLocalesList;
 
-    public MyOptions() {
+    MyOptions() {
       myAdditionalLocalesList = new JBList(new MyListModel());
       myAdditionalLocalesList.setCellRenderer(new DefaultListCellRenderer());
     }

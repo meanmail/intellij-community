@@ -1,31 +1,15 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.imports;
 
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiFileSystemItem;
+import com.intellij.psi.*;
 import com.intellij.psi.util.QualifiedName;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
@@ -47,10 +31,10 @@ import java.util.List;
  */
 // visibility is intentionally package-level
 public class ImportCandidateHolder implements Comparable<ImportCandidateHolder> {
-  private final PsiElement myImportable;
-  private final PyImportElement myImportElement;
-  private final PsiFileSystemItem myFile;
-  private final QualifiedName myPath;
+  @NotNull private final SmartPsiElementPointer<PsiElement> myImportable;
+  @Nullable private final SmartPsiElementPointer<PyImportElement> myImportElement;
+  @NotNull private final SmartPsiElementPointer<PsiFileSystemItem> myFile;
+  @Nullable private final QualifiedName myPath;
   @Nullable private final String myAsName;
 
   /**
@@ -67,9 +51,10 @@ public class ImportCandidateHolder implements Comparable<ImportCandidateHolder> 
    */
   public ImportCandidateHolder(@NotNull PsiElement importable, @NotNull PsiFileSystemItem file,
                                @Nullable PyImportElement importElement, @Nullable QualifiedName path, @Nullable String asName) {
-    myFile = file;
-    myImportable = importable;
-    myImportElement = importElement;
+    SmartPointerManager pointerManager = SmartPointerManager.getInstance(importable.getProject());
+    myFile = pointerManager.createSmartPsiElementPointer(file);
+    myImportable = pointerManager.createSmartPsiElementPointer(importable);
+    myImportElement = importElement != null ? pointerManager.createSmartPsiElementPointer(importElement) : null;
     myPath = path;
     myAsName = asName;
     assert importElement != null || path != null; // one of these must be present
@@ -79,19 +64,20 @@ public class ImportCandidateHolder implements Comparable<ImportCandidateHolder> 
                                @Nullable PyImportElement importElement, @Nullable QualifiedName path) {
     this(importable, file, importElement, path, null);
   }
-  @NotNull
+
+  @Nullable
   public PsiElement getImportable() {
-    return myImportable;
+    return myImportable.getElement();
   }
 
   @Nullable
   public PyImportElement getImportElement() {
-    return myImportElement;
+    return myImportElement != null ? myImportElement.getElement() : null;
   }
 
-  @NotNull
+  @Nullable
   public PsiFileSystemItem getFile() {
-    return myFile;
+    return myFile.getElement();
   }
 
   @Nullable
@@ -131,16 +117,18 @@ public class ImportCandidateHolder implements Comparable<ImportCandidateHolder> 
 
   @NotNull
   public String getPresentableText(@NotNull String myName) {
-    final StringBuilder sb = new StringBuilder(getQualifiedName(myName, myPath, myImportElement));
+    PyImportElement importElement = getImportElement();
+    PsiElement importable = getImportable();
+    final StringBuilder sb = new StringBuilder(getQualifiedName(myName, myPath, importElement));
     PsiElement parent = null;
-    if (myImportElement != null) {
-      parent = myImportElement.getParent();
+    if (importElement != null) {
+      parent = importElement.getParent();
     }
-    if (myImportable instanceof PyFunction) {
-      sb.append(((PyFunction)myImportable).getParameterList().getPresentableText(false));
+    if (importable instanceof PyFunction) {
+      sb.append("()");
     }
-    else if (myImportable instanceof PyClass) {
-      final List<String> supers = ContainerUtil.mapNotNull(((PyClass)myImportable).getSuperClasses(null),
+    else if (importable instanceof PyClass) {
+      final List<String> supers = ContainerUtil.mapNotNull(((PyClass)importable).getSuperClasses(null),
                                                            cls -> PyUtil.isObjectClass(cls) ? null : cls.getName());
       if (!supers.isEmpty()) {
         sb.append("(");
@@ -154,26 +142,31 @@ public class ImportCandidateHolder implements Comparable<ImportCandidateHolder> 
       sb.append(StringUtil.repeat(".", fromImportStatement.getRelativeLevel()));
       final PyReferenceExpression source = fromImportStatement.getImportSource();
       if (source != null) {
-        sb.append(source.getReferencedName());
+        sb.append(source.asQualifiedName());
       }
     }
     return sb.toString();
   }
 
-  public int compareTo(@NotNull ImportCandidateHolder rhs) {
+  @Override
+  public int compareTo(@NotNull ImportCandidateHolder other) {
     final int lRelevance = getRelevance();
-    final int rRelevance = rhs.getRelevance();
+    final int rRelevance = other.getRelevance();
     if (rRelevance != lRelevance) {
       return rRelevance - lRelevance;
     }
-    // prefer shorter paths
-    if (myPath != null && rhs.myPath != null) {
-      return myPath.getComponentCount() - rhs.myPath.getComponentCount();
+    if (myPath != null && other.myPath != null) {
+      // prefer shorter paths
+      final int lengthDiff = myPath.getComponentCount() - other.myPath.getComponentCount();
+      if (lengthDiff != 0) {
+        return lengthDiff;
+      }
     }
-    return 0;
+    return Comparing.compare(myPath, other.myPath);
   }
 
   int getRelevance() {
+    if (myImportElement != null) return 4;
     final Project project = myImportable.getProject();
     final PsiFile psiFile = myImportable.getContainingFile();
     final VirtualFile vFile = psiFile == null ? null : psiFile.getVirtualFile();

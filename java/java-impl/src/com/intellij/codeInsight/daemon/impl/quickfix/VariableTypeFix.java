@@ -17,6 +17,7 @@ package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.ide.util.SuperMethodWarningUtil;
 import com.intellij.openapi.application.ApplicationManager;
@@ -77,13 +78,13 @@ public class VariableTypeFix extends LocalQuickFixAndIntentionActionOnPsiElement
                              @NotNull PsiElement startElement,
                              @NotNull PsiElement endElement) {
     final PsiVariable myVariable = (PsiVariable)startElement;
-    return myVariable.isValid()
-        && myVariable.getTypeElement() != null
-        && myVariable.getManager().isInProject(myVariable)
-        && getReturnType() != null
-        && getReturnType().isValid()
-        && !TypeConversionUtil.isNullType(getReturnType())
-        && !TypeConversionUtil.isVoidType(getReturnType());
+    return myVariable.getTypeElement() != null
+           && BaseIntentionAction.canModify(myVariable)
+           && getReturnType() != null
+           && !LambdaUtil.notInferredType(getReturnType())
+           && getReturnType().isValid()
+           && !TypeConversionUtil.isNullType(getReturnType())
+           && !TypeConversionUtil.isVoidType(getReturnType());
   }
 
   @Override
@@ -94,24 +95,21 @@ public class VariableTypeFix extends LocalQuickFixAndIntentionActionOnPsiElement
                      @NotNull PsiElement endElement) {
     final PsiVariable myVariable = (PsiVariable)startElement;
     if (changeMethodSignatureIfNeeded(myVariable)) return;
-    if (!FileModificationService.getInstance().prepareFileForWrite(myVariable.getContainingFile())) return;
-    new WriteCommandAction.Simple(project, getText(), file) {
-
-      @Override
-      protected void run() throws Throwable {
-        try {
-          myVariable.normalizeDeclaration();
-          final PsiTypeElement typeElement = myVariable.getTypeElement();
-          LOG.assertTrue(typeElement != null, myVariable.getClass());
-          final PsiTypeElement newTypeElement = JavaPsiFacade.getInstance(file.getProject()).getElementFactory().createTypeElement(getReturnType());
-          typeElement.replace(newTypeElement);
-          JavaCodeStyleManager.getInstance(project).shortenClassReferences(myVariable);
-          UndoUtil.markPsiFileForUndo(file);
-        } catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
+    WriteCommandAction.writeCommandAction(project, file).withName(getText()).run(() -> {
+      try {
+        myVariable.normalizeDeclaration();
+        final PsiTypeElement typeElement = myVariable.getTypeElement();
+        LOG.assertTrue(typeElement != null, myVariable.getClass());
+        final PsiTypeElement newTypeElement =
+          JavaPsiFacade.getElementFactory(file.getProject()).createTypeElement(getReturnType());
+        typeElement.replace(newTypeElement);
+        JavaCodeStyleManager.getInstance(project).shortenClassReferences(myVariable);
+        UndoUtil.markPsiFileForUndo(file);
       }
-    }.execute();
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    });
   }
 
   private boolean changeMethodSignatureIfNeeded(PsiVariable myVariable) {
@@ -141,7 +139,7 @@ public class VariableTypeFix extends LocalQuickFixAndIntentionActionOnPsiElement
                                                                             false, null,
                                                                             psiMethod.getName(),
                                                                             psiMethod.getReturnType(),
-                                                                            infos.toArray(new ParameterInfoImpl[infos.size()]));
+                                                                            infos.toArray(new ParameterInfoImpl[0]));
           processor.run();
         }
         return true;

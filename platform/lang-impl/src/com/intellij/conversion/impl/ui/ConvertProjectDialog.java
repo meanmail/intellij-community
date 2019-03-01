@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.util.containers.HashSet;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NonNls;
 
@@ -38,6 +37,7 @@ import java.awt.*;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -50,12 +50,12 @@ public class ConvertProjectDialog extends DialogWrapper {
   private JTextPane myTextPane;
   private boolean myConverted;
   private final ConversionContextImpl myContext;
-  private final List<ConversionRunner> myConversionRunners;
+  private final List<? extends ConversionRunner> myConversionRunners;
   private final File myBackupDir;
   private final Set<File> myAffectedFiles;
   private boolean myNonExistingFilesMessageShown;
 
-  public ConvertProjectDialog(ConversionContextImpl context, final List<ConversionRunner> conversionRunners) {
+  public ConvertProjectDialog(ConversionContextImpl context, final List<? extends ConversionRunner> conversionRunners) {
     super(true);
     setTitle(IdeBundle.message("dialog.title.convert.project"));
     setModal(true);
@@ -135,17 +135,13 @@ public class ConvertProjectDialog extends DialogWrapper {
       myConverted = true;
       super.doOKAction();
     }
-    catch (CannotConvertException e) {
-      LOG.info(e);
-      showErrorMessage(IdeBundle.message("error.cannot.convert.project", e.getMessage()));
-    }
-    catch (IOException e) {
+    catch (CannotConvertException | IOException e) {
       LOG.info(e);
       showErrorMessage(IdeBundle.message("error.cannot.convert.project", e.getMessage()));
     }
   }
 
-  private static String getFilesString(List<File> files) {
+  private static String getFilesString(List<? extends File> files) {
     StringBuilder buffer = new StringBuilder();
     for (File file : files) {
       buffer.append(file.getAbsolutePath()).append("<br>");
@@ -178,7 +174,7 @@ public class ConvertProjectDialog extends DialogWrapper {
     return ConversionRunner.getReadOnlyFiles(myAffectedFiles);
   }
 
-  private static void unlockFiles(final List<File> files) throws IOException {
+  private static void unlockFiles(final List<? extends File> files) throws IOException {
     for (File file : files) {
       FileUtil.setReadOnlyAttribute(file.getAbsolutePath(), false);
     }

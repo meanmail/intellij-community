@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.javadoc;
 
 import com.intellij.codeInspection.SuppressionUtilCore;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
@@ -32,30 +17,33 @@ import java.util.List;
 
 /**
  * @author mike
+ * @see <a href="https://docs.oracle.com/javase/9/docs/specs/doc-comment-spec.html">Documentation Comment Specification</a>
  */
 public class JavadocManagerImpl implements JavadocManager {
   private final List<JavadocTagInfo> myInfos;
 
   public JavadocManagerImpl(Project project) {
-    myInfos = new ArrayList<JavadocTagInfo>();
+    myInfos = new ArrayList<>();
 
-    myInfos.add(new SimpleDocTagInfo("author", PsiClass.class, PsiPackage.class, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("deprecated", PsiElement.class, false, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("serialData", PsiMethod.class, false, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("serialField", PsiField.class, false, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("since", PsiElement.class, PsiPackage.class, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("version", PsiClass.class, PsiPackage.class, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("apiNote", PsiElement.class, false, LanguageLevel.JDK_1_8));
-    myInfos.add(new SimpleDocTagInfo("implNote", PsiElement.class, false, LanguageLevel.JDK_1_8));
-    myInfos.add(new SimpleDocTagInfo("implSpec", PsiElement.class, false, LanguageLevel.JDK_1_8));
+    myInfos.add(new AuthorDocTagInfo());
+    myInfos.add(new SimpleDocTagInfo("deprecated", LanguageLevel.JDK_1_3, false, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("serialData", LanguageLevel.JDK_1_3, false, PsiMethod.class));
+    myInfos.add(new SimpleDocTagInfo("serialField", LanguageLevel.JDK_1_3, false, PsiField.class));
+    myInfos.add(new SimpleDocTagInfo("since", LanguageLevel.JDK_1_3, false, PsiElement.class, PsiPackage.class));
+    myInfos.add(new SimpleDocTagInfo("version", LanguageLevel.JDK_1_3, false, PsiClass.class, PsiPackage.class));
+    myInfos.add(new SimpleDocTagInfo("apiNote", LanguageLevel.JDK_1_8, false, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("implNote", LanguageLevel.JDK_1_8, false, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("implSpec", LanguageLevel.JDK_1_8, false, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("hidden", LanguageLevel.JDK_1_9, false, PsiElement.class));
 
-    myInfos.add(new SimpleDocTagInfo("docRoot", PsiElement.class, true, LanguageLevel.JDK_1_3));
-    myInfos.add(new SimpleDocTagInfo("inheritDoc", PsiElement.class, true, LanguageLevel.JDK_1_4));
-    myInfos.add(new SimpleDocTagInfo("literal", PsiElement.class, true, LanguageLevel.JDK_1_5));
-    myInfos.add(new SimpleDocTagInfo("code", PsiElement.class, true, LanguageLevel.JDK_1_5));
+    myInfos.add(new SimpleDocTagInfo("docRoot", LanguageLevel.JDK_1_3, true, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("inheritDoc", LanguageLevel.JDK_1_4, true, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("literal", LanguageLevel.JDK_1_5, true, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("code", LanguageLevel.JDK_1_5, true, PsiElement.class));
+    myInfos.add(new SimpleDocTagInfo("index", LanguageLevel.JDK_1_9, true, PsiElement.class));
 
-    //Not a standard tag, but added by IDEA for inspection suppression
-    myInfos.add(new SimpleDocTagInfo(SuppressionUtilCore.SUPPRESS_INSPECTIONS_TAG_NAME, PsiElement.class, false, LanguageLevel.JDK_1_3));
+    // not a standard tag, used by IDEA for suppressing inspections
+    myInfos.add(new SimpleDocTagInfo(SuppressionUtilCore.SUPPRESS_INSPECTIONS_TAG_NAME, LanguageLevel.JDK_1_3, false, PsiElement.class));
 
     myInfos.add(new ParamDocTagInfo());
     myInfos.add(new ReturnDocTagInfo());
@@ -65,11 +53,13 @@ public class JavadocManagerImpl implements JavadocManager {
     myInfos.add(new SeeDocTagInfo("linkplain", true));
     myInfos.add(new ExceptionTagInfo("exception"));
     myInfos.add(new ExceptionTagInfo("throws"));
+    myInfos.add(new ServiceReferenceTagInfo("provides"));
+    myInfos.add(new ServiceReferenceTagInfo("uses"));
     myInfos.add(new ValueDocTagInfo());
 
-    Collections.addAll(myInfos, Extensions.getExtensions(JavadocTagInfo.EP_NAME, project));
+    Collections.addAll(myInfos, JavadocTagInfo.EP_NAME.getExtensions(project));
 
-    for (CustomJavadocTagProvider extension : Extensions.getExtensions(CustomJavadocTagProvider.EP_NAME)) {
+    for (CustomJavadocTagProvider extension : CustomJavadocTagProvider.EP_NAME.getExtensionList()) {
       myInfos.addAll(extension.getSupportedTags());
     }
   }
@@ -77,7 +67,7 @@ public class JavadocManagerImpl implements JavadocManager {
   @Override
   @NotNull
   public JavadocTagInfo[] getTagInfos(PsiElement context) {
-    List<JavadocTagInfo> result = new ArrayList<JavadocTagInfo>();
+    List<JavadocTagInfo> result = new ArrayList<>();
 
     for (JavadocTagInfo info : myInfos) {
       if (info.isValidInContext(context)) {
@@ -85,7 +75,7 @@ public class JavadocManagerImpl implements JavadocManager {
       }
     }
 
-    return result.toArray(new JavadocTagInfo[result.size()]);
+    return result.toArray(new JavadocTagInfo[0]);
   }
 
   @Override

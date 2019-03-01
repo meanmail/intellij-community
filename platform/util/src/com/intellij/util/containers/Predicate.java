@@ -15,8 +15,11 @@
  */
 package com.intellij.util.containers;
 
-import org.jetbrains.annotations.Nullable;
 
+/**
+ * Please use {@link java.util.function.Predicate} instead
+ */
+@FunctionalInterface
 public interface Predicate<T> {
-  boolean apply(@Nullable T input);
+  boolean apply(T input);
 }

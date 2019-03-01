@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io;
 
 import com.intellij.openapi.util.Pair;
@@ -28,6 +14,7 @@ import java.io.*;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -38,10 +25,12 @@ public class URLUtil {
   public static final String FILE_PROTOCOL = "file";
   public static final String HTTP_PROTOCOL = "http";
   public static final String JAR_PROTOCOL = "jar";
+  public static final String JRT_PROTOCOL = "jrt";
   public static final String JAR_SEPARATOR = "!/";
 
   public static final Pattern DATA_URI_PATTERN = Pattern.compile("data:([^,;]+/[^,;]+)(;charset(?:=|:)[^,;]+)?(;base64)?,(.+)");
   public static final Pattern URL_PATTERN = Pattern.compile("\\b(mailto:|(news|(ht|f)tp(s?))://|((?<![\\p{L}0-9_.])(www\\.)))[-A-Za-z0-9+$&@#/%?=~_|!:,.;]*[-A-Za-z0-9+$&@#/%=~_|]");
+  public static final Pattern FILE_URL_PATTERN = Pattern.compile("\\b(file:///)[-A-Za-z0-9+$&@#/%?=~_|!:,.;]*[-A-Za-z0-9+$&@#/%=~_|]");
 
   private URLUtil() { }
 
@@ -128,12 +117,8 @@ public class URLUtil {
         return ThreeState.NO;
       }
       try {
-        ZipFile file = new ZipFile(paths.first);
-        try {
+        try (ZipFile file = new ZipFile(paths.first)) {
           return ThreeState.fromBoolean(file.getEntry(paths.second) != null);
-        }
-        finally {
-          file.close();
         }
       }
       catch (IOException e) {
@@ -302,5 +287,28 @@ public class URLUtil {
   public static URL getJarEntryURL(@NotNull File file, @NotNull String pathInJar) throws MalformedURLException {
     String fileURL = StringUtil.replace(file.toURI().toASCIIString(), "!", "%21");
     return new URL(JAR_PROTOCOL + ':' + fileURL + JAR_SEPARATOR + StringUtil.trimLeading(pathInJar, '/'));
+  }
+
+  /**
+   * Encodes a URI component by replacing each instance of certain characters by one, two, three,
+   * or four escape sequences representing the UTF-8 encoding of the character.
+   * Behaves similarly to standard JavaScript build-in function <a href="https://developer.mozilla.org/en/docs/Web/JavaScript/Reference/Global_Objects/encodeURIComponent">encodeURIComponent</a>.
+   * @param s  a component of a URI
+   * @return a new string representing the provided string encoded as a URI component
+   */
+  @NotNull
+  public static String encodeURIComponent(@NotNull String s) {
+    try {
+      return URLEncoder.encode(s, CharsetToolkit.UTF8)
+        .replace("+", "%20")
+        .replace("%21", "!")
+        .replace("%27", "'")
+        .replace("%28", "(")
+        .replace("%29", ")")
+        .replace("%7E", "~");
+    }
+    catch (UnsupportedEncodingException e) {
+      return s;
+    }
   }
 }

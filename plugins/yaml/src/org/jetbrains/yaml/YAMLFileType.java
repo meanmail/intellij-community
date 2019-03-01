@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml;
 
 import com.intellij.icons.AllIcons;
@@ -18,21 +19,25 @@ public class YAMLFileType extends LanguageFileType {
     super(YAMLLanguage.INSTANCE);
   }
 
+  @Override
   @NotNull
   public String getName() {
     return NAME;
   }
 
+  @Override
   @NotNull
   public String getDescription() {
     return DESCRIPTION;
   }
 
+  @Override
   @NotNull
   public String getDefaultExtension() {
     return DEFAULT_EXTENSION;
   }
 
+  @Override
   @Nullable
   public Icon getIcon() {
     return AllIcons.Nodes.DataTables;

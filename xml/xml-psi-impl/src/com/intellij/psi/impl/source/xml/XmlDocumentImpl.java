@@ -43,6 +43,7 @@ import com.intellij.psi.util.CachedValue;
 import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.*;
+import com.intellij.util.AstLoadingFilter;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.concurrency.AtomicFieldUpdater;
 import com.intellij.util.containers.ContainerUtil;
@@ -101,7 +102,7 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == XmlElementType.XML_PROLOG) {
@@ -146,7 +147,6 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
   }
 
   @Override
-  @SuppressWarnings("ConstantConditions")
   public XmlNSDescriptor getRootTagNSDescriptor() {
     XmlTag rootTag = getRootTag();
     return rootTag != null ? rootTag.getNSDescriptor(rootTag.getNamespace(), false) : null;
@@ -166,6 +166,7 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
     super.clearCaches();
   }
 
+  @Nullable
   @Override
   public XmlNSDescriptor getDefaultNSDescriptor(final String namespace, final boolean strict) {
     long curExtResourcesModCount = ExternalResourceManagerEx.getInstanceEx().getModificationCount(getProject());
@@ -193,7 +194,7 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
         }
 
         return new CachedValueProvider.Result<>(defaultNSDescriptorInner, defaultNSDescriptorInner != null
-                                                                          ? defaultNSDescriptorInner.getDependences()
+                                                                          ? defaultNSDescriptorInner.getDependencies()
                                                                           : ExternalResourceManager.getInstance());
       }));
     }
@@ -233,9 +234,11 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
         }
         nsDescriptor = getDefaultNSDescriptor(htmlns, false);
       }
-      final XmlFile descriptorFile = nsDescriptor.getDescriptorFile();
-      if (descriptorFile != null) {
-        return getCachedHtmlNsDescriptor(descriptorFile);
+      if (nsDescriptor != null) {
+        final XmlFile descriptorFile = nsDescriptor.getDescriptorFile();
+        if (descriptorFile != null) {
+          return getCachedHtmlNsDescriptor(descriptorFile);
+        }
       }
       return new HtmlNSDescriptorImpl(nsDescriptor);
     }
@@ -254,7 +257,7 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
                                 ? containingFile
                                 : XmlUtil.findNamespace(containingFile, namespace);
         if (xmlFile != null) {
-          final XmlDocument document = xmlFile.getDocument();
+          final XmlDocument document = AstLoadingFilter.forceAllowTreeLoading(xmlFile, () -> xmlFile.getDocument());
           if (document != null) {
             return (XmlNSDescriptor)document.getMetaData();
           }
@@ -333,8 +336,9 @@ public class XmlDocumentImpl extends XmlElementImpl implements XmlDocument {
       final String schemaFilePath = getFilePathForLogging(xmlFile);
       
       LOG.debug("Schema file for " + filePath + " is " + schemaFilePath);
-      
-      XmlNSDescriptor descriptorFromDtd = getNSDescriptorFromMetaData(xmlFile == null ? null : xmlFile.getDocument(), forHtml);
+
+      XmlNSDescriptor descriptorFromDtd = getNSDescriptorFromMetaData(
+        xmlFile == null ? null : AstLoadingFilter.forceAllowTreeLoading(xmlFile, xmlFile::getDocument), forHtml);
 
       LOG.debug("Descriptor from meta data for schema file " +
                 schemaFilePath +

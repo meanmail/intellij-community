@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.model.serialization;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -23,14 +9,17 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElementChildRole;
+import org.jetbrains.jps.model.JpsElementFactory;
 import org.jetbrains.jps.model.JpsGlobal;
+import org.jetbrains.jps.model.JpsModel;
 import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
 import org.jetbrains.jps.model.serialization.impl.JpsPathVariablesConfigurationImpl;
 import org.jetbrains.jps.model.serialization.library.JpsLibraryTableSerializer;
 import org.jetbrains.jps.model.serialization.library.JpsSdkTableSerializer;
 
-import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.Map;
 
@@ -44,7 +33,6 @@ public class JpsGlobalLoader extends JpsLoaderBase {
   private static final JpsGlobalExtensionSerializer[] SERIALIZERS = {
     new GlobalLibrariesSerializer(), new SdkTableSerializer(), new FileTypesSerializer()
   };
-  public static final String FILE_TYPES_COMPONENT_NAME_KEY = "jps.file.types.component.name";
   private final JpsGlobal myGlobal;
 
   private JpsGlobalLoader(JpsGlobal global, Map<String, String> pathVariables) {
@@ -53,43 +41,56 @@ public class JpsGlobalLoader extends JpsLoaderBase {
   }
 
   public static void loadGlobalSettings(JpsGlobal global, String optionsPath) throws IOException {
-    File optionsDir = new File(FileUtil.toCanonicalPath(optionsPath));
-    new JpsGlobalLoader(global, Collections.<String, String>emptyMap()).loadGlobalComponents(optionsDir, new PathVariablesSerializer());
-    Map<String, String> pathVariables = JpsModelSerializationDataService.computeAllPathVariables(global);
+    Path optionsDir = Paths.get(FileUtil.toCanonicalPath(optionsPath));
+    Map<String, String> pathVariables = loadPathVariables(global, optionsDir);
     new JpsGlobalLoader(global, pathVariables).load(optionsDir);
+  }
+
+  private static Map<String, String> loadPathVariables(JpsGlobal global, Path optionsDir) {
+    new JpsGlobalLoader(global, Collections.emptyMap()).loadGlobalComponents(optionsDir, optionsDir.resolve("other.xml"), new PathVariablesSerializer());
+    return JpsModelSerializationDataService.computeAllPathVariables(global);
+  }
+
+  public static Map<String, String> computeAllPathVariables(@NotNull String optionsPath) {
+    JpsModel model = JpsElementFactory.getInstance().createModel();
+    Path optionsDir = Paths.get(FileUtil.toCanonicalPath(optionsPath));
+    return loadPathVariables(model.getGlobal(), optionsDir);
   }
 
   /**
    * @deprecated use {@link JpsModelSerializationDataService#getPathVariableValue(org.jetbrains.jps.model.JpsGlobal, String)} instead
    */
+  @Deprecated
   @Nullable
   public static String getPathVariable(JpsGlobal global, String name) {
     return JpsModelSerializationDataService.getPathVariableValue(global, name);
   }
 
-  private void load(File optionsDir) {
-    LOG.debug("Loading config from " + optionsDir.getAbsolutePath());
+  private void load(@NotNull Path optionsDir) {
+    Path defaultConfigFile = optionsDir.resolve("other.xml");
+    LOG.debug("Loading config from " + optionsDir.toAbsolutePath());
     for (JpsGlobalExtensionSerializer serializer : SERIALIZERS) {
-      loadGlobalComponents(optionsDir, serializer);
+      loadGlobalComponents(optionsDir, defaultConfigFile, serializer);
     }
     for (JpsModelSerializerExtension extension : JpsModelSerializerExtension.getExtensions()) {
       for (JpsGlobalExtensionSerializer serializer : extension.getGlobalExtensionSerializers()) {
-        loadGlobalComponents(optionsDir, serializer);
+        loadGlobalComponents(optionsDir, defaultConfigFile, serializer);
       }
     }
   }
 
-  private void loadGlobalComponents(File optionsDir, JpsGlobalExtensionSerializer serializer) {
-    loadComponents(optionsDir, "other.xml", serializer, myGlobal);
+  private void loadGlobalComponents(@NotNull Path optionsDir, @NotNull Path defaultConfigFile, JpsGlobalExtensionSerializer serializer) {
+    loadComponents(optionsDir, defaultConfigFile.getParent(), serializer, myGlobal);
   }
 
   public static class PathVariablesSerializer extends JpsGlobalExtensionSerializer {
     public static final String MACRO_TAG = "macro";
     public static final String NAME_ATTRIBUTE = "name";
     public static final String VALUE_ATTRIBUTE = "value";
+    public static final String STORAGE_FILE_NAME = "path.macros.xml";
 
     public PathVariablesSerializer() {
-      super("path.macros.xml", "PathMacrosImpl");
+      super(STORAGE_FILE_NAME, "PathMacrosImpl");
     }
 
     @Override
@@ -152,7 +153,7 @@ public class JpsGlobalLoader extends JpsLoaderBase {
 
   private static class FileTypesSerializer extends JpsGlobalExtensionSerializer {
     private FileTypesSerializer() {
-      super("filetypes.xml", System.getProperty(FILE_TYPES_COMPONENT_NAME_KEY, "FileTypeManager"));
+      super("filetypes.xml", System.getProperty("jps.file.types.component.name", "FileTypeManager"));
     }
 
     @Override

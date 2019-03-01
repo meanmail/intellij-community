@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,26 +16,30 @@
 
 package com.intellij.openapi.roots.impl.libraries;
 
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.libraries.LibraryTablePresentation;
 import com.intellij.openapi.roots.libraries.LibraryTablesRegistrar;
+import org.jetbrains.annotations.NotNull;
 
 /**
  *  @author dsl
  */
 public class ApplicationLibraryTable extends LibraryTableBase {
   private static final LibraryTablePresentation GLOBAL_LIBRARY_TABLE_PRESENTATION = new LibraryTablePresentation() {
+    @NotNull
     @Override
     public String getDisplayName(boolean plural) {
       return ProjectBundle.message("global.library.display.name", plural ? 2 : 1);
     }
 
+    @NotNull
     @Override
     public String getDescription() {
       return ProjectBundle.message("libraries.node.text.ide");
     }
 
+    @NotNull
     @Override
     public String getLibraryTableEditorTitle() {
       return ProjectBundle.message("library.configure.global.title");
@@ -46,19 +50,16 @@ public class ApplicationLibraryTable extends LibraryTableBase {
     return ServiceManager.getService(ApplicationLibraryTable.class);
   }
 
+  @NotNull
   @Override
   public String getTableLevel() {
     return LibraryTablesRegistrar.APPLICATION_LEVEL;
   }
 
+  @NotNull
   @Override
   public LibraryTablePresentation getPresentation() {
     return GLOBAL_LIBRARY_TABLE_PRESENTATION;
-  }
-
-  @Override
-  public boolean isEditable() {
-    return true;
   }
 
   public static String getExternalFileName() {

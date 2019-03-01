@@ -15,7 +15,7 @@
  */
 package com.intellij.openapi.vcs.history;
 
-import com.intellij.diff.DiffContentFactoryImpl;
+import com.intellij.diff.DiffContentFactoryEx;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.DiffRequestFactoryImpl;
 import com.intellij.diff.contents.DiffContent;
@@ -23,8 +23,6 @@ import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.requests.SimpleDiffRequest;
 import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
@@ -42,12 +40,13 @@ import com.intellij.util.WaitForProgressToShow;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.io.IOException;
+
+import static com.intellij.diff.DiffRequestFactoryImpl.DIFF_TITLE_RENAME_SEPARATOR;
 
 public class VcsHistoryUtil {
   @Deprecated
-  public static Key<Pair<FilePath, VcsRevisionNumber>> REVISION_INFO_KEY = DiffUserDataKeysEx.REVISION_INFO;
+  public static final Key<Pair<FilePath, VcsRevisionNumber>> REVISION_INFO_KEY = DiffUserDataKeysEx.REVISION_INFO;
 
   private static final Logger LOG = Logger.getInstance(VcsHistoryUtil.class);
 
@@ -90,33 +89,31 @@ public class VcsHistoryUtil {
   public static void showDiff(@NotNull final Project project, @NotNull FilePath path,
                               @NotNull VcsFileRevision revision1, @NotNull VcsFileRevision revision2,
                               @NotNull String title1, @NotNull String title2) throws VcsException, IOException {
-    final byte[] content1 = loadRevisionContent(revision1);
-    final byte[] content2 = loadRevisionContent(revision2);
-
     FilePath path1 = getRevisionPath(revision1);
     FilePath path2 = getRevisionPath(revision2);
 
     String title;
     if (path1 != null && path2 != null) {
-      title = DiffRequestFactoryImpl.getTitle(path1, path2, " -> ");
+      title = DiffRequestFactoryImpl.getTitle(path1, path2, DIFF_TITLE_RENAME_SEPARATOR);
     }
     else {
       title = DiffRequestFactoryImpl.getContentTitle(path);
     }
 
-    DiffContent diffContent1 = createContent(project, content1, revision1, path);
-    DiffContent diffContent2 = createContent(project, content2, revision2, path);
+    DiffContent diffContent1 = loadContentForDiff(project, path, revision1);
+    DiffContent diffContent2 = loadContentForDiff(project, path, revision2);
 
     final DiffRequest request = new SimpleDiffRequest(title, diffContent1, diffContent2, title1, title2);
 
     diffContent1.putUserData(DiffUserDataKeysEx.REVISION_INFO, getRevisionInfo(revision1));
     diffContent2.putUserData(DiffUserDataKeysEx.REVISION_INFO, getRevisionInfo(revision2));
 
-    WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-      public void run() {
-        DiffManager.getInstance().showDiff(project, request);
-      }
-    }, null, project);
+    WaitForProgressToShow.runOrInvokeLaterAboveProgress(() -> DiffManager.getInstance().showDiff(project, request), null, project);
+  }
+
+  @NotNull
+  public static DiffContent loadContentForDiff(@NotNull Project project, @NotNull FilePath path, @NotNull VcsFileRevision revision) throws IOException, VcsException {
+    return createContent(project, loadRevisionContent(revision), revision, path);
   }
 
   @Nullable
@@ -137,11 +134,7 @@ public class VcsHistoryUtil {
 
   @NotNull
   public static byte[] loadRevisionContent(@NotNull VcsFileRevision revision) throws VcsException, IOException {
-    byte[] content = revision.getContent();
-    if (content == null) {
-      revision.loadContent();
-      content = revision.getContent();
-    }
+    byte[] content = revision.loadContent();
     if (content == null) throw new VcsException("Failed to load content for revision " + revision.getRevisionNumber().asString());
     return content;
   }
@@ -163,7 +156,7 @@ public class VcsHistoryUtil {
   @NotNull
   private static DiffContent createContent(@NotNull Project project, @NotNull byte[] content, @NotNull VcsFileRevision revision,
                                            @NotNull FilePath filePath) throws IOException {
-    DiffContentFactoryImpl contentFactory = DiffContentFactoryImpl.getInstanceImpl();
+    DiffContentFactoryEx contentFactory = DiffContentFactoryEx.getInstanceEx();
     if (isCurrent(revision)) {
       VirtualFile file = filePath.getVirtualFile();
       if (file != null) return contentFactory.create(project, file);
@@ -171,14 +164,14 @@ public class VcsHistoryUtil {
     if (isEmpty(revision)) {
       return contentFactory.createEmpty();
     }
-    return contentFactory.createFromBytes(project, filePath, content);
+    return contentFactory.createFromBytes(project, content, filePath, revision.getDefaultCharset());
   }
 
   private static boolean isCurrent(VcsFileRevision revision) {
     return revision instanceof CurrentRevision;
   }
 
-  private static boolean isEmpty(VcsFileRevision revision) {
+  public static boolean isEmpty(VcsFileRevision revision) {
     return revision == null || VcsFileRevision.NULL.equals(revision);
   }
 
@@ -200,12 +193,9 @@ public class VcsHistoryUtil {
         }
         catch (final VcsException e) {
           LOG.info(e);
-          WaitForProgressToShow.runOrInvokeLaterAboveProgress(new Runnable() {
-            public void run() {
-              Messages.showErrorDialog(VcsBundle.message("message.text.cannot.show.differences", e.getLocalizedMessage()),
-                                       VcsBundle.message("message.title.show.differences"));
-            }
-          }, null, project);
+          WaitForProgressToShow.runOrInvokeLaterAboveProgress(
+            () -> Messages.showErrorDialog(VcsBundle.message("message.text.cannot.show.differences", e.getLocalizedMessage()),
+                                         VcsBundle.message("message.title.show.differences")), null, project);
         }
         catch (IOException e) {
           LOG.info(e);
@@ -218,10 +208,5 @@ public class VcsHistoryUtil {
                (revision instanceof CurrentRevision ? " (" + VcsBundle.message("diff.title.local") + ")" : "");
       }
     }.queue();
-  }
-
-  @NotNull
-  public static Font getCommitDetailsFont() {
-    return EditorColorsManager.getInstance().getGlobalScheme().getFont(EditorFontType.PLAIN);
   }
 }

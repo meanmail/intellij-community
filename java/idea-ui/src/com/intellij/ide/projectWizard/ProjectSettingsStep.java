@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectWizard;
 
 import com.intellij.ide.util.newProjectWizard.SelectTemplateSettings;
@@ -34,7 +20,6 @@ import java.awt.*;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 9/26/12
  */
 public class ProjectSettingsStep extends ModuleWizardStep implements SettingsStep {
 
@@ -72,7 +57,7 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
     myModuleNameLocationComponent.bindModuleSettings(myNamePathComponent);
 
     myExpertDecorator = new HideableDecorator(myExpertPlaceholder, "Mor&e Settings", false);
-    myExpertPanel.setBorder(IdeBorderFactory.createEmptyBorder(0, IdeBorderFactory.TITLED_BORDER_INDENT, 5, 0));
+    myExpertPanel.setBorder(JBUI.Borders.empty(0, IdeBorderFactory.TITLED_BORDER_INDENT, 5, 0));
     myExpertDecorator.setContentComponent(myExpertPanel);
 
     if (myWizardContext.isCreatingNewProject()) {
@@ -112,13 +97,10 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
     mySettingsPanel.repaint();
   }
 
-  private static int restorePanel(JPanel component, int i) {
-    int removed = 0;
+  private static void restorePanel(JPanel component, int i) {
     while (component.getComponentCount() > i) {
       component.remove(component.getComponentCount() - 1);
-      removed++;
     }
-    return removed;
   }
 
   @Override
@@ -135,15 +117,11 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
 
   @Override
   public boolean validate() throws ConfigurationException {
-
     if (myWizardContext.isCreatingNewProject()) {
       if (!myNamePathComponent.validateNameAndPath(myWizardContext, myFormatPanel.isDefault())) return false;
     }
 
-    if (!myModuleNameLocationComponent.validateModulePaths()) return false;
-    if (!myWizardContext.isCreatingNewProject()) {
-      myModuleNameLocationComponent.validateExistingModuleName(myWizardContext.getProject());
-    }
+    if (!myModuleNameLocationComponent.validate()) return false;
 
     if (mySettingsStep != null) {
       return mySettingsStep.validate();
@@ -163,17 +141,15 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
 
   @Override
   public void updateDataModel() {
-
     myWizardContext.setProjectName(myNamePathComponent.getNameValue());
     myWizardContext.setProjectFileDirectory(myNamePathComponent.getPath());
     myFormatPanel.updateData(myWizardContext);
 
-    ModuleBuilder moduleBuilder = (ModuleBuilder)myWizardContext.getProjectBuilder();
-    if (moduleBuilder != null) {
-      myModuleNameLocationComponent.updateDataModel(moduleBuilder);
-      if (moduleBuilder instanceof TemplateModuleBuilder) {
-        myWizardContext.setProjectStorageFormat(StorageScheme.DIRECTORY_BASED);
-      }
+    myModuleNameLocationComponent.updateDataModel();
+
+    ProjectBuilder moduleBuilder = myWizardContext.getProjectBuilder();
+    if (moduleBuilder instanceof TemplateModuleBuilder) {
+      myWizardContext.setProjectStorageFormat(StorageScheme.DIRECTORY_BASED);
     }
 
     if (mySettingsStep != null) {
@@ -200,9 +176,10 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
   static void addField(String label, JComponent field, JPanel panel) {
     JLabel jLabel = new JBLabel(label);
     jLabel.setLabelFor(field);
-    panel.add(jLabel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 0, 0, GridBagConstraints.NORTHWEST,
-                                             GridBagConstraints.NONE, JBUI.insets(10, 0, 5, 0), 4, 0));
-    panel.add(field, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0, GridBagConstraints.NORTHWEST,
+    jLabel.setVerticalAlignment(SwingConstants.TOP);
+    panel.add(jLabel, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 0, 0, GridBagConstraints.WEST,
+                                             GridBagConstraints.VERTICAL, JBUI.insets(5, 0, 5, 0), 4, 0));
+    panel.add(field, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0, GridBagConstraints.CENTER,
                                             GridBagConstraints.HORIZONTAL, JBUI.insetsBottom(5), 0, 0));
   }
 
@@ -225,9 +202,17 @@ public class ProjectSettingsStep extends ModuleWizardStep implements SettingsSte
     addField(label, field, panel);
   }
 
+  @Override
   @NotNull
   public JTextField getModuleNameField() {
     return getNameComponent();
+  }
+
+  @Nullable
+  @Override
+  public ModuleNameLocationSettings getModuleNameLocationSettings() {
+    return myWizardContext.isCreatingNewProject() ? new NewProjectNameLocationSettings(myNamePathComponent, myModuleNameLocationComponent)
+                                                  : myModuleNameLocationComponent;
   }
 
   @TestOnly

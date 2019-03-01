@@ -19,10 +19,9 @@ import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystem
 
 /**
  * @author Vladislav.Soroka
- * @since 10/29/2014
  */
 public class ToggleBeforeRunTaskAction extends ToggleTaskActivationAction {
   protected ToggleBeforeRunTaskAction() {
-    super(null);
+    super(ExternalSystemTaskActivator.Phase.BEFORE_RUN);
   }
 }

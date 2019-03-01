@@ -55,7 +55,7 @@ public final class ReplacementPreviewDialog extends DialogWrapper {
 
     Segment range = info.getSegment();
     hilight(virtualFile, range.getStartOffset(), range.getEndOffset());
-    UIUtil.setContent(replacement, replacementString,0,-1,project);
+    UIUtil.setContent(replacement, replacementString);
 
     final StructuralSearchProfile profile = StructuralSearchUtil.getProfileByPsiElement(element);
     if (profile != null) {
@@ -87,10 +87,12 @@ public final class ReplacementPreviewDialog extends DialogWrapper {
     }
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "#com.intellij.strucuturalsearch.plugin.replace.ReplacementPreviewDialog";
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     JComponent centerPanel = new JPanel( new BorderLayout() );
 
@@ -117,6 +119,7 @@ public final class ReplacementPreviewDialog extends DialogWrapper {
     return centerPanel;
   }
 
+  @Override
   public void dispose() {
     final PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(replacement.getDocument());
     if (file != null) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,17 +22,13 @@ import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
+/** @deprecated use {@link com.intellij.codeInsight.intention.QuickFixFactory#createDeleteFix} (to be removed in IDEA 2018) */
+@Deprecated
 public class RemoveElementQuickFix implements LocalQuickFix {
   private final String myName;
 
   public RemoveElementQuickFix(@NotNull @Nls final String name) {
     myName = name;
-  }
-
-  @NotNull
-  @Override
-  public String getName() {
-    return myName;
   }
 
   @NotNull

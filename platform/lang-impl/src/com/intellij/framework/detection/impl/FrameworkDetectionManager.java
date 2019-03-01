@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.framework.detection.impl;
 
 import com.intellij.codeHighlighting.TextEditorHighlightingPass;
@@ -24,11 +10,13 @@ import com.intellij.framework.detection.FrameworkDetector;
 import com.intellij.framework.detection.impl.exclude.DetectionExcludesConfigurationImpl;
 import com.intellij.framework.detection.impl.ui.ConfigureDetectedFrameworksDialog;
 import com.intellij.notification.Notification;
+import com.intellij.notification.NotificationAction;
 import com.intellij.notification.NotificationGroup;
-import com.intellij.notification.NotificationListener;
 import com.intellij.notification.NotificationType;
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.AbstractProjectComponent;
+import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -50,15 +38,10 @@ import com.intellij.util.ui.update.Update;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.TestOnly;
 
-import javax.swing.event.HyperlinkEvent;
 import java.util.*;
 
-/**
- * @author nik
- */
-public class FrameworkDetectionManager extends AbstractProjectComponent implements FrameworkDetectionIndexListener,
-                                                                                   TextEditorHighlightingPassFactory {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.framework.detection.impl.FrameworkDetectionManager");
+public class FrameworkDetectionManager implements FrameworkDetectionIndexListener, TextEditorHighlightingPassFactory, Disposable, ProjectComponent {
+  private static final Logger LOG = Logger.getInstance(FrameworkDetectionManager.class);
   private static final NotificationGroup FRAMEWORK_DETECTION_NOTIFICATION = NotificationGroup.balloonGroup("Framework Detection");
   private final Update myDetectionUpdate = new Update("detection") {
     @Override
@@ -67,6 +50,7 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
     }
   };
   private final Set<Integer> myDetectorsToProcess = new HashSet<>();
+  private final Project myProject;
   private MergingUpdateQueue myDetectionQueue;
   private final Object myLock = new Object();
   private DetectedFrameworksData myDetectedFrameworksData;
@@ -76,7 +60,7 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
   }
 
   public FrameworkDetectionManager(Project project, TextEditorHighlightingPassRegistrar highlightingPassRegistrar) {
-    super(project);
+    myProject = project;
     highlightingPassRegistrar.registerTextEditorHighlightingPass(this, TextEditorHighlightingPassRegistrar.Anchor.LAST, -1, false, false);
   }
 
@@ -121,7 +105,7 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
   }
 
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     doDispose();
   }
 
@@ -190,14 +174,14 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
       String names = StringUtil.join(frameworkNames, ", ");
       final String text = ProjectBundle.message("framework.detected.info.text", names, frameworkNames.size());
       FRAMEWORK_DETECTION_NOTIFICATION
-        .createNotification("Frameworks detected", text, NotificationType.INFORMATION, new NotificationListener() {
+        .createNotification("Frameworks Detected", text, NotificationType.INFORMATION, null)
+        .addAction(new NotificationAction("Configure") {
           @Override
-          public void hyperlinkUpdate(@NotNull Notification notification, @NotNull HyperlinkEvent event) {
-            if (event.getEventType() == HyperlinkEvent.EventType.ACTIVATED) {
-              showSetupFrameworksDialog(notification);
-            }
+          public void actionPerformed(@NotNull AnActionEvent e, @NotNull Notification notification) {
+            showSetupFrameworksDialog(notification);
           }
-        }).notify(myProject);
+        })
+        .notify(myProject);
     }
   }
 
@@ -257,7 +241,6 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
         final int detectorId = FrameworkDetectorRegistry.getInstance().getDetectorId(description.getDetector());
         myDetectedFrameworksData.putExistentFrameworkFiles(detectorId, description.getRelatedFiles());
       }
-      ;
     }
   }
 
@@ -268,9 +251,7 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
     final DetectionExcludesConfiguration excludesConfiguration = DetectionExcludesConfiguration.getInstance(myProject);
     for (Integer id : detectors) {
       final Collection<? extends DetectedFrameworkDescription> frameworks = runDetector(id, index, excludesConfiguration, false);
-      for (DetectedFrameworkDescription framework : frameworks) {
-        descriptions.add(framework);
-      }
+      descriptions.addAll(frameworks);
     }
     return FrameworkDetectionUtil.removeDisabled(descriptions);
   }
@@ -295,7 +276,7 @@ public class FrameworkDetectionManager extends AbstractProjectComponent implemen
   private class FrameworkDetectionHighlightingPass extends TextEditorHighlightingPass {
     private final Collection<Integer> myDetectors;
 
-    public FrameworkDetectionHighlightingPass(Editor editor, Collection<Integer> detectors) {
+    FrameworkDetectionHighlightingPass(Editor editor, Collection<Integer> detectors) {
       super(FrameworkDetectionManager.this.myProject, editor.getDocument(), false);
       myDetectors = detectors;
     }

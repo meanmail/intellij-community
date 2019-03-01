@@ -27,9 +27,9 @@ import org.jetbrains.plugins.gradle.tooling.ErrorMessageBuilder;
 import org.jetbrains.plugins.gradle.tooling.ModelBuilderService;
 import org.jetbrains.plugins.gradle.tooling.internal.BuildScriptClasspathModelImpl;
 import org.jetbrains.plugins.gradle.tooling.internal.ClasspathEntryModelImpl;
-import org.jetbrains.plugins.gradle.tooling.util.DependencyResolverImpl;
 import org.jetbrains.plugins.gradle.tooling.util.DependencyTraverser;
 import org.jetbrains.plugins.gradle.tooling.util.SourceSetCachedFinder;
+import org.jetbrains.plugins.gradle.tooling.util.resolve.DependencyResolverImpl;
 
 import java.io.File;
 import java.util.*;
@@ -37,7 +37,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/20/13
  */
 public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService {
 
@@ -85,11 +84,20 @@ public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService
     Configuration classpathConfiguration = project.getBuildscript().getConfigurations().findByName(CLASSPATH_CONFIGURATION_NAME);
     if (classpathConfiguration == null) return null;
 
-    Collection<ExternalDependency> dependencies =
-      new DependencyResolverImpl(project, false, downloadJavadoc, downloadSources, mySourceSetFinder).resolveDependencies(classpathConfiguration);
+    Collection<ExternalDependency> dependencies = new DependencyResolverImpl(project, false, downloadJavadoc, downloadSources, mySourceSetFinder).resolveDependencies(classpathConfiguration);
 
     for (ExternalDependency dependency : new DependencyTraverser(dependencies)) {
-      if (dependency instanceof ExternalLibraryDependency) {
+      if (dependency instanceof ExternalProjectDependency) {
+        ExternalProjectDependency projectDependency = (ExternalProjectDependency)dependency;
+        Collection<File> projectDependencyArtifacts = projectDependency.getProjectDependencyArtifacts();
+        Collection<File> projectDependencyArtifactsSources = projectDependency.getProjectDependencyArtifactsSources();
+        buildScriptClasspath.add(new ClasspathEntryModelImpl(
+          pathSet(projectDependencyArtifacts),
+          pathSet(projectDependencyArtifactsSources),
+          new HashSet<String>()
+        ));
+      }
+      else if (dependency instanceof ExternalLibraryDependency) {
         final ExternalLibraryDependency libraryDep = (ExternalLibraryDependency)dependency;
         buildScriptClasspath.add(new ClasspathEntryModelImpl(
           pathSet(libraryDep.getFile()),
@@ -97,7 +105,7 @@ public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService
           pathSet(libraryDep.getJavadoc())
         ));
       }
-      if (dependency instanceof ExternalMultiLibraryDependency) {
+      else if (dependency instanceof ExternalMultiLibraryDependency) {
         ExternalMultiLibraryDependency multiLibraryDependency = (ExternalMultiLibraryDependency)dependency;
         buildScriptClasspath.add(new ClasspathEntryModelImpl(
           pathSet(multiLibraryDependency.getFiles()),
@@ -105,8 +113,7 @@ public class ModelBuildScriptClasspathBuilderImpl implements ModelBuilderService
           pathSet(multiLibraryDependency.getJavadoc())
         ));
       }
-
-      if (dependency instanceof FileCollectionDependency) {
+      else if (dependency instanceof FileCollectionDependency) {
         FileCollectionDependency fileCollectionDependency = (FileCollectionDependency)dependency;
         buildScriptClasspath.add(new ClasspathEntryModelImpl(
           pathSet(fileCollectionDependency.getFiles()),

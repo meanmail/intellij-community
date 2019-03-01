@@ -1,206 +1,344 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.plugin.ui;
 
-import com.intellij.icons.AllIcons;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.ui.NonEmptyInputValidator;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.structuralsearch.SSRBundle;
+import com.intellij.structuralsearch.StructuralSearchUtil;
 import com.intellij.structuralsearch.plugin.replace.ui.ReplaceConfiguration;
+import com.intellij.util.SmartList;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @State(name = "StructuralSearchPlugin", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 public class ConfigurationManager implements PersistentStateComponent<Element> {
+  private static final int MAX_RECENT_SIZE = 30;
   @NonNls static final String SEARCH_TAG_NAME = "searchConfiguration";
   @NonNls static final String REPLACE_TAG_NAME = "replaceConfiguration";
   @NonNls private static final String SAVE_HISTORY_ATTR_NAME = "history";
 
-  private List<Configuration> configurations;
-  private List<Configuration> historyConfigurations;
+  private final List<Configuration> configurations = new SmartList<>();
+  private final List<Configuration> historyConfigurations = new SmartList<>();
+  private final ConfigurationManagerState myApplicationState;
+  private final Project myProject;
 
   public static ConfigurationManager getInstance(@NotNull Project project) {
     return ServiceManager.getService(project, ConfigurationManager.class);
   }
 
-  @Nullable
+  public ConfigurationManager(Project project) {
+    myProject = project;
+    myApplicationState = ConfigurationManagerState.getInstance();
+  }
+
   @Override
   public Element getState() {
     final Element state = new Element("state");
-    saveConfigurations(state);
+    writeConfigurations(state, configurations, historyConfigurations);
     return state;
   }
 
   @Override
-  public void loadState(Element state) {
-    loadConfigurations(state);
+  public void loadState(@NotNull Element element) {
+    configurations.clear();
+    historyConfigurations.clear();
+    final SmartList<Configuration> tmp = new SmartList<>();
+    readConfigurations(element, configurations, tmp);
+    migrate(configurations);
+    for (Configuration configuration : tmp) {
+      configuration.getMatchOptions().initScope(myProject);
+      addHistoryConfiguration(configuration);
+    }
+    Collections.reverse(historyConfigurations);
+  }
+  /**
+   * Stores configurations at the application level. Before the configurations where stored in the workspace file.
+   * @param configurations
+   */
+  private void migrate(List<Configuration> configurations) {
+    if (configurations.isEmpty()) {
+      return;
+    }
+    outer:
+    for (Configuration configuration : configurations) {
+      Configuration existing = myApplicationState.get(configuration.getName());
+      while (existing != null) {
+        if (configuration.equals(existing)) {
+          continue outer;
+        }
+        configuration.setName(configuration.getName() + '~');
+        existing = myApplicationState.get(configuration.getName());
+      }
+      myApplicationState.add(configuration);
+    }
   }
 
-  public void addHistoryConfigurationToFront(Configuration configuration) {
-    if (historyConfigurations == null) historyConfigurations = new ArrayList<>();
-
-    historyConfigurations.remove(configuration);
+  public void addHistoryConfiguration(@NotNull Configuration configuration) {
+    configuration = configuration.copy();
+    if (configuration.getCreated() <= 0) {
+      configuration.setCreated(System.currentTimeMillis());
+    }
+    final Configuration old = findConfiguration(historyConfigurations, configuration);
+    if (old != null) historyConfigurations.remove(old); // move to most recent
     historyConfigurations.add(0, configuration);
-    configuration.setCreated(System.currentTimeMillis());
-  }
-
-  public void removeHistoryConfiguration(Configuration configuration) {
-    if (historyConfigurations != null) {
-      historyConfigurations.remove(configuration);
+    while (historyConfigurations.size() > MAX_RECENT_SIZE) {
+      historyConfigurations.remove(historyConfigurations.size() - 1);
     }
   }
 
-  public void addConfiguration(Configuration configuration) {
-    if (configurations == null) configurations = new ArrayList<>();
-
-    if (configurations.indexOf(configuration) == -1) {
-      configurations.add(configuration);
-    }
+  public Configuration getMostRecentConfiguration() {
+    return historyConfigurations.isEmpty() ? null : historyConfigurations.get(0);
   }
 
   public void removeConfiguration(Configuration configuration) {
-    if (configurations != null) {
-      configurations.remove(configuration);
+    if (Registry.is("ssr.save.templates.to.ide.instead.of.project.workspace")) {
+      myApplicationState.remove(configuration.getName());
+    }
+    configurations.remove(configuration);
+  }
+
+  public static void writeConfigurations(@NotNull Element element, @NotNull Collection<Configuration> configurations) {
+    writeConfigurations(element, configurations, Collections.emptyList());
+  }
+
+  private static void writeConfigurations(@NotNull Element element,
+                                          @NotNull Collection<Configuration> configurations,
+                                          @NotNull Collection<Configuration> historyConfigurations) {
+    for (final Configuration configuration : configurations) {
+      configuration.getMatchOptions().setScope(null);
+      saveConfiguration(element, configuration);
+    }
+
+    for (final Configuration historyConfiguration : historyConfigurations) {
+      final Element infoElement = saveConfiguration(element, historyConfiguration);
+      infoElement.setAttribute(SAVE_HISTORY_ATTR_NAME, "1");
     }
   }
 
-  public void saveConfigurations(Element element) {
-    writeConfigurations(element, configurations, historyConfigurations);
-  }
-
-  public static void writeConfigurations(final Element element,
-                                   final Collection<Configuration> configurations,
-                                   final Collection<Configuration> historyConfigurations) {
-    if (configurations != null) {
-      for (final Configuration configuration : configurations) {
-        saveConfiguration(element, configuration);
-      }
-    }
-
-    if (historyConfigurations != null) {
-      for (final Configuration historyConfiguration : historyConfigurations) {
-        final Element infoElement = saveConfiguration(element, historyConfiguration);
-        infoElement.setAttribute(SAVE_HISTORY_ATTR_NAME, "1");
-      }
-    }
-  }
-
-  public static Element saveConfiguration(Element element, final Configuration config) {
-    Element infoElement = new Element(config instanceof SearchConfiguration ? SEARCH_TAG_NAME : REPLACE_TAG_NAME);
+  static Element saveConfiguration(@NotNull Element element, @NotNull Configuration config) {
+    final Element infoElement = new Element(config instanceof SearchConfiguration ? SEARCH_TAG_NAME : REPLACE_TAG_NAME);
     element.addContent(infoElement);
     config.writeExternal(infoElement);
-
     return infoElement;
   }
 
-  public void loadConfigurations(Element element) {
-    if (configurations != null) return;
-    ArrayList<Configuration> configurations = new ArrayList<>();
-    ArrayList<Configuration> historyConfigurations = new ArrayList<>();
-    readConfigurations(element, configurations, historyConfigurations);
-    this.configurations = configurations;
-    this.historyConfigurations = historyConfigurations;
+  public static void readConfigurations(@NotNull Element element, @NotNull Collection<Configuration> configurations) {
+    readConfigurations(element, configurations, new SmartList<>());
   }
 
-  public static void readConfigurations(final Element element, @NotNull Collection<Configuration> configurations, @NotNull Collection<Configuration> historyConfigurations) {
-    final List<Element> patterns = element.getChildren();
+  private static void readConfigurations(@NotNull Element element,
+                                         @NotNull Collection<Configuration> configurations,
+                                         @NotNull Collection<Configuration> historyConfigurations) {
+    for (final Element pattern : element.getChildren()) {
+      final Configuration config = readConfiguration(pattern);
+      if (config == null) continue;
 
-    if (patterns != null && patterns.size() > 0) {
-      for (final Element pattern : patterns) {
-        final Configuration config = readConfiguration(pattern);
-        if (config == null) continue;
-
-        if (pattern.getAttribute(SAVE_HISTORY_ATTR_NAME) != null) {
-          historyConfigurations.add(config);
-        }
-        else {
-          configurations.add(config);
-        }
+      if (pattern.getAttribute(SAVE_HISTORY_ATTR_NAME) != null) {
+        historyConfigurations.add(config);
+      }
+      else {
+        configurations.add(config);
       }
     }
   }
 
-  public static Configuration readConfiguration(final Element childElement) {
-    String s = childElement.getName();
-    final Configuration config =
-      s.equals(SEARCH_TAG_NAME) ? new SearchConfiguration() : s.equals(REPLACE_TAG_NAME) ? new ReplaceConfiguration():null;
-    if (config != null) config.readExternal(childElement);
+  static Configuration readConfiguration(@NotNull Element element) {
+    final String name = element.getName();
+    final Configuration config;
+    if (name.equals(SEARCH_TAG_NAME)) {
+      config = new SearchConfiguration();
+    }
+    else if (name.equals(REPLACE_TAG_NAME)) {
+      config = new ReplaceConfiguration();
+    }
+    else {
+      return null;
+    }
+    config.readExternal(element);
     return config;
   }
 
-  public Collection<Configuration> getConfigurations() {
-    return configurations;
-  }
-
-  public static Configuration findConfigurationByName(final Collection<Configuration> configurations, final String name) {
-    for(Configuration config:configurations) {
-      if (config.getName().equals(name)) return config;
-    }
-
-    return null;
+  /**
+   * @return the names of all configurations, both user defined and built in.
+   */
+  public List<String> getAllConfigurationNames() {
+    final Stream<Configuration> stream = Stream.concat(StructuralSearchUtil.getPredefinedTemplates().stream(), getConfigurations().stream());
+    return stream.map(c -> c.getName()).collect(Collectors.toList());
   }
 
   @NotNull
-  public Collection<Configuration> getHistoryConfigurations() {
-    if (historyConfigurations == null) {
-      return Collections.emptyList();
+  public Collection<Configuration> getConfigurations() {
+    if (Registry.is("ssr.save.templates.to.ide.instead.of.project.workspace")) {
+      return myApplicationState.getAll();
     }
-    return historyConfigurations;
+    else {
+      return Collections.unmodifiableList(configurations);
+    }
   }
 
-  public static @Nullable String findAppropriateName(@NotNull final Collection<Configuration> configurations, @NotNull String _name,
-                                                     @NotNull final Project project) {
-    Configuration config;
-    String name = _name;
+  @Nullable
+  public Configuration findConfigurationByName(String name) {
+    if (Registry.is("ssr.save.templates.to.ide.instead.of.project.workspace")) {
+      final Configuration ideConfiguration = myApplicationState.get(name);
+      if (ideConfiguration != null) return ideConfiguration;
+    }
+    else {
+      final Configuration configuration = findConfigurationByName(configurations, name);
+      if (configuration != null) return configuration;
+    }
+    return findConfigurationByName(StructuralSearchUtil.getPredefinedTemplates(), name);
+  }
 
-    while ((config = findConfigurationByName(configurations, name)) != null) {
-      int i = Messages.showYesNoDialog(
-        project,
-        SSRBundle.message("overwrite.message"),
-        SSRBundle.message("overwrite.title"),
-        AllIcons.General.QuestionDialog
-      );
+  @Nullable
+  private static Configuration findConfigurationByName(Collection<Configuration> configurations, final String name) {
+    return configurations.stream().filter(config -> config.getName().equals(name)).findFirst().orElse(null);
+  }
 
-      if (i == Messages.YES) {
-        configurations.remove(config);
+  @Nullable
+  private static Configuration findConfiguration(@NotNull Collection<Configuration> configurations, Configuration configuration) {
+    return configurations.stream()
+      .filter(c -> {
+        if (configuration instanceof ReplaceConfiguration) {
+          return c instanceof ReplaceConfiguration &&
+                 c.getMatchOptions().getSearchPattern().equals(configuration.getMatchOptions().getSearchPattern()) &&
+                 c.getReplaceOptions().getReplacement().equals(configuration.getReplaceOptions().getReplacement());
+        }
+        else {
+          return c instanceof SearchConfiguration && c.getMatchOptions().getSearchPattern().equals(
+            configuration.getMatchOptions().getSearchPattern());
+        }
+      })
+      .findFirst()
+      .orElse(null);
+  }
+
+  @NotNull
+  public List<Configuration> getHistoryConfigurations() {
+    return Collections.unmodifiableList(historyConfigurations);
+  }
+
+  public boolean showSaveTemplateAsDialog(@NotNull Configuration newConfiguration) {
+    if (Registry.is("ssr.save.templates.to.ide.instead.of.project.workspace")) {
+      return showSaveTemplateAsDialog(newConfiguration, myProject,
+                                      n -> myApplicationState.get(n) != null,
+                                      c -> {
+                                        myApplicationState.add(c);
+                                        configurations.remove(c);
+                                        configurations.add(c);
+                                      });
+    }
+    return showSaveTemplateAsDialog(configurations, newConfiguration, myProject);
+  }
+
+  public static boolean showSaveTemplateAsDialog(@NotNull Configuration newConfiguration,
+                                                 @NotNull Project project,
+                                                 @NotNull Predicate<String> nameExistsPredicate,
+                                                 @NotNull Consumer<Configuration> namedConfigurationConsumer) {
+    String name = showInputDialog(newConfiguration.getName(), project);
+    while (name != null && nameExistsPredicate.test(name)) {
+      final int answer =
+        Messages.showYesNoDialog(
+          project,
+          SSRBundle.message("overwrite.message"),
+          SSRBundle.message("overwrite.title", name),
+          "Replace",
+          Messages.CANCEL_BUTTON,
+          Messages.getQuestionIcon()
+        );
+      if (answer == Messages.YES) {
         break;
       }
-      name = showSaveTemplateAsDialog(name, project);
-      if (name == null) break;
+      name = showInputDialog(name, project);
     }
-    return name;
+    if (name != null) {
+      newConfiguration.setName(name);
+      namedConfigurationConsumer.accept(newConfiguration.copy());
+      return true;
+    }
+    return false;
   }
 
-  public static @Nullable String showSaveTemplateAsDialog(@NotNull String initial, @NotNull Project project) {
+  public static boolean showSaveTemplateAsDialog(@NotNull Collection<Configuration> configurations,
+                                                 @NotNull Configuration newConfiguration,
+                                                 @NotNull Project project) {
+    return showSaveTemplateAsDialog(newConfiguration, project,
+                                    n -> findConfigurationByName(configurations, n) != null,
+                                    c -> {
+                                      configurations.remove(c);
+                                      configurations.add(c);
+                                    });
+  }
+
+  @Nullable
+  private static String showInputDialog(@NotNull String initial, @NotNull Project project) {
     return Messages.showInputDialog(
       project,
       SSRBundle.message("template.name.button"),
       SSRBundle.message("save.template.description.button"),
-      AllIcons.General.QuestionDialog,
+      Messages.getQuestionIcon(),
       initial,
-      new NonEmptyInputValidator()
+      null
     );
+  }
+
+  @State(name = "StructuralSearch", storages = @Storage("structuralSearch.xml"))
+  private static class ConfigurationManagerState implements PersistentStateComponent<Element> {
+
+    public final Map<String, Configuration> configurations = new LinkedHashMap<>();
+
+    public static ConfigurationManagerState getInstance() {
+      return ServiceManager.getService(ConfigurationManagerState.class);
+    }
+
+    public static ConfigurationManagerState getInstance(Project project) {
+      return ServiceManager.getService(project, ConfigurationManagerState.class);
+    }
+
+    public void add(Configuration configuration) {
+      configuration.getMatchOptions().setScope(null);
+      configurations.put(configuration.getName(), configuration);
+    }
+
+    public Configuration get(String name) {
+      return configurations.get(name);
+    }
+
+    public void remove(String name) {
+      configurations.remove(name);
+    }
+
+    public Collection<Configuration> getAll() {
+      return Collections.unmodifiableCollection(configurations.values());
+    }
+
+    @Nullable
+    @Override
+    public Element getState() {
+      final Element element = new Element("state");
+      for (Configuration configuration : configurations.values()) {
+        saveConfiguration(element, configuration);
+      }
+      return element;
+    }
+
+    @Override
+    public void loadState(@NotNull Element state) {
+      for (Element child : state.getChildren()) {
+        final Configuration configuration = readConfiguration(child);
+        if (configuration != null) {
+          configurations.put(configuration.getName(), configuration);
+        }
+      }
+    }
   }
 }

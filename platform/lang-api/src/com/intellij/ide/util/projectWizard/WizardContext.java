@@ -48,24 +48,23 @@ public class WizardContext extends UserDataHolderBase {
   private String myCompilerOutputDirectory;
   private Sdk myProjectJdk;
   private ProjectBuilder myProjectBuilder;
-  private ProjectTemplate myProjectTemplate;
+  /**
+   * Stores project type builder in case if replaced by TemplateModuleBuilder
+   */
+  private ProjectBuilder myOriginalBuilder;
   private final List<Listener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private StorageScheme myProjectStorageFormat = StorageScheme.DIRECTORY_BASED;
-  private boolean myNewWizard;
   private ModulesProvider myModulesProvider;
   private boolean myProjectFileDirectorySetExplicitly;
   private AbstractWizard myWizard;
+  private String myDefaultModuleName = "untitled";
 
   public void setProjectStorageFormat(StorageScheme format) {
     myProjectStorageFormat = format;
   }
 
   public boolean isNewWizard() {
-    return myNewWizard;
-  }
-
-  public void setNewWizard(boolean newWizard) {
-    myNewWizard = newWizard;
+    return true;
   }
 
   public ModulesProvider getModulesProvider() {
@@ -88,6 +87,14 @@ public class WizardContext extends UserDataHolderBase {
     myWizard = wizard;
   }
 
+  public void setDefaultModuleName(String defaultModuleName) {
+    myDefaultModuleName = defaultModuleName;
+  }
+
+  public String getDefaultModuleName() {
+    return myDefaultModuleName;
+  }
+
   public interface Listener {
     void buttonsUpdateRequested();
     void nextStepRequested();
@@ -99,14 +106,6 @@ public class WizardContext extends UserDataHolderBase {
     if (myProject != null){
       myProjectJdk = ProjectRootManager.getInstance(myProject).getProjectSdk();
     }
-  }
-
-  /**
-   * Use {@link #WizardContext(Project, Disposable)}.
-   */
-  @Deprecated
-  public WizardContext(@Nullable Project project) {
-    this(project, null);
   }
 
   @Nullable
@@ -124,7 +123,6 @@ public class WizardContext extends UserDataHolderBase {
       return lastProjectLocation.replace('/', File.separatorChar);
     }
     final String userHome = SystemProperties.getUserHome();
-    //noinspection HardCodedStringLiteral
     String productName = ApplicationNamesInfo.getInstance().getLowercaseProductName();
     return userHome.replace('/', File.separatorChar) + File.separator + productName.replace(" ", "") + "Projects";
   }
@@ -186,10 +184,6 @@ public class WizardContext extends UserDataHolderBase {
     myListeners.add(listener);
   }
 
-  public void removeContextListener(Listener listener) {
-    myListeners.remove(listener);
-  }
-
   public void setProjectJdk(Sdk jdk) {
     myProjectJdk = jdk;
   }
@@ -205,20 +199,20 @@ public class WizardContext extends UserDataHolderBase {
 
   public void setProjectBuilder(@Nullable final ProjectBuilder projectBuilder) {
     myProjectBuilder = projectBuilder;
+    myOriginalBuilder = myProjectBuilder;
   }
 
-  @Nullable
-  public ProjectTemplate getProjectTemplate() {
-    return myProjectTemplate;
-  }
-
-  public void setProjectTemplate(ProjectTemplate projectTemplate) {
-    myProjectTemplate = projectTemplate;
-    setProjectBuilder(projectTemplate.createModuleBuilder());
+  public void setProjectTemplate(@Nullable ProjectTemplate projectTemplate) {
+    if (projectTemplate != null) {
+      myProjectBuilder = projectTemplate.createModuleBuilder();
+    }
+    else {
+      myProjectBuilder = myOriginalBuilder;
+    }
   }
 
   public String getPresentationName() {
-    return myProject == null ? IdeBundle.message("project.new.wizard.project.identification") : IdeBundle.message("project.new.wizard.module.identification");
+    return IdeBundle.message(myProject == null ? "project.new.wizard.project.identification" : "project.new.wizard.module.identification");
   }
 
   public StorageScheme getProjectStorageFormat() {

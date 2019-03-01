@@ -18,6 +18,7 @@ package com.intellij.openapi.vcs.changes.committed;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
@@ -32,7 +33,7 @@ import java.util.List;
 /**
  * @author yole
  */
-public class SelectFilteringAction extends LabeledComboBoxAction {
+public class SelectFilteringAction extends LabeledComboBoxAction implements DumbAware {
 
   @NotNull private final Project myProject;
   @NotNull private final CommittedChangesTreeBrowser myBrowser;
@@ -53,24 +54,14 @@ public class SelectFilteringAction extends LabeledComboBoxAction {
   @NotNull
   @Override
   protected DefaultActionGroup createPopupActionGroup(JComponent button) {
-    return new DefaultActionGroup(ContainerUtil.map(collectStrategies(), new NotNullFunction<ChangeListFilteringStrategy, AnAction>() {
-      @NotNull
-      @Override
-      public AnAction fun(@NotNull ChangeListFilteringStrategy strategy) {
-        return new SetFilteringAction(strategy);
-      }
-    }));
+    return new DefaultActionGroup(ContainerUtil.map(collectStrategies(),
+                                                    (NotNullFunction<ChangeListFilteringStrategy, AnAction>)strategy -> new SetFilteringAction(strategy)));
   }
 
   @NotNull
   @Override
   protected Condition<AnAction> getPreselectCondition() {
-    return new Condition<AnAction>() {
-      @Override
-      public boolean value(@NotNull AnAction action) {
-        return ((SetFilteringAction)action).myStrategy.getKey().equals(myPreviousSelection.getKey());
-      }
-    };
+    return action -> ((SetFilteringAction)action).myStrategy.getKey().equals(myPreviousSelection.getKey());
   }
 
   @NotNull

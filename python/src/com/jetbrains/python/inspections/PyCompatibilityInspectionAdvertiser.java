@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.EditInspectionToolsSettingsAction;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.codeInspection.ex.ScopeToolState;
 import com.intellij.lang.annotation.AnnotationHolder;
 import com.intellij.lang.annotation.Annotator;
 import com.intellij.notification.NotificationDisplayType;
@@ -36,14 +35,14 @@ import com.intellij.openapi.util.JDOMExternalizableStringList;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.PyFromImportStatement;
-import com.jetbrains.python.psi.PyImportElement;
+import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.sdk.PythonSdkType;
 import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NotNull;
@@ -52,8 +51,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-
-import static com.jetbrains.python.psi.PyUtil.as;
 
 /**
  * @author Mikhail Golubev
@@ -105,7 +102,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
         else if (containsFutureImports(pyFile)) {
           showInspectionAdvertisement(project, USING_FUTURE_IMPORTS);
         }
-        else if (containsSixImport(pyFile)) {
+        else if (PyPsiUtils.containsImport(pyFile, "six")) {
           showInspectionAdvertisement(project, USING_SIX);
         }
       }
@@ -123,7 +120,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   @Nullable
   private static LanguageLevel getLatestConfiguredCompatiblePython3Version(@NotNull PsiElement element) {
     final LanguageLevel latestVersion = getLatestConfiguredCompatiblePythonVersion(element);
-    return latestVersion != null && latestVersion.isAtLeast(LanguageLevel.PYTHON30) ? latestVersion : null;
+    return latestVersion != null && !latestVersion.isPython2() ? latestVersion : null;
   }
 
   private static void showStalePython3VersionWarning(@NotNull PyFile file, 
@@ -149,7 +146,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   private static List<LanguageLevel> getVersionsNewerThan(@NotNull LanguageLevel version) {
     final List<LanguageLevel> result = new ArrayList<>();
     final LanguageLevel latest = LanguageLevel.getLatest();
-    for (LanguageLevel level : LanguageLevel.values()) {
+    for (LanguageLevel level : PyCompatibilityInspection.SUPPORTED_LEVELS) {
       if (version.isOlderThan(level) && latest.isAtLeast(level)) {
         result.add(level);
       }
@@ -158,7 +155,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   }
 
   private static void enableVersions(@NotNull Project project, @NotNull PsiElement file, @NotNull List<LanguageLevel> versions) {
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
+    final InspectionProfileImpl profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
     final String shortName = getCompatibilityInspectionShortName();
     final InspectionToolWrapper tool = profile.getInspectionTool(shortName, project);
     if (tool != null) {
@@ -166,7 +163,7 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
         final PyCompatibilityInspection inspection = (PyCompatibilityInspection)model.getUnwrappedTool(shortName, file);
         inspection.ourVersions.addAll(ContainerUtil.map(versions, LanguageLevel::toString));
       });
-      EditInspectionToolsSettingsAction.editToolSettings(project, profile, true, shortName);
+      EditInspectionToolsSettingsAction.editToolSettings(project, profile, shortName);
     }
   }
 
@@ -199,22 +196,6 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
     }).notify(project);
   }
 
-  private static boolean containsSixImport(@NotNull PyFile file) {
-    for (PyFromImportStatement importStatement : file.getFromImports()) {
-      final QualifiedName name = importStatement.getImportSourceQName();
-      if (name != null && "six".equals(name.toString())) {
-        return true;
-      }
-    }
-    for (PyImportElement importElement : file.getImportTargets()) {
-      final QualifiedName name = importElement.getImportedQName();
-      if (name != null && "six".equals(name.getFirstComponent())) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   private static boolean containsFutureImports(@NotNull PyFile file) {
     for (PyFromImportStatement importStatement : file.getFromImports()) {
       if (importStatement.isFromFuture()) {
@@ -225,29 +206,23 @@ public class PyCompatibilityInspectionAdvertiser implements Annotator {
   }
 
   private static boolean isCompatibilityInspectionEnabled(@NotNull PsiElement anchor) {
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(anchor.getProject()).getCurrentProfile();
+    final InspectionProfile profile = InspectionProfileManager.getInstance(anchor.getProject()).getCurrentProfile();
     final InspectionToolWrapper tool = profile.getInspectionTool(getCompatibilityInspectionShortName(), anchor.getProject());
     return tool != null && profile.isToolEnabled(HighlightDisplayKey.findById(tool.getID()), anchor);
   }
 
   private static void enableCompatibilityInspection(@NotNull Project project) {
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
+    final InspectionProfileImpl profile = InspectionProfileManager.getInstance(project).getCurrentProfile();
     final InspectionToolWrapper tool = profile.getInspectionTool(getCompatibilityInspectionShortName(), project);
     if (tool != null) {
-      // Partially copied from JSLinterInspection 
-      final InspectionProfileImpl inspectionProfileImpl = as(profile, InspectionProfileImpl.class);
-      if (inspectionProfileImpl != null) {
-        final ScopeToolState state = inspectionProfileImpl.getToolDefaultState(tool.getShortName(), project);
-        state.setEnabled(true);
-      }
-      profile.modifyProfile(model -> model.enableTool(tool.getShortName(), null, project));
-      EditInspectionToolsSettingsAction.editToolSettings(project, profile, true, getCompatibilityInspectionShortName());
+      profile.setToolEnabled(tool.getShortName(), true);
+      EditInspectionToolsSettingsAction.editToolSettings(project, profile, getCompatibilityInspectionShortName());
     }
   }
   
   @Nullable
   private static LanguageLevel getLatestConfiguredCompatiblePythonVersion(@NotNull PsiElement anchor) {
-    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(anchor.getProject()).getCurrentProfile();
+    final InspectionProfile profile = InspectionProfileManager.getInstance(anchor.getProject()).getCurrentProfile();
     final PyCompatibilityInspection inspection = (PyCompatibilityInspection)profile.getUnwrappedTool(getCompatibilityInspectionShortName(), anchor);
     final JDOMExternalizableStringList versions = inspection.ourVersions;
     if (versions.isEmpty()) {

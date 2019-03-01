@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight;
 
 import com.intellij.codeHighlighting.Pass;
@@ -20,16 +6,17 @@ import com.intellij.codeInsight.daemon.GutterIconNavigationHandler;
 import com.intellij.codeInsight.daemon.LineMarkerInfo;
 import com.intellij.codeInsight.daemon.LineMarkerProviderDescriptor;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.IntentionActionDelegate;
 import com.intellij.codeInsight.intention.IntentionManager;
-import com.intellij.codeInsight.intention.impl.AddAnnotationIntention;
+import com.intellij.codeInsight.intention.PriorityAction;
+import com.intellij.codeInsight.intention.impl.AnnotateIntentionAction;
 import com.intellij.codeInsight.intention.impl.DeannotateIntentionAction;
-import com.intellij.codeInsight.intention.impl.config.IntentionActionWrapper;
 import com.intellij.codeInsight.javadoc.JavaDocInfoGenerator;
+import com.intellij.codeInsight.javadoc.NonCodeAnnotationGenerator;
 import com.intellij.codeInspection.dataFlow.EditContractIntention;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.actions.ApplyIntentionAction;
-import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.impl.SimpleDataContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.markup.GutterIconRenderer;
@@ -42,58 +29,54 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Function;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.util.XmlStringUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.event.MouseEvent;
-import java.util.Collection;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class ExternalAnnotationsLineMarkerProvider extends LineMarkerProviderDescriptor {
   private static final Function<PsiElement, String> ourTooltipProvider = nameIdentifier -> {
     PsiModifierListOwner owner = (PsiModifierListOwner)nameIdentifier.getParent();
 
-    boolean hasInferred = false;
-    boolean hasExternal = false;
-    for (PsiAnnotation annotation : findSignatureNonCodeAnnotations(owner, true)) {
-      hasExternal |= AnnotationUtil.isExternalAnnotation(annotation);
-      hasInferred |= AnnotationUtil.isInferredAnnotation(annotation);
-    }
-
-    String header;
-    if (hasInferred && hasExternal) {
-      header = "External and <i>inferred</i>";
-    } else if (hasInferred) {
-      header = "<i>Inferred</i>";
-    } else {
-      header = "External";
-    }
-    return XmlStringUtil.wrapInHtml(header + " annotations available. Full signature:<p>\n" + JavaDocInfoGenerator.generateSignature(owner));
+    return XmlStringUtil.wrapInHtml(NonCodeAnnotationGenerator.getNonCodeHeader(NonCodeAnnotationGenerator.getSignatureNonCodeAnnotations(owner).values()) +
+                                    " available. Full signature:<p>\n" + JavaDocInfoGenerator.generateSignature(owner));
   };
 
   @Nullable
   @Override
   public LineMarkerInfo getLineMarkerInfo(@NotNull final PsiElement element) {
     PsiModifierListOwner owner = getAnnotationOwner(element);
+    if (owner == null) return null;
+
     boolean includeSourceInferred = CodeInsightSettings.getInstance().SHOW_SOURCE_INFERRED_ANNOTATIONS;
-    if (owner == null || findSignatureNonCodeAnnotations(owner, includeSourceInferred).isEmpty()) {
+    boolean hasAnnotationsToShow = ContainerUtil.exists(NonCodeAnnotationGenerator.getSignatureNonCodeAnnotations(owner).values(),
+                                                        a -> includeSourceInferred || !a.isInferredFromSource());
+    if (!hasAnnotationsToShow) {
       return null;
     }
 
-    return new LineMarkerInfo<PsiElement>(element, element.getTextRange(),
-                                          AllIcons.Gutter.ExtAnnotation,
-                                          Pass.LINE_MARKERS,
-                                          ourTooltipProvider, MyIconGutterHandler.INSTANCE,
-                                          GutterIconRenderer.Alignment.RIGHT);
+    return new LineMarkerInfo<>(element, element.getTextRange(),
+                                AllIcons.Gutter.ExtAnnotation,
+                                Pass.LINE_MARKERS,
+                                ourTooltipProvider, MyIconGutterHandler.INSTANCE,
+                                GutterIconRenderer.Alignment.RIGHT);
   }
 
   @Nullable
   static PsiModifierListOwner getAnnotationOwner(@Nullable PsiElement element) {
     if (element == null) return null;
-    
+
     PsiElement owner = element.getParent();
     if (!(owner instanceof PsiModifierListOwner) || !(owner instanceof PsiNameIdentifierOwner)) return null;
     if (owner instanceof PsiParameter || owner instanceof PsiLocalVariable) return null;
@@ -103,54 +86,6 @@ public class ExternalAnnotationsLineMarkerProvider extends LineMarkerProviderDes
     if (nameIdentifier == null || !nameIdentifier.getTextRange().equals(element.getTextRange())) return null;
     return (PsiModifierListOwner)owner;
   }
-
-  static List<PsiAnnotation> findSignatureNonCodeAnnotations(PsiModifierListOwner owner, boolean includeSourceInferred) {
-    List<PsiAnnotation> result = ContainerUtil.newArrayList(findOwnNonCodeAnnotations(owner, includeSourceInferred));
-
-    if (owner instanceof PsiMethod) {
-      for (PsiParameter parameter : ((PsiMethod)owner).getParameterList().getParameters()) {
-        result.addAll(findOwnNonCodeAnnotations(parameter, includeSourceInferred));
-      }
-    }
-
-    return result;
-  }
-
-  private static List<PsiAnnotation> findOwnNonCodeAnnotations(@NotNull PsiModifierListOwner element, boolean includeSourceInferred) {
-    List<PsiAnnotation> result = ContainerUtil.newArrayList();
-    Project project = element.getProject();
-    PsiAnnotation[] externalAnnotations = ExternalAnnotationsManager.getInstance(project).findExternalAnnotations(element);
-    if (externalAnnotations != null) {
-      for (PsiAnnotation annotation : externalAnnotations) {
-        if (isVisibleAnnotation(annotation)) {
-          result.add(annotation);
-        }
-      }
-    }
-    if (includeSourceInferred || !isSourceCode(element)) {
-      for (PsiAnnotation annotation : InferredAnnotationsManager.getInstance(project).findInferredAnnotations(element)) {
-        if (isVisibleAnnotation(annotation)) {
-          result.add(annotation);
-        }
-      }
-    }
-    return result;
-  }
-
-  static boolean isSourceCode(PsiModifierListOwner element) {
-    return !(BaseExternalAnnotationsManager.preferCompiledElement(element) instanceof PsiCompiledElement);
-  }
-
-  private static boolean isVisibleAnnotation(@NotNull PsiAnnotation annotation) {
-    PsiJavaCodeReferenceElement ref = annotation.getNameReferenceElement();
-    if (ref == null) return true;
-
-    PsiElement target = ref.resolve();
-    return !(target instanceof PsiClass) || JavaDocInfoGenerator.isDocumentedAnnotationType(target);
-  }
-
-  @Override
-  public void collectSlowLineMarkers(@NotNull List<PsiElement> elements, @NotNull Collection<LineMarkerInfo> result) {}
 
   @NotNull
   @Override
@@ -192,15 +127,15 @@ public class ExternalAnnotationsLineMarkerProvider extends LineMarkerProviderDes
     }
 
     @Nullable
-    protected JBPopup createActionGroupPopup(PsiFile file, Project project, Editor editor) {
-      final DefaultActionGroup group = new DefaultActionGroup();
-      for (final IntentionAction action : IntentionManager.getInstance().getAvailableIntentionActions()) {
-        if (shouldShowInGutterPopup(action) && action.isAvailable(project, editor, file)) {
-          group.add(new ApplyIntentionAction(action, action.getText(), editor, file));
-        }
-      }
+    private static JBPopup createActionGroupPopup(PsiFile file, Project project, Editor editor) {
+      List<AnAction> actions = StreamEx.of(getMethodActions(file, project, editor),
+                                           getParameterAnnotationActions(file, project, editor))
+                                       .remove(List::isEmpty)
+                                       .intersperse(Collections.singletonList(Separator.create()))
+                                       .toFlatList(l -> l);
 
-      if (group.getChildrenCount() > 0) {
+      if (!actions.isEmpty()) {
+        final DefaultActionGroup group = new DefaultActionGroup(actions);
         final DataContext context = SimpleDataContext.getProjectContext(null);
         return JBPopupFactory.getInstance()
           .createActionGroupPopup(null, group, context, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true);
@@ -209,13 +144,49 @@ public class ExternalAnnotationsLineMarkerProvider extends LineMarkerProviderDes
       return null;
     }
 
+    @NotNull
+    private static List<AnAction> getMethodActions(PsiFile file, Project project, Editor editor) {
+      Comparator<IntentionAction> comparator =
+        Comparator.comparing((IntentionAction action) ->
+                               action instanceof PriorityAction ? ((PriorityAction)action).getPriority() : PriorityAction.Priority.NORMAL)
+                  .thenComparing(IntentionAction::getText);
+      return Stream.of(IntentionManager.getInstance().getAvailableIntentionActions())
+                   .map(action -> action instanceof IntentionActionDelegate ? ((IntentionActionDelegate)action).getDelegate() : action)
+                   .filter(action -> shouldShowInGutterPopup(action) && action.isAvailable(project, editor, file))
+                   .sorted(comparator)
+                   .map(action -> new ApplyIntentionAction(action, action.getText(), editor, file))
+                   .collect(Collectors.toList());
+    }
+
+    @NotNull
+    private static List<AnAction> getParameterAnnotationActions(@NotNull PsiFile file, Project project, Editor editor) {
+      final PsiElement leaf = file.findElementAt(editor.getCaretModel().getOffset());
+      if (leaf == null) return Collections.emptyList();
+      PsiMethod method = ObjectUtils.tryCast(leaf.getParent(), PsiMethod.class);
+      if (method == null) return Collections.emptyList();
+      List<AnAction> actions = new ArrayList<>();
+      for (PsiParameter parameter: method.getParameterList().getParameters()) {
+        MakeInferredAnnotationExplicit intention = new MakeInferredAnnotationExplicit();
+        if (intention.isAvailable(project, file, parameter)) {
+          actions.add(new AnAction(intention.getText() + " on parameter '" + parameter.getName() + "'") {
+            @Override
+            public void actionPerformed(@NotNull AnActionEvent e) {
+              PsiDocumentManager.getInstance(project).commitAllDocuments();
+              intention.makeAnnotationsExplicit(project, file, parameter);
+            }
+          });
+        }
+      }
+      return actions;
+    }
+
     private static boolean shouldShowInGutterPopup(IntentionAction action) {
-      return action instanceof AddAnnotationIntention ||
+      return action instanceof AnnotateIntentionAction ||
              action instanceof DeannotateIntentionAction ||
              action instanceof EditContractIntention ||
              action instanceof ToggleSourceInferredAnnotations ||
              action instanceof MakeInferredAnnotationExplicit ||
-             action instanceof IntentionActionWrapper && shouldShowInGutterPopup(((IntentionActionWrapper)action).getDelegate());
+             action instanceof MakeExternalAnnotationExplicit;
     }
   }
 }

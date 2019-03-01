@@ -1,40 +1,56 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package org.jetbrains.idea.maven.execution;
 
+import com.intellij.build.BuildView;
+import com.intellij.build.DefaultBuildDescriptor;
+import com.intellij.debugger.impl.DebuggerManagerImpl;
+import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.diagnostic.logging.LogConfigurationPanel;
 import com.intellij.execution.*;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
+import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
-import com.intellij.openapi.module.Module;
+import com.intellij.execution.ui.ConsoleView;
+import com.intellij.execution.util.JavaParametersUtil;
+import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.options.SettingsEditorGroup;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.util.xmlb.XmlSerializer;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.buildtool.BuildToolConsoleProcessAdapter;
+import org.jetbrains.idea.maven.buildtool.BuildViewMavenConsole;
+import org.jetbrains.idea.maven.buildtool.MavenBuildEventProcessor;
+import org.jetbrains.idea.maven.dom.MavenDomUtil;
+import org.jetbrains.idea.maven.dom.MavenPropertyResolver;
+import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
+import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.project.*;
+import org.jetbrains.idea.maven.utils.MavenUtil;
+
+import java.io.File;
+import java.util.List;
+import java.util.regex.Pattern;
+
+import static com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskType.EXECUTE_TASK;
+import static com.intellij.openapi.util.io.FileUtil.toSystemDependentName;
+import static com.intellij.util.containers.ContainerUtil.indexOf;
+import static org.jetbrains.idea.maven.execution.MavenApplicationConfigurationExecutionEnvironmentProvider.patchVmParameters;
 
 public class MavenRunConfiguration extends LocatableConfigurationBase implements ModuleRunProfile {
   private MavenSettings mySettings;
@@ -70,51 +86,18 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
   }
 
   @Override
-  public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) throws ExecutionException {
-    JavaCommandLineState state = new JavaCommandLineState(env) {
-      @Override
-      protected JavaParameters createJavaParameters() throws ExecutionException {
-        return MavenRunConfiguration.this.createJavaParameters(env.getProject());
-      }
-
-      @NotNull
-      @Override
-      public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner runner) throws ExecutionException {
-        DefaultExecutionResult res = (DefaultExecutionResult)super.execute(executor, runner);
-        if (executor.getId().equals(ToolWindowId.RUN)
-            && MavenResumeAction.isApplicable(env.getProject(), getJavaParameters(), MavenRunConfiguration.this)) {
-          MavenResumeAction resumeAction = new MavenResumeAction(res.getProcessHandler(), runner, env);
-          res.setRestartActions(resumeAction);
-        }
-        return res;
-      }
-
-      @NotNull
-      @Override
-      protected OSProcessHandler startProcess() throws ExecutionException {
-        OSProcessHandler result = super.startProcess();
-        result.setShouldDestroyProcessRecursively(true);
-        result.addProcessListener(new ProcessAdapter() {
-          @Override
-          public void processTerminated(ProcessEvent event) {
-            updateProjectsFolders();
-          }
-        });
-        return result;
-      }
-    };
-    state.setConsoleBuilder(MavenConsoleImpl.createConsoleBuilder(getProject()));
+  public RunProfileState getState(@NotNull final Executor executor, @NotNull final ExecutionEnvironment env) {
+    JavaCommandLineState state = new JavaCommandLineStateImpl(env);
     return state;
+  }
+
+  @NotNull
+  public RemoteConnectionCreator createRemoteConnectionCreator(JavaParameters javaParameters) {
+    return new ExecRemoteConnectionCreator(javaParameters, this);
   }
 
   private void updateProjectsFolders() {
     MavenProjectsManager.getInstance(getProject()).updateProjectTargetFolders();
-  }
-
-  @Override
-  @NotNull
-  public Module[] getModules() {
-    return Module.EMPTY_ARRAY;
   }
 
   @Nullable
@@ -144,13 +127,12 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
 
     Element mavenSettingsElement = element.getChild(MavenSettings.TAG);
     if (mavenSettingsElement != null) {
       mySettings = XmlSerializer.deserialize(mavenSettingsElement, MavenSettings.class);
-      if (mySettings == null) mySettings = new MavenSettings();
 
       if (mySettings.myRunnerParameters == null) mySettings.myRunnerParameters = new MavenRunnerParameters();
 
@@ -160,7 +142,7 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
     element.addContent(XmlSerializer.serialize(mySettings));
   }
@@ -194,6 +176,210 @@ public class MavenRunConfiguration extends LocatableConfigurationBase implements
     @Override
     protected MavenSettings clone() {
       return new MavenSettings(myGeneralSettings, myRunnerSettings, myRunnerParameters);
+    }
+  }
+
+  private static class ExecRemoteConnectionCreator implements RemoteConnectionCreator {
+
+    private static final Pattern EXEC_MAVEN_PLUGIN_PATTERN = Pattern.compile("org[.]codehaus[.]mojo:exec-maven-plugin(:[\\d.]+)?:exec");
+
+    private final JavaParameters myJavaParameters;
+    private final MavenRunConfiguration myRunConfiguration;
+
+    ExecRemoteConnectionCreator(JavaParameters javaParameters, MavenRunConfiguration runConfiguration) {
+      myJavaParameters = javaParameters;
+      myRunConfiguration = runConfiguration;
+    }
+
+    @Nullable
+    @Override
+    public RemoteConnection createRemoteConnection(ExecutionEnvironment environment) {
+      ParametersList programParametersList = myJavaParameters.getProgramParametersList();
+      boolean execGoal = programParametersList.getList().stream().anyMatch(parameter ->
+                                                                             parameter.equals("exec:exec") ||
+                                                                             EXEC_MAVEN_PLUGIN_PATTERN.matcher(parameter).matches()
+      );
+      if (!execGoal) {
+        return null;
+      }
+
+      Project project = myRunConfiguration.getProject();
+      MavenRunnerParameters runnerParameters = myRunConfiguration.getRunnerParameters();
+
+      JavaParameters parameters = new JavaParameters();
+      RemoteConnection connection;
+      try {
+        // there's no easy and reliable way to know the version of target JRE, but without it there won't be any debugger agent settings
+        parameters.setJdk(JavaParametersUtil.createProjectJdk(project, null));
+        connection = DebuggerManagerImpl.createDebugParameters(
+          parameters, false, DebuggerSettings.getInstance().DEBUGGER_TRANSPORT, "", false);
+      }
+      catch (ExecutionException e) {
+        throw new RuntimeException("Cannot create debug connection", e);
+      }
+
+      String execArgsStr;
+
+      String execArgsPrefix = "-Dexec.args=";
+      int execArgsIndex = indexOf(programParametersList.getList(), s -> s.startsWith(execArgsPrefix));
+      if (execArgsIndex != -1) {
+        execArgsStr = programParametersList.get(execArgsIndex).substring(execArgsPrefix.length());
+      }
+      else {
+        execArgsStr = getExecArgsFromPomXml(project, runnerParameters);
+      }
+
+      ParametersList execArgs = new ParametersList();
+      execArgs.addAll(patchVmParameters(parameters.getVMParametersList()));
+
+      execArgs.addParametersString(execArgsStr);
+
+      String classPath = toSystemDependentName(parameters.getClassPath().getPathsString());
+      if (StringUtil.isNotEmpty(classPath)) {
+        appendToClassPath(execArgs, classPath);
+      }
+
+      String execArgsCommandLineArg = execArgsPrefix + execArgs.getParametersString();
+      if (execArgsIndex != -1) {
+        programParametersList.set(execArgsIndex, execArgsCommandLineArg);
+      }
+      else {
+        programParametersList.add(execArgsCommandLineArg);
+      }
+
+      return connection;
+    }
+
+    @Override
+    public boolean isPollConnection() {
+      return true;
+    }
+
+    private static String getExecArgsFromPomXml(Project project, MavenRunnerParameters runnerParameters) {
+      VirtualFile workingDir = VfsUtil.findFileByIoFile(runnerParameters.getWorkingDirFile(), false);
+      if (workingDir != null) {
+        String pomFileName = StringUtil.defaultIfEmpty(runnerParameters.getPomFileName(), MavenConstants.POM_XML);
+        VirtualFile pomFile = workingDir.findChild(pomFileName);
+        if (pomFile != null) {
+          MavenDomProjectModel projectModel = MavenDomUtil.getMavenDomProjectModel(project, pomFile);
+          if (projectModel != null) {
+            return StringUtil.notNullize(MavenPropertyResolver.resolve("${exec.args}", projectModel));
+          }
+        }
+      }
+      return "";
+    }
+
+    private static void appendToClassPath(ParametersList execArgs, String classPath) {
+      List<String> execArgsList = execArgs.getList();
+      int classPathIndex = execArgsList.indexOf("-classpath");
+      if (classPathIndex == -1) {
+        classPathIndex = execArgsList.indexOf("-cp");
+      }
+      if (classPathIndex == -1) {
+        execArgs.prependAll("-classpath", "%classpath" + File.pathSeparator + classPath);
+      }
+      else if (classPathIndex + 1 == execArgsList.size()) { // invalid command line, but we still have to patch it
+        execArgs.add("%classpath" + File.pathSeparator + classPath);
+      }
+      else {
+        String oldClassPath = execArgs.get(classPathIndex + 1);
+        execArgs.set(classPathIndex + 1, oldClassPath + File.pathSeparator + classPath);
+      }
+    }
+  }
+
+  private class JavaCommandLineStateImpl extends JavaCommandLineState implements RemoteConnectionCreator {
+
+    private RemoteConnectionCreator myRemoteConnectionCreator;
+
+    protected JavaCommandLineStateImpl(@NotNull ExecutionEnvironment environment) {
+      super(environment);
+    }
+
+    @Override
+    protected JavaParameters createJavaParameters() throws ExecutionException {
+      return MavenRunConfiguration.this.createJavaParameters(getEnvironment().getProject());
+    }
+
+    @NotNull
+    @Override
+    public ExecutionResult execute(@NotNull Executor executor, @NotNull ProgramRunner runner) throws ExecutionException {
+
+      final ProcessHandler processHandler = startProcess();
+
+      final ConsoleView console = createConsoleViewAndAttachToProcess(executor, processHandler);
+
+      DefaultExecutionResult res = new DefaultExecutionResult(console, processHandler, createActions(console, processHandler, executor));
+      if (executor.getId().equals(ToolWindowId.RUN)
+          && MavenResumeAction.isApplicable(getEnvironment().getProject(), getJavaParameters(), MavenRunConfiguration.this)) {
+        MavenResumeAction resumeAction = new MavenResumeAction(res.getProcessHandler(), runner, getEnvironment());
+        res.setRestartActions(resumeAction);
+      }
+      return res;
+    }
+
+    private @Nullable
+    ConsoleView createConsoleViewAndAttachToProcess(Executor executor, ProcessHandler processHandler) throws ExecutionException {
+      ConsoleView console = super.createConsole(executor);
+      if (console == null) {
+        return null;
+      }
+
+      if (!Registry.is("maven.build.tool.window.enabled")) {
+        console.attachToProcess(processHandler);
+        return console;
+      }
+      else {
+        ExternalSystemTaskId taskId = ExternalSystemTaskId.create(MavenUtil.SYSTEM_ID, EXECUTE_TASK, getProject());
+        DefaultBuildDescriptor descriptor =
+          new DefaultBuildDescriptor(taskId, "Run Maven task", getEnvironment().getProject().getBasePath(), System.currentTimeMillis());
+
+        BuildView buildView = BuildViewMavenConsole.createBuildView(getProject(), console, descriptor);
+
+        MavenBuildEventProcessor eventProcessor =
+          new MavenBuildEventProcessor(getProject(), getProject().getBasePath(), buildView, descriptor, taskId);
+        processHandler.addProcessListener(new BuildToolConsoleProcessAdapter(eventProcessor));
+        buildView.attachToProcess(processHandler);
+        return buildView;
+      }
+    }
+
+    @NotNull
+    @Override
+    protected OSProcessHandler startProcess() throws ExecutionException {
+      OSProcessHandler result = super.startProcess();
+      result.setShouldDestroyProcessRecursively(true);
+      result.addProcessListener(new ProcessAdapter() {
+        @Override
+        public void processTerminated(@NotNull ProcessEvent event) {
+          updateProjectsFolders();
+        }
+      });
+      return result;
+    }
+
+    public RemoteConnectionCreator getRemoteConnectionCreator() {
+      if (myRemoteConnectionCreator == null) {
+        try {
+          myRemoteConnectionCreator = MavenRunConfiguration.this.createRemoteConnectionCreator(getJavaParameters());
+        }
+        catch (ExecutionException e) {
+          throw new RuntimeException("Cannot create java parameters", e);
+        }
+      }
+      return myRemoteConnectionCreator;
+    }
+
+    @Nullable
+    @Override
+    public RemoteConnection createRemoteConnection(ExecutionEnvironment environment) {
+      return getRemoteConnectionCreator().createRemoteConnection(environment);
+    }
+
+    @Override
+    public boolean isPollConnection() {
+      return getRemoteConnectionCreator().isPollConnection();
     }
   }
 }

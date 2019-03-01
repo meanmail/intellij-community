@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.folding.impl;
 
 import com.intellij.openapi.util.text.StringUtil;
@@ -30,10 +16,9 @@ import java.util.StringTokenizer;
  * Thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 11/7/11 11:58 AM
  */
 public class PsiNamesElementSignatureProvider extends AbstractElementSignatureProvider {
-  
+
   private static final String TYPE_MARKER            = "n";
   private static final String TOP_LEVEL_CHILD_MARKER = "!!top";
   private static final String DOC_COMMENT_MARKER     = "!!doc";
@@ -159,7 +144,7 @@ public class PsiNamesElementSignatureProvider extends AbstractElementSignaturePr
    * Allows to answer if it's possible to use {@link #TOP_LEVEL_CHILD_MARKER} for the given element.
    * 
    * @param element  element to check
-   * @return         <code>true</code> if {@link #TOP_LEVEL_CHILD_MARKER} can be used for the given element; <code>false</code> otherwise
+   * @return         {@code true} if {@link #TOP_LEVEL_CHILD_MARKER} can be used for the given element; {@code false} otherwise
    */
   private static boolean canResolveTopLevelChild(@NotNull PsiElement element) {
     final PsiElement parent = element.getParent();
@@ -183,9 +168,8 @@ public class PsiNamesElementSignatureProvider extends AbstractElementSignaturePr
    * @param element  target element
    * @param buffer   buffer to store the signature in
    * @return         buffer that contains signature of the given element if it was produced;
-   *                 <code>null</code> as an indication that signature for the given element was not produced
+   *                 {@code null} as an indication that signature for the given element was not produced
    */
-  @SuppressWarnings("unchecked")
   @Nullable
   private static StringBuilder getSignature(@NotNull PsiElement element, @Nullable StringBuilder buffer) {
     if (element instanceof PsiNamedElement) {
@@ -195,6 +179,7 @@ public class PsiNamesElementSignatureProvider extends AbstractElementSignaturePr
         return null;
       }
       int index = getChildIndex(named, element.getParent(), name, PsiNamedElement.class);
+      if (index < 0) return null;
       StringBuilder bufferToUse = buffer;
       if (bufferToUse == null) {
         bufferToUse = new StringBuilder();

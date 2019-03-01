@@ -45,10 +45,10 @@ public class TestNGForkTest {
       final String dynamicClasspath = "dynamic classpath";
       final String[] vmParams = new String[] {"vm executable", "param1", "param2"};
       FileUtil.writeToFile(commandLineFile, dynamicClasspath + "\n" + StringUtil.join(vmParams, "\n") + "\n");
-      new TestNGForkedSplitter(tempFile.getCanonicalPath(), System.out, System.err, Collections.singletonList(tempFile.getCanonicalPath())) {
+      new TestNGForkedSplitter(tempFile.getCanonicalPath(), Collections.singletonList(tempFile.getCanonicalPath())) {
         private boolean myStarted = false;
         @Override
-        protected int startChildFork(List args, File workingDir, String classpath, String repeatCount) throws IOException, InterruptedException {
+        protected int startChildFork(List args, File workingDir, String classpath, String repeatCount) throws IOException {
           Assert.assertEquals(dynamicClasspath, myDynamicClasspath);
           Assert.assertArrayEquals(vmParams, myVMParameters.toArray());
           Assert.assertEquals(workingDirFromFile, workingDir.getName());

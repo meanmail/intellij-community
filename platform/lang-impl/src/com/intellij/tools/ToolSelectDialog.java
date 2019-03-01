@@ -20,23 +20,14 @@ import com.intellij.openapi.ui.DialogWrapper;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.TreeSelectionEvent;
-import javax.swing.event.TreeSelectionListener;
 
-class ToolSelectDialog extends DialogWrapper {
+public class ToolSelectDialog extends DialogWrapper {
   private final BaseToolsPanel myToolsPanel;
 
-  protected ToolSelectDialog(@Nullable Project project, @Nullable String actionIdToSelect, BaseToolsPanel toolsPanel) {
+  public ToolSelectDialog(@Nullable Project project, @Nullable String actionIdToSelect, BaseToolsPanel toolsPanel) {
     super(project);
     myToolsPanel = toolsPanel;
     myToolsPanel.reset();
-    setOKActionEnabled(myToolsPanel.getSingleSelectedTool() != null);
-    myToolsPanel.addSelectionListener(new TreeSelectionListener() {
-      @Override
-      public void valueChanged(TreeSelectionEvent e) {
-        setOKActionEnabled(myToolsPanel.getSingleSelectedTool() != null);
-      }
-    });
     init();
     pack();
     if (actionIdToSelect != null) {
@@ -57,11 +48,11 @@ class ToolSelectDialog extends DialogWrapper {
   }
 
   @Nullable
-  Tool getSelectedTool() {
+  public Tool getSelectedTool() {
     return myToolsPanel.getSingleSelectedTool();
   }
 
-  boolean isModified() {
+  public boolean isModified() {
     return myToolsPanel.isModified();
   }
 

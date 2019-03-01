@@ -15,21 +15,24 @@
  */
 package com.jetbrains.python.spellchecker;
 
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.spellchecker.inspections.PlainTextSplitter;
 import com.intellij.spellchecker.inspections.Splitter;
 import com.intellij.spellchecker.tokenizer.SpellcheckingStrategy;
 import com.intellij.spellchecker.tokenizer.TokenConsumer;
 import com.intellij.spellchecker.tokenizer.Tokenizer;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.inspections.PyStringFormatParser;
 import com.jetbrains.python.psi.PyBinaryExpression;
+import com.jetbrains.python.psi.PyFormattedStringElement;
+import com.jetbrains.python.psi.PyStringElement;
 import com.jetbrains.python.psi.PyStringLiteralExpression;
+import com.jetbrains.python.psi.impl.PyStringLiteralDecoder;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -40,25 +43,29 @@ public class PythonSpellcheckerStrategy extends SpellcheckingStrategy {
     @Override
     public void tokenize(@NotNull PyStringLiteralExpression element, TokenConsumer consumer) {
       final Splitter splitter = PlainTextSplitter.getInstance();
-      final String text = element.getText();
-      if (text.indexOf('\\') >= 0 && !StringUtil.startsWithIgnoreCase(text, "r")) {
-        for (Pair<TextRange, String> fragment : element.getDecodedFragments()) {
-          final String value = fragment.getSecond();
-          final int startOffset = fragment.getFirst().getStartOffset();
-          consumer.consumeToken(element, value, false, startOffset, TextRange.allOf(value), splitter);
+      for (PyStringElement stringElement : element.getStringElements()) {
+        final List<TextRange> literalPartRanges;
+        if (stringElement.isFormatted()) {
+          literalPartRanges = ((PyFormattedStringElement)stringElement).getLiteralPartRanges();
         }
-      }
-      else if (StringUtil.startsWithIgnoreCase(text, "u") || 
-               StringUtil.startsWithIgnoreCase(text, "r") ||
-               StringUtil.startsWithIgnoreCase(text, "b")) {
-        for (TextRange valueTextRange : element.getStringValueTextRanges()) {
-          final String value = valueTextRange.substring(element.getText());
-          final int startOffset = valueTextRange.getStartOffset();
-          consumer.consumeToken(element, value, false, startOffset, TextRange.allOf(value), splitter);
+        else {
+          literalPartRanges = Collections.singletonList(stringElement.getContentRange());
         }
-      }
-      else {
-        consumer.consumeToken(element, splitter);
+        final PyStringLiteralDecoder decoder = new PyStringLiteralDecoder(stringElement);
+        final boolean containsEscapes = stringElement.textContains('\\');
+        for (TextRange literalPartRange : literalPartRanges) {
+          final List<TextRange> escapeAwareRanges;
+          if (stringElement.isRaw() || !containsEscapes) {
+            escapeAwareRanges = Collections.singletonList(literalPartRange);
+          }
+          else {
+            escapeAwareRanges = ContainerUtil.map(decoder.decodeRange(literalPartRange), x -> x.getFirst());
+          }
+          for (TextRange escapeAwareRange : escapeAwareRanges) {
+            final String valueText = escapeAwareRange.substring(stringElement.getText());
+            consumer.consumeToken(stringElement, valueText, false, escapeAwareRange.getStartOffset(), TextRange.allOf(valueText), splitter);
+          }
+        }
       }
     }
   }
@@ -80,8 +87,8 @@ public class PythonSpellcheckerStrategy extends SpellcheckingStrategy {
     }
   }
 
-  private StringLiteralTokenizer myStringLiteralTokenizer = new StringLiteralTokenizer();
-  private FormatStringTokenizer myFormatStringTokenizer = new FormatStringTokenizer();
+  private final StringLiteralTokenizer myStringLiteralTokenizer = new StringLiteralTokenizer();
+  private final FormatStringTokenizer myFormatStringTokenizer = new FormatStringTokenizer();
 
   @NotNull
   @Override

@@ -1,13 +1,20 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
+import com.intellij.configurationStore.BaseXmlOutputter
+import com.intellij.configurationStore.getStateSpec
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.impl.ApplicationImpl
 import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.impl.ComponentManagerImpl
 import com.intellij.openapi.components.impl.ServiceManagerImpl
-import com.intellij.openapi.components.impl.stores.StoreUtil
 import com.intellij.openapi.extensions.PluginDescriptor
 import com.intellij.testFramework.ProjectRule
-import com.intellij.util.PairProcessor
 import com.intellij.util.xmlb.XmlSerializerUtil
 import org.jdom.Attribute
 import org.jdom.Element
@@ -15,7 +22,7 @@ import org.junit.ClassRule
 import org.junit.Test
 import java.lang.reflect.ParameterizedType
 import java.lang.reflect.Type
-import java.util.Collection
+import java.util.function.BiPredicate
 
 class DoNotStorePasswordTest {
   companion object {
@@ -26,15 +33,15 @@ class DoNotStorePasswordTest {
 
   @Test
   fun printPasswordComponents() {
-    val processor = PairProcessor<Class<*>, PluginDescriptor> { aClass, pluginDescriptor ->
-      val stateAnnotation = StoreUtil.getStateSpec(aClass)
-      if (stateAnnotation == null || stateAnnotation.name.isNullOrEmpty()) {
-        return@PairProcessor true
+    val processor = BiPredicate<Class<*>, PluginDescriptor?> { aClass, _ ->
+      val stateAnnotation = getStateSpec(aClass)
+      if (stateAnnotation == null || stateAnnotation.name.isEmpty()) {
+        return@BiPredicate true
       }
 
       for (i in aClass.genericInterfaces) {
         if (checkType(i)) {
-          return@PairProcessor true
+          return@BiPredicate true
         }
       }
 
@@ -53,15 +60,13 @@ class DoNotStorePasswordTest {
 
     @Suppress("DEPRECATION")
     for (c in app.getComponentInstancesOfType(PersistentStateComponent::class.java)) {
-      processor.process(c.javaClass, null)
+      processor.test(c.javaClass, null)
     }
     @Suppress("DEPRECATION")
     for (c in (projectRule.project as ComponentManagerImpl).getComponentInstancesOfType(PersistentStateComponent::class.java)) {
-      processor.process(c.javaClass, null)
+      processor.test(c.javaClass, null)
     }
   }
-
-  fun isSavePasswordField(name: String) = name.contains("remember", ignoreCase = true) || name.contains("keep", ignoreCase = true) || name.contains("save", ignoreCase = true)
 
   fun check(clazz: Class<*>) {
     if (clazz === Attribute::class.java || clazz === Element::class.java) {
@@ -70,15 +75,20 @@ class DoNotStorePasswordTest {
 
     for (accessor in XmlSerializerUtil.getAccessors(clazz)) {
       val name = accessor.name
-      if (name.contains("password", ignoreCase = true) && !isSavePasswordField(name)) {
-        System.out.println("${clazz.typeName}.${accessor.name}")
+      if (BaseXmlOutputter.doesNameSuggestSensitiveInformation(name)) {
+        if (clazz.typeName != "com.intellij.docker.registry.DockerRegistry") {
+          throw RuntimeException("${clazz.typeName}.${accessor.name}")
+        }
       }
       else if (!accessor.valueClass.isPrimitive) {
         @Suppress("PLATFORM_CLASS_MAPPED_TO_KOTLIN")
         if (Collection::class.java.isAssignableFrom(accessor.valueClass)) {
           val genericType = accessor.genericType
           if (genericType is ParameterizedType) {
-            check(genericType.actualTypeArguments[0] as Class<*>)
+            val type = genericType.actualTypeArguments[0]
+            if (type is Class<*>) {
+              check(type)
+            }
           }
         }
         else if (accessor.valueClass != clazz) {

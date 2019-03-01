@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.maven.server;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.model.MavenExplicitProfiles;
 import org.jetbrains.idea.maven.model.MavenModel;
 import org.jetbrains.idea.maven.server.embedder.Maven2ServerEmbedderImpl;
@@ -26,6 +27,7 @@ import java.rmi.server.UnicastRemoteObject;
 import java.util.Collection;
 
 public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
+  @Override
   public void set(MavenServerLogger logger, MavenServerDownloadListener downloadListener) throws RemoteException {
     try {
       Maven2ServerGlobals.set(logger, downloadListener);
@@ -35,6 +37,7 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   public MavenServerEmbedder createEmbedder(MavenEmbedderSettings settings) throws RemoteException {
     try {
       Maven2ServerEmbedderImpl result = Maven2ServerEmbedderImpl.create(settings.getSettings());
@@ -46,6 +49,7 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   public MavenServerIndexer createIndexer() throws RemoteException {
     try {
       Maven2ServerIndexerImpl result = new Maven2ServerIndexerImpl();
@@ -57,6 +61,8 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
+  @NotNull
   public MavenModel interpolateAndAlignModel(MavenModel model, File basedir) {
     try {
       return Maven2ServerEmbedderImpl.interpolateAndAlignModel(model, basedir);
@@ -66,6 +72,7 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   public MavenModel assembleInheritance(MavenModel model, MavenModel parentModel) {
     try {
       return Maven2ServerEmbedderImpl.assembleInheritance(model, parentModel);
@@ -75,6 +82,7 @@ public class Maven2ServerImpl extends MavenRemoteObject implements MavenServer {
     }
   }
 
+  @Override
   public ProfileApplicationResult applyProfiles(MavenModel model,
                                                 File basedir,
                                                 MavenExplicitProfiles explicitProfiles,

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,41 +15,24 @@
  */
 package com.intellij.profile;
 
-import com.intellij.profile.codeInspection.ProjectInspectionProfileManagerKt;
+import com.intellij.openapi.options.ExternalizableScheme;
 import com.intellij.util.xmlb.SmartSerializer;
 import com.intellij.util.xmlb.annotations.OptionTag;
-import com.intellij.util.xmlb.annotations.Transient;
-import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: anna
- * Date: 01-Dec-2005
- */
-public abstract class ProfileEx implements Profile {
+public abstract class ProfileEx implements Comparable, ExternalizableScheme {
   public static final String SCOPE = "scope";
   public static final String NAME = "name";
+  public static final String PROFILE = "profile";
 
-  private final SmartSerializer mySerializer;
+  protected final SmartSerializer mySerializer;
 
   @NotNull
   protected String myName;
 
-  @OptionTag("myLocal")
-  // exists only to preserve compatibility
-  private boolean myLocal;
-
-  protected ProfileManager myProfileManager;
-
-  private boolean myIsProjectLevel;
-
   public ProfileEx(@NotNull String name) {
-    this(name, SmartSerializer.skipEmptySerializer());
-  }
-
-  protected ProfileEx(@NotNull String name, @NotNull SmartSerializer serializer) {
     myName = name;
-    mySerializer = serializer;
+    mySerializer = SmartSerializer.skipEmptySerializer();
   }
 
   @Override
@@ -61,72 +44,25 @@ public abstract class ProfileEx implements Profile {
   }
 
   @Override
-  @Transient
-  public boolean isProjectLevel() {
-    return myIsProjectLevel;
-  }
-
-  @Override
-  public void setProjectLevel(boolean isProjectLevel) {
-    myIsProjectLevel = isProjectLevel;
-  }
-
-  @Override
   public void setName(@NotNull String name) {
     myName = name;
   }
 
   @Override
-  @NotNull
-  @Transient
-  public ProfileManager getProfileManager() {
-    return myProfileManager;
-  }
-
-  @Override
-  public void setProfileManager(@NotNull ProfileManager profileManager) {
-    myProfileManager = profileManager;
-  }
-
-  @Override
-  public void readExternal(Element element) {
-    mySerializer.readExternal(this, element);
-  }
-
-  public void serializeInto(@NotNull Element element, boolean preserveCompatibility) {
-    mySerializer.writeExternal(this, element, preserveCompatibility);
-  }
-
-  @Override
-  public final void writeExternal(Element element) {
-    serializeInto(element, true);
-  }
-
   public boolean equals(Object o) {
     return this == o || o instanceof ProfileEx && myName.equals(((ProfileEx)o).myName);
   }
 
+  @Override
   public int hashCode() {
     return myName.hashCode();
   }
 
   @Override
   public int compareTo(@NotNull Object o) {
-    if (o instanceof Profile) {
-      return getName().compareToIgnoreCase(((Profile)o).getName());
+    if (o instanceof ProfileEx) {
+      return getName().compareToIgnoreCase(((ProfileEx)o).getName());
     }
     return 0;
-  }
-
-  @Override
-  public final void copyFrom(@NotNull Profile profile) {
-    readExternal(serializeProfile(profile));
-  }
-
-  @NotNull
-  public static Element serializeProfile(@NotNull Profile profile) {
-    Element result = new Element(ProjectInspectionProfileManagerKt.PROFILE);
-    profile.writeExternal(result);
-    return result;
   }
 }

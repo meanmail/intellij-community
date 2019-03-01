@@ -16,21 +16,25 @@
 package git4idea.branch;
 
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.ListPopup;
-import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.vcs.ProjectLevelVcsManager;
+import com.intellij.openapi.vcs.VcsRoot;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.*;
-import com.intellij.vcs.log.data.VcsLogBranchFilterImpl;
-import com.intellij.vcs.log.impl.VcsLogUtil;
+import com.intellij.vcs.log.data.VcsLogData;
+import com.intellij.vcs.log.statistics.VcsLogUsageTriggerCollector;
+import com.intellij.vcs.log.ui.AbstractVcsLogUi;
+import com.intellij.vcs.log.ui.VcsLogInternalDataKeys;
 import com.intellij.vcs.log.ui.filter.BranchPopupBuilder;
+import com.intellij.vcs.log.util.VcsLogUtil;
+import com.intellij.vcs.log.visible.filters.VcsLogFilterObject;
 import git4idea.repo.GitRepositoryManager;
 import org.jetbrains.annotations.NotNull;
 
@@ -42,67 +46,69 @@ import java.util.Set;
 public class DeepCompareAction extends ToggleAction implements DumbAware {
 
   @Override
-  public boolean isSelected(AnActionEvent e) {
+  public boolean isSelected(@NotNull AnActionEvent e) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     VcsLogUi ui = e.getData(VcsLogDataKeys.VCS_LOG_UI);
-    if (project == null || ui == null) {
+    VcsLogData dataProvider = e.getData(VcsLogInternalDataKeys.LOG_DATA);
+    if (project == null || ui == null || dataProvider == null) {
       return false;
     }
-    return DeepComparator.getInstance(project, ui).hasHighlightingOrInProgress();
+    return DeepComparator.getInstance(project, dataProvider, ui).hasHighlightingOrInProgress();
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean selected) {
+  public void setSelected(@NotNull AnActionEvent e, boolean selected) {
     Project project = e.getData(CommonDataKeys.PROJECT);
     final VcsLogUi ui = e.getData(VcsLogDataKeys.VCS_LOG_UI);
-    final VcsLogDataProvider dataProvider = e.getData(VcsLogDataKeys.VCS_LOG_DATA_PROVIDER);
+    VcsLogData dataProvider = e.getData(VcsLogInternalDataKeys.LOG_DATA);
     if (project == null || ui == null || dataProvider == null) {
       return;
     }
-    final DeepComparator dc = DeepComparator.getInstance(project, ui);
+    final DeepComparator dc = DeepComparator.getInstance(project, dataProvider, ui);
     if (selected) {
-      VcsLogUtil.triggerUsage(e);
+      VcsLogUsageTriggerCollector.triggerUsage(e, this);
 
-      VcsLogBranchFilter branchFilter = ui.getFilterUi().getFilters().getBranchFilter();
-      String singleBranchName = branchFilter != null ? VcsLogUtil.getSingleFilteredBranch(branchFilter, ui.getDataPack().getRefs()) : null;
+      VcsLogDataPack dataPack = ui.getDataPack();
+      String singleBranchName = VcsLogUtil.getSingleFilteredBranch(ui.getFilterUi().getFilters(), dataPack.getRefs());
       if (singleBranchName == null) {
-        selectBranchAndPerformAction(ui.getDataPack(), e, new Consumer<String>() {
-          @Override
-          public void consume(String selectedBranch) {
-            ui.getFilterUi().setFilter(VcsLogBranchFilterImpl.fromBranch(selectedBranch));
-            dc.highlightInBackground(selectedBranch, dataProvider);
-          }
-        }, getAllVisibleRoots(ui));
+        selectBranchAndPerformAction(ui, e, selectedBranch -> {
+          ui.getFilterUi().setFilter(VcsLogFilterObject.fromBranch(selectedBranch));
+          dc.startTask(dataPack, selectedBranch);
+        }, getGitRoots(project, ui));
         return;
       }
-      dc.highlightInBackground(singleBranchName, dataProvider);
+      dc.startTask(dataPack, singleBranchName);
     }
     else {
-      dc.stopAndUnhighlight();
+      dc.stopTaskAndUnhighlight();
     }
   }
 
-  private static void selectBranchAndPerformAction(@NotNull VcsLogDataPack dataPack,
+  private static void selectBranchAndPerformAction(@NotNull VcsLogUi ui,
                                                    @NotNull AnActionEvent event,
-                                                   @NotNull final Consumer<String> consumer,
+                                                   @NotNull Consumer<String> consumer,
                                                    @NotNull Collection<VirtualFile> visibleRoots) {
+    VcsLogDataPack dataPack = ui.getDataPack();
     ActionGroup actionGroup = new BranchPopupBuilder(dataPack, visibleRoots, null) {
       @NotNull
       @Override
-      protected AnAction createAction(@NotNull final String name) {
+      protected AnAction createAction(@NotNull String name, @NotNull Collection<? extends VcsRef> refs) {
         return new DumbAwareAction(name) {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             consumer.consume(name);
           }
         };
       }
     }.build();
     ListPopup popup = JBPopupFactory.getInstance()
-      .createActionGroupPopup("Select branch to compare", actionGroup, event.getDataContext(), false, false, false, null, -1, null);
+      .createActionGroupPopup("Select Branch to Compare", actionGroup, event.getDataContext(), false, false, false, null, -1, null);
     InputEvent inputEvent = event.getInputEvent();
     if (inputEvent instanceof MouseEvent) {
       popup.show(new RelativePoint((MouseEvent)inputEvent));
+    }
+    else if (ui instanceof AbstractVcsLogUi) {
+      popup.showInCenterOf(((AbstractVcsLogUi)ui).getTable());
     }
     else {
       popup.showInBestPositionFor(event.getDataContext());
@@ -114,23 +120,30 @@ public class DeepCompareAction extends ToggleAction implements DumbAware {
     super.update(e);
     Project project = e.getData(CommonDataKeys.PROJECT);
     VcsLogUi ui = e.getData(VcsLogDataKeys.VCS_LOG_UI);
-    e.getPresentation().setEnabledAndVisible(project != null && ui != null &&
-                                             hasGitRoots(project, getAllVisibleRoots(ui)));
-  }
-
-  private static boolean hasGitRoots(@NotNull Project project, @NotNull Set<VirtualFile> roots) {
-    final GitRepositoryManager manager = ServiceManager.getService(project, GitRepositoryManager.class);
-    return ContainerUtil.exists(roots, new Condition<VirtualFile>() {
-      @Override
-      public boolean value(VirtualFile root) {
-        return manager.getRepositoryForRoot(root) != null;
+    if (project == null || ui == null) {
+      e.getPresentation().setEnabledAndVisible(false);
+    }
+    else {
+      Set<VirtualFile> visibleRoots = VcsLogUtil.getVisibleRoots(ui);
+      Set<VirtualFile> allRoots = visibleRoots;
+      if (allRoots.isEmpty()) {
+        allRoots = ContainerUtil.map2Set(ProjectLevelVcsManager.getInstance(project).getAllVcsRoots(), VcsRoot::getPath);
       }
-    });
+      e.getPresentation().setEnabled(hasGitRoots(project, visibleRoots));
+      e.getPresentation().setVisible(hasGitRoots(project, allRoots));
+    }
   }
 
   @NotNull
-  private static Set<VirtualFile> getAllVisibleRoots(@NotNull VcsLogUi ui) {
-    return VcsLogUtil.getAllVisibleRoots(ui.getDataPack().getLogProviders().keySet(), ui.getFilterUi().getFilters().getRootFilter(),
-                                         ui.getFilterUi().getFilters().getStructureFilter());
+  private static Collection<VirtualFile> getGitRoots(@NotNull Project project, @NotNull VcsLogUi ui) {
+    return ContainerUtil.filter(VcsLogUtil.getVisibleRoots(ui), root -> isGitRoot(project, root));
+  }
+
+  private static boolean hasGitRoots(@NotNull Project project, @NotNull Set<VirtualFile> roots) {
+    return ContainerUtil.exists(roots, root -> isGitRoot(project, root));
+  }
+
+  private static boolean isGitRoot(@NotNull Project project, @NotNull VirtualFile root) {
+    return GitRepositoryManager.getInstance(project).getRepositoryForRootQuick(root) != null;
   }
 }

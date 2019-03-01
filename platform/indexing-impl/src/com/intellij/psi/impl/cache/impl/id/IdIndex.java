@@ -20,7 +20,10 @@ import com.intellij.lang.cacheBuilder.CacheBuilderRegistry;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.fileTypes.impl.CustomSyntaxTableFileType;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.UsageSearchContext;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.indexing.*;
@@ -38,17 +41,11 @@ import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 16, 2008
  */
 public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
   @NonNls public static final ID<IdIndexEntry, Integer> NAME = ID.create("IdIndex");
   
-  private final FileBasedIndex.InputFilter myInputFilter = new FileBasedIndex.InputFilter() {
-    @Override
-    public boolean acceptInput(@NotNull final VirtualFile file) {
-      return isIndexable(file.getFileType());
-    }
-  };
+  private final FileBasedIndex.InputFilter myInputFilter = file -> isIndexable(file.getFileType());
 
   public static final boolean ourSnapshotMappingsEnabled = SystemProperties.getBooleanProperty("idea.index.snapshot.mappings.enabled", true);
 
@@ -80,7 +77,7 @@ public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
     @Override
     @NotNull
     public Map<IdIndexEntry, Integer> map(@NotNull final FileContent inputData) {
-      final FileTypeIdIndexer indexer = IdTableBuilding.getFileTypeIndexer(inputData.getFileType());
+      final IdIndexer indexer = IdTableBuilding.getFileTypeIndexer(inputData.getFileType());
       if (indexer != null) {
         return indexer.map(inputData);
       }
@@ -139,5 +136,14 @@ public class IdIndex extends FileBasedIndexExtension<IdIndexEntry, Integer> {
   @Override
   public boolean hasSnapshotMapping() {
     return true;
+  }
+
+  public static boolean hasIdentifierInFile(@NotNull PsiFile file, @NotNull String name) {
+    if (file.getVirtualFile() == null || DumbService.isDumb(file.getProject())) {
+      return StringUtil.contains(file.getViewProvider().getContents(), name);
+    }
+
+    GlobalSearchScope scope = GlobalSearchScope.fileScope(file);
+    return !FileBasedIndex.getInstance().getContainingFiles(NAME, new IdIndexEntry(name, true), scope).isEmpty();
   }
 }

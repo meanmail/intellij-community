@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,11 @@
 package com.intellij.ui;
 
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.ui.paint.RectanglePainter;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
 
@@ -36,9 +38,15 @@ public interface PopupBorder extends Border {
 
     @NotNull
     public static PopupBorder create(boolean active, boolean windowWithShadow) {
-      PopupBorder border = SystemInfo.isMac && windowWithShadow ?
-                           createEmpty() : new BaseBorder(true, CaptionPanel.getBorderColor(true), CaptionPanel.getBorderColor(false));
+      boolean visible = !(SystemInfo.isMac && windowWithShadow) || UIManager.getBoolean("Popup.paintBorder") == Boolean.TRUE;
+      PopupBorder border = new BaseBorder(visible, JBUI.CurrentTheme.Popup.borderColor(true), JBUI.CurrentTheme.Popup.borderColor(false));
       border.setActive(active);
+      return border;
+    }
+
+    public static PopupBorder createColored(Color color) {
+      PopupBorder border = new BaseBorder(true, color, color);
+      border.setActive(true);
       return border;
     }
   }
@@ -70,7 +78,7 @@ public interface PopupBorder extends Border {
 
       Color color = myActive ? myActiveColor : myPassiveColor;
       g.setColor(color);
-      g.drawRect(x, y, width - 1, height - 1);
+      RectanglePainter.DRAW.paint((Graphics2D)g, x, y, width, height, null);
     }
 
     @Override

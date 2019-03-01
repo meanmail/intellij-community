@@ -26,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
 public abstract class VFileEvent {
   private final boolean myIsFromRefresh;
   private final Object myRequestor;
+  private String myCachedPath;
 
   public VFileEvent(Object requestor, final boolean isFromRefresh) {
     myRequestor = requestor;
@@ -40,8 +41,24 @@ public abstract class VFileEvent {
     return myRequestor;
   }
 
+  /**
+   * Returns the file path (in system independent format) affected by this event.<br/><br/>
+   *
+   * Note that the path might be cached, thus can become out-of-date if requested later,
+   * asynchronously from the event dispatching procedure
+   * (e.g. {@code event.getPath()} can become not equal to {@code event.getFile().getPath()}).
+   */
   @NotNull
-  public abstract String getPath();
+  public String getPath() {
+    String path = myCachedPath;
+    if (path == null) {
+      myCachedPath = path = computePath();
+    }
+    return path;
+  }
+
+  @NotNull
+  protected abstract String computePath();
 
   /**
    * Returns the VirtualFile which this event belongs to.

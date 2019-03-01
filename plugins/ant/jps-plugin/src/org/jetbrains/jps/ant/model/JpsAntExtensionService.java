@@ -75,7 +75,7 @@ public class JpsAntExtensionService {
     if (configuration != null) {
       return configuration;
     }
-    JpsAntConfigurationImpl antConfiguration = new JpsAntConfigurationImpl(new HashMap<String, JpsAntBuildFileOptions>(), null);
+    JpsAntConfigurationImpl antConfiguration = new JpsAntConfigurationImpl(new HashMap<>(), null);
     return project.getContainer().setChild(JpsAntConfigurationImpl.ROLE, antConfiguration);
   }
 
@@ -87,7 +87,7 @@ public class JpsAntExtensionService {
       antHome = new File(antPath);
     }
     else {
-      final String appHome = PathManager.getHomePath();
+      final String appHome = PathManager.getHomePath(false);
       if (appHome == null) {
         LOG.debug("idea.home.path and " + BUNDLED_ANT_PATH_PROPERTY + " aren't specified, bundled Ant won't be configured");
         return null;
@@ -107,7 +107,7 @@ public class JpsAntExtensionService {
     }
 
     String antLib = new File(antHome, "lib").getAbsolutePath();
-    return new JpsAntInstallationImpl(antHome, "Bundled Ant", Collections.<String>emptyList(), Collections.singletonList(antLib));
+    return new JpsAntInstallationImpl(antHome, "Bundled Ant", Collections.emptyList(), Collections.singletonList(antLib));
   }
 
   @Nullable

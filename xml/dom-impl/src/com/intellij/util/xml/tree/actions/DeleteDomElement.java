@@ -19,7 +19,6 @@ package com.intellij.util.xml.tree.actions;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.ui.treeStructure.SimpleNode;
@@ -30,11 +29,7 @@ import com.intellij.util.xml.ElementPresentation;
 import com.intellij.util.xml.tree.BaseDomElementNode;
 import com.intellij.util.xml.tree.DomFileElementNode;
 import com.intellij.util.xml.tree.DomModelTreeView;
-import org.jetbrains.annotations.NotNull;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class DeleteDomElement extends BaseDomTreeAction {
 
   public DeleteDomElement() {
@@ -60,12 +55,7 @@ public class DeleteDomElement extends BaseDomTreeAction {
       final int ret = Messages.showOkCancelDialog(getPresentationText(selectedNode, "Remove") + "?", "Remove",
                                                   Messages.getQuestionIcon());
       if (ret == Messages.OK) {
-      new WriteCommandAction(domElement.getManager().getProject(), DomUtil.getFile(domElement)) {
-        @Override
-        protected void run(@NotNull final Result result) throws Throwable {
-          domElement.undefine();
-        }
-      }.execute();
+        WriteCommandAction.writeCommandAction(domElement.getManager().getProject(), DomUtil.getFile(domElement)).run(() -> domElement.undefine());
       }
     }
   }

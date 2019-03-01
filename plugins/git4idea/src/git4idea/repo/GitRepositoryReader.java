@@ -19,50 +19,36 @@ import com.intellij.dvcs.DvcsUtil;
 import com.intellij.dvcs.repo.RepoStateException;
 import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.util.Function;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
-import com.intellij.vcs.log.impl.HashImpl;
 import git4idea.*;
 import git4idea.branch.GitBranchUtil;
+import git4idea.validators.GitRefNameValidator;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
+import static git4idea.GitBranch.REFS_HEADS_PREFIX;
+import static git4idea.GitBranch.REFS_REMOTES_PREFIX;
 import static git4idea.GitReference.BRANCH_NAME_HASHING_STRATEGY;
+import static git4idea.repo.GitRefUtil.*;
+import static java.util.Collections.emptyList;
 
 /**
- * Reads information about the Git repository from Git service files located in the {@code .git} folder.
- * NB: works with {@link File}, i.e. reads from disk. Consider using caching.
- * Throws a {@link RepoStateException} in the case of incorrect Git file format.
- *
- * @author Kirill Likhodedov
+ * <p>Reads information about the Git repository from Git service files located in the {@code .git} folder.</p>
+ * <p>NB: works with {@link File}, i.e. reads from disk. Consider using caching.
+ * Throws a {@link RepoStateException} in the case of incorrect Git file format.</p>
  */
 class GitRepositoryReader {
 
   private static final Logger LOG = Logger.getInstance(GitRepositoryReader.class);
-  private static final Processor<File> NOT_HIDDEN_DIRECTORIES = new Processor<File>() {
-    @Override
-    public boolean process(File dir) {
-      return !isHidden(dir);
-    }
-  };
-
-  private static Pattern BRANCH_PATTERN = Pattern.compile(" *(?:ref:)? */?((?:refs/heads/|refs/remotes/)?\\S+)");
-
-  @NonNls private static final String REFS_HEADS_PREFIX = "refs/heads/";
-  @NonNls private static final String REFS_REMOTES_PREFIX = "refs/remotes/";
 
   @NotNull private final File          myHeadFile;       // .git/HEAD
   @NotNull private final File          myRefsHeadsDir;   // .git/refs/heads/
@@ -107,6 +93,25 @@ class GitRepositoryReader {
     return new GitBranchState(currentRevision, currentBranch, state, localBranches, branches.second);
   }
 
+  @NotNull
+  GitHooksInfo readHooksInfo() {
+    return new GitHooksInfo(isExistingExecutableFile(myGitFiles.getPreCommitHookFile()) || isExistingExecutableFile(myGitFiles.getCommitMsgHookFile()),
+                            isExistingExecutableFile(myGitFiles.getPrePushHookFile()));
+  }
+
+  private static boolean isExistingExecutableFile(@NotNull File file) {
+    return file.exists() && file.canExecute();
+  }
+
+  boolean hasShallowCommits() {
+    File shallowFile = myGitFiles.getShallowFile();
+    if (!shallowFile.exists()) {
+      return false;
+    }
+
+    return shallowFile.length() > 0;
+  }
+
   @Nullable
   private static String getCurrentRevision(@NotNull HeadInfo headInfo, @Nullable Hash currentBranchHash) {
     String currentRevision;
@@ -130,12 +135,7 @@ class GitRepositoryReader {
     if (currentBranchName == null) {
       return null;
     }
-    return ContainerUtil.find(localBranches, new Condition<GitLocalBranch>() {
-      @Override
-      public boolean value(GitLocalBranch branch) {
-        return BRANCH_NAME_HASHING_STRATEGY.equals(branch.getFullName(), currentBranchName);
-      }
-    });
+    return ContainerUtil.find(localBranches, branch -> BRANCH_NAME_HASHING_STRATEGY.equals(branch.getFullName(), currentBranchName));
   }
 
   @NotNull
@@ -178,14 +178,6 @@ class GitRepositoryReader {
     return null;
   }
 
-  @Nullable
-  private static String addRefsHeadsPrefixIfNeeded(@Nullable String branchName) {
-    if (branchName != null && !branchName.startsWith(REFS_HEADS_PREFIX)) {
-      return REFS_HEADS_PREFIX + branchName;
-    }
-    return branchName;
-  }
-
   private boolean isMergeInProgress() {
     return myGitFiles.getMergeHeadFile().exists();
   }
@@ -201,12 +193,7 @@ class GitRepositoryReader {
     }
     try {
       String content = DvcsUtil.tryLoadFile(myPackedRefsFile, CharsetToolkit.UTF8);
-      return ContainerUtil.map2MapNotNull(LineTokenizer.tokenize(content, false), new Function<String, Pair<String, String>>() {
-        @Override
-        public Pair<String, String> fun(String line) {
-          return parsePackedRefsLine(line);
-        }
-      });
+      return ContainerUtil.map2MapNotNull(LineTokenizer.tokenize(content, false), GitRefUtil::parseRefsLine);
     }
     catch (RepoStateException e) {
       return Collections.emptyMap();
@@ -241,10 +228,7 @@ class GitRepositoryReader {
         localBranches.put(new GitLocalBranch(refName), hash);
       }
       else if (refName.startsWith(REFS_REMOTES_PREFIX)) {
-        GitRemoteBranch remoteBranch = parseRemoteBranch(refName, remotes);
-        if (remoteBranch != null) {
-          remoteBranches.put(remoteBranch, hash);
-        }
+        remoteBranches.put(parseRemoteBranch(refName, remotes), hash);
       }
       else {
         LOG.warn("Unexpected ref format: " + refName);
@@ -264,22 +248,21 @@ class GitRepositoryReader {
       return Collections.emptyMap();
     }
     final Map<String, String> result = new HashMap<>();
-    FileUtil.processFilesRecursively(refsRootDir, new Processor<File>() {
-      @Override
-      public boolean process(File file) {
+    FileUtil.processFilesRecursively(refsRootDir,  file-> {
         if (!file.isDirectory() && !isHidden(file)) {
           String relativePath = FileUtil.getRelativePath(refsRootDir, file);
           if (relativePath != null) {
             String branchName = prefix + FileUtil.toSystemIndependentName(relativePath);
-            String hash = loadHashFromBranchFile(file);
+            boolean isBranchNameValid = GitRefNameValidator.getInstance().checkInput(branchName);
+            if (isBranchNameValid) {String hash = loadHashFromBranchFile(file);
             if (hash != null) {
-              result.put(branchName, hash);
+              result.put(branchName, hash);}
             }
           }
         }
         return true;
       }
-    }, NOT_HIDDEN_DIRECTORIES);
+    , dir -> !isHidden(dir));
     return result;
   }
 
@@ -287,7 +270,7 @@ class GitRepositoryReader {
     return file.getName().startsWith(".");
   }
 
-  @Nullable
+  @NotNull
   private static GitRemoteBranch parseRemoteBranch(@NotNull String fullBranchName,
                                                    @NotNull Collection<GitRemote> remotes) {
     String stdName = GitBranchUtil.stripRefsPrefix(fullBranchName);
@@ -309,9 +292,8 @@ class GitRepositoryReader {
 
       if (remote == null) {
         // user may remove the remote section from .git/config, but leave remote refs untouched in .git/refs/remotes
-        LOG.debug(String.format("No remote found with the name [%s]. All remotes: %s", remoteName, remotes));
-        GitRemote fakeRemote = new GitRemote(remoteName, ContainerUtil.<String>emptyList(), Collections.<String>emptyList(),
-                                             Collections.<String>emptyList(), Collections.<String>emptyList());
+        LOG.trace(String.format("No remote found with the name [%s]. All remotes: %s", remoteName, remotes));
+        GitRemote fakeRemote = new GitRemote(remoteName, emptyList(), emptyList(), emptyList(), emptyList());
         return new GitStandardRemoteBranch(fakeRemote, branchName);
       }
       return new GitStandardRemoteBranch(remote, branchName);
@@ -339,151 +321,6 @@ class GitRepositoryReader {
     }
     LOG.error(new RepoStateException("Invalid format of the .git/HEAD file: [" + headContent + "]")); // including "refs/tags/v1"
     return new HeadInfo(false, null);
-  }
-
-  /**
-   * Parses a line from the .git/packed-refs file returning a pair of hash and ref name.
-   * Comments and tags are ignored, and null is returned.
-   * Incorrectly formatted lines are ignored, a warning is printed to the log, null is returned.
-   * A line indicating a hash which an annotated tag (specified in the previous line) points to, is ignored: null is returned.
-   */
-  @Nullable
-  private static Pair<String, String> parsePackedRefsLine(@NotNull String line) {
-    line = line.trim();
-    if (line.isEmpty()) {
-      return null;
-    }
-    char firstChar = line.charAt(0);
-    if (firstChar == '#') { // ignoring comments
-      return null;
-    }
-    if (firstChar == '^') {
-      // ignoring the hash which an annotated tag above points to
-      return null;
-    }
-    String hash = null;
-    int i;
-    for (i = 0; i < line.length(); i++) {
-      char c = line.charAt(i);
-      if (!Character.isLetterOrDigit(c)) {
-        hash = line.substring(0, i);
-        break;
-      }
-    }
-    if (hash == null) {
-      LOG.warn("Ignoring invalid packed-refs line: [" + line + "]");
-      return null;
-    }
-
-    String branch = null;
-    int start = i;
-    if (start < line.length() && line.charAt(start++) == ' ') {
-      for (i = start; i < line.length(); i++) {
-        char c = line.charAt(i);
-        if (Character.isWhitespace(c)) {
-          break;
-        }
-      }
-      branch = line.substring(start, i);
-    }
-
-    if (branch == null || !branch.startsWith(REFS_HEADS_PREFIX) && !branch.startsWith(REFS_REMOTES_PREFIX)) {
-      return null;
-    }
-    return Pair.create(shortBuffer(branch), shortBuffer(hash.trim()));
-  }
-
-  @NotNull
-  private static String shortBuffer(String raw) {
-    return new String(raw);
-  }
-
-  @NotNull
-  private static Map<String, Hash> resolveRefs(@NotNull Map<String, String> data) {
-    final Map<String, Hash> resolved = getResolvedHashes(data);
-    Map<String, String> unresolved = ContainerUtil.filter(data, new Condition<String>() {
-      @Override
-      public boolean value(String refName) {
-        return !resolved.containsKey(refName);
-      }
-    });
-
-    boolean progressed = true;
-    while (progressed && !unresolved.isEmpty()) {
-      progressed = false;
-      for (Iterator<Map.Entry<String, String>> iterator = unresolved.entrySet().iterator(); iterator.hasNext(); ) {
-        Map.Entry<String, String> entry = iterator.next();
-        String refName = entry.getKey();
-        String refValue = entry.getValue();
-        String link = getTarget(refValue);
-        if (link != null) {
-          if (duplicateEntry(resolved, refName, refValue)) {
-            iterator.remove();
-          }
-          else if (!resolved.containsKey(link)) {
-            LOG.debug("Unresolved symbolic link [" + refName + "] pointing to [" + refValue + "]"); // transitive link
-          }
-          else {
-            Hash targetValue = resolved.get(link);
-            resolved.put(refName, targetValue);
-            iterator.remove();
-            progressed = true;
-          }
-        }
-        else {
-          LOG.warn("Unexpected record [" + refName + "] -> [" + refValue + "]");
-          iterator.remove();
-        }
-      }
-    }
-    if (!unresolved.isEmpty()) {
-      LOG.warn("Cyclic symbolic links among .git/refs: " + unresolved);
-    }
-    return resolved;
-  }
-
-  @NotNull
-  private static Map<String, Hash> getResolvedHashes(@NotNull Map<String, String> data) {
-    Map<String, Hash> resolved = ContainerUtil.newHashMap();
-    for (Map.Entry<String, String> entry : data.entrySet()) {
-      String refName = entry.getKey();
-      Hash hash = parseHash(entry.getValue());
-      if (hash != null && !duplicateEntry(resolved, refName, hash)) {
-        resolved.put(refName, hash);
-      }
-    }
-    return resolved;
-  }
-
-  @Nullable
-  private static String getTarget(@NotNull String refName) {
-    Matcher matcher = BRANCH_PATTERN.matcher(refName);
-    if (!matcher.matches()) {
-      return null;
-    }
-    String target = matcher.group(1);
-    if (!target.startsWith(REFS_HEADS_PREFIX) && !target.startsWith(REFS_REMOTES_PREFIX)) {
-      target = REFS_HEADS_PREFIX + target;
-    }
-    return target;
-  }
-
-  @Nullable
-  private static Hash parseHash(@NotNull String value) {
-    try {
-      return HashImpl.build(value);
-    }
-    catch (Exception e) {
-      return null;
-    }
-  }
-
-  private static boolean duplicateEntry(@NotNull Map<String, Hash> resolved, @NotNull String refName, @NotNull Object newValue) {
-    if (resolved.containsKey(refName)) {
-      LOG.error("Duplicate entry for [" + refName + "]. resolved: [" + resolved.get(refName).asString() + "], current: " + newValue + "]");
-      return true;
-    }
-    return false;
   }
 
   /**

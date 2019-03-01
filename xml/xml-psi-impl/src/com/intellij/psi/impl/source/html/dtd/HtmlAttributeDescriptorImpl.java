@@ -17,7 +17,6 @@ package com.intellij.psi.impl.source.html.dtd;
 
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.xml.XmlElement;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.impl.BasicXmlAttributeDescriptor;
 import com.intellij.xml.impl.XmlEnumerationDescriptor;
@@ -97,11 +96,6 @@ public class HtmlAttributeDescriptorImpl extends BasicXmlAttributeDescriptor {
   }
 
   @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
-  @Override
   public String toString() {
     return delegate.toString();
   }
@@ -112,5 +106,9 @@ public class HtmlAttributeDescriptorImpl extends BasicXmlAttributeDescriptor {
     return delegate instanceof XmlEnumerationDescriptor ?
            ((XmlEnumerationDescriptor)delegate).getValueDeclaration(attributeValue, s) :
            super.getValueDeclaration(attributeValue, value);
+  }
+
+  public boolean isCaseSensitive() {
+    return myCaseSensitive;
   }
 }

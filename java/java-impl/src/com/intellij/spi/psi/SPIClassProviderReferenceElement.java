@@ -28,14 +28,12 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- */
 public class SPIClassProviderReferenceElement extends SPIPackageOrClassReferenceElement {
   public SPIClassProviderReferenceElement(ASTNode node) {
     super(node);
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return TextRange.from(0, getTextLength());

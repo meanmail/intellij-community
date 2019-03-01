@@ -17,6 +17,7 @@ package com.intellij.compiler.options;
 
 import com.intellij.compiler.CompilerConfiguration;
 import com.intellij.compiler.CompilerConfigurationImpl;
+import com.intellij.compiler.server.BuildManager;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
@@ -30,7 +31,6 @@ import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Oct 5, 2009
  */
 public class AnnotationProcessorsConfigurable implements SearchableConfigurable, Configurable.NoScroll {
 
@@ -41,24 +41,29 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     myProject = project;
   }
 
+  @Override
   public String getDisplayName() {
     return "Annotation Processors";
   }
 
+  @Override
   public String getHelpTopic() {
     return "reference.projectsettings.compiler.annotationProcessors";
   }
 
+  @Override
   @NotNull
   public String getId() {
     return getHelpTopic();
   }
 
+  @Override
   public JComponent createComponent() {
     myMainPanel = new AnnotationProcessorsPanel(myProject);
     return myMainPanel;
   }
 
+  @Override
   public boolean isModified() {
     final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
 
@@ -84,17 +89,25 @@ public class AnnotationProcessorsConfigurable implements SearchableConfigurable,
     return false;
   }
 
+  @Override
   public void apply() throws ConfigurationException {
-    final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
-    config.setDefaultProcessorProfile(myMainPanel.getDefaultProfile());
-    config.setModuleProcessorProfiles(myMainPanel.getModuleProfiles());
+    try {
+      final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
+      config.setDefaultProcessorProfile(myMainPanel.getDefaultProfile());
+      config.setModuleProcessorProfiles(myMainPanel.getModuleProfiles());
+    }
+    finally {
+      BuildManager.getInstance().clearState(myProject);
+    }
   }
 
+  @Override
   public void reset() {
     final CompilerConfigurationImpl config = (CompilerConfigurationImpl)CompilerConfiguration.getInstance(myProject);
     myMainPanel.initProfiles(config.getDefaultProcessorProfile(), config.getModuleProcessorProfiles());
   }
 
+  @Override
   public void disposeUIResources() {
     myMainPanel = null;
   }

@@ -1,26 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.test;
 
-import com.intellij.compiler.CompilerTestUtil;
 import com.intellij.compiler.artifacts.ArtifactsTestUtil;
 import com.intellij.compiler.impl.ModuleCompileScope;
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.compiler.server.BuildManager;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.compiler.CompileScope;
@@ -30,38 +15,51 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
 import com.intellij.openapi.roots.ModuleRootModificationUtil;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.io.ByteSequence;
+import com.intellij.openapi.util.io.ByteArraySequence;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.CharsetToolkit;
+import com.intellij.openapi.vfs.JarFileSystem;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.impl.VfsRootAccess;
 import com.intellij.packaging.artifacts.Artifact;
 import com.intellij.packaging.impl.compiler.ArtifactCompileScope;
+import com.intellij.task.ProjectTaskManager;
 import com.intellij.testFramework.*;
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ExceptionUtil;
+import com.intellij.util.ExceptionUtilRt;
+import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.PathKt;
 import com.intellij.util.io.TestFileSystemItem;
+import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.SystemIndependent;
 import org.junit.After;
 import org.junit.Before;
 
+import javax.swing.*;
 import java.awt.*;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.*;
 import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
@@ -69,21 +67,17 @@ import java.util.jar.Manifest;
 
 /**
  * @author Vladislav.Soroka
- * @since 6/30/2014
  */
 public abstract class ExternalSystemTestCase extends UsefulTestCase {
   private File ourTempDir;
 
   protected IdeaProjectTestFixture myTestFixture;
-
   protected Project myProject;
-
   protected File myTestDir;
   protected VirtualFile myProjectRoot;
   protected VirtualFile myProjectConfig;
   protected List<VirtualFile> myAllConfigs = new ArrayList<>();
-
-  private List<String> myAllowedRoots = new ArrayList<>();
+  protected boolean useProjectTaskManager;
 
   @Before
   @Override
@@ -115,13 +109,11 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     List<String> allowedRoots = new ArrayList<>();
     collectAllowedRoots(allowedRoots);
     if (!allowedRoots.isEmpty()) {
-      VfsRootAccess.allowRootAccess(getTestRootDisposable(), ArrayUtil.toStringArray(allowedRoots));
+      VfsRootAccess.allowRootAccess(myTestFixture.getTestRootDisposable(), ArrayUtil.toStringArray(allowedRoots));
     }
-
-    CompilerTestUtil.enableExternalCompiler();
   }
 
-  protected void collectAllowedRoots(List<String> roots) throws IOException {
+  protected void collectAllowedRoots(List<String> roots) {
   }
 
   public static Collection<String> collectRootsInside(String root) {
@@ -153,8 +145,12 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected abstract String getTestsTempDir();
 
   protected void setUpFixtures() throws Exception {
-    myTestFixture = IdeaTestFixtureFactory.getFixtureFactory().createFixtureBuilder(getName()).getFixture();
+    myTestFixture = IdeaTestFixtureFactory.getFixtureFactory().createFixtureBuilder(getName(), useDirectoryBasedStorageFormat()).getFixture();
     myTestFixture.setUp();
+  }
+
+  protected boolean useDirectoryBasedStorageFormat() {
+    return false;
   }
 
   protected void setUpInWriteAction() throws Exception {
@@ -166,39 +162,28 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   @After
   @Override
   public void tearDown() throws Exception {
-    try {
-      EdtTestUtil.runInEdtAndWait(() -> {
-        CompilerTestUtil.disableExternalCompiler(myProject);
-        tearDownFixtures();
-      });
-      myProject = null;
-      if (!FileUtil.delete(myTestDir) && myTestDir.exists()) {
-        System.err.println("Cannot delete " + myTestDir);
-        //printDirectoryContent(myDir);
-        myTestDir.deleteOnExit();
-      }
-    }
-    finally {
-      super.tearDown();
-      resetClassFields(getClass());
-    }
+    new RunAll(
+      () -> {
+        if (myProject != null && !myProject.isDisposed()) {
+          PathKt.delete(ProjectUtil.getExternalConfigurationDir(myProject));
+        }
+      },
+      () -> EdtTestUtil.runInEdtAndWait(() -> tearDownFixtures()),
+      () -> myProject = null,
+      () -> PathKt.delete(myTestDir.toPath()),
+      () -> super.tearDown(),
+      () -> resetClassFields(getClass())
+    ).run();
   }
 
-  private static void printDirectoryContent(File dir) {
-    File[] files = dir.listFiles();
-    if (files == null) return;
-
-    for (File file : files) {
-      System.out.println(file.getAbsolutePath());
-
-      if (file.isDirectory()) {
-        printDirectoryContent(file);
+  protected void tearDownFixtures() {
+    if (myTestFixture != null) {
+      try {
+        myTestFixture.tearDown();
+      }
+      catch (Exception ignored) {
       }
     }
-  }
-
-  protected void tearDownFixtures() throws Exception {
-    myTestFixture.tearDown();
     myTestFixture = null;
   }
 
@@ -229,12 +214,12 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected void runTest() throws Throwable {
     try {
       if (runInWriteAction()) {
-        new WriteAction() {
-          @Override
-          protected void run(@NotNull Result result) throws Throwable {
-            ExternalSystemTestCase.super.runTest();
-          }
-        }.executeSilently().throwException();
+        try {
+          WriteAction.runAndWait(() -> super.runTest());
+        }
+        catch (Throwable throwable) {
+          ExceptionUtil.rethrowAllAsUnchecked(throwable);
+        }
       }
       else {
         super.runTest();
@@ -254,7 +239,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   }
 
   @Override
-  protected void invokeTestRunnable(@NotNull Runnable runnable) throws Exception {
+  protected void invokeTestRunnable(@NotNull Runnable runnable) {
     runnable.run();
   }
 
@@ -281,46 +266,51 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     return myProjectRoot.getParent().getPath();
   }
 
-  protected String pathFromBasedir(String relPath) {
-    return pathFromBasedir(myProjectRoot, relPath);
+  @SystemIndependent
+  protected String path(@NotNull String relativePath) {
+    return file(relativePath).getPath();
   }
 
-  protected static String pathFromBasedir(VirtualFile root, String relPath) {
-    return FileUtil.toSystemIndependentName(root.getPath() + "/" + relPath);
+  protected File file(@NotNull String relativePath) {
+    return new File(getProjectPath(), relativePath);
   }
 
-  protected Module createModule(String name) throws IOException {
+  protected Module createModule(String name) {
     return createModule(name, StdModuleTypes.JAVA);
   }
 
-  protected Module createModule(final String name, final ModuleType type) throws IOException {
-    return new WriteCommandAction<Module>(myProject) {
-      @Override
-      protected void run(@NotNull Result<Module> moduleResult) throws Throwable {
+  protected Module createModule(final String name, final ModuleType type) {
+    try {
+      return WriteCommandAction.writeCommandAction(myProject).compute(() -> {
         VirtualFile f = createProjectSubFile(name + "/" + name + ".iml");
         Module module = ModuleManager.getInstance(myProject).newModule(f.getPath(), type.getId());
         PsiTestUtil.addContentRoot(module, f.getParent());
-        moduleResult.setResult(module);
-      }
-    }.execute().getResultObject();
+        return module;
+      });
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
-  protected VirtualFile createProjectConfig(@NonNls String config) throws IOException {
+  protected VirtualFile createProjectConfig(@NonNls String config) {
     return myProjectConfig = createConfigFile(myProjectRoot, config);
   }
 
-  protected VirtualFile createConfigFile(final VirtualFile dir, String config) throws IOException {
+  protected VirtualFile createConfigFile(final VirtualFile dir, String config) {
     final String configFileName = getExternalSystemConfigFileName();
     VirtualFile f = dir.findChild(configFileName);
-    if (f == null) {
-      f = new WriteAction<VirtualFile>() {
-        @Override
-        protected void run(@NotNull Result<VirtualFile> result) throws Throwable {
+    try {
+      if (f == null) {
+        f = WriteAction.computeAndWait(() -> {
           VirtualFile res = dir.createChildData(null, configFileName);
-          result.setResult(res);
-        }
-      }.execute().getResultObject();
-      myAllConfigs.add(f);
+          return res;
+        });
+        myAllConfigs.add(f);
+      }
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
     }
     setFileContent(f, config, true);
     return f;
@@ -352,14 +342,14 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     FileUtil.ensureExists(f.getParentFile());
     FileUtil.ensureCanCreateFile(f);
     final boolean created = f.createNewFile();
-    if(!created) {
+    if (!created && !f.exists()) {
       throw new AssertionError("Unable to create the project sub file: " + f.getAbsolutePath());
     }
     return LocalFileSystem.getInstance().refreshAndFindFileByIoFile(f);
   }
 
   @NotNull
-  protected VirtualFile createProjectJarSubFile(String relativePath, Pair<ByteSequence, String>... contentEntries) throws IOException {
+  protected VirtualFile createProjectJarSubFile(String relativePath, Pair<ByteArraySequence, String>... contentEntries) throws IOException {
     assertTrue("Use 'jar' extension for JAR files: '" + relativePath + "'", FileUtilRt.extensionEquals(relativePath, "jar"));
     File f = new File(getProjectPath(), relativePath);
     FileUtil.ensureExists(f.getParentFile());
@@ -372,7 +362,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     Manifest manifest = new Manifest();
     manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
     JarOutputStream target = new JarOutputStream(new FileOutputStream(f), manifest);
-    for (Pair<ByteSequence, String> contentEntry : contentEntries) {
+    for (Pair<ByteArraySequence, String> contentEntry : contentEntries) {
       addJarEntry(contentEntry.first.getBytes(), contentEntry.second, target);
     }
     target.close();
@@ -399,16 +389,48 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
 
 
   protected void compileModules(final String... moduleNames) {
-    compile(createModulesCompileScope(moduleNames));
+    if (useProjectTaskManager) {
+      Module[] modules = Arrays.stream(moduleNames).map(moduleName -> getModule(moduleName)).toArray(Module[]::new);
+      build(modules);
+    }
+    else {
+      compile(createModulesCompileScope(moduleNames));
+    }
   }
 
   protected void buildArtifacts(String... artifactNames) {
-    compile(createArtifactsScope(artifactNames));
+    if (useProjectTaskManager) {
+      Artifact[] artifacts = Arrays.stream(artifactNames)
+        .map(artifactName -> ArtifactsTestUtil.findArtifact(myProject, artifactName)).toArray(Artifact[]::new);
+      build(artifacts);
+    }
+    else {
+      compile(createArtifactsScope(artifactNames));
+    }
   }
 
-  private void compile(final CompileScope scope) {
+  private void build(@NotNull Object[] buildableElements) {
+    final Semaphore semaphore = new Semaphore();
+    semaphore.down();
+    if (buildableElements instanceof Module[]) {
+      ProjectTaskManager.getInstance(myProject).build((Module[])buildableElements, executionResult -> semaphore.up());
+    }
+    else if (buildableElements instanceof Artifact[]) {
+      ProjectTaskManager.getInstance(myProject).build((Artifact[])buildableElements, executionResult -> semaphore.up());
+    }
+    else {
+      assert false : "Unsupported buildableElements: " + Arrays.toString(buildableElements);
+    }
+    while (!semaphore.waitFor(100)) {
+      if (SwingUtilities.isEventDispatchThread()) {
+        UIUtil.dispatchAllInvocationEvents();
+      }
+    }
+  }
+
+  private void compile(@NotNull CompileScope scope) {
     try {
-      CompilerTester tester = new CompilerTester(myProject, Arrays.asList(scope.getAffectedModules()));
+      CompilerTester tester = new CompilerTester(myProject, Arrays.asList(scope.getAffectedModules()), null);
       try {
         List<CompilerMessage> messages = tester.make(scope);
         for (CompilerMessage message : messages) {
@@ -431,7 +453,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
       }
     }
     catch (Exception e) {
-      throw new RuntimeException(e);
+      ExceptionUtilRt.rethrow(e);
     }
   }
 
@@ -441,7 +463,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     for (String name : moduleNames) {
       modules.add(getModule(name));
     }
-    return new ModuleCompileScope(myProject, modules.toArray(new Module[modules.size()]), false);
+    return new ModuleCompileScope(myProject, modules.toArray(Module.EMPTY_ARRAY), false);
   }
 
   private CompileScope createArtifactsScope(String[] artifactNames) {
@@ -453,25 +475,23 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   }
 
   protected Sdk setupJdkForModule(final String moduleName) {
-    final Sdk sdk = true ? JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk() : createJdk("Java 1.5");
+    final Sdk sdk = true ? JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk() : createJdk();
     ModuleRootModificationUtil.setModuleSdk(getModule(moduleName), sdk);
     return sdk;
   }
 
-  protected static Sdk createJdk(String versionName) {
-    return IdeaTestUtil.getMockJdk17(versionName);
+  protected static Sdk createJdk() {
+    return IdeaTestUtil.getMockJdk17();
   }
 
   protected Module getModule(final String name) {
-    AccessToken accessToken = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
-      Module m = ModuleManager.getInstance(myProject).findModuleByName(name);
-      assertNotNull("Module " + name + " not found", m);
-      return m;
-    }
-    finally {
-      accessToken.finish();
-    }
+    return getModule(myProject, name);
+  }
+
+  protected Module getModule(Project project, String name) {
+    Module m = ReadAction.compute(() -> ModuleManager.getInstance(project).findModuleByName(name));
+    assertNotNull("Module " + name + " not found", m);
+    return m;
   }
 
   protected void assertExplodedLayout(String artifactName, String expected) {
@@ -492,24 +512,27 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
 
   protected void assertArtifactOutput(String artifactName, TestFileSystemItem fs) {
     final Artifact artifact = ArtifactsTestUtil.findArtifact(myProject, artifactName);
-    final VirtualFile outputFile = artifact.getOutputFile();
+    final String outputFile = artifact.getOutputFilePath();
     assert outputFile != null;
-    final File file = VfsUtilCore.virtualToIoFile(outputFile);
+    final File file = new File(outputFile);
+    assert file.exists();
     fs.assertFileEqual(file);
   }
 
-  private static void setFileContent(final VirtualFile file, final String content, final boolean advanceStamps) throws IOException {
-    new WriteAction<VirtualFile>() {
-      @Override
-      protected void run(@NotNull Result<VirtualFile> result) throws Throwable {
+  protected static void setFileContent(final VirtualFile file, final String content, final boolean advanceStamps) {
+    try {
+      WriteAction.runAndWait(() -> {
         if (advanceStamps) {
           file.setBinaryContent(content.getBytes(CharsetToolkit.UTF8_CHARSET), -1, file.getTimeStamp() + 4000);
         }
         else {
           file.setBinaryContent(content.getBytes(CharsetToolkit.UTF8_CHARSET), file.getModificationStamp(), file.getTimeStamp());
         }
-      }
-    }.execute().getResultObject();
+      });
+    }
+    catch (IOException e) {
+      throw new RuntimeException(e);
+    }
   }
 
   protected static <T, U> void assertOrderedElementsAreEqual(Collection<U> actual, Collection<T> expected) {
@@ -519,6 +542,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
   protected static <T> void assertUnorderedElementsAreEqual(Collection<T> actual, Collection<T> expected) {
     assertEquals(new HashSet<>(expected), new HashSet<>(actual));
   }
+
   protected static void assertUnorderedPathsAreEqual(Collection<String> actual, Collection<String> expected) {
     assertEquals(new SetWithToString<>(new THashSet<>(expected, FileUtil.PATH_HASHING_STRATEGY)),
                  new SetWithToString<>(new THashSet<>(actual, FileUtil.PATH_HASHING_STRATEGY)));
@@ -560,6 +584,24 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
     return true;
   }
 
+  public static void deleteBuildSystemDirectory() {
+    BuildManager buildManager = BuildManager.getInstance();
+    if (buildManager == null) return;
+    Path buildSystemDirectory = buildManager.getBuildSystemDirectory();
+    try {
+      PathKt.delete(buildSystemDirectory);
+      return;
+    }
+    catch (Exception ignore) {
+    }
+    try {
+      FileUtil.delete(buildSystemDirectory.toFile());
+    }
+    catch (Exception e) {
+      LOG.warn("Unable to remove build system directory.", e);
+    }
+  }
+
   private void printIgnoredMessage(String message) {
     String toPrint = "Ignored";
     if (message != null) {
@@ -573,7 +615,7 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
 
     private final Set<T> myDelegate;
 
-    public SetWithToString(@NotNull Set<T> delegate) {
+    SetWithToString(@NotNull Set<T> delegate) {
       myDelegate = delegate;
     }
 
@@ -608,5 +650,4 @@ public abstract class ExternalSystemTestCase extends UsefulTestCase {
       return myDelegate.hashCode();
     }
   }
-
 }

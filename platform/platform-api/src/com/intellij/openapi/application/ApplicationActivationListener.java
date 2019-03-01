@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.openapi.application;
 
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
@@ -27,12 +28,14 @@ public interface ApplicationActivationListener {
   /**
    * Called when app is activated by transferring focus to it.
    */
-  void applicationActivated(IdeFrame ideFrame);
+  default void applicationActivated(@NotNull IdeFrame ideFrame) {
+  }
 
   /**
    * Called when app is de-activated by transferring focus from it.
    */
-  void applicationDeactivated(IdeFrame ideFrame);
+  default void applicationDeactivated(@NotNull IdeFrame ideFrame) {
+  }
 
   /**
    * This is more precise notification than {code applicationDeactivated} callback.
@@ -42,16 +45,13 @@ public interface ApplicationActivationListener {
    * The shortcoming of the method is that a notification is delivered
    * with a delay. See {code app.deactivation.timeout} key in the registry
    */
-  void delayedApplicationDeactivated(IdeFrame ideFrame);
+  default void delayedApplicationDeactivated(@NotNull IdeFrame ideFrame) {
+  }
 
+  /**
+   * @deprecated Use {@link ApplicationActivationListener} instead
+   */
+  @Deprecated
   abstract class Adapter implements ApplicationActivationListener {
-    @Override
-    public void applicationActivated(IdeFrame ideFrame) { }
-
-    @Override
-    public void applicationDeactivated(IdeFrame ideFrame) { }
-
-    @Override
-    public void delayedApplicationDeactivated(IdeFrame ideFrame) { }
   }
 }

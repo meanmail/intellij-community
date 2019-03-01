@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,7 +39,7 @@ class GroovyDslTest extends LightCodeInsightFixtureTestCase {
   private static LightProjectDescriptor descriptor = new DefaultLightProjectDescriptor() {
     @Override
     void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      PsiTestUtil.addLibrary(module, model, "GROOVY", TestUtils.getMockGroovyLibraryHome(), TestUtils.GROOVY_JAR)
+      PsiTestUtil.addLibrary(model, "GROOVY", TestUtils.getMockGroovyLibraryHome(), TestUtils.GROOVY_JAR)
     }
   }
 
@@ -112,7 +112,7 @@ class Foo<T> {
 }
 '''
     myFixture.completeBasic()
-    myFixture.assertPreferredCompletionItems 0, 'finalize', 'fooT'
+    myFixture.assertPreferredCompletionItems 0, 'fooT', 'finalize'
   }
 
   void testDelegateToThrowable() throws Throwable {
@@ -168,9 +168,9 @@ class Foo<T> {
   void testCategoryWhenMethodRenamed() {
     PsiClass category = myFixture.addClass("""
 public class MyCategory {
-  public void foo(String s) {}
+  public static void foo(String s) {}
 }""")
-    def foo = category.getMethods()[0]
+    def foo = TestUtils.getMethods(category)[0]
     addGdsl("""
     contributor([:]){category 'MyCategory'}""")
     myFixture.renameElement foo, "bar", false, false

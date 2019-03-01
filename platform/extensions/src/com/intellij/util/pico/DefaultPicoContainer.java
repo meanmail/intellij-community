@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.pico;
 
-import com.intellij.openapi.extensions.AreaPicoContainer;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
@@ -29,14 +14,16 @@ import org.picocontainer.defaults.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class DefaultPicoContainer implements AreaPicoContainer {
+public class DefaultPicoContainer implements MutablePicoContainer {
+  static final DelegatingComponentMonitor DEFAULT_DELEGATING_COMPONENT_MONITOR = new DelegatingComponentMonitor();
+  static final DefaultLifecycleStrategy DEFAULT_LIFECYCLE_STRATEGY = new DefaultLifecycleStrategy(DEFAULT_DELEGATING_COMPONENT_MONITOR);
   private final PicoContainer parent;
-  private final Set<PicoContainer> children = new THashSet<PicoContainer>();
+  private final Set<PicoContainer> children = new THashSet<>();
 
   private final Map<Object, ComponentAdapter> componentKeyToAdapterCache = ContainerUtil.newConcurrentMap();
-  private final LinkedHashSetWrapper<ComponentAdapter> componentAdapters = new LinkedHashSetWrapper<ComponentAdapter>();
+  private final LinkedHashSetWrapper<ComponentAdapter> componentAdapters = new LinkedHashSetWrapper<>();
   private final Map<String, ComponentAdapter> classNameToAdapter = ContainerUtil.newConcurrentMap();
-  private final AtomicReference<FList<ComponentAdapter>> nonAssignableComponentAdapters = new AtomicReference<FList<ComponentAdapter>>(FList.<ComponentAdapter>emptyList());
+  private final AtomicReference<FList<ComponentAdapter>> nonAssignableComponentAdapters = new AtomicReference<>(FList.emptyList());
 
   public DefaultPicoContainer(@Nullable PicoContainer parent) {
     this.parent = parent == null ? null : ImmutablePicoContainerProxyFactory.newProxyInstance(parent);
@@ -51,8 +38,8 @@ public class DefaultPicoContainer implements AreaPicoContainer {
     return componentAdapters.getImmutableSet();
   }
 
-  private void appendNonAssignableAdaptersOfType(@NotNull Class componentType, @NotNull List<ComponentAdapter> result) {
-    List<ComponentAdapter> comp = new ArrayList<ComponentAdapter>();
+  private void appendNonAssignableAdaptersOfType(@NotNull Class componentType, @NotNull List<? super ComponentAdapter> result) {
+    List<ComponentAdapter> comp = new ArrayList<>();
     for (final ComponentAdapter componentAdapter : nonAssignableComponentAdapters.get()) {
       if (ReflectionUtil.isAssignable(componentType, componentAdapter.getComponentImplementation())) {
         comp.add(componentAdapter);
@@ -117,7 +104,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
       return Collections.emptyList();
     }
 
-    List<ComponentAdapter> result = new SmartList<ComponentAdapter>();
+    List<ComponentAdapter> result = new SmartList<>();
 
     final ComponentAdapter cacheHit = classNameToAdapter.get(componentType.getName());
     if (cacheHit != null) {
@@ -187,7 +174,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
       return Collections.emptyList();
     }
 
-    List<Object> result = new ArrayList<Object>();
+    List<Object> result = new ArrayList<>();
     for (ComponentAdapter componentAdapter : getComponentAdapters()) {
       if (ReflectionUtil.isAssignable(componentType, componentAdapter.getComponentImplementation())) {
         // may be null in the case of the "implicit" adapter representing "this".
@@ -195,6 +182,26 @@ public class DefaultPicoContainer implements AreaPicoContainer {
       }
     }
     return result;
+  }
+
+  @FunctionalInterface
+  public interface LazyComponentAdapter {
+    boolean isComponentInstantiated();
+  }
+
+  @Nullable
+  public <T> T getComponentInstanceIfInstantiated(@NotNull String componentKey) {
+    ComponentAdapter adapter = getFromCache(componentKey);
+    if (!(adapter instanceof LazyComponentAdapter)) {
+      //noinspection unchecked
+      return (T)getComponentInstance(componentKey);
+    }
+
+    if (((LazyComponentAdapter)adapter).isComponentInstantiated()) {
+      //noinspection unchecked
+      return (T)getLocalInstance(adapter);
+    }
+    return null;
   }
 
   @Override
@@ -237,10 +244,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
     try {
       return componentAdapter.getComponentInstance(this);
     }
-    catch (PicoInitializationException e) {
-      firstLevelException = e;
-    }
-    catch (PicoIntrospectionException e) {
+    catch (PicoInitializationException | PicoIntrospectionException e) {
       firstLevelException = e;
     }
 
@@ -259,7 +263,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
   public ComponentAdapter unregisterComponentByInstance(@NotNull Object componentInstance) {
     for (ComponentAdapter adapter : getComponentAdapters()) {
       Object o = getInstance(adapter);
-      if (o != null && o.equals(componentInstance)) {
+      if (componentInstance.equals(o)) {
         return unregisterComponent(adapter.getComponentKey());
       }
     }
@@ -311,7 +315,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
     for (ComponentAdapter adapter : getComponentAdapters()) {
       adapter.accept(visitor);
     }
-    for (PicoContainer child : new SmartList<PicoContainer>(children)) {
+    for (PicoContainer child : new SmartList<>(children)) {
       child.accept(visitor);
     }
   }
@@ -323,7 +327,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
 
   @Override
   public ComponentAdapter registerComponentInstance(@NotNull Object componentKey, @NotNull Object componentInstance) {
-    return registerComponent(new InstanceComponentAdapter(componentKey, componentInstance));
+    return registerComponent(new InstanceComponentAdapter(componentKey, componentInstance, DEFAULT_LIFECYCLE_STRATEGY));
   }
 
   @Override
@@ -354,7 +358,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
   private static class LinkedHashSetWrapper<T> {
     private final Object lock = new Object();
     private volatile Set<T> immutableSet;
-    private LinkedHashSet<T> synchronizedSet = new LinkedHashSet<T>();
+    private LinkedHashSet<T> synchronizedSet = new LinkedHashSet<>();
 
     public void add(@NotNull T element) {
       synchronized (lock) {
@@ -367,7 +371,7 @@ public class DefaultPicoContainer implements AreaPicoContainer {
     private LinkedHashSet<T> copySyncSetIfExposedAsImmutable() {
       if (immutableSet != null) {
         immutableSet = null;
-        synchronizedSet = new LinkedHashSet<T>(synchronizedSet);
+        synchronizedSet = new LinkedHashSet<>(synchronizedSet);
       }
       return synchronizedSet;
     }

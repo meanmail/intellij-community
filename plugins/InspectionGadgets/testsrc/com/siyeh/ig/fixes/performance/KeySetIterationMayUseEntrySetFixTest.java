@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,10 @@
  */
 package com.siyeh.ig.fixes.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
+import com.intellij.pom.java.LanguageLevel;
+import com.intellij.testFramework.IdeaTestUtil;
+import com.intellij.testFramework.builders.JavaModuleFixtureBuilder;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.performance.KeySetIterationMayUseEntrySetInspection;
 
@@ -25,8 +29,29 @@ public class KeySetIterationMayUseEntrySetFixTest extends IGQuickFixesTestCase {
     super.setUp();
     myFixture.enableInspections(new KeySetIterationMayUseEntrySetInspection());
     myRelativePath = "performance/key_set_with_entry_set";
+    myDefaultHint = CommonQuickFixBundle.message("fix.replace.with.x", "entrySet()");
+  }
+  
+  @Override
+  protected void tuneFixture(JavaModuleFixtureBuilder builder) throws Exception {
+    super.tuneFixture(builder);
+    builder.addJdk(IdeaTestUtil.getMockJdk18Path().getPath());
+    builder.setLanguageLevel(LanguageLevel.JDK_1_8);
   }
 
-  public void testSimple() { doTest("Replace with 'entrySet()' iteration"); }
+  public void testSimple() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testParentheses() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testParenthesesAroundGetKey() { doTest(); }
+  public void testCastNeeded1() { doTest(); }
+  public void testCastNeeded2() { doTest(); }
+  public void testReference() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testValues() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testSeveralKeys() { doTest(); }
+  public void testWrongType() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testEntryIterationBug() { doTest(); }
+  public void testLambda() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "Map.forEach()")); }
+  public void testLambdaNoVar() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "Map.forEach()")); }
+  public void testWildcardType() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "values()")); }
+  public void testNestedLambdaNameConflict() { doTest(CommonQuickFixBundle.message("fix.replace.with.x", "entrySet()")); }
 
 }

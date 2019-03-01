@@ -28,6 +28,7 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.impl.source.jsp.jspJava.JspClass;
+import com.intellij.psi.impl.source.resolve.graphInference.PsiPolyExpressionUtil;
 import com.intellij.psi.search.searches.OverridingMethodsSearch;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
@@ -49,6 +50,7 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.move.moveInstanceMethod.MoveInstanceMethodHandler");
   static final String REFACTORING_NAME = RefactoringBundle.message("move.instance.method.title");
 
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     PsiElement element = CommonDataKeys.PSI_ELEMENT.getData(dataContext);
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
@@ -70,6 +72,7 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
     invoke(project, new PsiElement[]{element}, dataContext);
   }
 
+  @Override
   public void invoke(@NotNull final Project project, @NotNull final PsiElement[] elements, final DataContext dataContext) {
     if (elements.length != 1 || !(elements[0] instanceof PsiMethod)) return;
     final PsiMethod method = (PsiMethod)elements[0];
@@ -83,7 +86,7 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
     }
     else {
       final PsiClass containingClass = method.getContainingClass();
-      if (containingClass != null && PsiUtil.typeParametersIterator(containingClass).hasNext() && TypeParametersSearcher.hasTypeParameters(method)) {
+      if (containingClass != null && mentionTypeParameters(method)) {
         message = RefactoringBundle.message("move.method.is.not.supported.for.generic.classes");
       }
       else if (method.findSuperMethods().length > 0 ||
@@ -127,7 +130,7 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
 
     new MoveInstanceMethodDialog(
       method,
-      suitableVariables.toArray(new PsiVariable[suitableVariables.size()])).show();
+      suitableVariables.toArray(new PsiVariable[0])).show();
   }
 
   private static void showErrorHint(Project project, DataContext dataContext, String message) {
@@ -175,7 +178,7 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
 
   public static String suggestParameterNameForThisClass(final PsiClass thisClass) {
     PsiManager manager = thisClass.getManager();
-    PsiType type = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory().createType(thisClass);
+    PsiType type = JavaPsiFacade.getElementFactory(manager.getProject()).createType(thisClass);
     final SuggestedNameInfo suggestedNameInfo = JavaCodeStyleManager.getInstance(manager.getProject())
       .suggestVariableName(VariableKind.PARAMETER, null, null, type);
     return suggestedNameInfo.names.length > 0 ? suggestedNameInfo.names[0] : "";
@@ -193,41 +196,13 @@ public class MoveInstanceMethodHandler implements RefactoringActionHandler {
     return result;
   }
 
-  private static class TypeParametersSearcher extends PsiTypeVisitor<Boolean> {
-    public static boolean hasTypeParameters(PsiElement element) {
-      final TypeParametersSearcher searcher = new TypeParametersSearcher();
-      final boolean[] hasParameters = new boolean[]{false};
-      element.accept(new JavaRecursiveElementWalkingVisitor(){
-        @Override
-        public void visitTypeElement(PsiTypeElement type) {
-          super.visitTypeElement(type);
-          hasParameters[0] |= type.getType().accept(searcher);
-        }
-      });
-      return hasParameters[0];
+  private static boolean mentionTypeParameters(PsiMethod method) {
+    PsiClass containingClass = method.getContainingClass();
+    if (containingClass == null) return false;
+    Set<PsiTypeParameter> typeParameters = ContainerUtil.newHashSet(PsiUtil.typeParametersIterable(containingClass));
+    for (PsiParameter parameter : method.getParameterList().getParameters()) {
+      if (PsiPolyExpressionUtil.mentionsTypeParameters(parameter.getType(), typeParameters)) return true;
     }
-
-    @Override
-    public Boolean visitClassType(PsiClassType classType) {
-      final PsiClass psiClass = PsiUtil.resolveClassInType(classType);
-      if (psiClass instanceof PsiTypeParameter) {
-        return Boolean.TRUE;
-      }
-      return super.visitClassType(classType);
-    }
-
-    @Override
-    public Boolean visitWildcardType(PsiWildcardType wildcardType) {
-      final PsiType bound = wildcardType.getBound();
-      if (PsiUtil.resolveClassInType(bound) instanceof PsiTypeParameter) {
-        return Boolean.TRUE;
-      }
-      return super.visitWildcardType(wildcardType);
-    }
-
-    @Override
-    public Boolean visitType(PsiType type) {
-      return Boolean.FALSE;
-    }
+    return PsiPolyExpressionUtil.mentionsTypeParameters(method.getReturnType(), typeParameters);
   }
 }

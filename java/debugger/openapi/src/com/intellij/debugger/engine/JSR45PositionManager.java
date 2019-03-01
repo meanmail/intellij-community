@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.debugger.engine;
 
@@ -26,6 +14,7 @@ import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
 import com.intellij.openapi.util.Computable;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.containers.ContainerUtil;
 import com.sun.jdi.*;
 import com.sun.jdi.request.ClassPrepareRequest;
 import org.jetbrains.annotations.NonNls;
@@ -35,11 +24,9 @@ import java.io.File;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: May 23, 2006
  */
 public abstract class JSR45PositionManager<Scope> implements PositionManager {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.engine.JSR45PositionManager");
@@ -169,11 +156,7 @@ public abstract class JSR45PositionManager<Scope> implements PositionManager {
             }
           }
         }
-        catch(ObjectCollectedException ignored) {
-        }
-        catch(AbsentInformationException ignored) {
-        }
-        catch(ClassNotPreparedException ignored) {
+        catch(ObjectCollectedException | ClassNotPreparedException | AbsentInformationException ignored) {
         }
         catch (InternalError ignored) {
           myDebugProcess.printToConsole(
@@ -185,18 +168,15 @@ public abstract class JSR45PositionManager<Scope> implements PositionManager {
       // Finds exact server file name (from available in type)
       // This is needed because some servers (e.g. WebSphere) put not exact file name such as 'A.jsp  '
       private String getSourceName(final String name, final ReferenceType type) throws AbsentInformationException {
-        for(String sourceNameFromType: type.sourceNames(myStratumId)) {
-          if (sourceNameFromType.contains(name)) {
-            return sourceNameFromType;
-          }
-        }
-        return name;
+        return type.sourceNames(myStratumId).stream()
+          .filter(sourceNameFromType -> sourceNameFromType.contains(name))
+          .findFirst().orElse(name);
       }
     });
   }
 
   protected List<String> getRelativeSourePathsByType(final ReferenceType type) throws AbsentInformationException {
-    return type.sourcePaths(myStratumId).stream().map(this::getRelativePath).collect(Collectors.toList());
+    return ContainerUtil.map(type.sourcePaths(myStratumId), this::getRelativePath);
   }
 
   protected List<Location> getLocationsOfLine(final ReferenceType type, final String fileName,

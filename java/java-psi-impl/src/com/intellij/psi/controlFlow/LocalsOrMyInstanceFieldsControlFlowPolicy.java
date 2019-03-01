@@ -14,18 +14,11 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: cdr
- * Date: Aug 6, 2002
- * Time: 6:16:17 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.psi.controlFlow;
 
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class LocalsOrMyInstanceFieldsControlFlowPolicy implements ControlFlowPolicy {
@@ -36,13 +29,9 @@ public class LocalsOrMyInstanceFieldsControlFlowPolicy implements ControlFlowPol
 
   @Override
   public PsiVariable getUsedVariable(@NotNull PsiReferenceExpression refExpr) {
-    PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(refExpr.getQualifierExpression());
-    if (qualifier == null || qualifier instanceof PsiThisExpression) {
-      PsiElement resolved = refExpr.resolve();
-      if (!(resolved instanceof PsiVariable)) return null;
-      return (PsiVariable)resolved;
+    if (isLocalOrMyInstanceReference(refExpr)) {
+      return ObjectUtils.tryCast(refExpr.resolve(), PsiVariable.class);
     }
-
     return null;
   }
 
@@ -58,5 +47,20 @@ public class LocalsOrMyInstanceFieldsControlFlowPolicy implements ControlFlowPol
 
   public static LocalsOrMyInstanceFieldsControlFlowPolicy getInstance() {
     return INSTANCE;
+  }
+
+  /**
+   * @param variableReference variable reference to check
+   * @return true if given variable reference refers to local variable or the field which participates in
+   * definitive assignment analysis, as specified in JLS, chapter 16. The method does not check whether
+   * the reference actually resolves to variable.
+   */
+  public static boolean isLocalOrMyInstanceReference(PsiReferenceExpression variableReference) {
+    PsiExpression qualifierExpression = PsiUtil.skipParenthesizedExprDown(variableReference.getQualifierExpression());
+    // JLS 16: "Such an assignment is defined to occur if and only if either the simple name of the variable
+    // (or, for a field, its simple name qualified by this) occurs on the left hand side of an assignment operator"
+    // Qualified this is not allowed by spec
+    return qualifierExpression == null || (qualifierExpression instanceof PsiThisExpression &&
+                                           ((PsiThisExpression)qualifierExpression).getQualifier() == null);
   }
 }

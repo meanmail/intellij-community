@@ -25,6 +25,7 @@ import java.nio.charset.Charset;
 
 /**
  * Kind of file types capable to provide {@link Language}.
+ * Note that the associated language can still be overridden by a {@link com.intellij.psi.LanguageSubstitutor}.
  */
 public abstract class LanguageFileType implements FileType{
   private final Language myLanguage;
@@ -74,6 +75,7 @@ public abstract class LanguageFileType implements FileType{
    * Overriders: override {@link #extractCharsetFromFileContent(Project, VirtualFile, CharSequence)} instead
    * @deprecated 
    */
+  @Deprecated
   public Charset extractCharsetFromFileContent(@Nullable Project project, @Nullable VirtualFile file, @NotNull String content) {
     return null;
   }

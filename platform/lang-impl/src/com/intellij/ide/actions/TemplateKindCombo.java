@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@
 package com.intellij.ide.actions;
 
 import com.intellij.ide.ui.UISettings;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.Trinity;
@@ -32,7 +31,6 @@ import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 
 public class TemplateKindCombo extends ComboboxWithBrowseButton {
-
   public TemplateKindCombo() {
     //noinspection unchecked
     getComboBox().setRenderer(new ListCellRendererWrapper() {
@@ -87,15 +85,12 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
   }
 
   public void registerUpDownHint(JComponent component) {
-    new DumbAwareAction() {
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        if (e.getInputEvent() instanceof KeyEvent) {
-          final int code = ((KeyEvent)e.getInputEvent()).getKeyCode();
-          scrollBy(code == KeyEvent.VK_DOWN ? 1 : code == KeyEvent.VK_UP ? -1 : 0);
-        }
+    DumbAwareAction.create(e -> {
+      if (e.getInputEvent() instanceof KeyEvent) {
+        int code = ((KeyEvent)e.getInputEvent()).getKeyCode();
+        scrollBy(code == KeyEvent.VK_DOWN ? 1 : code == KeyEvent.VK_UP ? -1 : 0);
       }
-    }.registerCustomShortcutSet(new CustomShortcutSet(KeyEvent.VK_UP, KeyEvent.VK_DOWN), component);
+    }).registerCustomShortcutSet(new CustomShortcutSet(KeyEvent.VK_UP, KeyEvent.VK_DOWN), component);
   }
 
   private void scrollBy(int delta) {
@@ -103,7 +98,7 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
     if (delta == 0 || size == 0) return;
     int next = getComboBox().getSelectedIndex() + delta;
     if (next < 0 || next >= size) {
-      if (!UISettings.getInstance().CYCLE_SCROLLING) {
+      if (!UISettings.getInstance().getCycleScrolling()) {
         return;
       }
       next = (next + size) % size;
@@ -112,7 +107,7 @@ public class TemplateKindCombo extends ComboboxWithBrowseButton {
   }
 
   /**
-   * @param listener pass <code>null</code> to hide browse button
+   * @param listener pass {@code null} to hide browse button
    */
   public void setButtonListener(@Nullable ActionListener listener) {
     getButton().setVisible(listener != null);

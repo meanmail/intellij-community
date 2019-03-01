@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.find;
 
 import com.intellij.execution.impl.ConsoleViewUtil;
 import com.intellij.find.editorHeaderActions.*;
+import com.intellij.find.impl.HelpID;
+import com.intellij.find.impl.RegExHelpPopup;
 import com.intellij.find.impl.livePreview.LivePreviewController;
 import com.intellij.find.impl.livePreview.SearchResults;
 import com.intellij.ide.ui.UISettings;
@@ -29,18 +17,21 @@ import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.event.EditorFactoryAdapter;
+import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.event.EditorFactoryEvent;
+import com.intellij.openapi.editor.event.EditorFactoryListener;
 import com.intellij.openapi.editor.event.SelectionEvent;
 import com.intellij.openapi.editor.event.SelectionListener;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.components.labels.LinkLabel;
-import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.util.ObjectUtils;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
 import org.jetbrains.annotations.NonNls;
@@ -61,20 +52,20 @@ public class EditorSearchSession implements SearchSession,
                                             SelectionListener,
                                             SearchResults.SearchResultsListener,
                                             SearchReplaceComponent.Listener {
-  public static DataKey<EditorSearchSession> SESSION_KEY = DataKey.create("EditorSearchSession");
+  public static final DataKey<EditorSearchSession> SESSION_KEY = DataKey.create("EditorSearchSession");
 
   private final Editor myEditor;
   private final LivePreviewController myLivePreviewController;
   private final SearchResults mySearchResults;
+  @NotNull
   private final FindModel myFindModel;
   private final SearchReplaceComponent myComponent;
+  private final RangeMarker myStartSessionSelectionMarker;
+  private final RangeMarker myStartSessionCaretMarker;
 
-  private final LinkLabel<Object> myClickToHighlightLabel = new LinkLabel<>("Click to highlight", null, new LinkListener<Object>() {
-    @Override
-    public void linkSelected(LinkLabel aSource, Object aLinkData) {
-      setMatchesLimit(Integer.MAX_VALUE);
-      updateResults(true);
-    }
+  private final LinkLabel<Object> myClickToHighlightLabel = new LinkLabel<>("Click to highlight", null, (__, ___) -> {
+    setMatchesLimit(Integer.MAX_VALUE);
+    updateResults(true);
   });
   private final Disposable myDisposable = Disposer.newDisposable(EditorSearchSession.class.getName());
 
@@ -82,7 +73,7 @@ public class EditorSearchSession implements SearchSession,
     this(editor, project, createDefaultFindModel(project, editor));
   }
 
-  public EditorSearchSession(@NotNull final Editor editor, Project project, FindModel findModel) {
+  public EditorSearchSession(@NotNull final Editor editor, Project project, @NotNull FindModel findModel) {
     assert !editor.isDisposed();
 
     myClickToHighlightLabel.setVisible(false);
@@ -90,6 +81,14 @@ public class EditorSearchSession implements SearchSession,
     myFindModel = findModel;
 
     myEditor = editor;
+    myStartSessionSelectionMarker = myEditor.getDocument().createRangeMarker(
+      myEditor.getSelectionModel().getSelectionStart(),
+      myEditor.getSelectionModel().getSelectionEnd()
+    );
+    myStartSessionCaretMarker = myEditor.getDocument().createRangeMarker(
+      myEditor.getCaretModel().getOffset(),
+      myEditor.getCaretModel().getOffset()
+    );
 
     mySearchResults = new SearchResults(myEditor, project);
     myLivePreviewController = new LivePreviewController(mySearchResults, this, myDisposable);
@@ -104,16 +103,19 @@ public class EditorSearchSession implements SearchSession,
                                new RemoveOccurrenceAction(),
                                new SelectAllAction(),
                                new Separator())
-      .addSecondarySearchActions(new ToggleInCommentsAction(),
+      .addSecondarySearchActions(new ToggleAnywhereAction(),
+                                 new ToggleInCommentsAction(),
                                  new ToggleInLiteralsOnlyAction(),
                                  new ToggleExceptCommentsAction(),
                                  new ToggleExceptLiteralsAction(),
                                  new ToggleExceptCommentsAndLiteralsAction())
       .addExtraSearchActions(new ToggleMatchCase(),
-                             new ToggleRegex(),
                              new ToggleWholeWordsOnlyAction(),
+                             new ToggleRegex(),
+                             new DefaultCustomComponentAction(
+                               () -> RegExHelpPopup.createRegExLink("<html><body><b>?</b></body></html>", null, null)),
                              new StatusTextAction(),
-                             new DefaultCustomComponentAction(myClickToHighlightLabel))
+                             new DefaultCustomComponentAction(() -> myClickToHighlightLabel))
       .addSearchFieldActions(new RestorePreviousSettingsAction())
       .addPrimaryReplaceActions(new ReplaceAction(),
                                 new ReplaceAllAction(),
@@ -123,8 +125,8 @@ public class EditorSearchSession implements SearchSession,
       .addReplaceFieldActions(new PrevOccurrenceAction(false),
                               new NextOccurrenceAction(false))
       .withDataProvider(this)
-      .withCloseAction(() -> close())
-      .withReplaceAction(() -> replaceCurrent())
+      .withCloseAction(this::close)
+      .withReplaceAction(this::replaceCurrent)
       .withSecondarySearchActionsIsModifiedGetter(() -> myFindModel.getSearchContext() != FindModel.SearchContext.ANY)
       .build();
 
@@ -146,16 +148,35 @@ public class EditorSearchSession implements SearchSession,
     new SwitchToReplace(getComponent());
 
     myFindModel.addObserver(new FindModel.FindModelObserver() {
+      boolean myReentrantLock = false;
+      boolean myIsGlobal = myFindModel.isGlobal();
+      boolean myIsReplace = myFindModel.isReplaceState();
       @Override
-      public void findModelChanged(FindModel findModel) {
-        String stringToFind = myFindModel.getStringToFind();
-        if (!wholeWordsApplicable(stringToFind)) {
-          myFindModel.setWholeWordsOnly(false);
+      public void findModelChanged(FindModel findModel1) {
+        if (myReentrantLock) return;
+        try {
+          myReentrantLock = true;
+          String stringToFind = myFindModel.getStringToFind();
+          if (!wholeWordsApplicable(stringToFind)) {
+            myFindModel.setWholeWordsOnly(false);
+          }
+          if (myIsGlobal != myFindModel.isGlobal() || myIsReplace != myFindModel.isReplaceState()) {
+            if (myFindModel.getStringToFind().isEmpty() && myFindModel.isGlobal()) {
+              myFindModel.setStringToFind(StringUtil.notNullize(myEditor.getSelectionModel().getSelectedText()));
+            }
+            if (!myFindModel.isGlobal() && myFindModel.getStringToFind().equals(myEditor.getSelectionModel().getSelectedText())) {
+              myFindModel.setStringToFind("");
+            }
+            myIsGlobal = myFindModel.isGlobal();
+            myIsReplace = myFindModel.isReplaceState();
+          }
+          EditorSearchSession.this.updateUIWithFindModel();
+          mySearchResults.clear();
+          EditorSearchSession.this.updateResults(true);
+          FindUtil.updateFindInFileModel(EditorSearchSession.this.getProject(), myFindModel, !ConsoleViewUtil.isConsoleViewEditor(editor));
+        } finally {
+          myReentrantLock = false;
         }
-        updateUIWithFindModel();
-        mySearchResults.clear();
-        updateResults(true);
-        FindUtil.updateFindInFileModel(getProject(), myFindModel, !ConsoleViewUtil.isConsoleViewEditor(editor));
       }
     });
 
@@ -166,12 +187,14 @@ public class EditorSearchSession implements SearchSession,
     }
     updateMultiLineStateIfNeed();
 
-    EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryAdapter() {
+    EditorFactory.getInstance().addEditorFactoryListener(new EditorFactoryListener() {
       @Override
       public void editorReleased(@NotNull EditorFactoryEvent event) {
         if (event.getEditor() == myEditor) {
           Disposer.dispose(myDisposable);
           myLivePreviewController.dispose();
+          myStartSessionSelectionMarker.dispose();
+          myStartSessionCaretMarker.dispose();
         }
       }
     }, myDisposable);
@@ -208,6 +231,7 @@ public class EditorSearchSession implements SearchSession,
     return myComponent.getProject();
   }
 
+  @NotNull
   private static FindModel createDefaultFindModel(Project project, Editor editor) {
     FindModel findModel = new FindModel();
     findModel.copyFrom(FindManager.getInstance(project).getFindInFileModel());
@@ -224,7 +248,7 @@ public class EditorSearchSession implements SearchSession,
 
   @Override
   @Nullable
-  public Object getData(@NonNls final String dataId) {
+  public Object getData(@NotNull @NonNls final String dataId) {
     if (SearchSession.KEY.is(dataId)) {
       return this;
     }
@@ -234,11 +258,14 @@ public class EditorSearchSession implements SearchSession,
     if (CommonDataKeys.EDITOR_EVEN_IF_INACTIVE.is(dataId)) {
       return myEditor;
     }
+    if (PlatformDataKeys.HELP_ID.is(dataId)) {
+      return myFindModel.isReplaceState() ? HelpID.REPLACE_IN_EDITOR : HelpID.FIND_IN_EDITOR;
+    }
     return null;
   }
 
   @Override
-  public void searchResultsUpdated(SearchResults sr) {
+  public void searchResultsUpdated(@NotNull SearchResults sr) {
     if (sr.getFindModel() == null) return;
     if (myComponent.getSearchTextComponent().getText().isEmpty()) {
       updateUIWithEmptyResults();
@@ -277,7 +304,7 @@ public class EditorSearchSession implements SearchSession,
       updateResults(true);
     }
     else {
-      nothingToSearchFor();
+      nothingToSearchFor(true);
     }
     updateMultiLineStateIfNeed();
   }
@@ -322,7 +349,7 @@ public class EditorSearchSession implements SearchSession,
     addTextToRecent(myComponent.getSearchTextComponent());
   }
 
-  public void updateUIWithFindModel() {
+  private void updateUIWithFindModel() {
     myComponent.update(myFindModel.getStringToFind(),
                        myFindModel.getStringToReplace(),
                        myFindModel.isReplaceState(),
@@ -341,9 +368,14 @@ public class EditorSearchSession implements SearchSession,
     mySearchResults.setMatchesLimit(value);
   }
 
-  public void replaceCurrent() {
+  private void replaceCurrent() {
     if (mySearchResults.getCursor() != null) {
-      myLivePreviewController.performReplace();
+      try {
+        myLivePreviewController.performReplace();
+      }
+      catch (FindManager.MalformedReplacementStringException e) {
+        Messages.showErrorDialog(myComponent, e.getMessage(), FindBundle.message("find.replace.invalid.replacement.string.title"));
+      }
     }
   }
 
@@ -352,7 +384,7 @@ public class EditorSearchSession implements SearchSession,
   }
 
   @Override
-  public void selectionChanged(SelectionEvent e) {
+  public void selectionChanged(@NotNull SelectionEvent e) {
     updateResults(false);
   }
 
@@ -369,6 +401,8 @@ public class EditorSearchSession implements SearchSession,
   }
 
   private void initLivePreview() {
+    if (myEditor.isDisposed()) return;
+
     myLivePreviewController.on();
 
     myLivePreviewController.setUserActivityDelay(0);
@@ -380,14 +414,13 @@ public class EditorSearchSession implements SearchSession,
 
   private void updateResults(final boolean allowedToChangedEditorSelection) {
     final String text = myFindModel.getStringToFind();
-    if (text.length() == 0) {
-      nothingToSearchFor();
+    if (text.isEmpty()) {
+      nothingToSearchFor(allowedToChangedEditorSelection);
     }
     else {
 
       if (myFindModel.isRegularExpressions()) {
         try {
-          //noinspection ResultOfMethodCallIgnored
           Pattern.compile(text);
         }
         catch (Exception e) {
@@ -414,11 +447,24 @@ public class EditorSearchSession implements SearchSession,
     }
   }
 
-  private void nothingToSearchFor() {
+  private void nothingToSearchFor(boolean allowedToChangedEditorSelection) {
     updateUIWithEmptyResults();
     if (mySearchResults != null) {
       mySearchResults.clear();
     }
+    if (allowedToChangedEditorSelection
+        && !UIUtil.isClientPropertyTrue(myComponent.getSearchTextComponent(), SearchTextArea.JUST_CLEARED_KEY)) {
+      restoreInitialCaretPositionAndSelection();
+    }
+  }
+
+  private void restoreInitialCaretPositionAndSelection() {
+    int originalSelectionStart = Math.min(myStartSessionSelectionMarker.getStartOffset(), myEditor.getDocument().getTextLength());
+    int originalSelectionEnd = Math.min(myStartSessionSelectionMarker.getEndOffset(), myEditor.getDocument().getTextLength());
+
+    myEditor.getSelectionModel().setSelection(originalSelectionStart, originalSelectionEnd);
+    myEditor.getCaretModel().moveToOffset(Math.min(myStartSessionCaretMarker.getEndOffset(), myEditor.getDocument().getTextLength()));
+    myEditor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
   }
 
   private void updateUIWithEmptyResults() {
@@ -453,20 +499,21 @@ public class EditorSearchSession implements SearchSession,
   }
 
 
-  private static abstract class ButtonAction extends DumbAwareAction implements CustomComponentAction, ActionListener {
+  private abstract static class ButtonAction extends DumbAwareAction implements CustomComponentAction, ActionListener {
     private final String myTitle;
     private final char myMnemonic;
 
-    protected ButtonAction(@NotNull String title, char mnemonic) {
+    ButtonAction(@NotNull String title, char mnemonic) {
       myTitle = title;
       myMnemonic = mnemonic;
     }
 
+    @NotNull
     @Override
-    public JComponent createCustomComponent(Presentation presentation) {
+    public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
       JButton button = new JButton(myTitle);
       button.setFocusable(false);
-      if (!UISettings.getInstance().DISABLE_MNEMONICS_IN_CONTROLS) {
+      if (!UISettings.getInstance().getDisableMnemonicsInControls()) {
         button.setMnemonic(myMnemonic);
       }
       button.addActionListener(this);
@@ -474,15 +521,15 @@ public class EditorSearchSession implements SearchSession,
     }
 
     @Override
-    public final void update(AnActionEvent e) {
-      JButton button = (JButton)e.getPresentation().getClientProperty(CUSTOM_COMPONENT_PROPERTY);
+    public final void update(@NotNull AnActionEvent e) {
+      JButton button = (JButton)e.getPresentation().getClientProperty(COMPONENT_KEY);
       if (button != null) {
         update(button);
       }
     }
 
     @Override
-    public final void actionPerformed(AnActionEvent e) {
+    public final void actionPerformed(@NotNull AnActionEvent e) {
       onClick();
     }
 
@@ -497,7 +544,7 @@ public class EditorSearchSession implements SearchSession,
   }
 
   private class ReplaceAction extends ButtonAction {
-    public ReplaceAction() {
+    ReplaceAction() {
       super("Replace", 'p');
     }
 
@@ -513,7 +560,7 @@ public class EditorSearchSession implements SearchSession,
   }
 
   private class ReplaceAllAction extends ButtonAction {
-    public ReplaceAllAction() {
+    ReplaceAllAction() {
       super("Replace all", 'a');
     }
 
@@ -529,7 +576,7 @@ public class EditorSearchSession implements SearchSession,
   }
 
   private class ExcludeAction extends ButtonAction {
-    public ExcludeAction() {
+    ExcludeAction() {
       super("", 'l');
     }
 

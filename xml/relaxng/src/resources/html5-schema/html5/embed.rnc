@@ -22,7 +22,9 @@ namespace local = ""
 		&	img.attrs.width?
 		&	img.attrs.usemap?
 		&	img.attrs.ismap?
+		&	img.attrs.decoding?
 		&	img.attrs.border? # obsolete
+		&	referrerpolicy?
 		&	embedded.content.attrs.crossorigin?
 		&	(	common.attrs.aria.implicit.img
 			|	common.attrs.aria
@@ -59,6 +61,13 @@ namespace local = ""
 		img.attrs.ismap =
 			attribute ismap {
 				w:string "ismap" | w:string ""
+			}
+		img.attrs.decoding =
+			attribute decoding {
+				(	string "sync"
+				|	string "async"
+				|	string "auto"
+				)
 			}
 		img.attrs.border =
 			attribute border {
@@ -128,7 +137,7 @@ namespace local = ""
 		&	embed.attrs.height?
 		&	embed.attrs.width?
 		&	embed.attrs.other*
-		&	(	common.attrs.aria.landmark.application
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -151,22 +160,22 @@ namespace local = ""
 				common.data.integer.non-negative
 			}
 		embed.attrs.other = # REVISIT common.attrs
-			attribute local:* - ( src 
-			                    | type 
-			                    | height 
-			                    | width 
-			                    | id 
+			attribute local:* - ( src
+			                    | type
+			                    | height
+			                    | width
+			                    | id
+			                    | is
+			                    | slot
 			                    | class
-			                    | title 
-			                    | dir 
-			                    | lang 
-			                    | translate 
-			                    | style 
-			                    | tabindex 
-			                    | contextmenu 
-			                    | contenteditable 
-			                    | draggable 
-			                    | dropzone
+			                    | title
+			                    | dir
+			                    | lang
+			                    | translate
+			                    | style
+			                    | tabindex
+			                    | contenteditable
+			                    | draggable
 			                    | hidden
 			                    | onabort
 			                    | onautocomplete
@@ -194,6 +203,8 @@ namespace local = ""
 			                    | onended
 			                    | onerror
 			                    | onfocus
+			                    | onfocusin
+			                    | onfocusout
 			                    | oninput
 			                    | oninvalid
 			                    | onkeydown
@@ -222,7 +233,6 @@ namespace local = ""
 			                    | onseeked
 			                    | onseeking
 			                    | onselect
-			                    | onshow
 			                    | onsort
 			                    | onstalled
 			                    | onsubmit
@@ -235,22 +245,28 @@ namespace local = ""
 			                    | aria-atomic
 			                    | aria-busy
 			                    | aria-controls
+			                    | aria-current
+			                    | aria-details
 			                    | aria-describedby
 			                    | aria-disabled
 			                    | aria-dropeffect
+			                    | aria-errormessage
 			                    | aria-expanded
 			                    | aria-flowto
 			                    | aria-grabbed
 			                    | aria-haspopup
 			                    | aria-hidden
 			                    | aria-invalid
+			                    | aria-keyshortcuts
 			                    | aria-label
 			                    | aria-labelledby
 			                    | aria-live
 			                    | aria-owns
 			                    | aria-relevant
 			                    | aria-required
+			                    | aria-roledescription
 			                    | spellcheck
+			                    | autocapitalize
 			                    | accesskey
 			                    | itemref
 			                    | itemprop
@@ -317,7 +333,7 @@ namespace local = ""
                                             | its-storage-encoding
                                             | its-line-break-type
                                             | its-annotators-ref
-			                    ) 
+			                    )
 			{
 				string
 			}
@@ -348,7 +364,7 @@ namespace local = ""
 		&	object.attrs.usemap?
 		&	object.attrs.name?
 		&	common-form.attrs.form?
-		&	(	common.attrs.aria.landmark.application
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -430,7 +446,11 @@ namespace local = ""
 		&	iframe.attrs.height?
 		&	iframe.attrs.sandbox?
 		&	iframe.attrs.allowfullscreen?
-		&	(	common.attrs.aria.landmark.application
+		&	iframe.attrs.allowpaymentrequest?
+		&	iframe.attrs.allowusermedia?
+		&	iframe.attrs.allow?
+		&	referrerpolicy?
+		&	(	common.attrs.aria.role.application
 			|	common.attrs.aria.landmark.document
 			|	common.attrs.aria.role.img
 			|	common.attrs.aria.role.presentation
@@ -464,8 +484,20 @@ namespace local = ""
 			attribute allowfullscreen {
 				w:string "allowfullscreen" | w:string ""
 			} & v5only
+		iframe.attrs.allowpaymentrequest =
+			attribute allowpaymentrequest {
+				w:string "allowpaymentrequest" | w:string ""
+			} & v5only
+		iframe.attrs.allowusermedia =
+			attribute allowusermedia {
+				w:string "allowusermedia" | w:string ""
+			} & v5only
+		iframe.attrs.allow =
+			attribute allow {
+				common.data.feature-policy
+			}
 	iframe.inner =
-		( ( text & HTMLonly ) | empty )
+		empty
 
 	common.elem.phrasing |= iframe.elem
 
@@ -517,8 +549,7 @@ namespace local = ""
 		&	shared-hyperlink.attrs.type?
 		&	area.attrs.shape?
 		&	(	common.attrs.aria.role.link
-			|	common.attrs.aria.role.presentation
-			|	common.attrs.aria.role.menuitem
+			|	common.attrs.aria.implicit.link
 			)?
 		)
 		area.attrs.alt =

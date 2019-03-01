@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,10 @@
 package org.intellij.plugins.relaxNG.compact;
 
 import com.intellij.codeInsight.TailType;
-import com.intellij.codeInsight.completion.*;
+import com.intellij.codeInsight.completion.CompletionContributor;
+import com.intellij.codeInsight.completion.CompletionParameters;
+import com.intellij.codeInsight.completion.CompletionProvider;
+import com.intellij.codeInsight.completion.CompletionResultSet;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.codeInsight.lookup.TailTypeDecorator;
 import com.intellij.patterns.ElementPattern;
@@ -63,7 +66,7 @@ public class RncCompletionContributor extends CompletionContributor {
     CompletionProvider<CompletionParameters> provider = new CompletionProvider<CompletionParameters>() {
       @Override
       protected void addCompletions(@NotNull CompletionParameters parameters,
-                                    ProcessingContext context,
+                                    @NotNull ProcessingContext context,
                                     @NotNull CompletionResultSet result) {
         String[] keywords = getKeywords(parameters.getPosition());
         for (String keyword : keywords) {
@@ -78,7 +81,7 @@ public class RncCompletionContributor extends CompletionContributor {
 
 
   private static String[] getKeywords(PsiElement context) {
-    final PsiElement next = PsiTreeUtil.skipSiblingsForward(context, PsiWhiteSpace.class);
+    final PsiElement next = PsiTreeUtil.skipWhitespacesForward(context);
     if (next != null && EscapeUtil.unescapeText(next).equals("=")) {
       return new String[]{ "start" };
     }

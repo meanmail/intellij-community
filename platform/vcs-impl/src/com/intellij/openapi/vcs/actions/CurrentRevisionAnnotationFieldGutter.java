@@ -34,7 +34,7 @@ import java.util.Map;
  *
  * @author Konstantin Bulenkov
  */
-class CurrentRevisionAnnotationFieldGutter extends AnnotationFieldGutter implements Consumer<AnnotationSource> {
+class CurrentRevisionAnnotationFieldGutter extends AspectAnnotationFieldGutter implements Consumer<AnnotationSource> {
   // merge source showing is turned on
   private boolean myTurnedOn;
 
@@ -70,6 +70,7 @@ class CurrentRevisionAnnotationFieldGutter extends AnnotationFieldGutter impleme
     return ((text == null) || (text.length() == 0)) ? "" : VcsBundle.message("annotation.original.revision.text", text);
   }
 
+  @Override
   public void consume(final AnnotationSource annotationSource) {
     myTurnedOn = annotationSource.showMerged();
   }

@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ex;
 
+import com.intellij.ReviseWhenPortedToJDK;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.CommonProblemDescriptor;
 import com.intellij.codeInspection.InspectionManager;
@@ -25,6 +12,7 @@ import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.reference.RefManagerImpl;
 import com.intellij.codeInspection.ui.InspectionResultsView;
+import com.intellij.codeInspection.ui.InspectionResultsViewComparator;
 import com.intellij.codeInspection.ui.InspectionTree;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
@@ -32,6 +20,7 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.CustomComponentAction;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.impl.ApplicationImpl;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -41,19 +30,18 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
 import com.intellij.ui.ClickListener;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.SequentialModalProgressTask;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
+import javax.swing.tree.TreePath;
 import java.awt.event.MouseEvent;
 import java.util.*;
 
@@ -61,17 +49,17 @@ import java.util.*;
  * @author max
  */
 public class QuickFixAction extends AnAction implements CustomComponentAction {
-  private static final Logger LOG = Logger.getInstance("#" + QuickFixAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(QuickFixAction.class);
 
   public static final QuickFixAction[] EMPTY = new QuickFixAction[0];
   protected final InspectionToolWrapper myToolWrapper;
 
-  protected static InspectionResultsView getInvoker(AnActionEvent e) {
+  protected static InspectionResultsView getInvoker(@NotNull AnActionEvent e) {
     return InspectionResultsView.DATA_KEY.getData(e.getDataContext());
   }
 
   protected QuickFixAction(String text, @NotNull InspectionToolWrapper toolWrapper) {
-    this(text, AllIcons.Actions.CreateFromUsage, null, toolWrapper);
+    this(text, AllIcons.Actions.IntentionBulb, null, toolWrapper);
   }
 
   protected QuickFixAction(String text, Icon icon, KeyStroke keyStroke, @NotNull InspectionToolWrapper toolWrapper) {
@@ -83,7 +71,7 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final InspectionResultsView view = getInvoker(e);
     if (view == null) {
       e.getPresentation().setEnabled(false);
@@ -115,24 +103,28 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  @ReviseWhenPortedToJDK("9")
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final InspectionResultsView view = getInvoker(e);
     final InspectionTree tree = view.getTree();
     try {
-      Ref<CommonProblemDescriptor[]> descriptors = Ref.create();
+      Ref<List<CommonProblemDescriptor[]>> descriptors = Ref.create();
       Set<VirtualFile> readOnlyFiles = new THashSet<>();
+      TreePath[] paths = tree.getSelectionPaths();
       if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> ReadAction.run(() -> {
         final ProgressIndicator indicator = ProgressManager.getInstance().getProgressIndicator();
         indicator.setText("Checking problem descriptors...");
-        descriptors.set(tree.getSelectedDescriptors(true, readOnlyFiles, false, false));
+        descriptors.set(tree.getSelectedDescriptorPacks(true, readOnlyFiles, false, paths));
       }), InspectionsBundle.message("preparing.for.apply.fix"), true, e.getProject())) {
         return;
       }
-      if (isProblemDescriptorsAcceptable() && descriptors.get().length > 0) {
+      if (isProblemDescriptorsAcceptable() && descriptors.get().size() > 0) {
         doApplyFix(view.getProject(), descriptors.get(), readOnlyFiles, tree.getContext());
       } else {
         doApplyFix(getSelectedElements(view), view);
       }
+
+      view.getTree().removeSelectedProblems();
     } finally {
       view.setApplyingFix(false);
     }
@@ -142,39 +134,57 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
   protected void applyFix(@NotNull Project project,
                           @NotNull GlobalInspectionContextImpl context,
                           @NotNull CommonProblemDescriptor[] descriptors,
-                          @NotNull Set<PsiElement> ignoredElements) {
+                          @NotNull Set<? super PsiElement> ignoredElements) {
   }
 
-  private void doApplyFix(@NotNull final Project project,
-                          @NotNull final CommonProblemDescriptor[] descriptors,
+  private void doApplyFix(@NotNull Project project,
+                          @NotNull List<CommonProblemDescriptor[]> descriptors,
                           @NotNull Set<VirtualFile> readOnlyFiles,
-                          @NotNull final GlobalInspectionContextImpl context) {
+                          @NotNull GlobalInspectionContextImpl context) {
     if (!FileModificationService.getInstance().prepareVirtualFilesForWrite(project, readOnlyFiles)) return;
-    
+
     final RefManagerImpl refManager = (RefManagerImpl)context.getRefManager();
     final boolean initial = refManager.isInProcess();
 
     refManager.inspectionReadActionFinished();
 
     try {
-      final Set<PsiElement> ignoredElements = new HashSet<>();
+      final Set<PsiElement> resolvedElements = new HashSet<>();
+      performFixesInBatch(project, descriptors, context, resolvedElements);
 
-      final String templatePresentationText = getTemplatePresentation().getText();
-      assert templatePresentationText != null;
-      CommandProcessor.getInstance().executeCommand(project, () -> {
-        CommandProcessor.getInstance().markCurrentCommandAsGlobal(project);
-        final SequentialModalProgressTask progressTask =
-          new SequentialModalProgressTask(project, templatePresentationText, true);
-        progressTask.setMinIterationTime(200);
-        progressTask.setTask(new PerformFixesTask(project, descriptors, ignoredElements, progressTask, context));
-        ProgressManager.getInstance().run(progressTask);
-      }, templatePresentationText, null);
-
-      refreshViews(project, ignoredElements, myToolWrapper);
+      refreshViews(project, resolvedElements, myToolWrapper);
     }
     finally { //to make offline view lazy
       if (initial) refManager.inspectionReadActionStarted();
     }
+  }
+
+  protected boolean startInWriteAction() {
+    return false;
+  }
+
+  protected void performFixesInBatch(@NotNull Project project,
+                                     @NotNull List<CommonProblemDescriptor[]> descriptors,
+                                     @NotNull GlobalInspectionContextImpl context,
+                                     Set<? super PsiElement> ignoredElements) {
+    final String templatePresentationText = getTemplatePresentation().getText();
+    assert templatePresentationText != null;
+    CommandProcessor.getInstance().executeCommand(project, () -> {
+      CommandProcessor.getInstance().markCurrentCommandAsGlobal(project);
+      boolean startInWriteAction = startInWriteAction();
+      PerformFixesTask performFixesTask = new PerformFixesTask(project, descriptors, ignoredElements, context);
+      if (startInWriteAction) {
+        ((ApplicationImpl)ApplicationManager.getApplication())
+          .runWriteActionWithCancellableProgressInDispatchThread(templatePresentationText, project, null, performFixesTask::doRun);
+      }
+      else {
+        final SequentialModalProgressTask progressTask =
+          new SequentialModalProgressTask(project, templatePresentationText, true);
+        progressTask.setMinIterationTime(200);
+        progressTask.setTask(performFixesTask);
+        ProgressManager.getInstance().run(progressTask);
+      }
+    }, templatePresentationText, null);
   }
 
   private void doApplyFix(@NotNull final RefEntity[] refElements, @NotNull InspectionResultsView view) {
@@ -216,65 +226,37 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
   private static Set<VirtualFile> getReadOnlyFiles(@NotNull RefEntity[] refElements) {
     Set<VirtualFile> readOnlyFiles = new THashSet<>();
     for (RefEntity refElement : refElements) {
-      PsiElement psiElement = refElement instanceof RefElement ? ((RefElement)refElement).getElement() : null;
+      PsiElement psiElement = refElement instanceof RefElement ? ((RefElement)refElement).getPsiElement() : null;
       if (psiElement == null || psiElement.getContainingFile() == null) continue;
       readOnlyFiles.add(psiElement.getContainingFile().getVirtualFile());
     }
     return readOnlyFiles;
   }
 
+  @NotNull
   private static RefEntity[] getSelectedElements(InspectionResultsView view) {
-    if (view == null) return new RefElement[0];
-    List<RefEntity> selection = new ArrayList<>(Arrays.asList(view.getTree().getSelectedElements()));
+    if (view == null) return RefEntity.EMPTY_ELEMENTS_ARRAY;
+    RefEntity[] selection = view.getTree().getSelectedElements();
     PsiDocumentManager.getInstance(view.getProject()).commitAllDocuments();
-    Collections.sort(selection, (o1, o2) -> {
-      if (o1 instanceof RefElement && o2 instanceof RefElement) {
-        RefElement r1 = (RefElement)o1;
-        RefElement r2 = (RefElement)o2;
-        final PsiElement element1 = r1.getElement();
-        final PsiElement element2 = r2.getElement();
-        final PsiFile containingFile1 = element1.getContainingFile();
-        final PsiFile containingFile2 = element2.getContainingFile();
-        if (containingFile1 == containingFile2) {
-          int i1 = element1.getTextOffset();
-          int i2 = element2.getTextOffset();
-          if (i1 < i2) {
-            return 1;
-          }
-          if (i1 > i2){
-            return -1;
-          }
-          return 0;
-        }
-        return containingFile1.getName().compareTo(containingFile2.getName());
-      }
-      if (o1 instanceof RefElement) {
-        return 1;
-      }
-      if (o2 instanceof RefElement) {
-        return -1;
-      }
-      return o1.getName().compareTo(o2.getName());
-    });
-
-    return selection.toArray(new RefEntity[selection.size()]);
+    Arrays.sort(selection, InspectionResultsViewComparator::compareEntities);
+    return selection;
   }
 
-  private static void refreshViews(@NotNull Project project, @NotNull Set<PsiElement> selectedElements, @NotNull InspectionToolWrapper toolWrapper) {
+  private static void refreshViews(@NotNull Project project, @NotNull Set<? extends PsiElement> resolvedElements, @NotNull InspectionToolWrapper toolWrapper) {
     InspectionManagerEx managerEx = (InspectionManagerEx)InspectionManager.getInstance(project);
     final Set<GlobalInspectionContextImpl> runningContexts = managerEx.getRunningContexts();
     for (GlobalInspectionContextImpl context : runningContexts) {
-      for (PsiElement element : selectedElements) {
-        context.ignoreElement(toolWrapper.getTool(), element);
+      for (PsiElement element : resolvedElements) {
+        context.resolveElement(toolWrapper.getTool(), element);
       }
       context.refreshViews();
     }
   }
 
-  protected static void refreshViews(@NotNull Project project, @NotNull RefEntity[] refElements, @NotNull InspectionToolWrapper toolWrapper) {
+  protected static void refreshViews(@NotNull Project project, @NotNull RefEntity[] resolvedElements, @NotNull InspectionToolWrapper toolWrapper) {
     final Set<PsiElement> ignoredElements = new HashSet<>();
-    for (RefEntity element : refElements) {
-      final PsiElement psiElement = element instanceof RefElement ? ((RefElement)element).getElement() : null;
+    for (RefEntity element : resolvedElements) {
+      final PsiElement psiElement = element instanceof RefElement ? ((RefElement)element).getPsiElement() : null;
       if (psiElement != null && psiElement.isValid()) {
         ignoredElements.add(psiElement);
       }
@@ -289,19 +271,19 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
     Set<VirtualFile> readOnlyFiles = getReadOnlyFiles(refElements);
     if (!readOnlyFiles.isEmpty()) {
       final Project project = refElements[0].getRefManager().getProject();
-      final ReadonlyStatusHandler.OperationStatus operationStatus = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(
-        VfsUtilCore.toVirtualFileArray(readOnlyFiles));
+      final ReadonlyStatusHandler.OperationStatus operationStatus = ReadonlyStatusHandler.getInstance(project).ensureFilesWritable(readOnlyFiles);
       if (operationStatus.hasReadonlyFiles()) return false;
     }
     return true;
   }
 
+  @NotNull
   @Override
-  public JComponent createCustomComponent(Presentation presentation) {
+  public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
     final JButton button = new JButton(presentation.getText());
     Icon icon = presentation.getIcon();
     if (icon == null) {
-      icon = AllIcons.Actions.CreateFromUsage;
+      icon = AllIcons.Actions.IntentionBulb;
     }
     button.setEnabled(presentation.isEnabled());
     button.setIcon(IconLoader.getTransparentIcon(icon, 0.75f));
@@ -311,14 +293,14 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
         final ActionToolbar toolbar = UIUtil.getParentOfType(ActionToolbar.class, button);
         actionPerformed(AnActionEvent.createFromAnAction(QuickFixAction.this,
                                                          event,
-                                                         ActionPlaces.UNKNOWN,
+                                                         place,
                                                          toolbar == null ? DataManager.getInstance().getDataContext(button) : toolbar.getToolbarDataContext()));
         return true;
       }
     }.installOn(button);
     JPanel panel = new JPanel();
     panel.setLayout(new BoxLayout(panel, BoxLayout.LINE_AXIS));
-    panel.setBorder(IdeBorderFactory.createEmptyBorder(7, 0, 8, 0));
+    panel.setBorder(JBUI.Borders.empty(7, 0, 8, 0));
     panel.add(button);
     return panel;
   }
@@ -326,21 +308,20 @@ public class QuickFixAction extends AnAction implements CustomComponentAction {
   private class PerformFixesTask extends PerformFixesModalTask {
     @NotNull private final GlobalInspectionContextImpl myContext;
     @NotNull
-    private final Set<PsiElement> myIgnoredElements;
+    private final Set<? super PsiElement> myIgnoredElements;
 
     PerformFixesTask(@NotNull Project project,
-                     @NotNull CommonProblemDescriptor[] descriptors,
-                     @NotNull Set<PsiElement> ignoredElements,
-                     @NotNull SequentialModalProgressTask task,
+                     @NotNull List<CommonProblemDescriptor[]> descriptors,
+                     @NotNull Set<? super PsiElement> ignoredElements,
                      @NotNull GlobalInspectionContextImpl context) {
-      super(project, descriptors, task);
+      super(project, descriptors);
       myContext = context;
       myIgnoredElements = ignoredElements;
     }
 
     @Override
     protected void applyFix(Project project, CommonProblemDescriptor descriptor) {
-      if (descriptor instanceof ProblemDescriptor && 
+      if (descriptor instanceof ProblemDescriptor &&
           ((ProblemDescriptor)descriptor).getStartElement() == null &&
           ((ProblemDescriptor)descriptor).getEndElement() == null) {
         if (LOG.isDebugEnabled()) {

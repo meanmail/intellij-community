@@ -22,6 +22,7 @@ import com.intellij.psi.stubs.IndexSink;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
+import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -33,20 +34,25 @@ public abstract class FunctionalExpressionElementType<T extends PsiFunctionalExp
 
   @Override
   public void serialize(@NotNull FunctionalExpressionStub<T> stub, @NotNull StubOutputStream dataStream) throws IOException {
+    dataStream.writeName(stub.getPresentableText());
   }
 
   @NotNull
   @Override
   public FunctionalExpressionStub<T> deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    return new FunctionalExpressionStub<T>(parentStub, this);
+    return new FunctionalExpressionStub<>(parentStub, this, dataStream.readNameString());
   }
 
   @Override
   public void indexStub(@NotNull FunctionalExpressionStub<T> stub, @NotNull IndexSink sink) {
   }
 
+  @NotNull
   @Override
-  public FunctionalExpressionStub<T> createStub(LighterAST tree, LighterASTNode funExpr, StubElement parentStub) {
-    return new FunctionalExpressionStub<T>(parentStub, this);
+  public FunctionalExpressionStub<T> createStub(@NotNull LighterAST tree, @NotNull LighterASTNode funExpr, @NotNull StubElement parentStub) {
+    return new FunctionalExpressionStub<>(parentStub, this, getPresentableText(tree, funExpr));
   }
+
+  @NotNull
+  protected abstract String getPresentableText(@NotNull LighterAST tree, @NotNull LighterASTNode funExpr);
 }

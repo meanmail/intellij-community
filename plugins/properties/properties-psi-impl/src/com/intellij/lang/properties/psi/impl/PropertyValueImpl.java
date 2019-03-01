@@ -33,7 +33,7 @@ public class PropertyValueImpl extends LeafPsiElement {
   @Override
   @NotNull
   public PsiReference[] getReferences() {
-    return ReferenceProvidersRegistry.getReferencesFromProviders(this, PropertyValueImpl.class);
+    return ReferenceProvidersRegistry.getReferencesFromProviders(this);
   }
 
   @Override
@@ -42,6 +42,7 @@ public class PropertyValueImpl extends LeafPsiElement {
     return references.length == 0 ? null : references[0];
   }
 
+  @Override
   @NonNls
   public String toString() {
     return "PropertyValueImpl: " + getText();

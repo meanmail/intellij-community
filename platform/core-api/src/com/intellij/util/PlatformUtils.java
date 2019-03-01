@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,27 @@ package com.intellij.util;
 
 import com.intellij.openapi.application.ApplicationInfo;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+
 /**
- * @author Konstantin Bulenkov
+ * This class allows changing behavior of the platform in specific IDEs. But if its methods are used for something it means that third-party
+ * IDEs not listed here won't be able to get the desired behavior. So <strong>it's strongly not recommended to use methods from this class</strong>.
+ * If you need to customize behavior of the platform somewhere, you should create a special application service for that and override it in
+ * a specific IDE (look at {@link com.intellij.lang.IdeLanguageCustomization} and {@link com.intellij.openapi.updateSettings.UpdateStrategyCustomization}
+ * for example).
+ *
+ * @author Konstantin Bulenkov, Nikolay Chashnikov
  */
-@SuppressWarnings({"deprecation", "UnusedDeclaration"})
 public class PlatformUtils {
   public static final String PLATFORM_PREFIX_KEY = "idea.platform.prefix";
 
   // NOTE: If you add any new prefixes to this list, please update the IntelliJPlatformProduct class in DevKit plugin
   public static final String IDEA_PREFIX = "idea";
   public static final String IDEA_CE_PREFIX = "Idea";
+  public static final String IDEA_EDU_PREFIX = "IdeaEdu";
   public static final String APPCODE_PREFIX = "AppCode";
   public static final String CLION_PREFIX = "CLion";
   public static final String PYCHARM_PREFIX = "Python";
@@ -37,6 +48,12 @@ public class PlatformUtils {
   public static final String WEB_PREFIX = "WebStorm";
   public static final String DBE_PREFIX = "DataGrip";
   public static final String RIDER_PREFIX = "Rider";
+  public static final String GOIDE_PREFIX = "GoLand";
+
+  private static final Set<String> COMMERCIAL_EDITIONS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
+    IDEA_PREFIX, APPCODE_PREFIX, CLION_PREFIX, PYCHARM_PREFIX, RUBY_PREFIX, PHP_PREFIX, WEB_PREFIX, DBE_PREFIX,
+    RIDER_PREFIX, GOIDE_PREFIX
+  )));
 
   public static String getPlatformPrefix() {
     return getPlatformPrefix(IDEA_PREFIX);
@@ -52,7 +69,7 @@ public class PlatformUtils {
   }
 
   public static boolean isIntelliJ() {
-    return isIdeaUltimate() || isIdeaCommunity();
+    return isIdeaUltimate() || isIdeaCommunity() || isIdeaEducational();
   }
 
   public static boolean isIdeaUltimate() {
@@ -61,6 +78,10 @@ public class PlatformUtils {
 
   public static boolean isIdeaCommunity() {
     return is(IDEA_CE_PREFIX);
+  }
+
+  private static boolean isIdeaEducational() {
+    return is(IDEA_EDU_PREFIX);
   }
 
   public static boolean isRubyMine() {
@@ -103,7 +124,7 @@ public class PlatformUtils {
     return is(WEB_PREFIX);
   }
 
-  public static boolean isDatabaseIDE() {
+  public static boolean isDataGrip() {
     return is(DBE_PREFIX);
   }
 
@@ -111,8 +132,16 @@ public class PlatformUtils {
     return is(RIDER_PREFIX);
   }
 
+  public static boolean isGoIde() {
+    return is(GOIDE_PREFIX);
+  }
+
   public static boolean isCommunityEdition() {
     return isIdeaCommunity() || isPyCharmCommunity();
+  }
+
+  public static boolean isCommercialEdition() {
+    return COMMERCIAL_EDITIONS.contains(getPlatformPrefix());
   }
 
   private static boolean is(String idePrefix) {

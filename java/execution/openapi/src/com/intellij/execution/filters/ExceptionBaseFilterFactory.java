@@ -16,16 +16,12 @@
 package com.intellij.execution.filters;
 
 import com.intellij.psi.search.GlobalSearchScope;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 8/8/11
- * Time: 12:11 PM
- */
 public class ExceptionBaseFilterFactory implements ExceptionFilterFactory {
+  @NotNull
   @Override
-  public Filter create(GlobalSearchScope searchScope) {
+  public Filter create(@NotNull GlobalSearchScope searchScope) {
     return new ExceptionFilter(searchScope);
   }
 }

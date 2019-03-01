@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileTypes.impl;
 
 import com.intellij.ide.highlighter.FileTypeRegistrator;
@@ -191,7 +177,7 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return table;
   }
 
-  private static void loadKeywords(Element element, Set<String> keywords) {
+  private static void loadKeywords(Element element, Set<? super String> keywords) {
     String value = element.getAttributeValue(ELEMENT_KEYWORDS);
     if (value != null) {
       StringTokenizer tokenizer = new StringTokenizer(value, SEMICOLON);
@@ -316,14 +302,14 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return !Comparing.equal(myDefaultSyntaxTable, getSyntaxTable());
   }
 
-  @NonNls private static final String ELEMENT_MAPPING = "mapping";
-  @NonNls private static final String ATTRIBUTE_EXT = "ext";
+  @NonNls static final String ELEMENT_MAPPING = "mapping";
+  @NonNls static final String ATTRIBUTE_EXT = "ext";
   @NonNls private static final String ATTRIBUTE_PATTERN = "pattern";
   /** Applied for removed mappings approved by user */
   @NonNls private static final String ATTRIBUTE_APPROVED = "approved";
 
   @NonNls private static final String ELEMENT_REMOVED_MAPPING = "removed_mapping";
-  @NonNls private static final String ATTRIBUTE_TYPE = "type";
+  @NonNls static final String ATTRIBUTE_TYPE = "type";
 
   @NotNull
   public static List<Pair<FileNameMatcher, String>> readAssociations(@NotNull Element element) {
@@ -345,12 +331,12 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
 
   @NotNull
   public static List<Trinity<FileNameMatcher, String, Boolean>> readRemovedAssociations(@NotNull Element element) {
-    List<Trinity<FileNameMatcher, String, Boolean>> result = new SmartList<>();
     List<Element> children = element.getChildren(ELEMENT_REMOVED_MAPPING);
     if (children.isEmpty()) {
       return Collections.emptyList();
     }
 
+    List<Trinity<FileNameMatcher, String, Boolean>> result = new SmartList<>();
     for (Element mapping : children) {
       String ext = mapping.getAttributeValue(ATTRIBUTE_EXT);
       FileNameMatcher matcher = ext == null ? FileTypeManager.parseFromString(mapping.getAttributeValue(ATTRIBUTE_PATTERN)) : new ExtensionFileNameMatcher(ext);
@@ -365,13 +351,7 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     if (matcher instanceof ExtensionFileNameMatcher) {
       mapping.setAttribute(ATTRIBUTE_EXT, ((ExtensionFileNameMatcher)matcher).getExtension());
     }
-    else if (matcher instanceof WildcardFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((WildcardFileNameMatcher)matcher).getPattern());
-    }
-    else if (matcher instanceof ExactFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((ExactFileNameMatcher)matcher).getFileName());
-    }
-    else {
+    else if (writePattern(matcher, mapping)) {
       return null;
     }
 
@@ -382,28 +362,35 @@ public class AbstractFileType extends UserFileType<AbstractFileType> implements 
     return mapping;
   }
 
-  static Element writeRemovedMapping(final FileType type, final FileNameMatcher matcher, final boolean specifyTypeName, boolean approved) {
+  static Element writeRemovedMapping(@NotNull FileType type, @NotNull FileNameMatcher matcher, boolean specifyTypeName, boolean approved) {
     Element mapping = new Element(ELEMENT_REMOVED_MAPPING);
     if (matcher instanceof ExtensionFileNameMatcher) {
       mapping.setAttribute(ATTRIBUTE_EXT, ((ExtensionFileNameMatcher)matcher).getExtension());
-      if (approved) {
-        mapping.setAttribute(ATTRIBUTE_APPROVED, "true");
-      }
     }
-    else if (matcher instanceof WildcardFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((WildcardFileNameMatcher)matcher).getPattern());
-    }
-    else if (matcher instanceof ExactFileNameMatcher) {
-      mapping.setAttribute(ATTRIBUTE_PATTERN, ((ExactFileNameMatcher)matcher).getFileName());
-    }
-    else {
+    else if (writePattern(matcher, mapping)) {
       return null;
+    }
+    if (approved) {
+      mapping.setAttribute(ATTRIBUTE_APPROVED, "true");
     }
     if (specifyTypeName) {
       mapping.setAttribute(ATTRIBUTE_TYPE, type.getName());
     }
 
     return mapping;
+  }
+
+  private static boolean writePattern(FileNameMatcher matcher, Element mapping) {
+    if (matcher instanceof WildcardFileNameMatcher) {
+      mapping.setAttribute(ATTRIBUTE_PATTERN, ((WildcardFileNameMatcher)matcher).getPattern());
+    }
+    else if (matcher instanceof ExactFileNameMatcher) {
+      mapping.setAttribute(ATTRIBUTE_PATTERN, ((ExactFileNameMatcher)matcher).getFileName());
+    }
+    else {
+      return true;
+    }
+    return false;
   }
 
   @Override

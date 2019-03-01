@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.highlighting
 
 import com.intellij.testFramework.LightProjectDescriptor
@@ -70,6 +56,82 @@ import groovy.transform.CompileStatic
 @CompileStatic
 class Usage {
     def foo() { new A<Integer>().bar { <error descr="Expected 'MyClass<java.lang.Integer>', found 'MyClass<java.lang.String>'">MyClass<String></error> a -> } }
+}
+'''
+    myFixture.checkHighlighting()
+  }
+
+
+  void 'test cast argument'() {
+    myFixture.configureByText 'a.groovy', '''
+import groovy.transform.CompileStatic
+
+@CompileStatic
+def m() {
+    List<String> l = []
+    l.findAll {
+        Object o -> false
+    }
+}
+'''
+    myFixture.checkHighlighting()
+  }
+
+
+  void 'test cast argument error'() {
+    myFixture.configureByText 'a.groovy', '''
+import groovy.transform.CompileStatic
+
+@CompileStatic
+def m() {
+    List<Object> l = []
+    l.findAll {
+        <error>Integer</error> o -> false
+    }
+}
+'''
+    myFixture.checkHighlighting()
+  }
+
+  void 'test several signatures'() {
+    myFixture.enableInspections(GroovyAssignabilityCheckInspection)
+    myFixture.configureByText 'a.groovy', '''
+import groovy.transform.CompileStatic
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.SimpleType
+
+def m1(String o, @ClosureParams(value=SimpleType.class, options="java.lang.String") Closure c) {}
+def m1(Double o, @ClosureParams(value=SimpleType.class, options="java.lang.Double") Closure c) {}
+
+@CompileStatic
+def m() {
+    def a;
+    m1<error descr="'m1' in 'a' cannot be applied to '(java.lang.Object, groovy.lang.Closure<java.lang.Void>)'">(a)</error> {
+        long l -> println(l)
+    }
+}
+'''
+    myFixture.checkHighlighting()
+  }
+
+  void 'test cast several arguments'() {
+    myFixture.configureByText 'a.groovy', '''
+import groovy.transform.CompileStatic
+import groovy.transform.stc.ClosureParams
+import groovy.transform.stc.SimpleType
+
+void forEachTyped(Map<String, Integer> self, @ClosureParams(value=SimpleType.class, options=["java.lang.String", "java.lang.Integer"]) Closure closure) {
+    self.each {
+        k, v -> closure(k, v)
+    };
+}
+
+@CompileStatic
+def m() {
+    Map<String,Integer> m = [:]
+    forEachTyped(m) {
+        String key, <error>String</error> value -> println( key + ' ' + value)
+    }
 }
 '''
     myFixture.checkHighlighting()

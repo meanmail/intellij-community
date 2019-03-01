@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.util.io;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.FileUtil;
 import junit.framework.TestCase;
 
@@ -23,9 +24,9 @@ import java.io.IOException;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Dec 19, 2007
  */
 abstract class PersistentMapTestBase extends TestCase {
+  protected static final Logger LOG = Logger.getInstance(PersistentMapTestBase.class);
   protected PersistentHashMap<String, String> myMap;
   protected File myFile;
   protected File myDataFile;
@@ -42,8 +43,14 @@ abstract class PersistentMapTestBase extends TestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    clearMap(myFile, myMap);
-    super.tearDown();
+    try {
+      clearMap(myFile, myMap);
+    }
+    finally {
+      myMap = null;
+
+      super.tearDown();
+    }
   }
 
   static void clearMap(final File file1, PersistentHashMap<?, ?> map) throws IOException {

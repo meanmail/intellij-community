@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 package com.siyeh.ig;
 
 import com.intellij.codeInsight.daemon.HighlightDisplayKey;
-import com.intellij.codeInspection.BaseJavaBatchLocalInspectionTool;
+import com.intellij.codeInspection.AbstractBaseJavaLocalInspectionTool;
 import com.intellij.codeInspection.InspectionProfileEntry;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
@@ -44,7 +44,7 @@ import java.text.NumberFormat;
 import java.text.ParseException;
 import java.util.List;
 
-public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
+public abstract class BaseInspection extends AbstractBaseJavaLocalInspectionTool {
   private String m_shortName = null;
 
   @Override
@@ -80,16 +80,42 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     return false;
   }
 
+  /**
+   * Build a fix for this inspection based on infos passed to {@link BaseInspectionVisitor#registerError(PsiElement, Object...)}
+   * or similar methods. Override this method in concrete inspection to provide a fix.
+   * Use {@link DelegatingFix} if your fix does not extend {@link InspectionGadgetsFix}.
+   *
+   * <p>
+   * This method is ignored is {@link #buildFixes(Object...)} is overridden as well and returns a non-empty result.
+   * Normally one should not override both this method and {@link #buildFixes(Object...)}.
+   *
+   * @param infos additional information which was supplied by {@link BaseInspectionVisitor} during error registration.
+   * @return a new fix or null if no fix is available
+   */
   @Nullable
   protected InspectionGadgetsFix buildFix(Object... infos) {
     return null;
   }
 
+  /**
+   * Build fixes based on infos passed to {@link BaseInspectionVisitor#registerError(PsiElement, Object...)} or similar methods.
+   * Override this method in concrete inspection to provide fixes. Use {@link DelegatingFix} if your fix does not extend
+   * {@link InspectionGadgetsFix}.
+   *
+   * @param infos additional information which was supplied by {@link BaseInspectionVisitor} during error registration.
+   * @return an array of fixes (empty array if no fix is available).
+   */
   @NotNull
   protected InspectionGadgetsFix[] buildFixes(Object... infos) {
     return InspectionGadgetsFix.EMPTY_ARRAY;
   }
 
+  /**
+   * Writes a boolean option field. Does NOT write when the field has the default value.
+   * @param node  the xml element node the field is written to.
+   * @param property  the name of the field
+   * @param defaultValueToIgnore  the default value. When the field has this value it is NOT written.
+   */
   protected void writeBooleanOption(@NotNull Element node, @NotNull @NonNls String property, boolean defaultValueToIgnore) {
     final Boolean value = ReflectionUtil.getField(this.getClass(), this, boolean.class, property);
     assert value != null;
@@ -99,6 +125,11 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     node.addContent(new Element("option").setAttribute("name", property).setAttribute("value", value.toString()));
   }
 
+  /**
+   * Writes fields even if they have a default value.
+   * @param node  the xml element node the fields are written to.
+   * @param excludedProperties  fields with names specified here are not written, and have to be handled separately
+   */
   protected void defaultWriteSettings(@NotNull Element node, final String... excludedProperties) throws WriteExternalException {
     DefaultJDOMExternalizer.writeExternal(this, node, new DefaultJDOMExternalizer.JDOMFilter() {
       @Override
@@ -122,7 +153,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     final PsiFile file = holder.getFile();
     assert file.isPhysical();
     if (!shouldInspect(file)) {
-      return new PsiElementVisitor() { };
+      return PsiElementVisitor.EMPTY_VISITOR;
     }
     final BaseInspectionVisitor visitor = buildVisitor();
     visitor.setProblemsHolder(holder);
@@ -133,7 +164,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
 
   /**
    * To check precondition(s) on the entire file, to prevent doing the check on every PsiElement visited.
-   * Useful for e.g. a {@link com.intellij.psi.util.PsiUtil#isLanguageLevel5OrHigher(com.intellij.psi.PsiElement)} check
+   * Useful for e.g. a {@link com.intellij.psi.util.PsiUtil#isLanguageLevel5OrHigher(PsiElement)} check
    * which will be the same for all elements in the specified file.
    * When this method returns false, {@link #buildVisitor()} will not be called.
    */
@@ -145,9 +176,9 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     final NumberFormat formatter = NumberFormat.getIntegerInstance();
     formatter.setParseIntegerOnly(true);
     final JFormattedTextField valueField = new JFormattedTextField(formatter);
-    Object value = ReflectionUtil.getField(getClass(), this, null, fieldName);
+    final Object value = ReflectionUtil.getField(getClass(), this, null, fieldName);
     valueField.setValue(value);
-    valueField.setColumns(2);
+    valueField.setColumns(4);
 
     // hack to work around text field becoming unusably small sometimes when using GridBagLayout
     valueField.setMinimumSize(valueField.getPreferredSize());
@@ -156,7 +187,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     final Document document = valueField.getDocument();
     document.addDocumentListener(new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent evt) {
+      public void textChanged(@NotNull DocumentEvent evt) {
         try {
           valueField.commitEdit();
           final Number number = (Number)valueField.getValue();
@@ -170,6 +201,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     return valueField;
   }
 
+  @SafeVarargs
   public static void parseString(String string, List<String>... outs) {
     final List<String> strings = StringUtil.split(string, ",");
     for (List<String> out : outs) {
@@ -189,6 +221,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
     }
   }
 
+  @SafeVarargs
   public static String formatString(List<String>... strings) {
     final StringBuilder buffer = new StringBuilder();
     final int size = strings[0].size();
@@ -212,7 +245,7 @@ public abstract class BaseInspection extends BaseJavaBatchLocalInspectionTool {
 
   public static boolean isInspectionEnabled(@NonNls String shortName, PsiElement context) {
     final InspectionProjectProfileManager profileManager = InspectionProjectProfileManager.getInstance(context.getProject());
-    final InspectionProfileImpl profile = (InspectionProfileImpl)profileManager.getCurrentProfile();
+    final InspectionProfileImpl profile = profileManager.getCurrentProfile();
     return profile.isToolEnabled(HighlightDisplayKey.find(shortName), context);
   }
 }

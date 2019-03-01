@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,19 +29,20 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Condition;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.*;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.IconUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.Predicate;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.ListDataEvent;
 import javax.swing.event.ListDataListener;
 import java.awt.*;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -61,14 +62,13 @@ public class SpecialAnnotationsUtil {
   public static JPanel createSpecialAnnotationsListControl(final List<String> list,
                                                            final String borderTitle,
                                                            final boolean acceptPatterns,
-                                                           final Condition<PsiClass> isApplicable) {
-    final SortedListModel<String> listModel = new SortedListModel<>((o1, o2) -> o1.compareTo(o2));
-    final JList injectionList = new JBList(listModel);
+                                                           final Condition<? super PsiClass> isApplicable) {
+    @SuppressWarnings("Convert2Diamond")
+    SortedListModel<String> listModel = new SortedListModel<String>(Comparator.naturalOrder());
     for (String s : list) {
       listModel.add(s);
     }
-    injectionList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
-    injectionList.getModel().addListDataListener(new ListDataListener() {
+    listModel.addListDataListener(new ListDataListener() {
       @Override
       public void intervalAdded(ListDataEvent e) {
         listChanged();
@@ -77,7 +77,7 @@ public class SpecialAnnotationsUtil {
       private void listChanged() {
         list.clear();
         for (int i = 0; i < listModel.getSize(); i++) {
-          list.add((String)listModel.getElementAt(i));
+          list.add(listModel.getElementAt(i));
         }
       }
 
@@ -91,7 +91,16 @@ public class SpecialAnnotationsUtil {
         listChanged();
       }
     });
+    return createSpecialAnnotationsListControl(borderTitle, acceptPatterns, isApplicable, listModel);
+  }
 
+  public static JPanel createSpecialAnnotationsListControl(final String borderTitle,
+                                                           final boolean acceptPatterns,
+                                                           final Condition<? super PsiClass> isApplicable,
+                                                           final SortedListModel<? super String> listModel) {
+    final JList injectionList = new JBList(listModel);
+
+    injectionList.setSelectionMode(ListSelectionModel.SINGLE_INTERVAL_SELECTION);
     ToolbarDecorator toolbarDecorator = ToolbarDecorator.createDecorator(injectionList)
       .setAddAction(new AnActionButtonRunnable() {
         @Override
@@ -120,7 +129,7 @@ public class SpecialAnnotationsUtil {
         .addExtraAction(
           new AnActionButton(InspectionsBundle.message("special.annotations.list.annotation.pattern"), IconUtil.getAddPatternIcon()) {
             @Override
-            public void actionPerformed(AnActionEvent e) {
+            public void actionPerformed(@NotNull AnActionEvent e) {
               String selectedPattern = Messages.showInputDialog(InspectionsBundle.message("special.annotations.list.annotation.pattern"),
                                                                 InspectionsBundle.message("special.annotations.list.annotation.pattern"),
                                                                 Messages.getQuestionIcon());
@@ -170,7 +179,7 @@ public class SpecialAnnotationsUtil {
 
       @Override
       public boolean startInWriteAction() {
-        return true;
+        return false;
       }
     };
   }

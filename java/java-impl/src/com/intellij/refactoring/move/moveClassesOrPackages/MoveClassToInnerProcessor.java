@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiElementFilter;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.PackageWrapper;
 import com.intellij.refactoring.RefactoringBundle;
@@ -39,9 +38,7 @@ import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.refactoring.util.*;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewDescriptor;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
 import com.intellij.util.VisibilityUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
@@ -93,11 +90,13 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     return new MoveMultipleElementsViewDescriptor(myClassesToMove, myTargetClass.getQualifiedName());
   }
 
+  @Override
   @NotNull
   public UsageInfo[] findUsages() {
     final List<UsageInfo> usages = new ArrayList<>();
@@ -105,14 +104,16 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
       final String newName = myTargetClass.getQualifiedName() + "." + classToMove.getName();
       Collections.addAll(usages, MoveClassesOrPackagesUtil.findUsages(classToMove, mySearchInComments, mySearchInNonJavaFiles, newName));
     }
-    return usages.toArray(new UsageInfo[usages.size()]);
+    return usages.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull final Ref<UsageInfo[]> refUsages) {
     final UsageInfo[] usages = refUsages.get();
     return showConflicts(getConflicts(usages), usages);
   }
 
+  @Override
   protected void refreshElements(@NotNull final PsiElement[] elements) {
     ApplicationManager.getApplication().runReadAction(() -> {
       final PsiClass[] classesToMove = new PsiClass[elements.length];
@@ -123,9 +124,8 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     });
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
-    if (!prepareWritable(usages)) return;
-
     MoveClassToInnerHandler[] handlers = MoveClassToInnerHandler.EP_NAME.getExtensions();
 
     ArrayList<UsageInfo> usageList = new ArrayList<>(Arrays.asList(usages));
@@ -134,7 +134,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
       importStatements.addAll(handler.filterImports(usageList, myProject));
     }
 
-    usages = usageList.toArray(new UsageInfo[usageList.size()]);
+    usages = usageList.toArray(UsageInfo.EMPTY_ARRAY);
 
     saveNonCodeUsages(usages);
     final Map<PsiElement, PsiElement> oldToNewElementsMapping = new HashMap<>();
@@ -184,22 +184,6 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
-  private boolean prepareWritable(final UsageInfo[] usages) {
-    Set<PsiElement> elementsToMakeWritable = new HashSet<>();
-    Collections.addAll(elementsToMakeWritable, myClassesToMove);
-    elementsToMakeWritable.add(myTargetClass);
-    for(UsageInfo usage: usages) {
-      PsiElement element = usage.getElement();
-      if (element != null) {
-        elementsToMakeWritable.add(element);
-      }
-    }
-    if (!CommonRefactoringUtil.checkReadOnlyStatus(myProject, PsiUtilCore.toPsiElementArray(elementsToMakeWritable))) {
-      return false;
-    }
-    return true;
-  }
-
   private void saveNonCodeUsages(final UsageInfo[] usages) {
     for (PsiClass classToMove : myClassesToMove) {
       for(UsageInfo usageInfo: usages) {
@@ -219,6 +203,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
   protected void performPsiSpoilingRefactoring() {
     if (myNonCodeUsages != null) {
       RenameUtil.renameNonCodeUsages(myProject, myNonCodeUsages);
@@ -231,16 +216,18 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return RefactoringBundle.message("move.class.to.inner.command.name",
                                      (myClassesToMove.length > 1 ? "classes " : "class ") + StringUtil.join(myClassesToMove, psiClass -> psiClass.getName(), ", "),
                                      myTargetClass.getQualifiedName());
   }
 
+  @Override
   @NotNull
   protected Collection<? extends PsiElement> getElementsToWrite(@NotNull final UsageViewDescriptor descriptor) {
-    List<PsiElement> result = new ArrayList<>();
-    result.addAll(super.getElementsToWrite(descriptor));
+    List<PsiElement> result = new ArrayList<>(super.getElementsToWrite(descriptor));
     result.add(myTargetClass);
     return result;
   }
@@ -317,7 +304,8 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
 
   private static PsiElement[] collectPackageLocalMembers(PsiElement classToMove) {
     return PsiTreeUtil.collectElements(classToMove, new PsiElementFilter() {
-      public boolean isAccepted(final PsiElement element) {
+      @Override
+      public boolean isAccepted(@NotNull final PsiElement element) {
         if (element instanceof PsiMember) {
           PsiMember member = (PsiMember) element;
           if (VisibilityUtil.getVisibilityModifier(member.getModifierList()) == PsiModifier.PACKAGE_LOCAL) {
@@ -338,7 +326,7 @@ public class MoveClassToInnerProcessor extends BaseRefactoringProcessor {
     private final MultiMap<PsiElement, String> myConflicts;
     private final Set<PsiElement> myReportedContainers = new HashSet<>();
 
-    public ConflictsCollector(PsiClass classToMove, final MultiMap<PsiElement, String> conflicts) {
+    ConflictsCollector(PsiClass classToMove, final MultiMap<PsiElement, String> conflicts) {
       myClassToMove = classToMove;
       myConflicts = conflicts;
     }

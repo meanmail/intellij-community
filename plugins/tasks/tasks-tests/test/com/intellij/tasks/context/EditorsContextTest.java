@@ -28,7 +28,7 @@ import org.jdom.Element;
 @SkipInHeadlessEnvironment
 public class EditorsContextTest extends FileEditorManagerTestCase {
 
-  public void testDockableContainer() throws Exception {
+  public void testDockableContainer() {
 
     VirtualFile file = getFile("/foo.txt");
     myManager.openFile(file, false);
@@ -57,6 +57,7 @@ public class EditorsContextTest extends FileEditorManagerTestCase {
     //contextManager.clearContext();
   }
 
+  @Override
   protected String getBasePath() {
     return "/plugins/tasks/tasks-tests/testData/context";
   }

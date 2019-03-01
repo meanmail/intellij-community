@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.codeInsight.daemon.XmlErrorMessages;
@@ -36,6 +22,7 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.ArrayUtil;
 import com.intellij.xml.actions.validate.ErrorReporter;
 import com.intellij.xml.actions.validate.ValidateXmlActionHandler;
 import com.intellij.xml.index.XmlNamespaceIndex;
@@ -49,11 +36,11 @@ import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 
 import java.io.File;
-import java.io.IOException;
 import java.io.StringReader;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -81,13 +68,13 @@ public class XmlResourceResolver implements XMLEntityResolver {
   }
 
   public String[] getResourcePaths() {
-    return myExternalResourcesMap.values().toArray(new String[myExternalResourcesMap.size()]);
+    return ArrayUtil.toStringArray(myExternalResourcesMap.values());
   }
 
   @Nullable
   public PsiFile resolve(@Nullable final String baseSystemId, final String _systemId) {
     if (LOG.isDebugEnabled()) {
-      LOG.debug("enter: resolveEntity(baseSystemId='" + baseSystemId + "' systemId='" + _systemId + "," + toString() + "')");
+      LOG.debug("enter: resolveEntity(baseSystemId='" + baseSystemId + "' systemId='" + _systemId + "," + this + "')");
     }
 
     if (_systemId == null) return null;
@@ -196,7 +183,7 @@ public class XmlResourceResolver implements XMLEntityResolver {
       if (file != null) {
         final String url = file.getUrl();
         if (LOG.isDebugEnabled()) {
-          LOG.debug("Adding external resource ref:"+systemId+","+url+","+ toString());
+          LOG.debug("Adding external resource ref:" + systemId + "," + url + "," + this);
         }
         myExternalResourcesMap.put(systemId,url);
       }
@@ -234,26 +221,21 @@ public class XmlResourceResolver implements XMLEntityResolver {
 
   @Override
   @Nullable
-  public XMLInputSource resolveEntity(XMLResourceIdentifier xmlResourceIdentifier) throws XNIException, IOException {
+  public XMLInputSource resolveEntity(XMLResourceIdentifier xmlResourceIdentifier) throws XNIException {
     String publicId  = xmlResourceIdentifier.getLiteralSystemId() != null ?
                   xmlResourceIdentifier.getLiteralSystemId():
                   xmlResourceIdentifier.getNamespace();
 
-    if (publicId != null) {
+    if (publicId != null && publicId.startsWith("file:")) {
+      Path basePath = new File(URI.create(xmlResourceIdentifier.getBaseSystemId())).getParentFile().toPath();
       try {
-        String userDir = new File(System.getProperty("user.dir")).toURI().getPath();
-        String publicIdPath = new URI(publicId).getPath();
-        if (publicIdPath.startsWith(userDir)) {
-          publicId = publicIdPath.substring(publicIdPath.indexOf(userDir) + userDir.length());
-        }
+        Path publicIdPath = new File(URI.create(publicId)).toPath();
+        publicId = basePath.relativize(publicIdPath).toString().replace(File.separatorChar, '/');
       }
-      catch (Exception e) {
+      catch (Exception ignore) {
       }
     }
     PsiFile psiFile = resolve(xmlResourceIdentifier.getBaseSystemId(), publicId);
-    if (psiFile == null && xmlResourceIdentifier.getBaseSystemId() != null) {
-        psiFile = ExternalResourceManager.getInstance().getResourceLocation(xmlResourceIdentifier.getBaseSystemId(), myFile, null);
-    }
     if (psiFile==null && xmlResourceIdentifier.getLiteralSystemId()!=null && xmlResourceIdentifier.getNamespace()!=null) {
       psiFile = resolve(
         xmlResourceIdentifier.getBaseSystemId(),
@@ -288,6 +270,7 @@ public class XmlResourceResolver implements XMLEntityResolver {
       }
     }
     source.setPublicId(publicId);
+    source.setBaseSystemId(null);
     source.setCharacterStream(new StringReader(psiFile.getText()));
 
     return source;

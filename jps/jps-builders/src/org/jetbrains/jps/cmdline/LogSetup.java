@@ -25,16 +25,15 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.api.GlobalOptions;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 16-Jul-15
  */
 public class LogSetup {
 
-  private static final String LOG_CONFIG_FILE_NAME = "build-log.properties";
+  public static final String LOG_CONFIG_FILE_NAME = "build-log.properties";
   private static final String LOG_FILE_NAME = "build.log";
-  private static final String DEFAULT_LOGGER_CONFIG = "defaultLogConfig.properties";
   private static final String LOG_FILE_MACRO = "$LOG_FILE_PATH$";
 
   public static void initLoggers() {
@@ -49,7 +48,7 @@ public class LogSetup {
       String text = FileUtil.loadFile(configFile);
       final String logFile = logDir != null? new File(logDir, LOG_FILE_NAME).getAbsolutePath() : LOG_FILE_NAME;
       text = StringUtil.replace(text, LOG_FILE_MACRO, StringUtil.replace(logFile, "\\", "\\\\"));
-      PropertyConfigurator.configure(new ByteArrayInputStream(text.getBytes("UTF-8")));
+      PropertyConfigurator.configure(new ByteArrayInputStream(text.getBytes(StandardCharsets.UTF_8)));
     }
     catch (IOException e) {
       //noinspection UseOfSystemOutOrSystemErr
@@ -64,23 +63,18 @@ public class LogSetup {
   private static void ensureLogConfigExists(final File logConfig) throws IOException {
     if (!logConfig.exists()) {
       FileUtil.createIfDoesntExist(logConfig);
-      @SuppressWarnings("IOResourceOpenedButNotSafelyClosed")
-      final InputStream in = LogSetup.class.getResourceAsStream("/" + DEFAULT_LOGGER_CONFIG);
-      if (in != null) {
-        try {
-          final FileOutputStream out = new FileOutputStream(logConfig);
-          try {
+      try(InputStream in = readDefaultLogConfig()) {
+        if (in != null) {
+          try (FileOutputStream out = new FileOutputStream(logConfig)) {
             FileUtil.copy(in, out);
           }
-          finally {
-            out.close();
-          }
-        }
-        finally {
-          in.close();
         }
       }
     }
+  }
+
+  public static InputStream readDefaultLogConfig() {
+    return LogSetup.class.getResourceAsStream("/defaultLogConfig.properties");
   }
 
   private static class MyLoggerFactory implements Logger.Factory {

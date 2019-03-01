@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 25.06.2002
- * Time: 14:01:08
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.util.classMembers;
 
 import com.intellij.psi.PsiClass;
@@ -35,6 +27,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class UsesAndInterfacesDependencyMemberInfoModel<T extends PsiMember, M extends MemberInfoBase<T>> extends DelegatingMemberInfoModel<T, M> {
   public static final InterfaceContainmentVerifier DEFAULT_CONTAINMENT_VERIFIER = new InterfaceContainmentVerifier() {
+                      @Override
                       public boolean checkedInterfacesContain(PsiMethod psiMethod) {
                         return false;
                       }
@@ -44,6 +37,7 @@ public class UsesAndInterfacesDependencyMemberInfoModel<T extends PsiMember, M e
                                                     @NotNull final InterfaceContainmentVerifier interfaceContainmentVerifier) {
     super(new ANDCombinedMemberInfoModel<>(
       new UsesDependencyMemberInfoModel<T, PsiClass, M>(aClass, superClass, recursive) {
+        @Override
         public int checkForProblems(@NotNull M memberInfo) {
           final int problem = super.checkForProblems(memberInfo);
           if (problem == OK) return OK;

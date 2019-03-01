@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util;
 
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.SimpleModificationTracker;
 import com.intellij.openapi.util.text.StringUtilRt;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NonNls;
@@ -33,13 +20,13 @@ import java.lang.reflect.Field;
  * @author max
  * @author Konstantin Bulenkov
  */
-public abstract class PropertiesComponent {
-  public abstract void unsetValue(String name);
+public abstract class PropertiesComponent extends SimpleModificationTracker {
+  public abstract void unsetValue(@NotNull String name);
 
-  public abstract boolean isValueSet(String name);
+  public abstract boolean isValueSet(@NotNull String name);
 
   @Nullable
-  public abstract String getValue(@NonNls String name);
+  public abstract String getValue(@NonNls @NotNull String name);
 
   /**
    * Consider to use {@link #setValue(String, String, String)} to avoid write defaults.
@@ -74,9 +61,9 @@ public abstract class PropertiesComponent {
   public abstract void setValue(@NotNull String name, boolean value, boolean defaultValue);
 
   @Nullable
-  public abstract String[] getValues(@NonNls String name);
+  public abstract String[] getValues(@NonNls @NotNull String name);
 
-  public abstract void setValues(@NonNls String name, String[] values);
+  public abstract void setValues(@NonNls @NotNull String name, String[] values);
 
   public static PropertiesComponent getInstance(Project project) {
     return ServiceManager.getService(project, PropertiesComponent.class);
@@ -99,7 +86,7 @@ public abstract class PropertiesComponent {
   }
 
   @NotNull
-  public String getValue(@NonNls String name, @NotNull String defaultValue) {
+  public String getValue(@NonNls @NotNull String name, @NotNull String defaultValue) {
     if (!isValueSet(name)) {
       return defaultValue;
     }
@@ -119,7 +106,7 @@ public abstract class PropertiesComponent {
     return StringUtilRt.parseInt(getValue(name), defaultValue);
   }
 
-  public final long getOrInitLong(@NonNls String name, long defaultValue) {
+  public final long getOrInitLong(@NonNls @NotNull String name, long defaultValue) {
     try {
       String value = getValue(name);
       return value == null ? defaultValue : Long.parseLong(value);
@@ -133,7 +120,7 @@ public abstract class PropertiesComponent {
    * @deprecated Use {@link #getValue(String, String)}
    */
   @Deprecated
-  public String getOrInit(@NonNls String name, String defaultValue) {
+  public String getOrInit(@NonNls @NotNull String name, String defaultValue) {
     if (!isValueSet(name)) {
       setValue(name, defaultValue);
       return defaultValue;
@@ -202,7 +189,7 @@ public abstract class PropertiesComponent {
     }
   }
 
-  public float getFloat(String name, float defaultValue) {
+  public float getFloat(@NotNull String name, float defaultValue) {
     if (isValueSet(name)) {
       try {
         return Float.parseFloat(getValue(name));

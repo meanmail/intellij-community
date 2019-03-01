@@ -1,37 +1,22 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.navigator;
 
-import com.intellij.execution.RunManager;
-import com.intellij.execution.RunManagerAdapter;
-import com.intellij.execution.RunManagerEx;
+import com.intellij.execution.RunManagerListener;
 import com.intellij.execution.RunnerAndConfigurationSettings;
+import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.treeView.TreeState;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ex.ToolWindowEx;
-import com.intellij.openapi.wm.ex.ToolWindowManagerAdapter;
 import com.intellij.openapi.wm.ex.ToolWindowManagerEx;
+import com.intellij.openapi.wm.ex.ToolWindowManagerListener;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
@@ -52,24 +37,25 @@ import org.jetbrains.idea.maven.utils.MavenSimpleProjectComponent;
 import org.jetbrains.idea.maven.utils.MavenUtil;
 
 import javax.swing.*;
+import javax.swing.text.SimpleAttributeSet;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
 import javax.swing.tree.TreeSelectionModel;
 import java.awt.*;
-import java.net.URL;
 import java.util.Collections;
 import java.util.List;
 
 @State(name = "MavenProjectNavigator", storages = {@Storage(StoragePathMacros.WORKSPACE_FILE)})
-public class MavenProjectsNavigator extends MavenSimpleProjectComponent implements PersistentStateComponent<MavenProjectsNavigatorState> {
-  public static final String TOOL_WINDOW_ID = "Maven Projects";
-
-  private static final URL ADD_ICON_URL = MavenProjectsNavigator.class.getResource("/general/add.png");
-  private static final URL SYNC_ICON_URL = MavenProjectsNavigator.class.getResource("/actions/refresh.png");
+public class MavenProjectsNavigator extends MavenSimpleProjectComponent implements PersistentStateComponent<MavenProjectsNavigatorState>,
+                                                                                   Disposable, ProjectComponent {
+  public static final String TOOL_WINDOW_ID = "Maven";
+  public static final String TOOL_WINDOW_PLACE_ID = "Maven tool window";
 
   private MavenProjectsNavigatorState myState = new MavenProjectsNavigatorState();
 
   private MavenProjectsManager myProjectsManager;
-  private MavenTasksManager myTasksManager;
-  private MavenShortcutsManager myShortcutsManager;
+  private final MavenTasksManager myTasksManager;
+  private final MavenShortcutsManager myShortcutsManager;
 
   private SimpleTree myTree;
   private MavenProjectsStructure myStructure;
@@ -105,7 +91,7 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
   }
 
   @Override
-  public void loadState(MavenProjectsNavigatorState state) {
+  public void loadState(@NotNull MavenProjectsNavigatorState state) {
     myState = state;
     scheduleStructureUpdate();
   }
@@ -181,17 +167,14 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
   private void doInit() {
     listenForProjectsChanges();
     if (isUnitTestMode()) return;
-    MavenUtil.runWhenInitialized(myProject, new DumbAwareRunnable() {
-      @Override
-      public void run() {
-        if (myProject.isDisposed()) return;
-        initToolWindow();
-      }
+    MavenUtil.runWhenInitialized(myProject, (DumbAwareRunnable)() -> {
+      if (myProject.isDisposed()) return;
+      initToolWindow();
     });
   }
 
   @Override
-  public void disposeComponent() {
+  public void dispose() {
     myToolWindow = null;
     myProjectsManager = null;
   }
@@ -213,13 +196,6 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
       }
     });
 
-    RunManagerEx.getInstanceEx(myProject).addRunManagerListener(new RunManagerAdapter() {
-      @Override
-      public void beforeRunTasksChanged() {
-        scheduleStructureRequest(() -> myStructure.updateGoals());
-      }
-    });
-
     MavenRunner.getInstance(myProject).getSettings().addListener(new MavenRunnerSettings.Listener() {
       @Override
       public void skipTestsChanged() {
@@ -227,7 +203,7 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
       }
     });
 
-    ((RunManagerEx)RunManager.getInstance(myProject)).addRunManagerListener(new RunManagerAdapter() {
+    myProject.getMessageBus().connect().subscribe(RunManagerListener.TOPIC, new RunManagerListener() {
       private void changed() {
         scheduleStructureRequest(() -> myStructure.updateRunConfigurations());
       }
@@ -245,6 +221,11 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
       @Override
       public void runConfigurationChanged(@NotNull RunnerAndConfigurationSettings settings) {
         changed();
+      }
+
+      @Override
+      public void beforeRunTasksChanged() {
+        scheduleStructureRequest(() -> myStructure.updateGoals());
       }
     });
   }
@@ -267,7 +248,7 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
     contentManager.addContent(content);
     contentManager.setSelectedContent(content, false);
 
-    final ToolWindowManagerAdapter listener = new ToolWindowManagerAdapter() {
+    myProject.getMessageBus().connect(content).subscribe(ToolWindowManagerListener.TOPIC, new ToolWindowManagerListener() {
       boolean wasVisible = false;
 
       @Override
@@ -280,8 +261,7 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
         scheduleStructureUpdate();
         wasVisible = true;
       }
-    };
-    manager.addToolWindowManagerListener(listener, myProject);
+    });
 
     ActionManager actionManager = ActionManager.getInstance();
 
@@ -297,26 +277,46 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
 
   private void initTree() {
     myTree = new SimpleTree() {
-      private final JLabel myLabel = new JLabel(
-        ProjectBundle.message("maven.navigator.nothing.to.display", MavenUtil.formatHtmlImage(ADD_ICON_URL),
-                              MavenUtil.formatHtmlImage(SYNC_ICON_URL)));
+      private final JTextPane myPane = new JTextPane();
+
+      {
+        myPane.setOpaque(false);
+        String addIconText = "'+'";
+        String refreshIconText = "'Reimport'";
+        String message = ProjectBundle.message("maven.navigator.nothing.to.display", addIconText, refreshIconText);
+        int firstEol = message.indexOf("\n");
+        int addIconMarkerIndex = message.indexOf(addIconText);
+        myPane.replaceSelection(message.substring(0, addIconMarkerIndex));
+        myPane.insertIcon(AllIcons.General.Add);
+        int refreshIconMarkerIndex = message.indexOf(refreshIconText);
+        myPane.replaceSelection(message.substring(addIconMarkerIndex + addIconText.length(), refreshIconMarkerIndex));
+        myPane.insertIcon(AllIcons.Actions.Refresh);
+        myPane.replaceSelection(message.substring(refreshIconMarkerIndex + refreshIconText.length()));
+
+        StyledDocument document = myPane.getStyledDocument();
+        SimpleAttributeSet centerAlignment = new SimpleAttributeSet();
+        StyleConstants.setAlignment(centerAlignment, StyleConstants.ALIGN_CENTER);
+        SimpleAttributeSet justifiedAlignment = new SimpleAttributeSet();
+        StyleConstants.setAlignment(justifiedAlignment, StyleConstants.ALIGN_JUSTIFIED);
+
+        document.setParagraphAttributes(0, firstEol, centerAlignment, false);
+        document.setParagraphAttributes(firstEol + 2, document.getLength(), justifiedAlignment, false);
+      }
 
       @Override
       protected void paintComponent(Graphics g) {
         super.paintComponent(g);
         if (myProjectsManager.hasProjects()) return;
 
-        myLabel.setFont(getFont());
-        myLabel.setBackground(getBackground());
-        myLabel.setForeground(getForeground());
+        myPane.setFont(getFont());
+        myPane.setBackground(getBackground());
+        myPane.setForeground(getForeground());
         Rectangle bounds = getBounds();
-        Dimension size = myLabel.getPreferredSize();
-        myLabel.setBounds(0, 0, size.width, size.height);
+        myPane.setBounds(0, 0, bounds.width - 10, bounds.height);
 
-        int x = (bounds.width - size.width) / 2;
-        Graphics g2 = g.create(bounds.x + x, bounds.y + 20, bounds.width, bounds.height);
+        Graphics g2 = g.create(bounds.x + 10, bounds.y + 20, bounds.width, bounds.height);
         try {
-          myLabel.paint(g2);
+          myPane.paint(g2);
         }
         finally {
           g2.dispose();
@@ -357,16 +357,7 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
       r.run();
 
       if (shouldCreate) {
-        if (myState.treeState != null) {
-          TreeState treeState = new TreeState();
-          try {
-            treeState.readExternal(myState.treeState);
-            treeState.applyTo(myTree);
-          }
-          catch (InvalidDataException e) {
-            MavenLog.LOG.info(e);
-          }
-        }
+        TreeState.createFrom(myState.treeState).applyTo(myTree);
       }
     });
   }
@@ -379,22 +370,14 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
     scheduleStructureRequest(() -> myStructure.update());
   }
 
-  private class MyProjectsListener extends MavenProjectsTree.ListenerAdapter implements MavenProjectsManager.Listener {
+  private class MyProjectsListener implements MavenProjectsManager.Listener, MavenProjectsTree.Listener {
     @Override
     public void activated() {
       scheduleStructureUpdate();
     }
 
     @Override
-    public void projectsScheduled() {
-    }
-
-    @Override
-    public void importAndResolveScheduled() {
-    }
-
-    @Override
-    public void projectsIgnoredStateChanged(final List<MavenProject> ignored, final List<MavenProject> unignored, boolean fromImport) {
+    public void projectsIgnoredStateChanged(@NotNull final List<MavenProject> ignored, @NotNull final List<MavenProject> unignored, boolean fromImport) {
       scheduleStructureRequest(() -> myStructure.updateIgnored(ContainerUtil.concat(ignored, unignored)));
     }
 
@@ -404,19 +387,19 @@ public class MavenProjectsNavigator extends MavenSimpleProjectComponent implemen
     }
 
     @Override
-    public void projectsUpdated(List<Pair<MavenProject, MavenProjectChanges>> updated, List<MavenProject> deleted) {
+    public void projectsUpdated(@NotNull List<Pair<MavenProject, MavenProjectChanges>> updated, @NotNull List<MavenProject> deleted) {
       scheduleUpdateProjects(MavenUtil.collectFirsts(updated), deleted);
     }
 
     @Override
-    public void projectResolved(Pair<MavenProject, MavenProjectChanges> projectWithChanges,
+    public void projectResolved(@NotNull Pair<MavenProject, MavenProjectChanges> projectWithChanges,
                                 NativeMavenProjectHolder nativeMavenProject) {
-      scheduleUpdateProjects(Collections.singletonList(projectWithChanges.first), Collections.<MavenProject>emptyList());
+      scheduleUpdateProjects(Collections.singletonList(projectWithChanges.first), Collections.emptyList());
     }
 
     @Override
-    public void pluginsResolved(MavenProject project) {
-      scheduleUpdateProjects(Collections.singletonList(project), Collections.<MavenProject>emptyList());
+    public void pluginsResolved(@NotNull MavenProject project) {
+      scheduleUpdateProjects(Collections.singletonList(project), Collections.emptyList());
     }
 
     private void scheduleUpdateProjects(final List<MavenProject> projects, final List<MavenProject> deleted) {

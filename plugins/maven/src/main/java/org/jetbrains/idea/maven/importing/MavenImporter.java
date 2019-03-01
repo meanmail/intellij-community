@@ -172,12 +172,14 @@ public abstract class MavenImporter {
   /**
    * @deprecated override {@link #collectSourceRoots} instead
    */
+  @Deprecated
   public void collectSourceFolders(MavenProject mavenProject, List<String> result) {
   }
 
   /**
    * @deprecated override {@link #collectSourceRoots} instead
    */
+  @Deprecated
   public void collectTestFolders(MavenProject mavenProject, List<String> result) {
   }
 
@@ -212,5 +214,11 @@ public abstract class MavenImporter {
   @Nullable
   protected String findGoalConfigValue(MavenProject p, String goal, String path) {
     return MavenJDOMUtil.findChildValueByPath(getGoalConfig(p, goal), path);
+  }
+
+  /**
+   * Override this method if you'd like control over properties used by Maven, e.g. for pom interpolation.
+   */
+  public void customizeUserProperties(Project project, MavenProject mavenProject, Properties properties) {
   }
 }

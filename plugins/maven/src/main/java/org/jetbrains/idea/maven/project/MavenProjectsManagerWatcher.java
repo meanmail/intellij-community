@@ -1,43 +1,32 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.project;
 
 import com.intellij.ProjectTopics;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
+import com.intellij.openapi.externalSystem.service.project.autoimport.FileChangeListenerBase;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.FileDocumentManagerImpl;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.ModuleAdapter;
+import com.intellij.openapi.project.ModuleListener;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootAdapter;
 import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.*;
-import com.intellij.openapi.vfs.newvfs.BulkFileListener;
-import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
-import com.intellij.openapi.vfs.newvfs.events.*;
+import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.events.VFileContentChangeEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointer;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerListener;
 import com.intellij.openapi.vfs.pointers.VirtualFilePointerManager;
@@ -67,10 +56,14 @@ import java.util.concurrent.ConcurrentMap;
 
 public class MavenProjectsManagerWatcher {
 
+  private static final Logger LOG = Logger.getInstance(MavenProjectsManagerWatcher.class);
   private static final Key<ConcurrentMap<Project, Long>> CRC_WITHOUT_SPACES = Key.create("MavenProjectsManagerWatcher.CRC_WITHOUT_SPACES");
+
 
   public static final Key<Boolean> FORCE_IMPORT_AND_RESOLVE_ON_REFRESH =
     Key.create(MavenProjectsManagerWatcher.class + "FORCE_IMPORT_AND_RESOLVE_ON_REFRESH");
+  private static final boolean IMPORT_EXTERNAL_POMS =
+    Boolean.parseBoolean(System.getProperty("maven.import.external.poms.on.settings.change"));
 
   private static final int DOCUMENT_SAVE_DELAY = 1000;
 
@@ -115,7 +108,7 @@ public class MavenProjectsManagerWatcher {
     myChangedDocumentsQueue.makeUserAware(myProject);
     myChangedDocumentsQueue.activate();
 
-    myBusConnection.subscribe(ProjectTopics.MODULES, new ModuleAdapter() {
+    myBusConnection.subscribe(ProjectTopics.MODULES, new ModuleListener() {
       @Override
       public void moduleRemoved(@NotNull Project project, @NotNull Module module) {
         MavenProject mavenProject = myManager.findProject(module);
@@ -138,20 +131,20 @@ public class MavenProjectsManagerWatcher {
           MavenProject mavenProject = myManager.findProject(module);
           if (mavenProject != null) myManager.setIgnoredState(Collections.singletonList(mavenProject), false);
         }
-
       }
     });
 
-    DocumentAdapter myDocumentListener = new DocumentAdapter() {
+    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent event) {
+      public void documentChanged(@NotNull DocumentEvent event) {
         Document doc = event.getDocument();
         VirtualFile file = FileDocumentManager.getInstance().getFile(doc);
 
         if (file == null) return;
         String fileName = file.getName();
         boolean isMavenFile = fileName.equals(MavenConstants.POM_XML) || fileName.equals(MavenConstants.PROFILES_XML) ||
-                              isSettingsFile(file) || fileName.startsWith("pom.");
+                              isSettingsFile(file) || fileName.startsWith("pom.") || isPomFile(file.getPath()) ||
+                              isMavenOrJvmConfigFile(file.getPath());
         if (!isMavenFile) return;
 
         synchronized (myChangedDocuments) {
@@ -163,24 +156,20 @@ public class MavenProjectsManagerWatcher {
             final Document[] copy;
 
             synchronized (myChangedDocuments) {
-              copy = myChangedDocuments.toArray(new Document[myChangedDocuments.size()]);
+              copy = myChangedDocuments.toArray(Document.EMPTY_ARRAY);
               myChangedDocuments.clear();
             }
 
-            MavenUtil.invokeLater(myProject, () -> new WriteAction() {
-              @Override
-              protected void run(@NotNull Result result) throws Throwable {
-                for (Document each : copy) {
-                  PsiDocumentManager.getInstance(myProject).commitDocument(each);
-                  ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveDocument(each, false);
-                }
+            MavenUtil.invokeLater(myProject, () -> WriteAction.run(() -> {
+              for (Document each : copy) {
+                PsiDocumentManager.getInstance(myProject).commitDocument(each);
+                ((FileDocumentManagerImpl)FileDocumentManager.getInstance()).saveDocument(each, false);
               }
-            }.execute());
+            }));
           }
         });
       }
-    };
-    EditorFactory.getInstance().getEventMulticaster().addDocumentListener(myDocumentListener, myBusConnection);
+    }, myBusConnection);
 
     final MavenGeneralSettings.Listener mySettingsPathsChangesListener = new MavenGeneralSettings.Listener() {
       @Override
@@ -226,13 +215,6 @@ public class MavenProjectsManagerWatcher {
         String url = VfsUtilCore.pathToUrl(path);
         mySettingsFilesPointers.add(
           VirtualFilePointerManager.getInstance().create(url, myChangedDocumentsQueue, new VirtualFilePointerListener() {
-            @Override
-            public void beforeValidityChanged(@NotNull VirtualFilePointer[] pointers) {
-            }
-
-            @Override
-            public void validityChanged(@NotNull VirtualFilePointer[] pointers) {
-            }
           }));
       }
     }
@@ -288,6 +270,13 @@ public class MavenProjectsManagerWatcher {
                                       final boolean forceImportAndResolve) {
     final AsyncPromise<Void> promise = new AsyncPromise<>();
     Runnable onCompletion = createScheduleImportAction(forceImportAndResolve, promise);
+
+    if (LOG.isDebugEnabled()) {
+      String withForceOptionMessage = force ? " with force option" : "";
+      LOG.debug("Scheduling update for " + myProjectsTree + withForceOptionMessage +
+                ". Files to update: " + filesToUpdate + ". Files to delete: " + filesToDelete);
+    }
+
     myReadingProcessor.scheduleTask(new MavenProjectsProcessorReadingTask(filesToUpdate,
                                                                           filesToDelete,
                                                                           force,
@@ -306,7 +295,7 @@ public class MavenProjectsManagerWatcher {
       }
 
       if (forceImportAndResolve || myManager.getImportingSettings().isImportAutomatically()) {
-        myManager.scheduleImportAndResolve().done(modules -> promise.setResult(null));
+        myManager.scheduleImportAndResolve().onSuccess(modules -> promise.setResult(null));
       }
       else {
         promise.setResult(null);
@@ -324,9 +313,9 @@ public class MavenProjectsManagerWatcher {
     // onSettingsChange() will be called indirectly by pathsChanged listener on GeneralSettings object
   }
 
-  private class MyRootChangesListener extends ModuleRootAdapter {
+  private class MyRootChangesListener implements ModuleRootListener {
     @Override
-    public void rootsChanged(ModuleRootEvent event) {
+    public void rootsChanged(@NotNull ModuleRootEvent event) {
       // todo is this logic necessary?
       List<VirtualFile> existingFiles = myProjectsTree.getProjectsFiles();
       List<VirtualFile> newFiles = new ArrayList<>();
@@ -347,14 +336,13 @@ public class MavenProjectsManagerWatcher {
   }
 
   private boolean isPomFile(String path) {
-    String nameWithoutExtension = FileUtil.getNameWithoutExtension(new File(path));
-    if (!MavenConstants.POM_EXTENSION.equals(nameWithoutExtension)) return false;
-    return myProjectsTree.isPotentialProject(path);
+    return MavenUtil.isPotentialPomFile(path) && myProjectsTree.isPotentialProject(path);
   }
 
   private boolean isProfilesFile(String path) {
     if (!path.endsWith("/" + MavenConstants.PROFILES_XML)) return false;
-    return myProjectsTree.isPotentialProject(path.substring(0, path.length() - MavenConstants.PROFILES_XML.length()) + MavenConstants.POM_XML);
+    return myProjectsTree
+      .isPotentialProject(path.substring(0, path.length() - MavenConstants.PROFILES_XML.length()) + MavenConstants.POM_XML);
   }
 
   private boolean isSettingsFile(String path) {
@@ -372,7 +360,12 @@ public class MavenProjectsManagerWatcher {
     return false;
   }
 
-  private class MyFileChangeListener extends MyFileChangeListenerBase {
+  private static boolean isMavenOrJvmConfigFile(String path) {
+    return path.endsWith(MavenConstants.JVM_CONFIG_RELATIVE_PATH) || path.endsWith(MavenConstants.MAVEN_CONFIG_RELATIVE_PATH);
+  }
+
+  class MyFileChangeListener extends FileChangeListenerBase {
+
     private List<VirtualFile> filesToUpdate;
     private List<VirtualFile> filesToRemove;
     private boolean settingsHaveChanged;
@@ -380,7 +373,7 @@ public class MavenProjectsManagerWatcher {
 
     @Override
     protected boolean isRelevant(String path) {
-      return isPomFile(path) || isProfilesFile(path) || isSettingsFile(path);
+      return isPomFile(path) || isProfilesFile(path) || isSettingsFile(path) || isMavenOrJvmConfigFile(path);
     }
 
     @Override
@@ -408,8 +401,14 @@ public class MavenProjectsManagerWatcher {
       VirtualFile pom = getPomFileProfilesFile(file);
       if (pom != null) {
         if (remove || fileWasChanged(pom, event)) {
-          filesToUpdate.add(pom);
+          addPomFileToUpdate(pom);
         }
+        return;
+      }
+
+      if (isMavenOrJvmConfigFile(file.getPath()) && (remove || fileWasChanged(file, event))) {
+        VirtualFile baseDir = file.getParent().getParent();
+        MavenUtil.streamPomFiles(myProject, baseDir).forEach(this::addPomFileToUpdate);
         return;
       }
 
@@ -418,7 +417,7 @@ public class MavenProjectsManagerWatcher {
       }
       else {
         if (fileWasChanged(file, event)) {
-          filesToUpdate.add(file);
+          addPomFileToUpdate(file);
         }
       }
     }
@@ -436,14 +435,15 @@ public class MavenProjectsManagerWatcher {
       Long newCrc;
 
       PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);
-      if(psiFile instanceof XmlFile) {
+      if (psiFile instanceof XmlFile) {
         try {
           newCrc = Long.valueOf(MavenUtil.crcWithoutSpaces(file));
         }
         catch (IOException ignored) {
           return true;
         }
-      } else {
+      }
+      else {
         newCrc = file.getModificationStamp();
       }
 
@@ -461,6 +461,11 @@ public class MavenProjectsManagerWatcher {
     private VirtualFile getPomFileProfilesFile(VirtualFile f) {
       if (!f.getName().equals(MavenConstants.PROFILES_XML)) return null;
       return f.getParent().findChild(MavenConstants.POM_XML);
+    }
+
+    @TestOnly
+    List<VirtualFile> getFilesToUpdate() {
+      return new ArrayList<>(filesToUpdate);
     }
 
     @Override
@@ -503,94 +508,17 @@ public class MavenProjectsManagerWatcher {
       filesToUpdate = null;
       filesToRemove = null;
     }
-  }
 
-  private static abstract class MyFileChangeListenerBase implements BulkFileListener {
-    protected abstract boolean isRelevant(String path);
-
-    protected abstract void updateFile(VirtualFile file, VFileEvent event);
-
-    protected abstract void deleteFile(VirtualFile file, VFileEvent event);
-
-    protected abstract void apply();
-
-    @Override
-    public void before(@NotNull List<? extends VFileEvent> events) {
-      for (VFileEvent each : events) {
-        if (each instanceof VFileDeleteEvent) {
-          deleteRecursively(each.getFile(), each);
-        }
-        else {
-          if (!isRelevant(each.getPath())) continue;
-          if (each instanceof VFilePropertyChangeEvent) {
-            if (isRenamed(each)) {
-              deleteRecursively(each.getFile(), each);
-            }
-          }
-          else if (each instanceof VFileMoveEvent) {
-            VFileMoveEvent moveEvent = (VFileMoveEvent)each;
-            String newPath = moveEvent.getNewParent().getPath() + "/" + moveEvent.getFile().getName();
-            if (!isRelevant(newPath)) {
-              deleteRecursively(moveEvent.getFile(), each);
-            }
-          }
-        }
+    private void addPomFileToUpdate(VirtualFile pom) {
+      if (LOG.isTraceEnabled()) {
+        LOG.trace(pom + " added to " + myProjectsTree);
       }
-    }
-
-    private void deleteRecursively(VirtualFile f, final VFileEvent event) {
-      VfsUtilCore.visitChildrenRecursively(f, new VirtualFileVisitor() {
-        @Override
-        public boolean visitFile(@NotNull VirtualFile f) {
-          if (isRelevant(f.getPath())) deleteFile(f, event);
-          return true;
-        }
-
-        @Nullable
-        @Override
-        public Iterable<VirtualFile> getChildrenIterable(@NotNull VirtualFile f) {
-          return f.isDirectory() && f instanceof NewVirtualFile ? ((NewVirtualFile)f).iterInDbChildren() : null;
-        }
-      });
-    }
-
-    @Override
-    public void after(@NotNull List<? extends VFileEvent> events) {
-      for (VFileEvent each : events) {
-        if (!isRelevant(each.getPath())) continue;
-
-        if (each instanceof VFileCreateEvent) {
-          VFileCreateEvent createEvent = (VFileCreateEvent)each;
-          VirtualFile newChild = createEvent.getParent().findChild(createEvent.getChildName());
-          if (newChild != null) {
-            updateFile(newChild, each);
-          }
-        }
-        else if (each instanceof VFileCopyEvent) {
-          VFileCopyEvent copyEvent = (VFileCopyEvent)each;
-          VirtualFile newChild = copyEvent.getNewParent().findChild(copyEvent.getNewChildName());
-          if (newChild != null) {
-            updateFile(newChild, each);
-          }
-        }
-        else if (each instanceof VFileContentChangeEvent) {
-          updateFile(each.getFile(), each);
-        }
-        else if (each instanceof VFilePropertyChangeEvent) {
-          if (isRenamed(each)) {
-            updateFile(each.getFile(), each);
-          }
-        }
-        else if (each instanceof VFileMoveEvent) {
-          updateFile(each.getFile(), each);
-        }
+      if (IMPORT_EXTERNAL_POMS || myProjectsTree.isPotentialProject(pom.getPath())) {
+        filesToUpdate.add(pom);
       }
-      apply();
-    }
-
-    private static boolean isRenamed(VFileEvent each) {
-      return ((VFilePropertyChangeEvent)each).getPropertyName().equals(VirtualFile.PROP_NAME)
-             && !Comparing.equal(((VFilePropertyChangeEvent)each).getOldValue(), ((VFilePropertyChangeEvent)each).getNewValue());
+      else {
+        LOG.debug(pom + " was not added to " + myProjectsTree);
+      }
     }
   }
 }

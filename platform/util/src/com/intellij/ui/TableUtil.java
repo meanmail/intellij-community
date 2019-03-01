@@ -25,6 +25,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 import javax.swing.table.TableModel;
 import java.awt.*;
 import java.util.ArrayList;
@@ -79,10 +80,10 @@ public class TableUtil {
     }
 
     if (table.getSelectionModel().isSelectionEmpty()) {
-      return new ArrayList<Object[]>(0);
+      return new ArrayList<>(0);
     }
 
-    final List<Object[]> removedItems = new SmartList<Object[]>();
+    final List<Object[]> removedItems = new SmartList<>();
     final ItemRemovable itemRemovable = (ItemRemovable)model;
     final int columnCount = model.getColumnCount();
     doRemoveSelectedItems(table, new ItemRemovable() {
@@ -229,9 +230,16 @@ public class TableUtil {
   }
 
   public static void setupCheckboxColumn(@NotNull JTable table, int columnIndex) {
-    setupCheckboxColumn(table.getColumnModel().getColumn(columnIndex));
+    TableColumnModel cModel = table.getColumnModel();
+    setupCheckboxColumn(cModel.getColumn(columnIndex), cModel.getColumnMargin());
   }
 
+  /**
+   * Deprecated because doesn't take into account column margin.
+   * Use {@link #setupCheckboxColumn(JTable, int)} instead.
+   * Or use {@link #setupCheckboxColumn(TableColumn, int)} with {@link TableColumnModel#getColumnMargin()} accounted for.
+   */
+  @Deprecated
   public static void setupCheckboxColumn(@NotNull TableColumn column) {
     setupCheckboxColumn(column, 0);
   }

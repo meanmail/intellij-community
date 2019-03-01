@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 25-Mar-2010
- */
 package org.jetbrains.idea.eclipse.conversion;
 
 import com.intellij.openapi.module.Module;
@@ -207,8 +203,8 @@ public class EJavadocUtil {
   }
 
   static void setupAttributes(Element orderEntry,
-                              Function<String, String> fun,
-                              String attributeName, 
+                              Function<? super String, String> fun,
+                              String attributeName,
                               String[] roots) {
     final List<String> eclipseUrls = new ArrayList<>();
     if (roots.length > 0) {

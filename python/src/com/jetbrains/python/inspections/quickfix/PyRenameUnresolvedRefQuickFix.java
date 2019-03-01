@@ -49,12 +49,6 @@ import java.util.*;
  */
 public class PyRenameUnresolvedRefQuickFix implements LocalQuickFix {
 
-  @NotNull
-  @Override
-  public String getName() {
-    return PyBundle.message("QFIX.rename.unresolved.reference");
-  }
-
   @Override
   @NotNull
   public String getFamilyName() {
@@ -142,10 +136,10 @@ public class PyRenameUnresolvedRefQuickFix implements LocalQuickFix {
         items.add(LookupElementBuilder.create(name));
     }
 
-    return items.toArray(new LookupElement[items.size()]);
+    return items.toArray(LookupElement.EMPTY_ARRAY);
   }
 
-  private class ReferenceNameExpression extends Expression {
+  private static class ReferenceNameExpression extends Expression {
     class HammingComparator implements Comparator<LookupElement> {
       @Override
       public int compare(LookupElement lookupItem1, LookupElement lookupItem2) {

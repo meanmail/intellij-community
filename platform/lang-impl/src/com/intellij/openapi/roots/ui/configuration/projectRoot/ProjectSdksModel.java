@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.projectRoot;
 
 import com.intellij.openapi.actionSystem.AnAction;
@@ -21,7 +7,9 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.project.*;
+import com.intellij.openapi.project.DumbAwareAction;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.*;
 import com.intellij.openapi.projectRoots.impl.ProjectJdkImpl;
 import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
@@ -43,7 +31,6 @@ import java.util.LinkedHashMap;
 
 /**
  * @author anna
- * @since 05-Jun-2006
  */
 public class ProjectSdksModel implements SdkModel {
   private static final Logger LOG = Logger.getInstance("com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel");
@@ -63,7 +50,7 @@ public class ProjectSdksModel implements SdkModel {
 
   @Override
   public Sdk[] getSdks() {
-    return myProjectSdks.values().toArray(new Sdk[myProjectSdks.size()]);
+    return myProjectSdks.values().toArray(new Sdk[0]);
   }
 
   @Override
@@ -130,7 +117,7 @@ public class ProjectSdksModel implements SdkModel {
       throw new ConfigurationException(errorString[0]);
     }
 
-    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> doApply());
+    doApply();
     myModified = false;
   }
 
@@ -240,13 +227,21 @@ public class ProjectSdksModel implements SdkModel {
                                @NotNull final JComponent parent,
                                @NotNull final Consumer<Sdk> updateTree,
                                @Nullable Condition<SdkTypeId> filter) {
+    createAddActions(group, parent, null, updateTree, filter);
+  }
+
+  public void createAddActions(@NotNull DefaultActionGroup group,
+                               @NotNull final JComponent parent,
+                               @Nullable final Sdk selectedSdk,
+                               @NotNull final Consumer<Sdk> updateTree,
+                               @Nullable Condition<? super SdkTypeId> filter) {
     final SdkType[] types = SdkType.getAllTypes();
     for (final SdkType type : types) {
       if (filter != null && !filter.value(type)) continue;
       final AnAction addAction = new DumbAwareAction(type.getPresentableName(), null, type.getIconForAddAction()) {
         @Override
         public void actionPerformed(@NotNull AnActionEvent e) {
-          doAdd(parent, type, updateTree);
+          doAdd(parent, selectedSdk, type, updateTree);
         }
       };
       group.add(addAction);
@@ -254,9 +249,13 @@ public class ProjectSdksModel implements SdkModel {
   }
 
   public void doAdd(@NotNull JComponent parent, @NotNull final SdkType type, @NotNull final Consumer<Sdk> callback) {
+    doAdd(parent, null, type, callback);
+  }
+
+  public void doAdd(@NotNull JComponent parent, @Nullable final Sdk selectedSdk, @NotNull final SdkType type, @NotNull final Consumer<Sdk> callback) {
     myModified = true;
     if (type.supportsCustomCreateUI()) {
-      type.showCustomCreateUI(this, parent, sdk -> setupSdk(sdk, callback));
+      type.showCustomCreateUI(this, parent, selectedSdk, sdk -> setupSdk(sdk, callback));
     }
     else {
       SdkConfigurationUtil.selectSdkHome(type, home -> addSdk(type, home, callback));

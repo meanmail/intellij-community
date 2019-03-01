@@ -26,22 +26,17 @@ import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.usages.Usage;
 import com.intellij.usages.UsageView;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 6/1/12
- * Time: 11:22 PM
- */
 public class ImportUsagesAction extends AnAction {
   public ImportUsagesAction() {
     super("To Favorites", "To Favorites", AllIcons.Toolwindows.ToolWindowFavorites);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final DataContext dc = e.getDataContext();
     final boolean enabled = isEnabled(dc);
     e.getPresentation().setEnabled(enabled);
@@ -54,7 +49,7 @@ public class ImportUsagesAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final DataContext dc = e.getDataContext();
     final boolean enabled = isEnabled(dc);
     if (!enabled) return;

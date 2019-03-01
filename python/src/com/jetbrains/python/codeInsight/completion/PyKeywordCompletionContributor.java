@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.completion;
 
 import com.intellij.codeInsight.TailType;
@@ -28,6 +14,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.filters.position.FilterPattern;
 import com.intellij.psi.impl.source.tree.injected.InjectedFileViewProvider;
+import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ProcessingContext;
 import com.jetbrains.python.PyNames;
@@ -53,7 +40,6 @@ import static com.intellij.patterns.StandardPatterns.or;
  * This should not lead to any problems, because all such code is private, and the user data used to pass the original
  * element is cleared after matching.
  * User: dcheryasov
- * Date: Sep 8, 2008
  */
 @SuppressWarnings({"InstanceVariableOfConcreteClass"})
 public class PyKeywordCompletionContributor extends CompletionContributor {
@@ -62,10 +48,11 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
    */
   private static class StatementFitFilter implements ElementFilter {
 
-    public StatementFitFilter() {
+    StatementFitFilter() {
     }
 
 
+    @Override
     public boolean isAcceptable(Object element, PsiElement context) {
       if (element instanceof PsiElement) {
         final ASTNode ctxNode = context.getNode();
@@ -88,7 +75,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
           PsiElement prev = p.getPrevSibling();
           while (prev instanceof PsiWhiteSpace) prev = prev.getPrevSibling();
           if (prev == null) return true; // there was only whitespace before us
-          if (prev instanceof PyStatement || prev instanceof PsiComment) { // a non-stmt would be something strange
+          if (prev instanceof PyStatement || prev instanceof PsiComment || prev instanceof OuterLanguageElement) { // a non-stmt would be something strange
             if (prev.getLastChild() instanceof PsiErrorElement) {
               // prev stmt ends with an error. are we on the same line?
               PsiDocumentManager docMgr = PsiDocumentManager.getInstance(p.getProject());
@@ -106,6 +93,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       return false;
     }
 
+    @Override
     public boolean isClassAcceptable(Class hintClass) {
       return true; // can't tell outright
     }
@@ -155,6 +143,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
    * NOTE: if lexer detected indents and/or EOLs as separate entities, this filter would not be needed, or would trivially work with PSI.
    */
   private static class StartOfLineFilter implements ElementFilter {
+    @Override
     public boolean isAcceptable(Object what, PsiElement context) {
       if (!(what instanceof PsiElement)) return false;
       PsiElement p = (PsiElement)what;
@@ -179,6 +168,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       return false;
     }
 
+    @Override
     public boolean isClassAcceptable(Class hintClass) {
       return true;
     }
@@ -187,10 +177,11 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
   private static class LanguageLevelAtLeastFilter implements ElementFilter {
     @NotNull private final LanguageLevel myLevel;
 
-    public LanguageLevelAtLeastFilter(@NotNull LanguageLevel level) {
+    LanguageLevelAtLeastFilter(@NotNull LanguageLevel level) {
       myLevel = level;
     }
 
+    @Override
     public boolean isAcceptable(Object element, PsiElement context) {
       if (!(element instanceof PsiElement)) {
         return false;
@@ -199,6 +190,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       return containingFile instanceof PyFile && ((PyFile)containingFile).getLanguageLevel().isAtLeast(myLevel);
     }
 
+    @Override
     public boolean isClassAcceptable(Class hintClass) {
       return true;
     }
@@ -236,7 +228,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
     }
   }
 
-  private static ElementPattern NOT_PARAMETER_OR_DEFAULT_VALUE = new FilterPattern(new NotParameterOrDefaultValue());
+  private static final ElementPattern NOT_PARAMETER_OR_DEFAULT_VALUE = new FilterPattern(new NotParameterOrDefaultValue());
 
   // ====== conditions
 
@@ -248,7 +240,8 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       psiElement().inFile(psiFile(PyDocstringFile.class)));
 
   private static final ElementPattern<PsiElement> IN_FUNCTION_HEADER =
-    or(psiElement().inside(PyFunction.class).andNot(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyFunction.class))),
+    or(psiElement().inside(PyFunction.class).andNot(or(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyFunction.class)),
+                                                       psiElement().inside(false, psiElement(PyParameterList.class), psiElement(PyFunction.class)))),
        psiElement().inside(PyClass.class).andNot(psiElement().inside(false, psiElement(PyStatementList.class), psiElement(PyClass.class))));
 
   public static final PsiElementPattern.Capture<PsiElement> AFTER_QUALIFIER =
@@ -401,8 +394,9 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
         .andNot(AFTER_QUALIFIER).andNot(IN_STRING_LITERAL)
       ,
       new CompletionProvider<CompletionParameters>() {
+        @Override
         protected void addCompletions(
-          @NotNull final CompletionParameters parameters, final ProcessingContext context, @NotNull final CompletionResultSet result
+          @NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context, @NotNull final CompletionResultSet result
         ) {
           putKeywords(result, TailType.NONE, PyNames.DEF, PyNames.CLASS, PyNames.FOR, PyNames.IF, PyNames.WHILE, PyNames.WITH);
           putKeywords(result, TailType.CASE_COLON, PyNames.TRY);
@@ -419,14 +413,16 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       .andNot(IN_PARAM_LIST)
       .andNot(IN_ARG_LIST)
       .andNot(BEFORE_COND)
-      .andNot(AFTER_QUALIFIER);
+      .andNot(AFTER_QUALIFIER)
+      .andNot(IN_STRING_LITERAL);
 
     extend(
       CompletionType.BASIC,
       inStatement,
       new CompletionProvider<CompletionParameters>() {
+        @Override
         protected void addCompletions(
-          @NotNull final CompletionParameters parameters, final ProcessingContext context, @NotNull final CompletionResultSet result
+          @NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context, @NotNull final CompletionResultSet result
         ) {
           putKeywords(result, TailType.SPACE, PyNames.ASSERT, PyNames.DEL, PyNames.EXEC, PyNames.FROM, PyNames.IMPORT, PyNames.RAISE);
           putKeywords(result, TailType.NONE, PyNames.PASS);
@@ -533,8 +529,9 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       .andNot(AFTER_FINALLY)
       ,
       new CompletionProvider<CompletionParameters>() {
+        @Override
         protected void addCompletions(
-          @NotNull final CompletionParameters parameters, final ProcessingContext context, @NotNull final CompletionResultSet result
+          @NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context, @NotNull final CompletionResultSet result
         ) {
           putKeyword(PyNames.FINALLY, PyUnindentingInsertHandler.INSTANCE, TailType.CASE_COLON, result);
         }
@@ -550,8 +547,9 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       .andNot(AFTER_FINALLY).andNot(AFTER_ELSE)
       ,
       new CompletionProvider<CompletionParameters>() {
+        @Override
         protected void addCompletions(
-          @NotNull final CompletionParameters parameters, final ProcessingContext context, @NotNull final CompletionResultSet result
+          @NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context, @NotNull final CompletionResultSet result
         ) {
           putKeyword(PyNames.EXCEPT, PyUnindentingInsertHandler.INSTANCE, TailType.NONE, result);
         }
@@ -603,12 +601,12 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
     extend(
       CompletionType.BASIC, psiElement()
       .withLanguage(PythonLanguage.getInstance())
-      .and(PY3K)
       .andNot(IN_COMMENT)
       .andNot(IN_IMPORT_STMT)
       .and(NOT_PARAMETER_OR_DEFAULT_VALUE)
       .andNot(AFTER_QUALIFIER)
       .andNot(IN_FUNCTION_HEADER)
+      .andNot(IN_STRING_LITERAL)
       ,
       new PyKeywordCompletionProvider(TailType.NONE, PyNames.TRUE, PyNames.FALSE, PyNames.NONE));
     extend(CompletionType.BASIC,
@@ -708,7 +706,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
                     psiElement()
                       .inside(false, psiElement(PyAugAssignmentStatement.class), psiElement(PyTargetExpression.class))
                       .afterLeaf(psiElement().withElementType(PyTokenTypes.AUG_ASSIGN_OPERATIONS)),
-                    psiElement().inside(true, psiElement(PyParenthesizedExpression.class))),
+                    psiElement().inside(true, psiElement(PyParenthesizedExpression.class))).andNot(IN_STRING_LITERAL),
            new PyKeywordCompletionProvider(PyNames.YIELD));
   }
 
@@ -758,7 +756,7 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
            psiElement()
              .withLanguage(PythonLanguage.getInstance())
              .and(psiElement()).afterLeaf(psiElement().afterLeaf(PyNames.FOR)),
-           new PyKeywordCompletionProvider("in"));
+           new PyKeywordCompletionProvider(PyNames.IN));
 
   }
 
@@ -781,7 +779,8 @@ public class PyKeywordCompletionContributor extends CompletionContributor {
       myInsertHandler = insertHandler;
     }
 
-    protected void addCompletions(@NotNull final CompletionParameters parameters, final ProcessingContext context,
+    @Override
+    protected void addCompletions(@NotNull final CompletionParameters parameters, @NotNull final ProcessingContext context,
                                   @NotNull final CompletionResultSet result) {
       for (String s : myKeywords) {
         final PythonLookupElement element = new PythonLookupElement(s, true, null);

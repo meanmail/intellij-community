@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 package com.intellij.ui;
@@ -44,7 +32,8 @@ public class CollectionListModel<T> extends AbstractListModel<T> implements Edit
     myItems = new ArrayList<>(items);
   }
 
-  public CollectionListModel(final T... items) {
+  @SafeVarargs
+  public CollectionListModel(@NotNull T... items) {
     myItems = ContainerUtilRt.newArrayList(items);
   }
 
@@ -75,10 +64,14 @@ public class CollectionListModel<T> extends AbstractListModel<T> implements Edit
   }
 
   public void add(@NotNull final List<? extends T> elements) {
+    addAll(myItems.size(), elements);
+  }
+
+  public void addAll(int index, @NotNull final List<? extends T> elements) {
     if (elements.isEmpty()) return;
-    int i = myItems.size();
-    myItems.addAll(elements);
-    fireIntervalAdded(this, i, i + elements.size() - 1);
+
+    myItems.addAll(index, elements);
+    fireIntervalAdded(this, index, index + elements.size() - 1);
   }
 
   public void remove(@NotNull T element) {
@@ -98,7 +91,10 @@ public class CollectionListModel<T> extends AbstractListModel<T> implements Edit
   }
 
   public void remove(final int index) {
-    itemReplaced(myItems.remove(index), null);
+    T item = myItems.remove(index);
+    if (item != null) {
+      itemReplaced(item, null);
+    }
     fireIntervalRemoved(this, index, index);
   }
 
@@ -115,7 +111,11 @@ public class CollectionListModel<T> extends AbstractListModel<T> implements Edit
     fireContentsChanged(this, i, i);
   }
 
-  public void sort(final Comparator<T> comparator) {
+  public void allContentsChanged() {
+    fireContentsChanged(this, 0, myItems.size() - 1);
+  }
+
+  public void sort(final Comparator<? super T> comparator) {
     Collections.sort(myItems, comparator);
   }
 
@@ -167,4 +167,19 @@ public class CollectionListModel<T> extends AbstractListModel<T> implements Edit
   public boolean isEmpty() {
     return myItems.isEmpty();
   }
+
+  public boolean contains(T item) {
+    return getElementIndex(item) >= 0;
+  }
+
+  public void removeRange(int fromIndex, int toIndex) {
+    if (fromIndex > toIndex) {
+      throw new IllegalArgumentException("fromIndex must be <= toIndex");
+    }
+    for(int i = toIndex; i >= fromIndex; i--) {
+      itemReplaced(myItems.remove(i), null);
+    }
+    fireIntervalRemoved(this, fromIndex, toIndex);
+  }
+
 }

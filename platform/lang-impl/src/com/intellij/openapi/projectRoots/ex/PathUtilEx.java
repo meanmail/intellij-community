@@ -26,6 +26,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ComparatorUtil;
 import com.intellij.util.containers.Convertor;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Arrays;
@@ -38,25 +39,19 @@ import static com.intellij.util.containers.ContainerUtil.skipNulls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 14, 2004
  */
 public class PathUtilEx {
 
   private static final Function<Module, Sdk> MODULE_JDK = module -> ModuleRootManager.getInstance(module).getSdk();
-  private static final Convertor<Sdk, String> JDK_VERSION = new Convertor<Sdk, String>() {
-    @Override
-    public String convert(Sdk jdk) {
-      return StringUtil.notNullize(jdk.getVersionString());
-    }
-  };
+  private static final Convertor<Sdk, String> JDK_VERSION = jdk -> StringUtil.notNullize(jdk.getVersionString());
 
   @Nullable
-  public static Sdk getAnyJdk(Project project) {
+  public static Sdk getAnyJdk(@NotNull Project project) {
     return chooseJdk(project, Arrays.asList(ModuleManager.getInstance(project).getModules()));
   }
 
   @Nullable
-  public static Sdk chooseJdk(Project project, Collection<Module> modules) {
+  public static Sdk chooseJdk(@NotNull Project project, @NotNull Collection<? extends Module> modules) {
     Sdk projectJdk = ProjectRootManager.getInstance(project).getProjectSdk();
     if (projectJdk != null) {
       return projectJdk;
@@ -65,7 +60,7 @@ public class PathUtilEx {
   }
 
   @Nullable
-  public static Sdk chooseJdk(Collection<Module> modules) {
+  public static Sdk chooseJdk(@NotNull Collection<? extends Module> modules) {
     List<Sdk> jdks = skipNulls(map(skipNulls(modules), MODULE_JDK));
     if (jdks.isEmpty()) {
       return null;

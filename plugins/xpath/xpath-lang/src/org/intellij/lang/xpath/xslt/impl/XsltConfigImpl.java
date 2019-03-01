@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2005 Sascha Weinreuter
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +20,7 @@ import com.intellij.lang.Language;
 import com.intellij.lang.LanguageFormatting;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.components.ApplicationComponent;
+import com.intellij.openapi.components.BaseComponent;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
@@ -44,7 +44,7 @@ import java.awt.*;
   storages = {
     @Storage("other.xml")}
 )
-class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<XsltConfigImpl>, ApplicationComponent {
+class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<XsltConfigImpl>, BaseComponent {
   public boolean SHOW_LINKED_FILES = true;
 
   @Nullable
@@ -54,12 +54,11 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
   }
 
   @Override
-  public void loadState(XsltConfigImpl state) {
+  public void loadState(@NotNull XsltConfigImpl state) {
     XmlSerializerUtil.copyBean(state, this);
   }
 
   @Override
-  @SuppressWarnings({"StringEquality"})
   public void initComponent() {
     final Language xmlLang = StdFileTypes.XML.getLanguage();
 
@@ -79,17 +78,6 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
     catch (Exception e) {
       Logger.getInstance(XsltConfigImpl.class.getName()).error(e);
     }
-  }
-
-  @Override
-  public void disposeComponent() {
-  }
-
-  @Override
-  @NotNull
-  @NonNls
-  public String getComponentName() {
-    return "XSLT-Support.Configuration";
   }
 
   @Override
@@ -132,10 +120,6 @@ class XsltConfigImpl extends XsltConfig implements PersistentStateComponent<Xslt
     @NonNls
     public String getHelpTopic() {
       return "settings.xslt";
-    }
-
-    @Override
-    public void disposeUIResources() {
     }
 
     @Override

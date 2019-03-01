@@ -19,6 +19,7 @@ import com.intellij.CommonBundle;
 import com.intellij.ide.IdeView;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.WriteActionAware;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
@@ -38,7 +39,7 @@ import java.util.Map;
 /**
  * @author Eugene.Kudelevsky
  */
-public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnAction {
+public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnAction implements WriteActionAware {
   protected static final Logger LOG = Logger.getInstance("#com.intellij.ide.actions.CreateFromTemplateAction");
 
   public CreateFromTemplateAction(String text, String description, Icon icon) {
@@ -46,7 +47,7 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
   }
 
   @Override
-  public final void actionPerformed(final AnActionEvent e) {
+  public final void actionPerformed(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
 
     final IdeView view = LangDataKeys.IDE_VIEW.getData(dataContext);
@@ -70,6 +71,11 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
         public T createFile(@NotNull String name, @NotNull String templateName) {
           selectedTemplateName.set(templateName);
           return CreateFromTemplateAction.this.createFile(name, templateName, dir);
+        }
+
+        @Override
+        public boolean startInWriteAction() {
+          return CreateFromTemplateAction.this.startInWriteAction();
         }
 
         @Override
@@ -104,7 +110,7 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Presentation presentation = e.getPresentation();
 
@@ -120,8 +126,9 @@ public abstract class CreateFromTemplateAction<T extends PsiElement> extends AnA
     return project != null && view != null && view.getDirectories().length != 0;
   }
 
-  protected abstract String getActionName(PsiDirectory directory, String newName, String templateName);
+  protected abstract String getActionName(PsiDirectory directory, @NotNull String newName, String templateName);
 
+  @NotNull
   protected String getErrorTitle() {
     return CommonBundle.getErrorTitle();
   }

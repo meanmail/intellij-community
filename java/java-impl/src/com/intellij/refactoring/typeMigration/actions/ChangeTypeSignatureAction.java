@@ -16,11 +16,8 @@
 package com.intellij.refactoring.typeMigration.actions;
 
 import com.intellij.codeInsight.TargetElementUtil;
-import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.RefactoringActionHandler;
@@ -29,17 +26,13 @@ import com.intellij.refactoring.typeMigration.ChangeTypeSignatureHandler;
 import org.jetbrains.annotations.NotNull;
 
 public class ChangeTypeSignatureAction extends BaseRefactoringAction {
+  @Override
   public boolean isAvailableInEditorOnly() {
     return false;
   }
 
+  @Override
   public boolean isEnabledOnElements(@NotNull PsiElement[] elements) {
-    Project currProject = CommonDataKeys.PROJECT.getData(DataManager.getInstance().getDataContext());
-
-    if (currProject == null) {
-      return false;
-    }
-
     if (elements.length > 1) return false;
 
     for (PsiElement element : elements) {
@@ -51,6 +44,7 @@ public class ChangeTypeSignatureAction extends BaseRefactoringAction {
     return true;
   }
 
+  @Override
   protected boolean isAvailableOnElementInEditorAndFile(@NotNull final PsiElement element, @NotNull final Editor editor, @NotNull PsiFile file, @NotNull DataContext context) {
     final int offset = TargetElementUtil.adjustOffset(file, editor.getDocument(), editor.getCaretModel().getOffset());
     final PsiElement psiElement = file.findElementAt(offset);
@@ -61,6 +55,7 @@ public class ChangeTypeSignatureAction extends BaseRefactoringAction {
     return PsiTreeUtil.getParentOfType(psiElement, PsiTypeElement.class) != null;
   }
 
+  @Override
   public RefactoringActionHandler getHandler(@NotNull DataContext dataContext) {
     return new ChangeTypeSignatureHandler();
   }

@@ -28,7 +28,12 @@ import org.jetbrains.jps.model.library.JpsOrderRootType
 import org.jetbrains.jps.model.module.JpsModule
 import org.jetbrains.jps.model.serialization.JpsModelSerializationDataService
 import org.jetbrains.jps.model.serialization.JpsProjectLoader
+
 /**
+ * @deprecated use classes from {@link org.jetbrains.intellij.build} package in intellij.platform.buildScripts module for building IDEs based
+ * on IntelliJ Platform; these scripts use type-safe org.jetbrains.intellij.build.impl.LayoutBuilder to lay out modules output by JARs and
+ * directories.
+ *
  * @author nik
  */
 final class JpsGantTool {
@@ -112,7 +117,7 @@ final class JpsGantTool {
 
   private static JpsModule addModule(File imlFile, JpsModel model, JpsGantProjectBuilder builder) {
     def pathVariables = JpsModelSerializationDataService.computeAllPathVariables(model.global)
-    def modules = JpsProjectLoader.loadModules(Collections.singletonList(imlFile), JpsJavaSdkType.INSTANCE, pathVariables)
+    def modules = JpsProjectLoader.loadModules(Collections.singletonList(imlFile.toPath()), JpsJavaSdkType.INSTANCE, pathVariables)
     def module = modules.get(0)
     model.project.addModule(module)
     builder.info("Module ${module.getName()} added to the project")

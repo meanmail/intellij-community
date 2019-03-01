@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Aug 14, 2002
- * Time: 5:15:42 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.psi.PsiClass;
@@ -50,7 +42,7 @@ public abstract class CreateVarFromUsageFix extends CreateFromUsageBaseFix {
 
   @Override
   protected PsiElement getElement() {
-    if (!myReferenceExpression.isValid() || !myReferenceExpression.getManager().isInProject(myReferenceExpression)) return null;
+    if (!myReferenceExpression.isValid() || !canModify(myReferenceExpression)) return null;
 
     PsiElement parent = myReferenceExpression.getParent();
 
@@ -67,12 +59,8 @@ public abstract class CreateVarFromUsageFix extends CreateFromUsageBaseFix {
 
   @Override
   protected boolean isAvailableImpl(int offset) {
-    if (CreateFromUsageUtils.shouldShowTag(offset, myReferenceExpression.getReferenceNameElement(), myReferenceExpression)) {
-      setText(getText(myReferenceExpression.getReferenceName()));
-      return true;
-    }
-
-    return false;
+    setText(getText(myReferenceExpression.getReferenceName()));
+    return true;
   }
 
   @Nls(capitalization = Nls.Capitalization.Sentence)

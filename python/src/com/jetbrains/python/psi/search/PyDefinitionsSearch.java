@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.search;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiElement;
 import com.intellij.util.Processor;
 import com.intellij.util.Query;
@@ -31,38 +16,20 @@ import org.jetbrains.annotations.NotNull;
  * @author yole
  */
 public class PyDefinitionsSearch implements QueryExecutor<PsiElement, PsiElement> {
-  public boolean execute(@NotNull final PsiElement queryParameters, @NotNull final Processor<PsiElement> consumer) {
+  @Override
+  public boolean execute(@NotNull final PsiElement queryParameters, @NotNull final Processor<? super PsiElement> consumer) {
     if (queryParameters instanceof PyClass) {
       final Query<PyClass> query = PyClassInheritorsSearch.search((PyClass)queryParameters, true);
-      return query.forEach(pyClass -> {
-        return consumer.process(pyClass);
-      });
+      return query.forEach(consumer);
     }
     else if (queryParameters instanceof PyFunction) {
-      final Query<PyFunction> query = ApplicationManager.getApplication().runReadAction(
-        new Computable<Query<PyFunction>>() {
-          @Override
-          public Query<PyFunction> compute() {
-            return PyOverridingMethodsSearch.search((PyFunction)queryParameters, true);
-          }
-        }
-      );
+      final Query<PyFunction> query =
+        ReadAction.compute(() -> PyOverridingMethodsSearch.search((PyFunction)queryParameters, true));
 
-      return query.forEach(
-        pyFunction -> {
-          return consumer.process(pyFunction);
-        }
-      );
+      return query.forEach(consumer);
     }
     else if (queryParameters instanceof PyTargetExpression) {  // PY-237
-      final PsiElement parent = ApplicationManager.getApplication().runReadAction(
-        new Computable<PsiElement>() {
-          @Override
-          public PsiElement compute() {
-            return queryParameters.getParent();
-          }
-        }
-      );
+      final PsiElement parent = ReadAction.compute(() -> queryParameters.getParent());
 
       if (parent instanceof PyAssignmentStatement) {
         return consumer.process(parent);

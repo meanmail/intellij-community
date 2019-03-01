@@ -1,7 +1,6 @@
 package hg4idea.test.annotation;
 
 import com.intellij.openapi.util.Clock;
-import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.text.DateFormatUtil;
@@ -47,11 +46,18 @@ public class HgAnnotationTest extends HgPlatformTest {
 
   @Override
   protected void tearDown() throws Exception {
-    Clock.reset();
-    super.tearDown();
+    try {
+      Clock.reset();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
-  public void testAnnotationWithVerboseOption() throws VcsException {
+  public void testAnnotationWithVerboseOption() {
     myRepository.refresh(false, true);
     final VirtualFile file = myRepository.findFileByRelativePath(firstCreatedFile);
     assert file != null;

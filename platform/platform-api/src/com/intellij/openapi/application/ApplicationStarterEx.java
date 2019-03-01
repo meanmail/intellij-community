@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.application;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -30,10 +31,5 @@ public abstract class ApplicationStarterEx implements ApplicationStarter {
     return false;
   }
 
-  @Deprecated
-  public void processExternalCommandLine(String[] args) { }
-
-  public void processExternalCommandLine(String[] args, @Nullable String currentDirectory) {
-    processExternalCommandLine(args);
-  }
+  public void processExternalCommandLine(@NotNull String[] args, @Nullable String currentDirectory) { }
 }

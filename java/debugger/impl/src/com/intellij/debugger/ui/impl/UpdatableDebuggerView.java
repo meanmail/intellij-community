@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,14 +41,11 @@ public abstract class UpdatableDebuggerView extends JPanel implements DebuggerVi
     myProject = project;
     myStateManager = stateManager;
 
-    final DebuggerContextListener contextListener = new DebuggerContextListener() {
-      public void changeEvent(@NotNull DebuggerContextImpl newContext, DebuggerSession.Event event) {
-        UpdatableDebuggerView.this.changeEvent(newContext, event);
-      }
-    };
+    final DebuggerContextListener contextListener = this::changeEvent;
     myStateManager.addListener(contextListener);
 
     registerDisposable(new Disposable() {
+      @Override
       public void dispose() {
         myStateManager.removeListener(contextListener);
       }
@@ -66,14 +63,17 @@ public abstract class UpdatableDebuggerView extends JPanel implements DebuggerVi
     return myUpdateEnabled || isShowing();
   }
 
+  @Override
   public final void setUpdateEnabled(final boolean enabled) {
     myUpdateEnabled = enabled;
   }
 
+  @Override
   public final boolean isRefreshNeeded() {
     return myRefreshNeeded;
   }
 
+  @Override
   public final void rebuildIfVisible(final DebuggerSession.Event event) {
     if(isUpdateEnabled()) {
       myRefreshNeeded = false;

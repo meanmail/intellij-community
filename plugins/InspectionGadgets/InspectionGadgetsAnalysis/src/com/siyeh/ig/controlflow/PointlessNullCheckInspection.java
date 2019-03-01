@@ -15,34 +15,31 @@
  */
 package com.siyeh.ig.controlflow;
 
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.project.Project;
+import com.intellij.codeInspection.dataFlow.*;
+import com.intellij.codeInspection.dataFlow.StandardMethodContract.ValueConstraint;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
-import com.siyeh.ig.psiutils.VariableAccessUtils;
+import com.siyeh.ig.fixes.RemoveRedundantPolyadicOperandFix;
+import com.siyeh.ig.psiutils.*;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * This inspection finds instances of null checks followed by an instanceof check
- * on the same variable. For instance:
- * <code>
- * if (x != null && x instanceof String) { ... }
- * </code>
- * The instanceof operator returns false when passed a null, so the null check is pointless.
- *
- * @author Lars Fischer
- * @author Etienne Studer
- * @author Hamlet D'Arcy
- */
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Stream;
+
+import static com.intellij.util.ObjectUtils.tryCast;
+
 public class PointlessNullCheckInspection extends BaseInspection {
   @Nls
   @NotNull
@@ -54,9 +51,10 @@ public class PointlessNullCheckInspection extends BaseInspection {
   @NotNull
   @Override
   protected String buildErrorString(Object... infos) {
-    final Boolean before = (Boolean)infos[1];
-    return InspectionGadgetsBundle.message(
-      before.booleanValue() ? "pointless.nullcheck.problem.descriptor" : "pointless.nullcheck.after.problem.descriptor");
+    PsiMethodCallExpression parent =
+      Objects.requireNonNull(PsiTreeUtil.getParentOfType((PsiElement)infos[1], PsiMethodCallExpression.class));
+    return InspectionGadgetsBundle.message("pointless.nullcheck.problem.descriptor.call",
+                                           parent.getMethodExpression().getReferenceName());
   }
 
   @Override
@@ -64,71 +62,11 @@ public class PointlessNullCheckInspection extends BaseInspection {
     return new PointlessNullCheckVisitor();
   }
 
+  @Nullable
   @Override
-  public InspectionGadgetsFix buildFix(Object... infos) {
+  protected InspectionGadgetsFix buildFix(Object... infos) {
     final PsiExpression expression = (PsiExpression)infos[0];
-    return new PointlessNullCheckFix(expression.getText());
-  }
-
-  private static class PointlessNullCheckFix extends InspectionGadgetsFix {
-
-    private final String myExpressionText;
-
-    public PointlessNullCheckFix(String expressionText) {
-      myExpressionText = expressionText;
-    }
-
-    @Override
-    @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("pointless.nullcheck.simplify.quickfix", myExpressionText);
-    }
-
-    @NotNull
-    @Override
-    public String getFamilyName() {
-      return "Simplify";
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) {
-      final PsiElement element = descriptor.getPsiElement();
-      final PsiPolyadicExpression polyadicExpression = PsiTreeUtil.getParentOfType(element, PsiPolyadicExpression.class);
-      if (polyadicExpression == null) {
-        return;
-      }
-      final StringBuilder replacement = new StringBuilder();
-      PsiElement anchor = polyadicExpression.getFirstChild();
-      if (!(anchor instanceof PsiExpression)) {
-        return;
-      }
-      PsiExpression expression = (PsiExpression)anchor;
-      boolean hasText = false;
-      while (expression != null) {
-        if (PsiTreeUtil.isAncestor(expression, element, false)) {
-          while (anchor != expression) {
-            if (hasText && anchor instanceof PsiComment) {
-              replacement.append(anchor.getText());
-            }
-            anchor = anchor.getNextSibling();
-          }
-          anchor = expression.getNextSibling();
-        }
-        else {
-          while (anchor != expression) {
-            if (hasText) {
-              replacement.append(anchor.getText());
-            }
-            anchor = anchor.getNextSibling();
-          }
-          replacement.append(expression.getText());
-          hasText = true;
-          anchor = expression.getNextSibling();
-        }
-        expression = PsiTreeUtil.getNextSiblingOfType(anchor, PsiExpression.class);
-      }
-      PsiReplacementUtil.replaceExpression(polyadicExpression, replacement.toString());
-    }
+    return new RemoveRedundantPolyadicOperandFix(expression.getText());
   }
 
   private static class PointlessNullCheckVisitor extends BaseInspectionVisitor {
@@ -138,183 +76,141 @@ public class PointlessNullCheckInspection extends BaseInspection {
       super.visitPolyadicExpression(expression);
       final IElementType operationTokenType = expression.getOperationTokenType();
       if (operationTokenType.equals(JavaTokenType.ANDAND)) {
-        final PsiExpression[] operands = expression.getOperands();
-        for (int i = 0; i < operands.length - 1; i++) {
-          for (int j = i + 1; j < operands.length; j++) {
-            if (checkAndedExpressions(operands, i, j)) {
-              return;
-            }
-          }
-        }
+        checkAndChain(expression);
       }
       else if (operationTokenType.equals(JavaTokenType.OROR)) {
-        final PsiExpression[] operands = expression.getOperands();
-        for (int i = 0; i < operands.length - 1; i++) {
-          for (int j = i + 1; j < operands.length; j++) {
-            if (checkOrredExpressions(operands, i, j)) {
-              return;
-            }
+        checkOrChain(expression);
+      }
+    }
+
+    private void checkOrChain(PsiPolyadicExpression expression) {
+      final PsiExpression[] operands = expression.getOperands();
+      for (int i = 0; i < operands.length - 1; i++) {
+        PsiBinaryExpression binaryExpression = tryCast(PsiUtil.skipParenthesizedExprDown(operands[i]), PsiBinaryExpression.class);
+        if (binaryExpression == null) continue;
+        final IElementType tokenType = binaryExpression.getOperationTokenType();
+        if (!tokenType.equals(JavaTokenType.EQEQ)) continue;
+
+        for (int j = i + 1; j < operands.length; j++) {
+          final PsiExpression implicitCheckCandidate = BoolUtils.getNegated(PsiUtil.skipParenthesizedExprDown(operands[j]));
+          if (checkExpressions(operands, i, j, binaryExpression, implicitCheckCandidate)) {
+            return;
           }
         }
       }
     }
 
-    public boolean checkOrredExpressions(PsiExpression[] operands, int i, int j) {
-      final PsiExpression lhs = ParenthesesUtils.stripParentheses(operands[i]);
-      final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[j]);
-      final PsiBinaryExpression binaryExpression;
-      final PsiPrefixExpression prefixExpression;
-      final boolean checkRef;
-      if (lhs instanceof PsiBinaryExpression && rhs instanceof PsiPrefixExpression) {
-        prefixExpression = (PsiPrefixExpression)rhs;
-        binaryExpression = (PsiBinaryExpression)lhs;
-        checkRef = true;
+    private void checkAndChain(PsiPolyadicExpression expression) {
+      final PsiExpression[] operands = expression.getOperands();
+      for (int i = 0; i < operands.length - 1; i++) {
+        PsiBinaryExpression binaryExpression = tryCast(PsiUtil.skipParenthesizedExprDown(operands[i]), PsiBinaryExpression.class);
+        if (binaryExpression == null) continue;
+        IElementType tokenType = binaryExpression.getOperationTokenType();
+        if (!tokenType.equals(JavaTokenType.NE)) continue;
+
+        for (int j = i + 1; j < operands.length; j++) {
+          PsiExpression implicitCheckCandidate = PsiUtil.skipParenthesizedExprDown(operands[j]);
+          if (checkExpressions(operands, i, j, binaryExpression, implicitCheckCandidate)) {
+            return;
+          }
+        }
       }
-      else if (rhs instanceof PsiBinaryExpression && lhs instanceof PsiPrefixExpression) {
-        prefixExpression = (PsiPrefixExpression)lhs;
-        binaryExpression = (PsiBinaryExpression)rhs;
-        checkRef = false;
-      }
-      else {
-        return false;
-      }
-      final IElementType prefixTokenType = prefixExpression.getOperationTokenType();
-      if (!JavaTokenType.EXCL.equals(prefixTokenType)) {
-        return false;
-      }
-      final PsiExpression possibleInstanceofExpression = ParenthesesUtils.stripParentheses(prefixExpression.getOperand());
-      final IElementType tokenType = binaryExpression.getOperationTokenType();
-      if (!tokenType.equals(JavaTokenType.EQEQ)) {
-        return false;
-      }
-      final PsiVariable variable = checkExpressions(binaryExpression, possibleInstanceofExpression);
-      if (variable == null || checkRef && isVariableUsed(operands, i, j, variable)) {
-        return false;
-      }
-      registerError(binaryExpression, binaryExpression, Boolean.valueOf(checkRef));
-      return true;
     }
 
-    public boolean checkAndedExpressions(PsiExpression[] operands, int i, int j) {
-      final PsiExpression lhs = ParenthesesUtils.stripParentheses(operands[i]);
-      final PsiExpression rhs = ParenthesesUtils.stripParentheses(operands[j]);
-      final PsiBinaryExpression binaryExpression;
-      final PsiExpression possibleInstanceofExpression;
-      final boolean checkRef;
-      if (lhs instanceof PsiBinaryExpression) {
-        binaryExpression = (PsiBinaryExpression)lhs;
-        possibleInstanceofExpression = rhs;
-        checkRef = true;
-      }
-      else if (rhs instanceof PsiBinaryExpression) {
-        binaryExpression = (PsiBinaryExpression)rhs;
-        possibleInstanceofExpression = lhs;
-        checkRef = false;
-      }
-      else {
-        return false;
-      }
-      final IElementType tokenType = binaryExpression.getOperationTokenType();
-      if (!tokenType.equals(JavaTokenType.NE)) {
-        return false;
-      }
-      final PsiVariable variable = checkExpressions(binaryExpression, possibleInstanceofExpression);
-      if (variable == null || checkRef && isVariableUsed(operands, i, j, variable)) {
-        return false;
-      }
-      registerError(binaryExpression, binaryExpression, Boolean.valueOf(checkRef));
+    private boolean checkExpressions(PsiExpression[] operands,
+                                     int i,
+                                     int j,
+                                     PsiBinaryExpression binaryExpression,
+                                     PsiExpression implicitCheckCandidate) {
+      final PsiReferenceExpression explicitCheckReference = getReferenceFromNullCheck(binaryExpression);
+      if (explicitCheckReference == null) return false;
+      final PsiVariable variable = tryCast(explicitCheckReference.resolve(), PsiVariable.class);
+      if (variable == null) return false;
+      final PsiReferenceExpression implicitCheckReference = getReferenceFromImplicitNullCheckExpression(implicitCheckCandidate);
+      if (implicitCheckReference == null || !implicitCheckReference.isReferenceTo(variable)) return false;
+      if (isVariableUsed(operands, i, j, variable)) return false;
+      registerError(binaryExpression, binaryExpression, implicitCheckReference);
       return true;
     }
 
     private static boolean isVariableUsed(PsiExpression[] operands, int i, int j, PsiVariable variable) {
-      i++;
-      while (i < j) {
-        if (VariableAccessUtils.variableIsUsed(variable, operands[i])) {
-          return true;
-        }
-        i++;
-      }
-      return false;
-    }
-
-    public static PsiVariable checkExpressions(PsiBinaryExpression binaryExpression, PsiExpression possibleInstanceofExpression) {
-      final PsiReferenceExpression referenceExpression1 = getReferenceFromNullCheck(binaryExpression);
-      if (referenceExpression1 == null) {
-        return null;
-      }
-      final PsiElement target1 = referenceExpression1.resolve();
-      if (!(target1 instanceof PsiVariable)) {
-        return null;
-      }
-      final PsiVariable variable = (PsiVariable)target1;
-      final PsiReferenceExpression referenceExpression2 = getReferenceFromInstanceofExpression(possibleInstanceofExpression);
-      if (referenceExpression2 == null || !referenceExpression2.isReferenceTo(variable)) {
-        return null;
-      }
-      return variable;
+      return Arrays.stream(operands, i + 1, j).anyMatch(op -> VariableAccessUtils.variableIsUsed(variable, op));
     }
 
     @Nullable
     private static PsiReferenceExpression getReferenceFromNullCheck(PsiBinaryExpression expression) {
-      final PsiExpression lhs = ParenthesesUtils.stripParentheses(expression.getLOperand());
-      final PsiExpression rhs = ParenthesesUtils.stripParentheses(expression.getROperand());
-      if (lhs instanceof PsiReferenceExpression) {
-        if (!(rhs instanceof PsiLiteralExpression && PsiType.NULL.equals(rhs.getType()))) {
-          return null;
-        }
-        return (PsiReferenceExpression)lhs;
-      }
-      else if (rhs instanceof PsiReferenceExpression) {
-        if (!(lhs instanceof PsiLiteralExpression && PsiType.NULL.equals(lhs.getType()))) {
-          return null;
-        }
-        return (PsiReferenceExpression)rhs;
-      }
-      else {
-        return null;
-      }
+      PsiExpression comparedWithNull = ExpressionUtils.getValueComparedWithNull(expression);
+      return tryCast(PsiUtil.skipParenthesizedExprDown(comparedWithNull), PsiReferenceExpression.class);
     }
 
     @Nullable
-    private static PsiReferenceExpression getReferenceFromInstanceofExpression(PsiExpression expression) {
-      if (expression instanceof PsiParenthesizedExpression) {
-        final PsiParenthesizedExpression parenthesizedExpression = (PsiParenthesizedExpression)expression;
-        return getReferenceFromInstanceofExpression(parenthesizedExpression.getExpression());
+    private PsiReferenceExpression getReferenceFromImplicitNullCheckExpression(PsiExpression expression) {
+      expression = PsiUtil.skipParenthesizedExprDown(expression);
+      PsiReferenceExpression checked = getReferenceFromBooleanCall(expression);
+      if (checked == null) {
+        checked = getReferenceFromOrChain(expression);
       }
-      else if (expression instanceof PsiInstanceOfExpression) {
-        final PsiInstanceOfExpression instanceOfExpression = (PsiInstanceOfExpression)expression;
-        final PsiExpression operand = ParenthesesUtils.stripParentheses(instanceOfExpression.getOperand());
-        if (!(operand instanceof PsiReferenceExpression)) {
-          return null;
-        }
-        return (PsiReferenceExpression)operand;
-      }
-      else if (expression instanceof PsiPolyadicExpression) {
-        final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;
-        final IElementType tokenType = polyadicExpression.getOperationTokenType();
-        if (JavaTokenType.OROR != tokenType) {
-          return null;
-        }
-        final PsiExpression[] operands = polyadicExpression.getOperands();
-        final PsiReferenceExpression referenceExpression = getReferenceFromInstanceofExpression(operands[0]);
-        if (referenceExpression == null) {
-          return null;
-        }
-        final PsiElement target = referenceExpression.resolve();
-        if (!(target instanceof PsiVariable)) {
-          return null;
-        }
-        final PsiVariable variable = (PsiVariable)target;
-        for (int i = 1, operandsLength = operands.length; i < operandsLength; i++) {
-          final PsiReferenceExpression reference2 = getReferenceFromInstanceofExpression(operands[i]);
-          if (reference2 == null || !reference2.isReferenceTo(variable)) {
-            return null;
-          }
-        }
-        return referenceExpression;
+      return checked;
+    }
+
+    @Nullable
+    private static PsiReferenceExpression getReferenceFromBooleanCall(PsiExpression expression) {
+      if (!(expression instanceof PsiMethodCallExpression)) return null;
+      PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
+      if (!PsiType.BOOLEAN.equals(call.getType())) return null;
+      PsiExpression qualifier = call.getMethodExpression().getQualifierExpression();
+      if (qualifier != null && SideEffectChecker.mayHaveSideEffects(qualifier)) return null;
+      PsiMethod method = call.resolveMethod();
+      if (method == null) return null;
+      List<? extends MethodContract> contracts;
+      if (MethodUtils.isEquals(method)) {
+        // Contracts for equals are tuned for some classes to (this == arg#0) -> true; () -> false
+        // so let's rewrite this to (null == arg#0) -> false which is more relevant to this inspection
+        ValueConstraint[] nullArg = {ValueConstraint.NULL_VALUE};
+        contracts = Collections.singletonList(new StandardMethodContract(nullArg, ContractReturnValue.returnFalse()));
       } else {
+        contracts = JavaMethodContractUtil.getMethodCallContracts(method, call);
+      }
+      if (contracts.isEmpty()) return null;
+      MethodContract contract = tryCast(contracts.get(0), StandardMethodContract.class);
+      if (contract == null || !contract.getReturnValue().equals(ContractReturnValue.returnFalse())) return null;
+      ContractValue condition = ContainerUtil.getOnlyItem(contract.getConditions());
+      if (condition == null) return null;
+      int idx = condition.getNullCheckedArgument(true).orElse(-1);
+      if (idx == -1) return null;
+      PsiExpression[] args = ((PsiMethodCallExpression)expression).getArgumentList().getExpressions();
+      if (args.length <= idx || method.isVarArgs() && idx == args.length - 1) return null;
+      PsiReferenceExpression reference = tryCast(args[idx], PsiReferenceExpression.class);
+      if (reference == null) return null;
+      PsiVariable target = tryCast(reference.resolve(), PsiVariable.class);
+      if (target == null) return null;
+      if (!SyntaxTraverser.psiTraverser(call).filter(PsiReference.class)
+        .filter(ref -> !reference.equals(ref) && ref.isReferenceTo(target)).isEmpty()) {
+        // variable is reused for something else
         return null;
       }
+      if (Stream.of(args).anyMatch(SideEffectChecker::mayHaveSideEffects)) return null;
+      return reference;
+    }
+
+    @Nullable
+    private PsiReferenceExpression getReferenceFromOrChain(PsiExpression expression) {
+      if (!(expression instanceof PsiPolyadicExpression)) return null;
+      final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)expression;
+      final IElementType tokenType = polyadicExpression.getOperationTokenType();
+      if (JavaTokenType.OROR != tokenType) return null;
+      final PsiExpression[] operands = polyadicExpression.getOperands();
+      final PsiReferenceExpression referenceExpression = getReferenceFromImplicitNullCheckExpression(operands[0]);
+      if (referenceExpression == null) return null;
+      final PsiVariable variable = tryCast(referenceExpression.resolve(), PsiVariable.class);
+      if (variable == null) return null;
+      for (int i = 1, operandsLength = operands.length; i < operandsLength; i++) {
+        final PsiReferenceExpression reference2 = getReferenceFromImplicitNullCheckExpression(operands[i]);
+        if (reference2 == null || !reference2.isReferenceTo(variable)) {
+          return null;
+        }
+      }
+      return referenceExpression;
     }
   }
 }

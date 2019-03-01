@@ -17,6 +17,7 @@ package com.intellij.diff.actions;
 
 import com.intellij.diff.contents.DiffContentBase;
 import com.intellij.diff.contents.DocumentContent;
+import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.diff.util.LineCol;
 import com.intellij.openapi.command.undo.UndoManager;
 import com.intellij.openapi.editor.Document;
@@ -28,11 +29,9 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
-import com.intellij.util.LineSeparator;
+import gnu.trove.TIntFunction;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.nio.charset.Charset;
 
 /**
  * Represents sub text of other content.
@@ -61,6 +60,13 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
     document2.putUserData(UndoManager.ORIGINAL_DOCUMENT, document1);
 
     mySynchronizer = new MyDocumentsSynchronizer(project, myRangeMarker, document1, document2);
+
+    TIntFunction originalLineConvertor = original.getUserData(DiffUserDataKeysEx.LINE_NUMBER_CONVERTOR);
+    putUserData(DiffUserDataKeysEx.LINE_NUMBER_CONVERTOR, value -> {
+      if (!myRangeMarker.isValid()) return -1;
+      int line = value + document1.getLineNumber(myRangeMarker.getStartOffset());
+      return originalLineConvertor != null ? originalLineConvertor.execute(line) : line;
+    });
   }
 
   @NotNull
@@ -95,18 +101,6 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
 
   @Nullable
   @Override
-  public LineSeparator getLineSeparator() {
-    return null;
-  }
-
-  @Nullable
-  @Override
-  public Charset getCharset() {
-    return null;
-  }
-
-  @Nullable
-  @Override
   public FileType getContentType() {
     return myOriginal.getContentType();
   }
@@ -133,7 +127,7 @@ public class DocumentFragmentContent extends DiffContentBase implements Document
   private static class MyDocumentsSynchronizer extends DocumentsSynchronizer {
     @NotNull private final RangeMarker myRangeMarker;
 
-    public MyDocumentsSynchronizer(@Nullable Project project,
+    MyDocumentsSynchronizer(@Nullable Project project,
                                    @NotNull RangeMarker range,
                                    @NotNull Document document1,
                                    @NotNull Document document2) {

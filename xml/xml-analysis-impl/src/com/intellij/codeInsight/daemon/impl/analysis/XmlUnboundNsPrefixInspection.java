@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.daemon.impl.analysis;
 
-import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.codeInspection.*;
@@ -84,6 +83,7 @@ public class XmlUnboundNsPrefixInspection extends XmlSuppressableInspectionTool 
         }
 
         XmlTag tag = attribute.getParent();
+        if (tag == null) return;
         XmlElementDescriptor elementDescriptor = tag.getDescriptor();
         if (elementDescriptor == null ||
             elementDescriptor instanceof AnyXmlElementDescriptor) {
@@ -137,8 +137,8 @@ public class XmlUnboundNsPrefixInspection extends XmlSuppressableInspectionTool 
 
     if (namespacePrefix.isEmpty()) {
       final XmlTag tag = (XmlTag)element;
-      if (!XmlUtil.JSP_URI.equals(tag.getNamespace())) {
-        LocalQuickFix fix = isOnTheFly ? XmlQuickFixFactory.getInstance().createNSDeclarationIntentionFix(context, namespacePrefix, token) : null;
+      if (!XmlUtil.JSP_URI.equals(tag.getNamespace()) && isOnTheFly) {
+        LocalQuickFix fix = XmlQuickFixFactory.getInstance().createNSDeclarationIntentionFix(context, namespacePrefix, token);
         reportTagProblem(tag, localizedMessage, null, ProblemHighlightType.INFORMATION, fix, holder);
       }
       return;
@@ -176,12 +176,6 @@ public class XmlUnboundNsPrefixInspection extends XmlSuppressableInspectionTool 
     }
   }
 
-
-  @Override
-  @NotNull
-  public HighlightDisplayLevel getDefaultLevel() {
-    return HighlightDisplayLevel.WARNING;
-  }
 
   @Override
   public boolean isEnabledByDefault() {

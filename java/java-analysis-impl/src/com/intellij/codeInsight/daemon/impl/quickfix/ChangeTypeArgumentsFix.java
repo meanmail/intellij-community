@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,10 +15,10 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.intention.HighPriorityAction;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -28,7 +28,6 @@ import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.impl.source.resolve.DefaultParameterTypeInferencePolicy;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,10 +35,9 @@ import static com.intellij.util.ObjectUtils.assertNotNull;
 
 /**
  * @author cdr
- * @since Nov 13, 2002
  */
 public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityAction {
-  private static final Logger LOG = Logger.getInstance("#" + ChangeTypeArgumentsFix.class.getName());
+  private static final Logger LOG = Logger.getInstance(ChangeTypeArgumentsFix.class);
 
   private final PsiMethod myTargetMethod;
   private final PsiClass myPsiClass;
@@ -75,6 +73,7 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
+    if (!myPsiClass.isValid() || !myTargetMethod.isValid()) return false;
     final PsiTypeParameter[] typeParameters = myPsiClass.getTypeParameters();
     if (typeParameters.length > 0) {
       if (myNewExpression != null && myNewExpression.isValid() && myNewExpression.getArgumentList() != null) {
@@ -105,8 +104,6 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
 
   @Override
   public void invoke(@NotNull final Project project, Editor editor, final PsiFile file) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     final PsiTypeParameter[] typeParameters = myPsiClass.getTypeParameters();
     final PsiSubstitutor psiSubstitutor = inferTypeArguments();
     final PsiJavaCodeReferenceElement reference = myNewExpression.getClassOrAnonymousClassReference();
@@ -154,7 +151,7 @@ public class ChangeTypeArgumentsFix implements IntentionAction, HighPriorityActi
                                         @NotNull PsiElement context) {
     if (!candidate.isStaticsScopeCorrect()) return;
     PsiMethod method = (PsiMethod)candidate.getElement();
-    if (method != null && context.getManager().isInProject(method)) {
+    if (method != null && BaseIntentionAction.canModify(method)) {
       final ChangeTypeArgumentsFix fix = new ChangeTypeArgumentsFix(method, psiClass, expressions, context);
       QuickFixAction.registerQuickFixAction(highlightInfo, null, fix);
     }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actionMacro;
 
 import com.intellij.icons.AllIcons;
@@ -42,9 +28,11 @@ import com.intellij.openapi.wm.CustomStatusBarWidget;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.WindowManager;
+import com.intellij.ui.AnimatedIcon.Recording;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.panels.NonOpaquePanel;
 import com.intellij.util.Consumer;
+import com.intellij.util.messages.MessageBus;
 import com.intellij.util.ui.AnimatedIcon;
 import com.intellij.util.ui.BaseButtonBehavior;
 import com.intellij.util.ui.PositionTracker;
@@ -63,12 +51,9 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
-@State(
-  name = "ActionMacroManager",
-  storages = @Storage("macros.xml")
-)
+@State(name = "ActionMacroManager", storages = @Storage("macros.xml"))
 public class ActionMacroManager implements PersistentStateComponent<Element>, Disposable {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.ide.actionMacro.ActionMacroManager");
+  private static final Logger LOG = Logger.getInstance(ActionMacroManager.class);
 
   private static final String TYPING_SAMPLE = "WWWWWWWWWWWWWWWWWWWW";
   private static final String RECORDED = "Recorded: ";
@@ -84,17 +69,17 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
   private static final String ELEMENT_MACRO = "macro";
   private final IdeEventQueue.EventDispatcher myKeyProcessor;
 
-  private Set<InputEvent> myLastActionInputEvent = new HashSet<>();
+  private final Set<InputEvent> myLastActionInputEvent = new HashSet<>();
   private ActionMacroManager.Widget myWidget;
 
   private String myLastTyping = "";
 
-  public ActionMacroManager(ActionManagerEx actionManagerEx) {
-    myActionManager = actionManagerEx;
-    myActionManager.addAnActionListener(new AnActionListener() {
+  public ActionMacroManager(ActionManagerEx actionManager, @NotNull MessageBus messageBus) {
+    myActionManager = actionManager;
+    messageBus.connect(this).subscribe(AnActionListener.TOPIC, new AnActionListener() {
       @Override
-      public void beforeActionPerformed(AnAction action, DataContext dataContext, final AnActionEvent event) {
-        String id = myActionManager.getId(action);
+      public void beforeActionPerformed(@NotNull AnAction action, @NotNull DataContext dataContext, @NotNull final AnActionEvent event) {
+        String id = actionManager.getId(action);
         if (id == null) return;
         //noinspection HardCodedStringLiteral
         if ("StartStopMacroRecording".equals(id)) {
@@ -110,14 +95,6 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
           myLastActionInputEvent.add(event.getInputEvent());
         }
       }
-
-      @Override
-      public void beforeEditorTyping(char c, DataContext dataContext) {
-      }
-
-      @Override
-      public void afterActionPerformed(final AnAction action, final DataContext dataContext, final AnActionEvent event) {
-      }
     });
 
     myKeyProcessor = new MyKeyPostpocessor();
@@ -125,7 +102,7 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     myMacros = new ArrayList<>();
     for (Element macroElement : state.getChildren(ELEMENT_MACRO)) {
       ActionMacro macro = new ActionMacro();
@@ -165,17 +142,14 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
 
   private class Widget implements CustomStatusBarWidget, Consumer<MouseEvent> {
 
-    private AnimatedIcon myIcon = new AnimatedIcon("Macro recording",
-                                                   new Icon[]{
-                                                     AllIcons.Ide.Macro.Recording_1,
-                                                     AllIcons.Ide.Macro.Recording_2,
-                                                     AllIcons.Ide.Macro.Recording_3,
-                                                     AllIcons.Ide.Macro.Recording_4},
-                                                   AllIcons.Ide.Macro.Recording_1, 1000);
-    private StatusBar myStatusBar;
+    private final AnimatedIcon myIcon = new AnimatedIcon("Macro recording",
+                                                         Recording.ICONS.toArray(new Icon[0]),
+                                                         AllIcons.Ide.Macro.Recording_1,
+                                                         Recording.DELAY * Recording.ICONS.size());
+    private final StatusBar myStatusBar;
     private final WidgetPresentation myPresentation;
 
-    private JPanel myBalloonComponent;
+    private final JPanel myBalloonComponent;
     private Balloon myBalloon;
     private final JLabel myText;
 
@@ -246,7 +220,7 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
 
       myBalloon.addListener(new JBPopupAdapter() {
         @Override
-        public void onClosed(LightweightWindowEvent event) {
+        public void onClosed(@NotNull LightweightWindowEvent event) {
           if (myBalloon != null) {
             Disposer.dispose(myBalloon);
           }
@@ -288,7 +262,7 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
 
     @Override
     public void dispose() {
-      myIcon.dispose();
+      Disposer.dispose(myIcon);
       if (myBalloon != null) {
         Disposer.dispose(myBalloon);
       }
@@ -412,7 +386,7 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
   }
 
   public ActionMacro[] getAllMacros() {
-    return myMacros.toArray(new ActionMacro[myMacros.size()]);
+    return myMacros.toArray(new ActionMacro[0]);
   }
 
   public void removeAllMacros() {
@@ -503,21 +477,27 @@ public class ActionMacroManager implements PersistentStateComponent<Element>, Di
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       IdeEventQueue.getInstance().doWhenReady(() -> getInstance().playMacro(myMacro));
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       super.update(e);
       e.getPresentation().setEnabled(!getInstance().isPlaying());
+    }
+
+    @Nullable
+    @Override
+    public String getTemplateText() {
+      return "Invoke Macro";
     }
   }
 
   private class MyKeyPostpocessor implements IdeEventQueue.EventDispatcher {
 
     @Override
-    public boolean dispatch(AWTEvent e) {
+    public boolean dispatch(@NotNull AWTEvent e) {
       if (isRecording() && e instanceof KeyEvent) {
         postProcessKeyEvent((KeyEvent)e);
       }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.formatter.xml;
 
 import com.intellij.formatting.*;
@@ -23,6 +9,7 @@ import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
+import com.intellij.psi.formatter.FormatterUtil;
 import com.intellij.psi.formatter.WhiteSpaceFormattingStrategy;
 import com.intellij.psi.formatter.WhiteSpaceFormattingStrategyFactory;
 import com.intellij.psi.formatter.common.AbstractBlock;
@@ -112,7 +99,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   protected Alignment chooseAlignment(final ASTNode child, final Alignment attrAlignment, final Alignment textAlignment) {
     if (myNode.getElementType() == XmlElementType.XML_TEXT) return getAlignment();
     final IElementType elementType = child.getElementType();
-    if (elementType == XmlElementType.XML_ATTRIBUTE && myXmlFormattingPolicy.getShouldAlignAttributes()) return attrAlignment;
+    if (isAttributeElementType(elementType) && myXmlFormattingPolicy.getShouldAlignAttributes()) return attrAlignment;
     if (elementType == XmlElementType.XML_TEXT && myXmlFormattingPolicy.getShouldAlignText()) return textAlignment;
     return null;
   }
@@ -124,7 +111,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   protected Wrap chooseWrap(final ASTNode child, final Wrap tagBeginWrap, final Wrap attrWrap, final Wrap textWrap) {
     if (myNode.getElementType() == XmlElementType.XML_TEXT) return textWrap;
     final IElementType elementType = child.getElementType();
-    if (elementType == XmlElementType.XML_ATTRIBUTE) return attrWrap;
+    if (isAttributeElementType(elementType)) return attrWrap;
     if (elementType == XmlTokenType.XML_START_TAG_START) return tagBeginWrap;
     if (elementType == XmlTokenType.XML_END_TAG_START) {
       final PsiElement parent = SourceTreeToPsiMap.treeElementToPsi(child.getTreeParent());
@@ -136,7 +123,13 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
       }
       return null;
     }
-    if (elementType == XmlElementType.XML_TEXT || elementType == XmlTokenType.XML_DATA_CHARACTERS) return textWrap;
+    if (elementType == XmlElementType.XML_TEXT || elementType == XmlTokenType.XML_DATA_CHARACTERS) {
+      ASTNode previous = FormatterUtil.getPreviousNonWhitespaceSibling(child);
+      if (previous == null || previous.getElementType() != XmlElementType.XML_TEXT) {
+        return myXmlFormattingPolicy.allowWrapBeforeText() ? textWrap : null;
+      }
+      return textWrap;
+    }
     return null;
   }
 
@@ -248,7 +241,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
         return true;
       }
     }, node);
-    return result.toArray(new XmlTag[result.size()]);
+    return result.toArray(XmlTag.EMPTY);
   }
 
   protected boolean containsTag(final PsiElement tag) {
@@ -287,7 +280,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   protected void processSimpleChild(final ASTNode child,
                                   final Indent indent,
-                                  final List<Block> result,
+                                  final List<? super Block> result,
                                   final Wrap wrap,
                                   final Alignment alignment) {
     if (isXmlTag(child)) {
@@ -324,7 +317,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
   }
 
   @Nullable
-  protected ASTNode createAnotherTreeNode(final List<Block> result,
+  protected ASTNode createAnotherTreeNode(final List<? super Block> result,
                                             final ASTNode child,
                                             PsiElement tag,
                                             final Indent indent,
@@ -346,6 +339,11 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     return null;
 
   }
+
+  protected boolean isAttributeElementType(final IElementType elementType) {
+    return elementType == XmlElementType.XML_ATTRIBUTE;
+  }
+
   protected boolean isXmlTag(final ASTNode child) {
     return isXmlTag(child.getPsi());
   }
@@ -364,7 +362,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
     final FormattingModelBuilder childFormatter = LanguageFormatting.INSTANCE.forLanguage(childLanguage);
     return childFormatter == null ||
            childFormatter instanceof DelegatingFormattingModelBuilder &&
-           ((DelegatingFormattingModelBuilder)childFormatter).dontFormatMyModel();
+           ((DelegatingFormattingModelBuilder)childFormatter).dontFormatMyModel(childPsi);
   }
 
   protected boolean isJspxJavaContainingNode(final ASTNode child) {
@@ -401,7 +399,7 @@ public abstract class AbstractXmlBlock extends AbstractBlock {
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.formatter.xml.AbstractXmlBlock");
 
-  protected void createJspTextNode(final List<Block> localResult, final ASTNode child, final Indent indent) {
+  protected void createJspTextNode(final List<? super Block> localResult, final ASTNode child, final Indent indent) {
   }
 
   @Nullable

@@ -41,8 +41,7 @@ public class TraceableDisposable {
   private Throwable KILL_TRACE;
 
   public TraceableDisposable(boolean debug) {
-    //noinspection ThrowableResultOfMethodCallIgnored
-    CREATE_TRACE = debug ? ThrowableInterner.intern(new Throwable()) : null;
+    CREATE_TRACE = debug ? ThrowableInterner.intern(new Throwable(String.valueOf(System.currentTimeMillis()))) : null;
   }
 
   public void kill(@NonNls @Nullable String msg) {
@@ -64,15 +63,21 @@ public class TraceableDisposable {
     throw new ObjectNotDisposedException(msg);
   }
 
-  private class ObjectNotDisposedException extends RuntimeException {
+  private final class ObjectNotDisposedException extends RuntimeException implements ExceptionWithAttachments {
 
     ObjectNotDisposedException(@Nullable @NonNls final String msg) {
       super(msg);
+      KILL_TRACE = ThrowableInterner.intern(new Throwable(msg));
+    }
+
+    @NotNull
+    @Override
+    public Attachment[] getAttachments() {
+      return new Attachment[]{new Attachment("kill", KILL_TRACE)};
     }
 
     @Override
     public void printStackTrace(@NotNull PrintStream s) {
-      //noinspection IOResourceOpenedButNotSafelyClosed
       PrintWriter writer = new PrintWriter(s);
       printStackTrace(writer);
       writer.flush();
@@ -81,9 +86,11 @@ public class TraceableDisposable {
     @SuppressWarnings("HardCodedStringLiteral")
     @Override
     public void printStackTrace(PrintWriter s) {
-      final List<StackTraceElement> stack = new ArrayList<StackTraceElement>(Arrays.asList(CREATE_TRACE.getStackTrace()));
+      final List<StackTraceElement> stack = new ArrayList<>(Arrays.asList(CREATE_TRACE.getStackTrace()));
       stack.remove(0); // this line is useless it stack
-      s.write(ObjectNotDisposedException.class.getCanonicalName() + ": See stack trace responsible for creation of unreleased object below \n\tat " + StringUtil.join(stack, "\n\tat "));
+      s.write(ObjectNotDisposedException.class.getCanonicalName() +
+              ": See stack trace responsible for creation of unreleased object below \n\tat " +
+              StringUtil.join(stack, "\n\tat "));
     }
   }
 
@@ -126,7 +133,7 @@ public class TraceableDisposable {
       KILL_TRACE.printStackTrace(out);
     }
     out.println("-------------Own trace:");
-    new DisposalException("").printStackTrace(out);
+    new DisposalException("" + System.identityHashCode(this)).printStackTrace(out);
     out.flush();
     return s.toString();
   }

@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 07.06.2002
- * Time: 18:16:19
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.ui;
 
 import com.intellij.psi.PsiModifier;
@@ -60,9 +52,10 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
     ButtonGroup bg = new ButtonGroup();
 
     ItemListener listener = new ItemListener() {
+      @Override
       public void itemStateChanged(ItemEvent e) {
         if (e.getStateChange() == ItemEvent.SELECTED) {
-          myEventDispatcher.getMulticaster().stateChanged(new ChangeEvent(this));
+          stateChanged(new ChangeEvent(this));
         }
       }
     };
@@ -114,6 +107,7 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
   }
 
 
+  @Override
   @Nullable
   public String getVisibility() {
     if (myRbPublic.isSelected()) {
@@ -135,6 +129,7 @@ public class JavaVisibilityPanel extends VisibilityPanelBase<String> {
     return null;
   }
 
+  @Override
   public void setVisibility(@Nullable String visibility) {
     if (PsiModifier.PUBLIC.equals(visibility)) {
       myRbPublic.setSelected(true);

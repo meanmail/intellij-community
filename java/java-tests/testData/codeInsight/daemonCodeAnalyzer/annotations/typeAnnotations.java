@@ -49,9 +49,11 @@ class Outer {
     static class StaticInner {
       void test() {
         @TA StaticInner v1;
+        StaticMiddle.@TA StaticInner @TA [] @TA [] va;
         <error descr="Static member qualifying type may not be annotated">@TA</error> StaticMiddle.@TA StaticInner v2;
         <error descr="Static member qualifying type may not be annotated">@TA</error> Outer.<error descr="Static member qualifying type may not be annotated">@TA</error> StaticMiddle.@TA StaticInner v3;
-        List<@TA Outer.<error descr="Static member qualifying type may not be annotated">@TA</error> StaticMiddle.@TA StaticInner> l;
+        List<Outer.<error descr="Static member qualifying type may not be annotated">@TA</error> StaticMiddle.@TA StaticInner> l1;
+        List<<error descr="Static member qualifying type may not be annotated">@TA</error> Outer.StaticMiddle.@TA StaticInner> l2;
       }
     }
   }
@@ -67,7 +69,9 @@ class Outer {
     @A Map.@TA Entry e1;
     @A <error descr="Static member qualifying type may not be annotated">@TA</error> Map.@TA Entry e2;
     @A java.<error descr="Annotation not applicable to this kind of reference">@TA</error> util.Map.@TA Entry e3;
+    @A <error descr="Annotation not applicable to this kind of reference">@TA</error> java.util.Map.@TA Entry e4;
     @A List<java.<error descr="Annotation not applicable to this kind of reference">@TA</error> lang.@TA String> l1;
+    @A List<<error descr="Annotation not applicable to this kind of reference">@TA</error> java.lang.String> l2;
 
     Object obj = "str";
     @TA String str = (@TA String)obj;

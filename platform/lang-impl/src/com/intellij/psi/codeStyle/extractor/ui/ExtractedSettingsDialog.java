@@ -1,37 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle.extractor.ui;
 
-import com.intellij.application.options.codeStyle.OptionTableWithPreviewPanel;
 import com.intellij.openapi.application.ApplicationBundle;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.Condition;
-import com.intellij.psi.codeStyle.presentation.CodeStyleSettingPresentation;
 import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
 import com.intellij.psi.codeStyle.extractor.values.Value;
+import com.intellij.psi.codeStyle.presentation.CodeStyleSettingPresentation;
 import com.intellij.ui.SpeedSearchComparator;
 import com.intellij.ui.TreeTableSpeedSearch;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.components.panels.HorizontalLayout;
-import com.intellij.ui.treeStructure.treetable.*;
+import com.intellij.ui.treeStructure.treetable.ListTreeTableModel;
+import com.intellij.ui.treeStructure.treetable.TreeTable;
+import com.intellij.ui.treeStructure.treetable.TreeTableCellRenderer;
+import com.intellij.ui.treeStructure.treetable.TreeTableModel;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.AbstractTableCellEditor;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.tree.TreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -39,16 +27,20 @@ import javax.swing.*;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import javax.swing.table.TableColumn;
-import javax.swing.tree.*;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreeCellRenderer;
+import javax.swing.tree.TreeNode;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.*;
+import java.util.Collection;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.Map;
 
 /**
  * @author Roman.Shein
- * @since 28.09.2015.
  */
 public class ExtractedSettingsDialog extends DialogWrapper {
   protected CodeStyleSettingsNameProvider myNameProvider;
@@ -218,7 +210,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
 
     protected void updateAncestorsUi(boolean accepted, SettingsTreeNode node) {
       TreeNode parent = node.getParent();
-      if (parent != null && parent instanceof SettingsTreeNode) {
+      if (parent instanceof SettingsTreeNode) {
         SettingsTreeNode settingsParent = (SettingsTreeNode) parent;
         settingsParent.accepted = false;
         if (!accepted) {
@@ -268,8 +260,8 @@ public class ExtractedSettingsDialog extends DialogWrapper {
     }
   }
 
-  private static ValueRenderer myValueRenderer = new ValueRenderer();
-  private static ValueEditor myValueEditor = new ValueEditor();
+  private static final ValueRenderer myValueRenderer = new ValueRenderer();
+  private static final ValueEditor myValueEditor = new ValueEditor();
 
   protected static ColumnInfo getValueColumnInfo() {
     return new ColumnInfo("VALUE") {
@@ -288,6 +280,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
         return myValueRenderer;
       }
 
+      @Override
       public TableCellEditor getEditor(Object o) {
         return myValueEditor;
       }
@@ -416,7 +409,7 @@ public class ExtractedSettingsDialog extends DialogWrapper {
     treeTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     treeTable.setTableHeader(null);
 
-    OptionTableWithPreviewPanel.expandTree(tree);
+    TreeUtil.expandAll(tree);
 
     treeTable.getColumnModel().getSelectionModel().setAnchorSelectionIndex(1);
     treeTable.getColumnModel().getSelectionModel().setLeadSelectionIndex(1);

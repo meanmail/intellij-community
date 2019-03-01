@@ -18,11 +18,13 @@ public class PsiDelegateReference implements PsiReference {
     myDelegate = delegate;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return myDelegate.getElement();
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return myDelegate.getRangeInElement();
@@ -41,7 +43,7 @@ public class PsiDelegateReference implements PsiReference {
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     return myDelegate.handleElementRename(newElementName);
   }
 
@@ -51,7 +53,7 @@ public class PsiDelegateReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return myDelegate.isReferenceTo(element);
   }
 

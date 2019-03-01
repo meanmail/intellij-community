@@ -18,8 +18,10 @@ package com.intellij.openapi.editor.colors.impl;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.ColorUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.Nullable;
 
 import java.awt.Color;
 
@@ -60,6 +62,7 @@ class ValueElementReader {
    * @param <T>     the result type
    * @return a value or {@code null} if it cannot be read
    */
+  @Nullable
   public <T> T read(Class<T> type, Element element) {
     T value = null;
     if (element != null) {
@@ -151,6 +154,13 @@ class ValueElementReader {
   }
 
   private static Color toColor(String value) {
+    try {
+      if (6 <= value.length()) return ColorUtil.fromHex(value);
+      LOG.debug("short color value: ", value);
+    }
+    catch (Exception exception) {
+      LOG.debug("wrong color value: ", value);
+    }
     int rgb;
     try {
       rgb = Integer.parseInt(value, 16);
@@ -158,6 +168,7 @@ class ValueElementReader {
     catch (NumberFormatException ignored) {
       rgb = Integer.decode(value);
     }
+    //noinspection UseJBColor
     return new Color(rgb);
   }
 }

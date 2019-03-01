@@ -53,10 +53,11 @@ public class JBLoadingPanel extends JPanel {
     });
   }
 
-  public JBLoadingPanel(@Nullable LayoutManager manager, @NotNull NotNullFunction<JPanel, LoadingDecorator> createLoadingDecorator) {
+  public JBLoadingPanel(@Nullable LayoutManager manager, @NotNull NotNullFunction<? super JPanel, ? extends LoadingDecorator> createLoadingDecorator) {
     super(new BorderLayout());
     myPanel = manager == null ? new JPanel() : new JPanel(manager);
     myPanel.setOpaque(false);
+    myPanel.setFocusable(false);
     myDecorator = createLoadingDecorator.fun(myPanel);
     super.add(myDecorator.getComponent(), BorderLayout.CENTER);
   }
@@ -113,6 +114,7 @@ public class JBLoadingPanel extends JPanel {
 
   @Override
   public void add(Component comp, Object constraints) {
+
     myPanel.add(comp, constraints);
   }
 

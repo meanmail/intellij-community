@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.ui;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
@@ -32,6 +33,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.components.JBTextField;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jetbrains.annotations.NonNls;
@@ -49,6 +51,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
 
 public class GuiUtils {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.ui.GuiUtils");
+
   private static final Insets paddingFromDialogBoundaries = new Insets(7, 5, 7, 5);
   private static final Insets paddingInsideDialog = new Insets(5, 5, 5, 5);
 
@@ -182,17 +186,17 @@ public class GuiUtils {
     final Icon defaultIcon = UIUtil.getRadioButtonIcon();
     LayeredIcon deficon = new LayeredIcon(2);
     deficon.setIcon(defaultIcon, 0);
-    deficon.setIcon(icon, 1, defaultIcon.getIconWidth() + 5, 0);
+    deficon.setIcon(icon, 1, defaultIcon.getIconWidth() + JBUI.scale(5), 0);
     button.setIcon(deficon);
 
     LayeredIcon pressed = new LayeredIcon(2);
     pressed.setIcon(defaultIcon, 0);
-    pressed.setIcon(icon, 1, defaultIcon.getIconWidth() + 5, 0);
+    pressed.setIcon(icon, 1, defaultIcon.getIconWidth() + JBUI.scale(5), 0);
     button.setPressedIcon(pressed);
 
     LayeredIcon selected = new LayeredIcon(2);
     selected.setIcon(defaultIcon, 0);
-    selected.setIcon(icon, 1, defaultIcon.getIconWidth() + 5, 0);
+    selected.setIcon(icon, 1, defaultIcon.getIconWidth() + JBUI.scale(5), 0);
     button.setSelectedIcon(selected);
   }
 
@@ -220,6 +224,10 @@ public class GuiUtils {
   }
 
   public static void replaceJSplitPaneWithIDEASplitter(JComponent root) {
+    replaceJSplitPaneWithIDEASplitter(root, false);
+  }
+
+  public static void replaceJSplitPaneWithIDEASplitter(JComponent root, boolean useOnePixelDivider) {
     final Container parent = root.getParent();
     if (root instanceof JSplitPane) {
       // we can painlessly replace only splitter which is the only child in container
@@ -230,7 +238,8 @@ public class GuiUtils {
       final Component component1 = pane.getTopComponent();
       final Component component2 = pane.getBottomComponent();
       final int orientation = pane.getOrientation();
-      final Splitter splitter = new JBSplitter(orientation == JSplitPane.VERTICAL_SPLIT);
+      boolean vertical = orientation == JSplitPane.VERTICAL_SPLIT;
+      final Splitter splitter = useOnePixelDivider ? new OnePixelSplitter(vertical) : new JBSplitter(vertical);
       splitter.setFirstComponent((JComponent) component1);
       splitter.setSecondComponent((JComponent) component2);
       splitter.setShowDividerControls(pane.isOneTouchExpandable());
@@ -264,20 +273,20 @@ public class GuiUtils {
         parent.setLayout(new BorderLayout());
         parent.add(splitter, BorderLayout.CENTER);
       }
-      replaceJSplitPaneWithIDEASplitter((JComponent) component1);
-      replaceJSplitPaneWithIDEASplitter((JComponent) component2);
+      replaceJSplitPaneWithIDEASplitter((JComponent) component1, useOnePixelDivider);
+      replaceJSplitPaneWithIDEASplitter((JComponent) component2, useOnePixelDivider);
     }
     else {
       final Component[] components = root.getComponents();
       for (Component component : components) {
         if (component instanceof JComponent) {
-          replaceJSplitPaneWithIDEASplitter((JComponent)component);
+          replaceJSplitPaneWithIDEASplitter((JComponent)component, useOnePixelDivider);
         }
       }
     }
   }
 
-  public static void iterateChildren(Component container, Consumer<Component> consumer, JComponent... excludeComponents) {
+  public static void iterateChildren(Component container, Consumer<? super Component> consumer, JComponent... excludeComponents) {
     if (excludeComponents != null && ArrayUtil.find(excludeComponents, container) != -1) return;
     consumer.consume(container);
     if (container instanceof Container) {
@@ -288,7 +297,7 @@ public class GuiUtils {
     }
   }
 
-  public static void iterateChildren(Consumer<Component> consumer, Component... components) {
+  public static void iterateChildren(Consumer<? super Component> consumer, Component... components) {
     for (final Component component : components) {
       iterateChildren(component, consumer);
     }
@@ -395,5 +404,18 @@ public class GuiUtils {
     FontMetrics fontMetrics = comp.getFontMetrics(comp.getFont());
     size.width = fontMetrics.charWidth('a') * charCount;
     return size;
+  }
+
+  public static void printDebugInfo(Component component) {
+    StringBuilder builder = new StringBuilder();
+    boolean first = true;
+    while (component != null) {
+      builder.append("\n");
+      builder.append(first ? "UI debug dump:" : "\tat ").append(component.getClass().getName()).append(" with bounds ")
+        .append(component.getBounds());
+      component = component.getParent();
+      first = false;
+    }
+    LOG.warn(builder.toString());
   }
 }

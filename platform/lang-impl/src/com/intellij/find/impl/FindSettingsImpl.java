@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.find.impl;
 
 import com.intellij.find.FindBundle;
@@ -23,23 +9,16 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.xmlb.XmlSerializerUtil;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import com.intellij.util.xmlb.annotations.Property;
-import com.intellij.util.xmlb.annotations.Tag;
 import com.intellij.util.xmlb.annotations.Transient;
+import com.intellij.util.xmlb.annotations.XCollection;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
-@State(
-  name = "FindSettings",
-  storages = {
-    @Storage("find.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
+@State(name = "FindSettings", storages = @Storage("find.xml"))
 public class FindSettingsImpl extends FindSettings implements PersistentStateComponent<FindSettingsImpl> {
   @NonNls private static final String FIND_DIRECTION_FORWARD = "forward";
   @NonNls private static final String FIND_DIRECTION_BACKWARD = "backward";
@@ -68,7 +47,7 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     else if (PlatformUtils.isPhpStorm()) {
       recentFileMasks.add("*.php");
     }
-    else if (PlatformUtils.isDatabaseIDE()) {
+    else if (PlatformUtils.isDataGrip()) {
       recentFileMasks.add("*.sql");
     }
   }
@@ -83,40 +62,37 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     SEARCH_OVERLOADED_METHODS = search;
   }
 
-  @SuppressWarnings({"WeakerAccess"}) public boolean SEARCH_OVERLOADED_METHODS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean SEARCH_IN_LIBRARIES = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean SKIP_RESULTS_WHEN_ONE_USAGE = false;
+  @SuppressWarnings("WeakerAccess") public boolean SEARCH_OVERLOADED_METHODS;
+  @SuppressWarnings("WeakerAccess") public boolean SKIP_RESULTS_WHEN_ONE_USAGE;
 
-  @SuppressWarnings({"WeakerAccess"}) public String FIND_DIRECTION = FIND_DIRECTION_FORWARD;
-  @SuppressWarnings({"WeakerAccess"}) public String FIND_ORIGIN = FIND_ORIGIN_FROM_CURSOR;
-  @SuppressWarnings({"WeakerAccess"}) public String FIND_SCOPE = FIND_SCOPE_GLOBAL;
-  @SuppressWarnings({"WeakerAccess"}) public String FIND_CUSTOM_SCOPE = null;
+  @SuppressWarnings("WeakerAccess") public String FIND_DIRECTION = FIND_DIRECTION_FORWARD;
+  @SuppressWarnings("WeakerAccess") public String FIND_ORIGIN = FIND_ORIGIN_FROM_CURSOR;
+  @SuppressWarnings("WeakerAccess") public String FIND_SCOPE = FIND_SCOPE_GLOBAL;
 
-  @SuppressWarnings({"WeakerAccess"}) public boolean CASE_SENSITIVE_SEARCH = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean LOCAL_CASE_SENSITIVE_SEARCH = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean PRESERVE_CASE_REPLACE = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean WHOLE_WORDS_ONLY = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean COMMENTS_ONLY = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean STRING_LITERALS_ONLY = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_COMMENTS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_COMMENTS_AND_STRING_LITERALS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean EXCEPT_STRING_LITERALS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean LOCAL_WHOLE_WORDS_ONLY = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean REGULAR_EXPRESSIONS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean LOCAL_REGULAR_EXPRESSIONS = false;
-  @SuppressWarnings({"WeakerAccess"}) public boolean WITH_SUBDIRECTORIES = true;
-  @SuppressWarnings({"WeakerAccess"}) public boolean SHOW_RESULTS_IN_SEPARATE_VIEW = false;
+  @SuppressWarnings("WeakerAccess") public boolean CASE_SENSITIVE_SEARCH;
+  @SuppressWarnings("WeakerAccess") public boolean LOCAL_CASE_SENSITIVE_SEARCH;
+  @SuppressWarnings("WeakerAccess") public boolean PRESERVE_CASE_REPLACE;
+  @SuppressWarnings("WeakerAccess") public boolean WHOLE_WORDS_ONLY;
+  @SuppressWarnings("WeakerAccess") public boolean COMMENTS_ONLY;
+  @SuppressWarnings("WeakerAccess") public boolean STRING_LITERALS_ONLY;
+  @SuppressWarnings("WeakerAccess") public boolean EXCEPT_COMMENTS;
+  @SuppressWarnings("WeakerAccess") public boolean EXCEPT_COMMENTS_AND_STRING_LITERALS;
+  @SuppressWarnings("WeakerAccess") public boolean EXCEPT_STRING_LITERALS;
+  @SuppressWarnings("WeakerAccess") public boolean LOCAL_WHOLE_WORDS_ONLY;
+  @SuppressWarnings("WeakerAccess") public boolean REGULAR_EXPRESSIONS;
+  @SuppressWarnings("WeakerAccess") public boolean LOCAL_REGULAR_EXPRESSIONS;
+  @SuppressWarnings("WeakerAccess") public boolean WITH_SUBDIRECTORIES = true;
+  @SuppressWarnings("WeakerAccess") public boolean SHOW_RESULTS_IN_SEPARATE_VIEW;
 
-  @SuppressWarnings({"WeakerAccess"}) public String SEARCH_SCOPE = DEFAULT_SEARCH_SCOPE;
-  @SuppressWarnings({"WeakerAccess"}) public String FILE_MASK;
+  @SuppressWarnings("WeakerAccess") public String SEARCH_SCOPE = DEFAULT_SEARCH_SCOPE;
+  @SuppressWarnings("WeakerAccess") public String FILE_MASK;
 
-  @Tag("recentFileMasks")
   @Property(surroundWithTag = false)
-  @AbstractCollection(surroundWithTag = false, elementTag = "mask", elementValueAttribute = "")
+  @XCollection(propertyElementName = "recentFileMasks", elementName = "mask", valueAttributeName = "")
   public List<String> recentFileMasks = new ArrayList<>();
 
   @Override
-  public void loadState(FindSettingsImpl state) {
+  public void loadState(@NotNull FindSettingsImpl state) {
     XmlSerializerUtil.copyBean(state, this);
   }
 
@@ -290,11 +266,6 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     FindRecents.getInstance().addStringToReplace(s);
   }
 
-  @Override
-  public void addDirectory(@NotNull String s) {
-    FindRecents.getInstance().addDirectory(s);
-  }
-
   @NotNull
   @Override
   public String[] getRecentFindStrings(){
@@ -311,12 +282,6 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
   @Override
   public String[] getRecentFileMasks() {
     return ArrayUtil.toStringArray(recentFileMasks);
-  }
-
-  @NotNull
-  @Override
-  public List<String> getRecentDirectories(){
-    return FindRecents.getInstance().getRecentDirectories();
   }
 
   @Override
@@ -403,10 +368,7 @@ public class FindSettingsImpl extends FindSettings implements PersistentStateCom
     EXCEPT_STRING_LITERALS = selected;
   }
 
-  @State(
-    name = "FindRecents",
-    storages = {@Storage(value = "find.recents.xml", roamingType = RoamingType.DISABLED)}
-  )
+  @State(name = "FindRecents", storages = @Storage(value = "find.recents.xml", roamingType = RoamingType.DISABLED))
   static final class FindRecents extends FindInProjectSettingsBase {
     public static FindRecents getInstance() {
       return ServiceManager.getService(FindRecents.class);

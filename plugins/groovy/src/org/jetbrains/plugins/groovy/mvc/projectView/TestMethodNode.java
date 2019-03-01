@@ -21,22 +21,17 @@ import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.openapi.module.Module;
 import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 
 import javax.swing.*;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 15.04.2009
- */
 public class TestMethodNode extends MethodNode {
   private final Icon myIcon;
 
   public TestMethodNode(@NotNull final Module module,
                         @NotNull final GrMethod method,
-                        @Nullable final ViewSettings viewSettings, final Icon icon) {
+                        final ViewSettings viewSettings, final Icon icon) {
     super(module, method, viewSettings);
     myIcon = icon;
   }
@@ -52,7 +47,7 @@ public class TestMethodNode extends MethodNode {
   }
 
   @Override
-  protected void updateImpl(final PresentationData data) {
+  protected void updateImpl(@NotNull final PresentationData data) {
     super.updateImpl(data);
 
     data.setIcon(myIcon);

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.uiDesigner.compiler;
 
 import com.intellij.compiler.instrumentation.FailSafeClassReader;
@@ -20,8 +6,8 @@ import com.intellij.compiler.instrumentation.InstrumentationClassFinder;
 import com.intellij.compiler.instrumentation.InstrumenterClassWriter;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.uiDesigner.compiler.*;
 import com.intellij.uiDesigner.compiler.Utils;
+import com.intellij.uiDesigner.compiler.*;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.lw.CompiledClassPropertiesProvider;
 import com.intellij.uiDesigner.lw.LwRootContainer;
@@ -53,7 +39,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/20/12
  */
 public class FormsInstrumenter extends FormsBuilder {
   public static final String BUILDER_NAME = "forms";
@@ -77,7 +62,7 @@ public class FormsInstrumenter extends FormsBuilder {
       return ExitCode.NOTHING_DONE;
     }
 
-    final Set<File> formsToCompile = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> formsToCompile = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
     for (Collection<File> files : srcToForms.values()) {
       formsToCompile.addAll(files);
     }
@@ -92,8 +77,7 @@ public class FormsInstrumenter extends FormsBuilder {
     try {
       final Collection<File> platformCp = ProjectPaths.getPlatformCompilationClasspath(chunk, false);
 
-      final List<File> classpath = new ArrayList<File>();
-      classpath.addAll(ProjectPaths.getCompilationClasspath(chunk, false));
+      final List<File> classpath = new ArrayList<>(ProjectPaths.getCompilationClasspath(chunk, false));
       classpath.add(getResourcePath(GridConstraints.class)); // forms_rt.jar
       final Map<File, String> chunkSourcePath = ProjectPaths.getSourceRootsWithDependents(chunk);
       classpath.addAll(chunkSourcePath.keySet()); // sourcepath for loading forms resources
@@ -109,7 +93,7 @@ public class FormsInstrumenter extends FormsBuilder {
           final File src = entry.getKey();
           final Collection<File> forms = entry.getValue();
 
-          final Collection<String> formPaths = new ArrayList<String>(forms.size());
+          final Collection<String> formPaths = new ArrayList<>(forms.size());
           for (File form : forms) {
             formPaths.add(form.getPath());
           }
@@ -141,8 +125,8 @@ public class FormsInstrumenter extends FormsBuilder {
     CompileContext context, ModuleChunk chunk, final Map<File, String> chunkSourcePath, final InstrumentationClassFinder finder, Collection<File> forms, OutputConsumer outConsumer
   ) throws ProjectBuildException {
 
-    final Map<File, Collection<File>> instrumented = new THashMap<File, Collection<File>>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<String, File> class2form = new HashMap<String, File>();
+    final Map<File, Collection<File>> instrumented = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<String, File> class2form = new HashMap<>();
 
     final MyNestedFormLoader nestedFormsLoader = new MyNestedFormLoader(chunkSourcePath, ProjectPaths.getOutputPathsWithDependents(chunk), finder);
 
@@ -266,18 +250,19 @@ public class FormsInstrumenter extends FormsBuilder {
     private final Map<File, String> mySourceRoots;
     private final Collection<File> myOutputRoots;
     private final InstrumentationClassFinder myClassFinder;
-    private final HashMap<String, LwRootContainer> myCache = new HashMap<String, LwRootContainer>();
+    private final HashMap<String, LwRootContainer> myCache = new HashMap<>();
 
     /**
      * @param sourceRoots all source roots for current module chunk and all dependent recursively
      * @param outputRoots output roots for this module chunk and all dependent recursively
      */
-    public MyNestedFormLoader(Map<File, String> sourceRoots, Collection<File> outputRoots, InstrumentationClassFinder classFinder) {
+    MyNestedFormLoader(Map<File, String> sourceRoots, Collection<File> outputRoots, InstrumentationClassFinder classFinder) {
       mySourceRoots = sourceRoots;
       myOutputRoots = outputRoots;
       myClassFinder = classFinder;
     }
 
+    @Override
     public LwRootContainer loadForm(String formFileName) throws Exception {
       if (myCache.containsKey(formFileName)) {
         return myCache.get(formFileName);
@@ -323,6 +308,7 @@ public class FormsInstrumenter extends FormsBuilder {
       return container;
     }
 
+    @Override
     public String getClassToBindName(LwRootContainer container) {
       final String className = container.getClassToBind();
       for (File outputRoot : myOutputRoots) {

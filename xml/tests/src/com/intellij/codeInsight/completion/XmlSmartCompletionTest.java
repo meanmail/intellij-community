@@ -31,23 +31,23 @@ import java.util.List;
  */
 public class XmlSmartCompletionTest extends LightPlatformCodeInsightFixtureTestCase {
 
-  public void testCompletion() throws Exception {
+  public void testCompletion() {
     doTest(new String[]{"testCompletion.xml", "test.xsd"}, "b");
   }
 
-  public void testCompletionNext() throws Exception {
+  public void testCompletionNext() {
     doTest(new String[]{"testCompletionNext.xml", "test.xsd"}, "c");
   }
 
-  public void testCompletion3() throws Exception {
+  public void testCompletion3() {
     doTest(new String[]{"testCompletion3.xml", "test.xsd"}, "c", "d");
   }
 
-  public void testServlet() throws Exception {
+  public void testServlet() {
     doTest(new String[]{"Servlet.xml"}, "icon", "servlet-name");
   }
 
-  public void testServletName() throws Exception {
+  public void testServletName() {
 
     doForText("<!DOCTYPE web-app\n" +
               "        PUBLIC \"-//Sun Microsystems, Inc.//DTD Web Application 2.3//EN\"\n" +
@@ -70,7 +70,7 @@ public class XmlSmartCompletionTest extends LightPlatformCodeInsightFixtureTestC
               "</web-app>");
   }
 
-  public void testPrefix() throws Exception {
+  public void testPrefix() {
     doForText("<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n" +
               "    <ann<caret>\n" +
               "</xs:schema>",
@@ -78,6 +78,18 @@ public class XmlSmartCompletionTest extends LightPlatformCodeInsightFixtureTestC
               "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n" +
               "    <xs:annotation\n" +
               "</xs:schema>");
+  }
+
+  public void testInvalidXmlException() {
+    doForText("<schema xmlns=\"http://www.w3.org/2001/XMLSchema\">\n" +
+              "  <element name=\"foo\"><<caret></element>>\n" +
+              "  </element>\n" +
+              "</schema>",
+
+              "<schema xmlns=\"http://www.w3.org/2001/XMLSchema\">\n" +
+              "  <element name=\"foo\"><</element>>\n" +
+              "  </element>\n" +
+              "</schema>");
   }
 
   private void doForText(String before, String after) {
@@ -106,7 +118,7 @@ public class XmlSmartCompletionTest extends LightPlatformCodeInsightFixtureTestC
   public void setUp() throws Exception {
     super.setUp();
     ExternalResourceManagerExImpl.registerResourceTemporarily("http://java.sun.com/j2ee/dtds/web-app_2_3.dtd",
-                                                              getTestDataPath() + "/web-app_2_3.dtd", getTestRootDisposable());
+                                                              getTestDataPath() + "/web-app_2_3.dtd", myFixture.getTestRootDisposable());
   }
 
   @Override

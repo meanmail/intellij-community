@@ -22,8 +22,6 @@ import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.impl.ui.tree.actions.XDebuggerTreeActionBase;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import com.jetbrains.python.debugger.PyDebugValue;
-import com.jetbrains.python.debugger.array.NumpyArrayTable;
-import com.jetbrains.python.debugger.dataframe.DataFrameTable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,28 +38,12 @@ public class PyViewNumericContainerAction extends XDebuggerTreeActionBase {
     Project p = e.getProject();
     if (p != null && node != null && node.getValueContainer() instanceof PyDebugValue && node.isComputed()) {
       PyDebugValue debugValue = (PyDebugValue)node.getValueContainer();
-      String nodeType = debugValue.getType();
-      final ViewNumericContainerDialog dialog;
-      if ("ndarray".equals(nodeType)) {
-        dialog = new ViewNumericContainerDialog(p, (dialogWrapper) -> {
-          NumpyArrayTable arrayTable = new NumpyArrayTable(p, dialogWrapper, debugValue);
-          arrayTable.init();
-          return arrayTable.getComponent().getMainPanel();
-        });
-      }
-      else if (("DataFrame".equals(nodeType))) {
-        dialog = new ViewNumericContainerDialog(p, (dialogWrapper) -> {
-          DataFrameTable dataFrameTable = new DataFrameTable(p, dialogWrapper, debugValue);
-          dataFrameTable.init();
-          return dataFrameTable.getComponent().getMainPanel();
-        });
-      }
-      else {
-        throw new IllegalStateException("Cannot render node type: " + nodeType);
-      }
-
-      dialog.show();
+      showNumericViewer(p, debugValue);
     }
+  }
+
+  public static void showNumericViewer(Project project, PyDebugValue debugValue) {
+    PyDataView.getInstance(project).show(debugValue);
   }
 
   @Nullable
@@ -71,7 +53,7 @@ public class PyViewNumericContainerAction extends XDebuggerTreeActionBase {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setVisible(false);
     TreePath[] paths = getSelectedPaths(e.getDataContext());
     if (paths != null) {

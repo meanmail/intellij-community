@@ -16,6 +16,7 @@
 package com.intellij.ide.util.treeView;
 
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -27,7 +28,7 @@ public abstract class NodeDescriptor<E> {
   private final NodeDescriptor myParentDescriptor;
 
   protected String myName;
-  protected Icon myClosedIcon;
+  @Nullable protected Icon myClosedIcon;
 
   /**
    * Unused. It's there only for API compatibility.
@@ -61,10 +62,16 @@ public abstract class NodeDescriptor<E> {
     myIndex = index;
   }
 
+  /**
+   * Make sure the descriptor is up to date with its content
+   *
+   * @return true if any descriptor's properties changed during the update
+   */
   public abstract boolean update();
 
   public abstract E getElement();
 
+  @Override
   public String toString() {
     // NB!: this method may return null if node is not valid
     // it contradicts the specification, but the fix breaks existing behaviour
@@ -88,6 +95,7 @@ public abstract class NodeDescriptor<E> {
     return getIcon();
   }
 
+  @Nullable
   public final Icon getIcon() {
     return myClosedIcon;
   }
@@ -138,18 +146,17 @@ public abstract class NodeDescriptor<E> {
     myWasDeclaredAlwaysLeaf = leaf;
   }
 
-  public void applyFrom(NodeDescriptor desc) {
+  public void applyFrom(@NotNull NodeDescriptor desc) {
     setIcon(desc.getIcon());
     myName = desc.myName;
     myColor = desc.myColor;
   }
 
-  public void setIcon(Icon closedIcon) {
+  public void setIcon(@Nullable Icon closedIcon) {
     myClosedIcon = closedIcon;
   }
 
   public abstract static class NodeComparator<T extends NodeDescriptor> implements Comparator<T> {
-
     private long myStamp;
 
     public final void setStamp(long stamp) {
@@ -165,14 +172,14 @@ public abstract class NodeDescriptor<E> {
     }
 
     public static class Delegate<T extends NodeDescriptor> extends NodeComparator<T> {
+      @NotNull
+      private NodeComparator<? super T> myDelegate;
 
-      private NodeComparator<T> myDelegate;
-
-      protected Delegate(NodeComparator<T> delegate) {
+      protected Delegate(@NotNull NodeComparator<? super T> delegate) {
         myDelegate = delegate;
       }
 
-      public void setDelegate(NodeComparator<T> delegate) {
+      public void setDelegate(@NotNull NodeComparator<? super T> delegate) {
         myDelegate = delegate;
       }
 

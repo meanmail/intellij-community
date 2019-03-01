@@ -26,7 +26,6 @@ import java.util.List;
 
 /**
  * @author Denis Zhdanov
- * @since 11/21/12 12:57 PM
  */
 public class RestoreFoldArrangementCallback implements ArrangementCallback {
 
@@ -62,9 +61,9 @@ public class RestoreFoldArrangementCallback implements ArrangementCallback {
   }
 
   private static class FoldRegionInfo {
-    private int myStart;
-    private int myEnd;
-    private boolean myIsExpanded;
+    private final int myStart;
+    private final int myEnd;
+    private final boolean myIsExpanded;
 
     private FoldRegionInfo(int start, int end, boolean expanded) {
       myStart = start;

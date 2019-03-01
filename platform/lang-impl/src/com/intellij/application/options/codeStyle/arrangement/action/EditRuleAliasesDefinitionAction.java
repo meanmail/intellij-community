@@ -31,11 +31,11 @@ public class EditRuleAliasesDefinitionAction extends AnAction {
   public EditRuleAliasesDefinitionAction() {
     getTemplatePresentation().setText(ApplicationBundle.message("arrangement.action.alias.rule.add.edit.text"));
     getTemplatePresentation().setDescription(ApplicationBundle.message("arrangement.action.alias.rule.add.edit.description"));
-    getTemplatePresentation().setIcon(AllIcons.CodeStyle.Gear);
+    getTemplatePresentation().setIcon(AllIcons.General.GearPlain);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final ArrangementSectionRulesControl control = ArrangementSectionRulesControl.KEY.getData(e.getDataContext());
     if (control == null) {
       return;

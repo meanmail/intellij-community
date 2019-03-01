@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.changeSignature;
 
 import com.intellij.icons.AllIcons;
@@ -22,7 +8,6 @@ import com.intellij.openapi.actionSystem.CustomShortcutSet;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileTypes.LanguageFileType;
@@ -48,6 +33,7 @@ import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Alarm;
 import com.intellij.util.Consumer;
 import com.intellij.util.IJSwingUtilities;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.table.JBListTable;
 import com.intellij.util.ui.table.JBTableRowEditor;
@@ -112,7 +98,8 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
 
   protected abstract LanguageFileType getFileType();
 
-  protected abstract ParameterTableModel createParametersInfoModel(Descriptor method);
+  @NotNull
+  protected abstract ParameterTableModel createParametersInfoModel(@NotNull Descriptor method);
 
   protected abstract BaseRefactoringProcessor createRefactoringProcessor();
 
@@ -128,7 +115,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
 
   protected abstract VisibilityPanelBase<Visibility> createVisibilityControl();
 
-  public ChangeSignatureDialogBase(Project project, final Descriptor method, boolean allowDelegation, PsiElement defaultValueContext) {
+  public ChangeSignatureDialogBase(@NotNull Project project, @NotNull Descriptor method, boolean allowDelegation, PsiElement defaultValueContext) {
     super(project, true);
     myMethod = method;
     myDefaultValueContext = defaultValueContext;
@@ -215,6 +202,9 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     return myParametersList == null ? myParametersTable : myParametersList.getTable();
   }
 
+  public boolean placeReturnTypeBeforeName() {
+    return true;
+  }
 
   @Override
   protected JComponent createNorthPanel() {
@@ -270,11 +260,20 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
       typePanel.add(typeLabel, BorderLayout.NORTH);
       IJSwingUtilities.adjustComponentsOnMac(typeLabel, myReturnTypeField);
       typePanel.add(myReturnTypeField, BorderLayout.SOUTH);
-      panel.add(typePanel, gbc);
-      gbc.gridx++;
+      if (placeReturnTypeBeforeName()) {
+        panel.add(typePanel, gbc);
+        gbc.gridx++;
+        panel.add(myNamePanel, gbc);
+      }
+      else {
+        panel.add(myNamePanel, gbc);
+        gbc.gridx++;
+        panel.add(typePanel, gbc);
+      }
     }
-
-    panel.add(myNamePanel, gbc);
+    else {
+      panel.add(myNamePanel, gbc);
+    }
 
     return panel;
   }
@@ -305,7 +304,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     if (myMethod.canChangeParameters()) {
       final JPanel parametersPanel = createParametersPanel(!panels.isEmpty());
       if (!panels.isEmpty()) {
-        parametersPanel.setBorder(IdeBorderFactory.createEmptyBorder());
+        parametersPanel.setBorder(JBUI.Borders.empty());
       }
       subPanel.add(parametersPanel, BorderLayout.CENTER);
     }
@@ -338,7 +337,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     bottom.add(optionsPanel, BorderLayout.NORTH);
     bottom.add(createSignaturePanel(), BorderLayout.SOUTH);
     main.add(bottom, BorderLayout.SOUTH);
-    main.setBorder(IdeBorderFactory.createEmptyBorder(5, 0, 0, 0));
+    main.setBorder(JBUI.Borders.emptyTop(5));
     return main;
   }
 
@@ -350,9 +349,9 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     }
 
     myPropagateParamChangesButton =
-      new AnActionButton(RefactoringBundle.message("changeSignature.propagate.parameters.title"), null, AllIcons.Hierarchy.Caller) {
+      new AnActionButton(RefactoringBundle.message("changeSignature.propagate.parameters.title"), null, AllIcons.Hierarchy.Supertypes) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           final Ref<CallerChooserBase<Method>> chooser = new Ref<>();
           Consumer<Set<Method>> callback = callers -> {
             myMethodsToPropagateParameters = callers;
@@ -426,9 +425,9 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
 
       @Override
       public Component prepareEditor(final TableCellEditor editor, final int row, final int column) {
-        final DocumentAdapter listener = new DocumentAdapter() {
+        final DocumentListener listener = new DocumentListener() {
           @Override
-          public void documentChanged(DocumentEvent e) {
+          public void documentChanged(@NotNull DocumentEvent e) {
             final TableCellEditor ed = myParametersTable.getCellEditor();
             if (ed != null) {
               Object editorValue = ed.getCellEditorValue();
@@ -446,11 +445,6 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
           ((CodeFragmentTableCellEditorBase)editor).addDocumentListener(listener);
         }
         return super.prepareEditor(editor, row, column);
-      }
-
-      @Override
-      public void editingCanceled(ChangeEvent e) {
-        super.editingCanceled(e);
       }
     };
 
@@ -667,18 +661,13 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
     }
 
     @Override
-    public void documentChanged(DocumentEvent event) {
+    public void documentChanged(@NotNull DocumentEvent event) {
       update();
     }
 
     @Override
     public void tableChanged(TableModelEvent e) {
       update();
-    }
-
-    //---ignored
-    @Override
-    public void beforeDocumentChange(DocumentEvent event) {
     }
   }
 
@@ -692,7 +681,7 @@ public abstract class ChangeSignatureDialogBase<ParamInfo extends ParameterInfo,
       JBTableRowEditor editor = getRowEditor(getRowItem(row));
       editor.addDocumentListener(new JBTableRowEditor.RowDocumentListener() {
         @Override
-        public void documentChanged(DocumentEvent e, int column) {
+        public void documentChanged(@NotNull DocumentEvent e, int column) {
           if (String.class.equals(myParametersTableModel.getColumnClass(column))) {
             myParametersTableModel.setValueAtWithoutUpdate(e.getDocument().getText(), row, column);
           }

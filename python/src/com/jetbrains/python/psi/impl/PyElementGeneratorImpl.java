@@ -37,7 +37,6 @@ import com.jetbrains.NotNullPredicate;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.PythonFileType;
 import com.jetbrains.python.PythonLanguage;
-import com.jetbrains.python.PythonStringUtil;
 import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -59,6 +58,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     myProject = project;
   }
 
+  @Override
   public ASTNode createNameIdentifier(String name, LanguageLevel languageLevel) {
     final PsiFile dummyFile = createDummyFile(languageLevel, name);
     final PyExpressionStatement expressionStatement = (PyExpressionStatement)dummyFile.getFirstChild();
@@ -72,6 +72,9 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return createDummyFile(langLevel, contents, false);
   }
 
+  /**
+   * TODO: Use {@link PsiFileFactory} instead?
+   */
   public PsiFile createDummyFile(LanguageLevel langLevel, String contents, boolean physical) {
     final PsiFileFactory factory = PsiFileFactory.getInstance(myProject);
     final String name = getDummyFileName();
@@ -90,6 +93,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return "dummy." + PythonFileType.INSTANCE.getDefaultExtension();
   }
 
+  @Override
   public PyStringLiteralExpression createStringLiteralAlreadyEscaped(String str) {
     final PsiFile dummyFile = createDummyFile(LanguageLevel.getDefault(), "a=(" + str + ")");
     final PyAssignmentStatement expressionStatement = (PyAssignmentStatement)dummyFile.getFirstChild();
@@ -106,8 +110,9 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return createStringLiteralFromString(null, unescaped, true);
   }
 
-  public PyStringLiteralExpression createStringLiteral(@NotNull PyStringLiteralExpression oldElement, @NotNull String unescaped) {
-    Pair<String, String> quotes = PythonStringUtil.getQuotes(oldElement.getText());
+  @Override
+  public PyStringLiteralExpression createStringLiteral(@NotNull StringLiteralExpression oldElement, @NotNull String unescaped) {
+    Pair<String, String> quotes = PyStringLiteralUtil.getQuotes(oldElement.getText());
     if (quotes != null) {
       return createStringLiteralAlreadyEscaped(quotes.first + unescaped + quotes.second);
     }
@@ -180,12 +185,14 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return createStringLiteralAlreadyEscaped(buf.toString());
   }
 
+  @Override
   public PyListLiteralExpression createListLiteral() {
     final PsiFile dummyFile = createDummyFile(LanguageLevel.getDefault(), "[]");
     final PyExpressionStatement expressionStatement = (PyExpressionStatement)dummyFile.getFirstChild();
     return (PyListLiteralExpression)expressionStatement.getFirstChild();
   }
 
+  @Override
   public ASTNode createComma() {
     final PsiFile dummyFile = createDummyFile(LanguageLevel.getDefault(), "[0,]");
     final PyExpressionStatement expressionStatement = (PyExpressionStatement)dummyFile.getFirstChild();
@@ -193,6 +200,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return zero.getTreeNext().copyElement();
   }
 
+  @Override
   public ASTNode createDot() {
     final PsiFile dummyFile = createDummyFile(LanguageLevel.getDefault(), "a.b");
     final PyExpressionStatement expressionStatement = (PyExpressionStatement)dummyFile.getFirstChild();
@@ -224,6 +232,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
 
   // TODO: Adds comma to empty list: adding "foo" to () will create (foo,). That is why "insertItemIntoListRemoveRedundantCommas" was created.
   // We probably need to fix this method and delete insertItemIntoListRemoveRedundantCommas
+  @Override
   public PsiElement insertItemIntoList(PyElement list, @Nullable PyExpression afterThis, PyExpression toInsert)
     throws IncorrectOperationException {
     ASTNode add = toInsert.getNode().copyElement();
@@ -262,6 +271,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return add.getPsi();
   }
 
+  @Override
   public PyBinaryExpression createBinaryExpression(String s, PyExpression expr, PyExpression listLiteral) {
     final PsiFile dummyFile = createDummyFile(LanguageLevel.getDefault(), "a " + s + " b");
     final PyExpressionStatement expressionStatement = (PyExpressionStatement)dummyFile.getFirstChild();
@@ -272,10 +282,12 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return binExpr;
   }
 
+  @Override
   public PyExpression createExpressionFromText(final String text) {
     return createExpressionFromText(LanguageLevel.getDefault(), text);
   }
 
+  @Override
   @NotNull
   public PyExpression createExpressionFromText(final LanguageLevel languageLevel, final String text) {
     final PsiFile dummyFile = createDummyFile(languageLevel, text);
@@ -286,6 +298,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     throw new IncorrectOperationException("could not parse text as expression: " + text);
   }
 
+  @Override
   @NotNull
   public PyCallExpression createCallExpression(final LanguageLevel langLevel, String functionName) {
     final PsiFile dummyFile = createDummyFile(langLevel, functionName + "()");
@@ -300,8 +313,9 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
   }
 
   @Override
-  public PyImportElement createImportElement(final LanguageLevel languageLevel, String name) {
-    return createFromText(languageLevel, PyImportElement.class, "from foo import " + name, new int[]{0, 6});
+  public PyImportElement createImportElement(@NotNull final LanguageLevel languageLevel, @NotNull String name, @Nullable String alias) {
+    final String importStatement = "from foo import " + name + (alias != null ? " as " + alias : "");
+    return createFromText(languageLevel, PyImportElement.class, importStatement, new int[]{0, 6});
   }
 
   @Override
@@ -324,6 +338,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
 
   static final int[] FROM_ROOT = new int[]{0};
 
+  @Override
   @NotNull
   public <T> T createFromText(LanguageLevel langLevel, Class<T> aClass, final String text) {
     return createFromText(langLevel, aClass, text, FROM_ROOT);
@@ -337,6 +352,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
 
   static int[] PATH_PARAMETER = {0, 3, 1};
 
+  @Override
   public PyNamedParameter createParameter(@NotNull String name) {
     return createParameter(name, null, null, LanguageLevel.getDefault());
   }
@@ -354,6 +370,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
   }
 
 
+  @Override
   public PyNamedParameter createParameter(@NotNull String name, @Nullable String defaultValue, @Nullable String annotation,
                                           @NotNull LanguageLevel languageLevel) {
     String parameterText = name;
@@ -373,6 +390,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return (PyKeywordArgument)callExpression.getArguments()[0];
   }
 
+  @Override
   @NotNull
   public <T> T createFromText(LanguageLevel langLevel, Class<T> aClass, final String text, final int[] path) {
     return createFromText(langLevel, aClass, text, path, false);
@@ -401,12 +419,12 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     if (ret == null) {
       throw new IllegalArgumentException("Can't find element matching path " + Arrays.toString(path) + " in text '" + text + "'");
     }
-    try {
+    if (aClass.isInstance(ret)) {
       //noinspection unchecked
       return (T)ret;
     }
-    catch (ClassCastException e) {
-      throw new IllegalArgumentException("Can't create an expression of type " + aClass + " from text '" + text + "'");
+    else {
+      throw new IllegalArgumentException("Can't create an element of type " + aClass + " from text '" + text + "', got " + ret.getClass() + " instead");
     }
   }
 
@@ -437,6 +455,7 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     return function.getStatementList();
   }
 
+  @Override
   public PyExpressionStatement createDocstring(String content) {
     return createFromText(LanguageLevel.getDefault(),
                           PyExpressionStatement.class, content + "\n");
@@ -463,6 +482,18 @@ public class PyElementGeneratorImpl extends PyElementGenerator {
     final String asClause = StringUtil.isNotEmpty(alias) ? " as " + alias : "";
     final String statement = "import " + name + asClause;
     return createFromText(languageLevel, PyImportStatement.class, statement);
+  }
+
+  @NotNull
+  @Override
+  public PyNoneLiteralExpression createEllipsis() {
+    return createFromText(LanguageLevel.PYTHON30, PyNoneLiteralExpression.class, "...", new int[]{0, 0});
+  }
+
+  @NotNull
+  @Override
+  public PySingleStarParameter createSingleStarParameter() {
+    return createFromText(LanguageLevel.PYTHON30, PySingleStarParameter.class, "def foo(*): pass", new int[]{0, 3, 1});
   }
 
   private static class CommasOnly extends NotNullPredicate<LeafPsiElement> {

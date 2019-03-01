@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,22 +15,26 @@
  */
 package com.jetbrains.python.psi.impl;
 
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.QualifiedName;
+import com.intellij.util.ObjectUtils;
 import com.jetbrains.python.psi.PyClass;
 import com.jetbrains.python.psi.PyPsiFacade;
-import com.jetbrains.python.psi.PyUtil;
+import com.jetbrains.python.psi.resolve.PyQualifiedNameResolveContext;
+import com.jetbrains.python.psi.resolve.PyResolveImportUtil;
 import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
-import com.jetbrains.python.psi.resolve.QualifiedNameResolver;
-import com.jetbrains.python.psi.resolve.QualifiedNameResolverImpl;
 import com.jetbrains.python.psi.stubs.PyClassNameIndex;
 import com.jetbrains.python.psi.types.*;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.List;
 
 /**
  * @author yole
@@ -42,14 +46,16 @@ public class PyPsiFacadeImpl extends PyPsiFacade {
     myProject = project;
   }
 
+  @NotNull
   @Override
-  public QualifiedNameResolver qualifiedNameResolver(String qNameString) {
-    return new QualifiedNameResolverImpl(qNameString);
+  public List<PsiElement> resolveQualifiedName(@NotNull QualifiedName name, @NotNull PyQualifiedNameResolveContext context) {
+    return PyResolveImportUtil.resolveQualifiedName(name, context);
   }
 
+  @NotNull
   @Override
-  public QualifiedNameResolver qualifiedNameResolver(QualifiedName qualifiedName) {
-    return new QualifiedNameResolverImpl(qualifiedName);
+  public PyQualifiedNameResolveContext createResolveContextFromFoothold(@NotNull PsiElement foothold) {
+    return PyResolveImportUtil.fromFoothold(foothold);
   }
 
   @Nullable
@@ -72,8 +78,8 @@ public class PyPsiFacadeImpl extends PyPsiFacade {
 
   @Nullable
   @Override
-  public PyType createTupleType(@NotNull Collection<PyType> members, @NotNull PsiElement anchor) {
-    return PyTupleType.create(anchor, members.toArray(new PyType[members.size()]));
+  public PyType createTupleType(@NotNull List<PyType> members, @NotNull PsiElement anchor) {
+    return PyTupleType.create(anchor, members);
   }
 
   @Nullable
@@ -85,8 +91,21 @@ public class PyPsiFacadeImpl extends PyPsiFacade {
   @Nullable
   @Override
   public final PyClass createClassByQName(@NotNull final String qName, @NotNull final PsiElement anchor) {
-    final PyClassType classType = PyUtil.as(parseTypeAnnotation(qName, anchor), PyClassType.class);
-    return (classType != null ? classType.getPyClass() : null);
+    final QualifiedName qualifiedName = QualifiedName.fromDottedString(qName);
+    // Only built-in classes can be found by their unqualified names.
+    if (qualifiedName.getComponentCount() == 1) {
+      return PyBuiltinCache.getInstance(anchor).getClass(qName);
+    }
+
+    final Module module = ModuleUtilCore.findModuleForPsiElement(ObjectUtils.notNull(anchor.getContainingFile(), anchor));
+    if (module == null) return null;
+    // Don't use PyResolveImportUtil.fromFoothold here as setting foothold file is going to affect resolve results
+    // particularly if the anchor element happens to be in the same file as the target class.
+    final PyQualifiedNameResolveContext resolveContext = PyResolveImportUtil.fromModule(module).copyWithMembers();
+    return StreamEx.of(resolveQualifiedName(qualifiedName, resolveContext))
+      .select(PyClass.class)
+      .findFirst()
+      .orElse(null);
   }
 
   @Nullable

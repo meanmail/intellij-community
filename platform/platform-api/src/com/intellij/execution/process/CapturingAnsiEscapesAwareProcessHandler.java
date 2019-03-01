@@ -31,7 +31,7 @@ public class CapturingAnsiEscapesAwareProcessHandler extends CapturingProcessHan
   }
 
   /** @deprecated Use {@link #CapturingAnsiEscapesAwareProcessHandler(Process, String)} instead (to be removed in IDEA 17) */
-  @SuppressWarnings({"deprecation", "unused"})
+  @SuppressWarnings({"unused"})
   @Deprecated
   public CapturingAnsiEscapesAwareProcessHandler(Process process) {
     super(process);
@@ -61,12 +61,12 @@ public class CapturingAnsiEscapesAwareProcessHandler extends CapturingProcessHan
     }
 
     @Override
-    public void onTextAvailable(ProcessEvent event, Key outputType) {
+    public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
       myAnsiEscapeDecoder.escapeText(event.getText(), outputType, this);
     }
 
     @Override
-    public void coloredTextAvailable(String text, Key attributes) {
+    public void coloredTextAvailable(@NotNull String text, @NotNull Key attributes) {
       addToOutput(text, attributes);
     }
   }

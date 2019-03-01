@@ -63,7 +63,7 @@ public class PyKeywordArgumentReference extends PsiReferenceBase.Poly<PyKeywordA
         }
       }
     }
-    return resultList.toArray(new ResolveResult[resultList.size()]);
+    return resultList.toArray(ResolveResult.EMPTY_ARRAY);
   }
 
   @Nullable
@@ -84,11 +84,5 @@ public class PyKeywordArgumentReference extends PsiReferenceBase.Poly<PyKeywordA
       return resolveToFunction(resolveResult, visited);
     }
     return null;
-  }
-
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return new Object[0];  //To change body of implemented methods use File | Settings | File Templates.
   }
 }

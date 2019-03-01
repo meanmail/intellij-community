@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,7 +21,6 @@ import com.intellij.openapi.roots.CompilerProjectExtension;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -42,7 +41,7 @@ public class ConvertExcludedToIgnoredTest extends PlatformTestCase {
     PsiTestUtil.addContentRoot(myModule, myContentRoot);
   }
 
-  public void testExcludedFolder() throws IOException {
+  public void testExcludedFolder() {
     VirtualFile excluded = createChildDirectory(myContentRoot, "exc");
     PsiTestUtil.addExcludedRoot(myModule, excluded);
     getChangeListManager().convertExcludedToIgnored();
@@ -51,7 +50,7 @@ public class ConvertExcludedToIgnoredTest extends PlatformTestCase {
     assertIgnored(excluded);
   }
 
-  public void testModuleOutput() throws IOException {
+  public void testModuleOutput() {
     VirtualFile output = createChildDirectory(myContentRoot, "out");
     PsiTestUtil.setCompilerOutputPath(myModule, output.getUrl(), false);
     getChangeListManager().convertExcludedToIgnored();
@@ -79,7 +78,7 @@ public class ConvertExcludedToIgnoredTest extends PlatformTestCase {
     assertIgnored(output);
   }
 
-  public void testModuleOutputUnderExcluded() throws IOException {
+  public void testModuleOutputUnderExcluded() {
     VirtualFile excluded = createChildDirectory(myContentRoot, "target");
     PsiTestUtil.addExcludedRoot(myModule, excluded);
     VirtualFile moduleOutput = createChildDirectory(excluded, "classes");
@@ -90,7 +89,7 @@ public class ConvertExcludedToIgnoredTest extends PlatformTestCase {
     assertIgnored(excluded);
   }
 
-  public void testDoNotIgnoreInnerModuleExplicitlyMarkedAsExcludedFromOuterModule() throws IOException {
+  public void testDoNotIgnoreInnerModuleExplicitlyMarkedAsExcludedFromOuterModule() {
     VirtualFile inner = createChildDirectory(myContentRoot, "inner");
     PsiTestUtil.addModule(myProject, ModuleType.EMPTY, "inner", inner);
     PsiTestUtil.addExcludedRoot(myModule, inner);
@@ -107,14 +106,7 @@ public class ConvertExcludedToIgnoredTest extends PlatformTestCase {
     for (VirtualFile dir : expectedIgnoredDirs) {
       expectedIgnoredPaths.add(dir.getPath()+"/");
     }
-    ChangeListManagerImpl changeListManager = ChangeListManagerImpl.getInstanceImpl(project);
-    expectedIgnoredPaths.addAll(changeListManager.predefinedIgnorePaths());
-    List<String> actualIgnoredPaths = ContainerUtil.map2List(changeListManager.getFilesToIgnore(), new Function<IgnoredFileBean, String>() {
-      @Override
-      public String fun(IgnoredFileBean bean) {
-        return bean.getPath();
-      }
-    });
+    List<String> actualIgnoredPaths = ContainerUtil.map2List(ChangeListManagerImpl.getInstanceImpl(project).getFilesToIgnore(), bean -> bean.getPath());
     assertSameElements(actualIgnoredPaths, expectedIgnoredPaths);
   }
 

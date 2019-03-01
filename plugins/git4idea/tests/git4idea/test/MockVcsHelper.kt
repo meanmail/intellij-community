@@ -23,7 +23,6 @@ import com.intellij.openapi.vcs.annotate.FileAnnotation
 import com.intellij.openapi.vcs.changes.Change
 import com.intellij.openapi.vcs.changes.CommitResultHandler
 import com.intellij.openapi.vcs.changes.LocalChangeList
-import com.intellij.openapi.vcs.history.VcsFileRevision
 import com.intellij.openapi.vcs.history.VcsHistoryProvider
 import com.intellij.openapi.vcs.history.VcsRevisionNumber
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer
@@ -32,7 +31,6 @@ import com.intellij.openapi.vcs.versionBrowser.ChangeBrowserSettings
 import com.intellij.openapi.vcs.versionBrowser.CommittedChangeList
 import com.intellij.openapi.vfs.VirtualFile
 import java.awt.Component
-import java.io.File
 
 class MockVcsHelper(project: Project) : AbstractVcsHelper(project) {
   @Volatile private var myCommitDialogShown: Boolean = false
@@ -40,7 +38,7 @@ class MockVcsHelper(project: Project) : AbstractVcsHelper(project) {
   @Volatile private var myMergeDelegate: () -> Unit = { throw IllegalStateException() }
   @Volatile private var myCommitDelegate: (String) -> Boolean = { throw IllegalStateException() }
 
-  override fun runTransactionRunnable(vcs: AbstractVcs<*>?, runnable: TransactionRunnable?, vcsParameters: Any?): MutableList<VcsException>? {
+  override fun runTransactionRunnable(vcs: AbstractVcs<*>?, runnable: TransactionRunnable?, vcsParameters: Any?): List<VcsException>? {
     throw UnsupportedOperationException()
   }
 
@@ -64,11 +62,11 @@ class MockVcsHelper(project: Project) : AbstractVcsHelper(project) {
     throw UnsupportedOperationException()
   }
 
-  override fun showFileHistory(historyProvider: VcsHistoryProvider, path: FilePath, vcs: AbstractVcs<*>, repositoryPath: String?) {
+  override fun showFileHistory(historyProvider: VcsHistoryProvider, path: FilePath, vcs: AbstractVcs<*>) {
     throw UnsupportedOperationException()
   }
 
-  override fun showFileHistory(historyProvider: VcsHistoryProvider, annotationProvider: AnnotationProvider?, path: FilePath, repositoryPath: String?, vcs: AbstractVcs<*>) {
+  override fun showFileHistory(historyProvider: VcsHistoryProvider, annotationProvider: AnnotationProvider?, path: FilePath, vcs: AbstractVcs<*>) {
     throw UnsupportedOperationException()
   }
 
@@ -80,11 +78,11 @@ class MockVcsHelper(project: Project) : AbstractVcsHelper(project) {
     throw UnsupportedOperationException()
   }
 
-  override fun showDifferences(cvsVersionOn: VcsFileRevision, cvsVersionOn1: VcsFileRevision, file: File) {
+  override fun showChangesListBrowser(changelist: CommittedChangeList, title: String) {
     throw UnsupportedOperationException()
   }
 
-  override fun showChangesListBrowser(changelist: CommittedChangeList, title: String) {
+  override fun showChangesListBrowser(changelist: CommittedChangeList?, toSelect: VirtualFile?, title: String?) {
     throw UnsupportedOperationException()
   }
 
@@ -100,19 +98,19 @@ class MockVcsHelper(project: Project) : AbstractVcsHelper(project) {
     throw UnsupportedOperationException()
   }
 
-  override fun <T : CommittedChangeList, U : ChangeBrowserSettings> chooseCommittedChangeList(provider: CommittedChangesProvider<T, U>, location: RepositoryLocation): T? {
-    throw UnsupportedOperationException()
-  }
-
   override fun showRollbackChangesDialog(changes: List<Change>) {
     throw UnsupportedOperationException()
   }
 
-  override fun selectFilesToProcess(files: List<VirtualFile>, title: String, prompt: String?, singleFileTitle: String, singleFilePromptTemplate: String, confirmationOption: VcsShowConfirmationOption): Collection<VirtualFile>? {
+  override fun selectFilesToProcess(files: List<VirtualFile>, title: String, prompt: String?, singleFileTitle: String?, singleFilePromptTemplate: String?, confirmationOption: VcsShowConfirmationOption): Collection<VirtualFile>? {
     throw UnsupportedOperationException()
   }
 
-  override fun selectFilePathsToProcess(files: List<FilePath>, title: String, prompt: String?, singleFileTitle: String, singleFilePromptTemplate: String, confirmationOption: VcsShowConfirmationOption): Collection<FilePath>? {
+  override fun selectFilePathsToProcess(files: List<FilePath>, title: String, prompt: String?, singleFileTitle: String?, singleFilePromptTemplate: String?, confirmationOption: VcsShowConfirmationOption): Collection<FilePath>? {
+    throw UnsupportedOperationException()
+  }
+
+  override fun selectFilePathsToProcess(files: List<FilePath>, title: String?, prompt: String?, singleFileTitle: String?, singleFilePromptTemplate: String?, confirmationOption: VcsShowConfirmationOption, okActionName: String?, cancelActionName: String?): Collection<FilePath> {
     throw UnsupportedOperationException()
   }
 

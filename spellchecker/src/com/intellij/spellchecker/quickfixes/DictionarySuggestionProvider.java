@@ -15,12 +15,13 @@
  */
 package com.intellij.spellchecker.quickfixes;
 
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
 import com.intellij.refactoring.rename.PreferrableNameSuggestionProvider;
+import com.intellij.refactoring.rename.RenameUtil;
 import com.intellij.spellchecker.SpellCheckerManager;
-import com.intellij.util.containers.ContainerUtil;
 
 import java.util.Set;
 
@@ -46,16 +47,19 @@ public class DictionarySuggestionProvider extends PreferrableNameSuggestionProvi
     }
     String text = nameSuggestionContext.getText();
     if (nameSuggestionContext instanceof PsiNamedElement) {
-      //noinspection ConstantConditions
       text = ((PsiNamedElement)element).getName();
     }
     if (text == null) {
       return null;
     }
 
-    SpellCheckerManager manager = SpellCheckerManager.getInstance(element.getProject());
+    Project project = element.getProject();
+    SpellCheckerManager manager = SpellCheckerManager.getInstance(project);
 
-    ContainerUtil.addAllNotNull(result, manager.getSuggestions(text));
+    manager.getSuggestions(text).stream()
+      .filter(newName -> RenameUtil.isValidName(project, element, newName))
+      .forEach(result::add);
+
     return SuggestedNameInfo.NULL_INFO;
   }
 }

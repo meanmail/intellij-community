@@ -17,17 +17,21 @@ package com.intellij.testFramework;
 
 import com.intellij.lang.TokenWrapper;
 import com.intellij.lexer.Lexer;
-import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.editor.highlighter.HighlighterIterator;
+import com.intellij.openapi.util.Trinity;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
+import com.intellij.testFramework.fixtures.IdeaTestExecutionPolicy;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * @author peter
@@ -48,8 +52,18 @@ public abstract class LexerTestCase extends UsefulTestCase {
       assertSameLines(expected, result);
     }
     else {
-      assertSameLinesWithFile(PathManager.getHomePath() + "/" + getDirPath() + "/" + getTestName(true) + ".txt", result);
+      assertSameLinesWithFile(getPathToTestDataFile(getExpectedFileExtension()), result);
     }
+  }
+
+  @NotNull
+  protected String getPathToTestDataFile(String extension) {
+    return IdeaTestExecutionPolicy.getHomePathWithPolicy() + "/" + getDirPath() + "/" + getTestName(true) + extension;
+  }
+
+  @NotNull
+  protected String getExpectedFileExtension() {
+    return ".txt";
   }
 
   protected void checkZeroState(String text, TokenSet tokenTypes) {
@@ -94,19 +108,83 @@ public abstract class LexerTestCase extends UsefulTestCase {
     return printTokens(text, start, createLexer());
   }
 
+  protected void checkCorrectRestartOnEveryToken(@NotNull String text) {
+    Lexer mainLexer = createLexer();
+    List<Trinity<IElementType, Integer, Integer>> allTokens = tokenize(text, 0, 0, mainLexer);
+    Lexer auxLexer = createLexer();
+    auxLexer.start(text);
+    int index = 0;
+    while (true) {
+      IElementType type = auxLexer.getTokenType();
+      if (type == null) {
+        break;
+      }
+      List<Trinity<IElementType, Integer, Integer>> subTokens = tokenize(text, auxLexer.getTokenStart(), auxLexer.getState(), mainLexer);
+      if (!allTokens.subList(index++, allTokens.size()).equals(subTokens)) {
+        assertEquals("Restarting impossible from offset " + auxLexer.getTokenStart() + " - " + auxLexer.getTokenText() + "\n" +
+                     "All tokens <type, offset, lexer state>: " + allTokens + "\n",
+                     allTokens.subList(index - 1, allTokens.size()),
+                     subTokens);
+      }
+      auxLexer.advance();
+    }
+  }
+
+  @NotNull
+  private static List<Trinity<IElementType, Integer, Integer>> tokenize(@NotNull String text,
+                                                                        int start,
+                                                                        int state,
+                                                                        @NotNull Lexer lexer) {
+    List<Trinity<IElementType, Integer, Integer>> allTokens = new ArrayList<>();
+    try {
+      lexer.start(text, start, text.length(), state);
+    }
+    catch (Throwable t) {
+      LOG.error("Restarting impossible from offset " + start, t);
+      throw new RuntimeException(t);
+    }
+    while (lexer.getTokenType() != null) {
+      allTokens.add(Trinity.create(lexer.getTokenType(), lexer.getTokenStart(), lexer.getState()));
+      lexer.advance();
+    }
+    return allTokens;
+  }
+
   public static String printTokens(CharSequence text, int start, Lexer lexer) {
     lexer.start(text, start, text.length());
     StringBuilder result = new StringBuilder();
     IElementType tokenType;
     while ((tokenType = lexer.getTokenType()) != null) {
-      result.append(tokenType).append(" ('").append(getTokenText(lexer)).append("')\n");
+      result.append(printSingleToken(text, tokenType, lexer.getTokenStart(), lexer.getTokenEnd()));
       lexer.advance();
     }
     return result.toString();
   }
 
+  @NotNull
+  public static String printTokens(@NotNull HighlighterIterator iterator) {
+    CharSequence text = iterator.getDocument().getCharsSequence();
+    StringBuilder result = new StringBuilder();
+    IElementType tokenType;
+    while (!iterator.atEnd()) {
+      tokenType = iterator.getTokenType();
+      result.append(printSingleToken(text, tokenType, iterator.getStart(), iterator.getEnd()));
+      iterator.advance();
+    }
+    return result.toString();
+  }
+
+  public static String printSingleToken(CharSequence fileText, IElementType tokenType, int start, int end) {
+    return tokenType + " ('" + getTokenText(tokenType, fileText, start, end) + "')\n";
+  }
+
   protected void doFileTest(@NonNls String fileExt) {
-    String fileName = PathManager.getHomePath() + "/" + getDirPath() + "/" + getTestName(true) + "." + fileExt;
+    doTest(loadTestDataFile("." + fileExt));
+  }
+
+  @NotNull
+  protected String loadTestDataFile(@NonNls String fileExt) {
+    String fileName = getPathToTestDataFile(fileExt);
     String text = "";
     try {
       String fileText = FileUtil.loadFile(new File(fileName));
@@ -115,22 +193,20 @@ public abstract class LexerTestCase extends UsefulTestCase {
     catch (IOException e) {
       fail("can't load file " + fileName + ": " + e.getMessage());
     }
-    doTest(text);
+    return text;
   }
 
   protected boolean shouldTrim() {
     return true;
   }
 
-  private static String getTokenText(Lexer lexer) {
-    final IElementType tokenType = lexer.getTokenType();
+  @NotNull
+  private static String getTokenText(IElementType tokenType, CharSequence sequence, int start, int end) {
     if (tokenType instanceof TokenWrapper) {
       return ((TokenWrapper)tokenType).getValue();
     }
 
-    String text = lexer.getBufferSequence().subSequence(lexer.getTokenStart(), lexer.getTokenEnd()).toString();
-    text = StringUtil.replace(text, "\n", "\\n");
-    return text;
+    return StringUtil.replace(sequence.subSequence(start, end).toString(), "\n", "\\n");
   }
 
   protected abstract Lexer createLexer();

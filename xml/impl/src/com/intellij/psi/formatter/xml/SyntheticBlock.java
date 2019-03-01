@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.intellij.psi.formatter.xml;
 import com.intellij.formatting.*;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.formatter.common.AbstractBlock;
 import com.intellij.psi.tree.IElementType;
@@ -84,7 +83,9 @@ public class SyntheticBlock extends AbstractSyntheticBlock implements Block, Rea
     boolean secondIsText = isTextFragment(node2);
 
     if (((AbstractXmlBlock)child1).isPreserveSpace() && ((AbstractXmlBlock)child2).isPreserveSpace()) {
-      return Spacing.getReadOnlySpacing();
+      ASTNode parent = node1.getTreeParent();
+      boolean inText = parent != null && parent.getTreePrev().getElementType() == XmlTokenType.XML_TAG_END;
+      if (inText) return Spacing.getReadOnlySpacing();
     }
 
     if (type1 == XmlTokenType.XML_CDATA_START || type2 == XmlTokenType.XML_CDATA_END) {
@@ -119,13 +120,10 @@ public class SyntheticBlock extends AbstractSyntheticBlock implements Block, Rea
       return Spacing.createSafeSpacing(myXmlFormattingPolicy.getShouldKeepLineBreaks(), myXmlFormattingPolicy.getKeepBlankLines());
     }
 
-    if (type1 == XmlElementType.XML_ATTRIBUTE && (type2 == XmlTokenType.XML_TAG_END || type2 == XmlTokenType.XML_EMPTY_ELEMENT_END)) {
-      final PsiElement psi1 = node1.getPsi();
-
-      if (psi1 instanceof XmlAttribute && myXmlFormattingPolicy.insertLineBreakAfterLastAttribute((XmlAttribute)psi1)) {
-        return Spacing.createSpacing(0, 0, 1,
-                                     myXmlFormattingPolicy.getShouldKeepLineBreaks(),
-                                     myXmlFormattingPolicy.getKeepBlankLines());
+    if (isAttributeElementType(type1) && (type2 == XmlTokenType.XML_TAG_END || type2 == XmlTokenType.XML_EMPTY_ELEMENT_END)) {
+      Spacing spacing = myXmlFormattingPolicy.getSpacingAfterLastAttribute((XmlAttribute)node1.getPsi());
+      if (spacing != null) {
+        return spacing;
       }
     }
 
@@ -140,18 +138,21 @@ public class SyntheticBlock extends AbstractSyntheticBlock implements Block, Rea
       return Spacing.createSpacing(spaces, spaces, 0, myXmlFormattingPolicy.getShouldKeepLineBreaks(), myXmlFormattingPolicy.getKeepBlankLines());
     }
 
-    if (type2 == XmlElementType.XML_ATTRIBUTE) {
-      int minLineFeeds = 0;
-
-      if (type1 == XmlTokenType.XML_NAME) {
-        final PsiElement psi2 = node2.getPsi();
-        minLineFeeds = psi2 instanceof XmlAttribute &&
-                       myXmlFormattingPolicy.insertLineBreakBeforeFirstAttribute((XmlAttribute)psi2)
-                       ? 1 : 0;
+    if (isAttributeElementType(type2)) {
+      if (type1 == XmlTokenType.XML_NAME || type1 == XmlTokenType.XML_TAG_NAME) {
+        Spacing spacing = myXmlFormattingPolicy.getSpacingBeforeFirstAttribute((XmlAttribute)node2.getPsi());
+        if (spacing != null) {
+          return spacing;
+        }
       }
-      return Spacing.createSpacing(1, 1, minLineFeeds, myXmlFormattingPolicy.getShouldKeepLineBreaks(), myXmlFormattingPolicy.getKeepBlankLines());
+      return Spacing.createSpacing(1, 1, 0, myXmlFormattingPolicy.getShouldKeepLineBreaks(), myXmlFormattingPolicy.getKeepBlankLines());
     }
 
+    if (type1 == XmlTokenType.XML_DATA_CHARACTERS && type2 == XmlTokenType.XML_DATA_CHARACTERS) {
+      return Spacing.createSpacing(1, 1, 0,
+                                   myXmlFormattingPolicy.getShouldKeepLineBreaksInText(), myXmlFormattingPolicy.getKeepBlankLines());
+    }
+    
     if (((AbstractXmlBlock)child1).isTextElement() && ((AbstractXmlBlock)child2).isTextElement()) {
       return Spacing.createSafeSpacing(myXmlFormattingPolicy.getShouldKeepLineBreaksInText(), myXmlFormattingPolicy.getKeepBlankLines());
     }
@@ -202,7 +203,7 @@ public class SyntheticBlock extends AbstractSyntheticBlock implements Block, Rea
   }
 
   private boolean isEntityRef(final ASTNode node) {
-    return node.getElementType() == XmlElementType.XML_ENTITY_REF;
+    return node.getElementType() == XmlElementType.XML_ENTITY_REF || node.getElementType() == XmlTokenType.XML_CHAR_ENTITY_REF;
   }
 
   private boolean shouldAddSpaceAroundTagName(final ASTNode node1, final ASTNode node2) {
@@ -251,7 +252,7 @@ public class SyntheticBlock extends AbstractSyntheticBlock implements Block, Rea
 
   private boolean isAttributeBlock(final Block block) {
     if (block instanceof XmlBlock) {
-      return ((XmlBlock)block).getNode().getElementType() == XmlElementType.XML_ATTRIBUTE;
+      return isAttributeElementType(((XmlBlock)block).getNode().getElementType());
     }
     return false;
   }

@@ -13,10 +13,10 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Condition;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author lene
- *         Date: 03.10.11
  */
 public class RenameProjectAction extends DumbAwareAction {
 
@@ -24,17 +24,17 @@ public class RenameProjectAction extends DumbAwareAction {
     super(RefactoringBundle.message("rename.project.action.title"), RefactoringBundle.message("renames.project"), null);
   }
 
-  private static final Logger LOG = Logger.getInstance("#" + RenameProjectAction.class.getName());
+  private static final Logger LOG = Logger.getInstance(RenameProjectAction.class);
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     Project project = CommonDataKeys.PROJECT.getData(dataContext);
     e.getPresentation().setEnabled(project != null && !project.isDefault());
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     LOG.assertTrue(project instanceof ProjectEx);

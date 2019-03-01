@@ -25,9 +25,6 @@ import org.jetbrains.annotations.NotNull;
 import javax.swing.*;
 import java.awt.*;
 
-/**
-* User: spLeaner
-*/
 public interface ConfigurationErrors {
   Topic<ConfigurationErrors> TOPIC = Topic.create("Configuration Error", ConfigurationErrors.class, Topic.BroadcastDirection.NONE);
 
@@ -50,8 +47,8 @@ public interface ConfigurationErrors {
       });
     }
 
-    public static void _do(@NotNull final ConfigurationError error, @NotNull final Project project,
-                           @NotNull final PairProcessor<ConfigurationErrors, ConfigurationError> fun) {
+    private static void _do(@NotNull final ConfigurationError error, @NotNull final Project project,
+                           @NotNull final PairProcessor<? super ConfigurationErrors, ? super ConfigurationError> fun) {
       if (!project.isInitialized()) {
         StartupManager.getInstance(project).runWhenProjectIsInitialized(
           () -> fun.process(project.getMessageBus().syncPublisher(TOPIC), error));

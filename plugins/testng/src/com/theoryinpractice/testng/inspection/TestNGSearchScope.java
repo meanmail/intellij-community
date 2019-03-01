@@ -24,9 +24,6 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NotNull;
 
-/**
-* User: anna
-*/
 public class TestNGSearchScope extends GlobalSearchScope {
 
   private final ProjectFileIndex myFileIndex;
@@ -35,18 +32,17 @@ public class TestNGSearchScope extends GlobalSearchScope {
     myFileIndex = ProjectRootManager.getInstance(project).getFileIndex();
   }
 
+  @Override
   public boolean contains(@NotNull VirtualFile file) {
-    return myFileIndex.isInContent(file) && TestNGUtil.isTestngXML(file);
+    return myFileIndex.isInContent(file) && TestNGUtil.isTestngSuiteFile(file);
   }
 
-  public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-    return 0;
-  }
-
+  @Override
   public boolean isSearchInModuleContent(@NotNull Module aModule) {
     return true;
   }
 
+  @Override
   public boolean isSearchInLibraries() {
     return false;
   }

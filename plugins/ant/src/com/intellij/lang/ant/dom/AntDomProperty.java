@@ -25,7 +25,6 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.util.PathUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xml.Attribute;
 import com.intellij.util.xml.Convert;
 import com.intellij.util.xml.DomTarget;
@@ -37,12 +36,12 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 21, 2010
  */
 public abstract class AntDomProperty extends AntDomClasspathComponent implements PropertiesProvider{
   private volatile Map<String, String> myCachedProperties;
@@ -79,6 +78,7 @@ public abstract class AntDomProperty extends AntDomClasspathComponent implements
   @Attribute("basedir")
   public abstract GenericAttributeValue<String> getbasedir();
 
+  @Override
   @NotNull
   public final Iterator<String> getNamesIterator() {
     final String prefix = getPropertyPrefixValue();
@@ -87,20 +87,24 @@ public abstract class AntDomProperty extends AntDomClasspathComponent implements
       return delegate;
     }
     return new Iterator<String>() {
+      @Override
       public boolean hasNext() {
         return delegate.hasNext();
       }
 
+      @Override
       public String next() {
         return prefix + delegate.next();
       }
 
+      @Override
       public void remove() {
         delegate.remove();
       }
     };
   }
 
+  @Override
   public PsiElement getNavigationElement(final String propertyName) {
     DomTarget domTarget = DomTarget.getTarget(this);
     if (domTarget == null) {
@@ -115,7 +119,7 @@ public abstract class AntDomProperty extends AntDomClasspathComponent implements
         }
       }
     }
-    
+
     if (domTarget != null) {
       final PsiElement psi = PomService.convertToPsi(domTarget);
       if (psi != null) {
@@ -142,6 +146,7 @@ public abstract class AntDomProperty extends AntDomClasspathComponent implements
     return null;
   }
 
+  @Override
   @Nullable
   public final String getPropertyValue(String propertyName) {
     final String prefix = getPropertyPrefixValue();

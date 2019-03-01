@@ -17,13 +17,11 @@ package com.intellij.psi;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Couple;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.*;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,7 +33,7 @@ import java.util.*;
  */
 public class GenericsUtil {
 
-  private static final Logger LOG = Logger.getInstance("#" + GenericsUtil.class.getName());
+  private static final Logger LOG = Logger.getInstance(GenericsUtil.class);
 
   private GenericsUtil() {}
 
@@ -50,7 +48,7 @@ public class GenericsUtil {
     if (TypeConversionUtil.isNullType(type1)) return type2;
     if (TypeConversionUtil.isNullType(type2)) return type1;
     if (Comparing.equal(type1, type2)) return type1;
-    return getLeastUpperBound(type1, type2, new LinkedHashSet<Couple<PsiType>>(), manager);
+    return getLeastUpperBound(type1, type2, new LinkedHashSet<>(), manager);
   }
 
   @NotNull
@@ -76,7 +74,7 @@ public class GenericsUtil {
       if (componentType1 instanceof PsiPrimitiveType && 
           componentType2 instanceof PsiPrimitiveType && 
           componentType.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) {
-        final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+        final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
         final GlobalSearchScope resolveScope = GlobalSearchScope.allScope(manager.getProject());
         final PsiClassType cloneable = factory.createTypeByFQClassName(CommonClassNames.JAVA_LANG_CLONEABLE, resolveScope);
         final PsiClassType serializable = factory.createTypeByFQClassName(CommonClassNames.JAVA_IO_SERIALIZABLE, resolveScope);
@@ -85,7 +83,7 @@ public class GenericsUtil {
       return componentType.createArrayType();
     }
     if (type1 instanceof PsiIntersectionType) {
-      Set<PsiType> newConjuncts = new LinkedHashSet<PsiType>();
+      Set<PsiType> newConjuncts = new LinkedHashSet<>();
       final PsiType[] conjuncts = ((PsiIntersectionType)type1).getConjuncts();
       for (PsiType type : conjuncts) {
         newConjuncts.add(getLeastUpperBound(type, type2, compared, manager));
@@ -109,40 +107,48 @@ public class GenericsUtil {
         return PsiType.getJavaLangObject(manager, aClass.getResolveScope());
       }
 
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+      final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(manager.getProject());
       PsiClassType[] conjuncts = new PsiClassType[supers.length];
-      for (int i = 0; i < supers.length; i++) {
-        PsiClass aSuper = supers[i];
-        PsiSubstitutor subst1 = TypeConversionUtil.getSuperClassSubstitutor(aSuper, aClass, classResolveResult1.getSubstitutor());
-        PsiSubstitutor subst2 = TypeConversionUtil.getSuperClassSubstitutor(aSuper, bClass, classResolveResult2.getSubstitutor());
-        PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
+      Set<Couple<PsiType>> siblings = new HashSet<>();
+      try {
+        for (int i = 0; i < supers.length; i++) {
+          PsiClass aSuper = supers[i];
+          PsiSubstitutor subst1 = TypeConversionUtil.getSuperClassSubstitutor(aSuper, aClass, classResolveResult1.getSubstitutor());
+          PsiSubstitutor subst2 = TypeConversionUtil.getSuperClassSubstitutor(aSuper, bClass, classResolveResult2.getSubstitutor());
+          PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
 
-        final Couple<PsiType> types = Couple.<PsiType>of(elementFactory.createType(aSuper, subst1), elementFactory.createType(aSuper, subst2));
+          final Couple<PsiType> types = Couple.of(elementFactory.createType(aSuper, subst1), elementFactory.createType(aSuper, subst2));
+          boolean skip = compared.contains(types);
 
-        for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(aSuper)) {
-          PsiType mapping1 = subst1.substitute(parameter);
-          PsiType mapping2 = subst2.substitute(parameter);
+          for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(aSuper)) {
+            PsiType mapping1 = subst1.substitute(parameter);
+            PsiType mapping2 = subst2.substitute(parameter);
 
-          if (mapping1 != null && mapping2 != null) {
-            if (compared.contains(types)) {
-              substitutor = substitutor.put(parameter, PsiWildcardType.createUnbounded(manager));
+            if (mapping1 != null && mapping2 != null) {
+              if (skip) {
+                substitutor = substitutor.put(parameter, PsiWildcardType.createUnbounded(manager));
+              }
+              else {
+                compared.add(types);
+                try {
+                  PsiType argument = getLeastContainingTypeArgument(mapping1, mapping2, compared, manager);
+                  substitutor = substitutor.put(parameter, argument);
+                }
+                finally {
+                  siblings.add(types);
+                }
+              }
             }
             else {
-              compared.add(types);
-              try {
-                substitutor = substitutor.put(parameter, getLeastContainingTypeArgument(mapping1, mapping2, compared, manager));
-              }
-              finally {
-                compared.remove(types);
-              }
+              substitutor = substitutor.put(parameter, null);
             }
           }
-          else {
-            substitutor = substitutor.put(parameter, null);
-          }
-        }
 
-        conjuncts[i] = elementFactory.createType(aSuper, substitutor);
+          conjuncts[i] = elementFactory.createType(aSuper, substitutor);
+        }
+      }
+      finally {
+        compared.removeAll(siblings);
       }
 
       return PsiIntersectionType.createIntersection(conjuncts);
@@ -151,7 +157,7 @@ public class GenericsUtil {
       return getLeastUpperBound(type2, type1, compared, manager);
     }
     if (type1 instanceof PsiArrayType) {
-      PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+      PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
       GlobalSearchScope all = GlobalSearchScope.allScope(manager.getProject());
       PsiClassType serializable = factory.createTypeByFQClassName(CommonClassNames.JAVA_IO_SERIALIZABLE, all);
       PsiClassType cloneable = factory.createTypeByFQClassName(CommonClassNames.JAVA_LANG_CLONEABLE, all);
@@ -201,13 +207,13 @@ public class GenericsUtil {
   @NotNull
   public static PsiClass[] getLeastUpperClasses(PsiClass aClass, PsiClass bClass) {
     if (InheritanceUtil.isInheritorOrSelf(aClass, bClass, true)) return new PsiClass[]{bClass};
-    Set<PsiClass> supers = new LinkedHashSet<PsiClass>();
-    Set<PsiClass> visited = new HashSet<PsiClass>();
+    Set<PsiClass> supers = new LinkedHashSet<>();
+    Set<PsiClass> visited = new HashSet<>();
     getLeastUpperClassesInner(aClass, bClass, supers, visited);
-    return supers.toArray(new PsiClass[supers.size()]);
+    return supers.toArray(PsiClass.EMPTY_ARRAY);
   }
 
-  private static void getLeastUpperClassesInner(PsiClass aClass, PsiClass bClass, Set<PsiClass> supers, Set<PsiClass> visited) {
+  private static void getLeastUpperClassesInner(PsiClass aClass, PsiClass bClass, Set<PsiClass> supers, Set<? super PsiClass> visited) {
     if (bClass.isInheritor(aClass, true)) {
       addSuper(supers, aClass);
     }
@@ -297,6 +303,10 @@ public class GenericsUtil {
   @Contract("null, _ -> null")
   public static PsiType getVariableTypeByExpressionType(@Nullable PsiType type, final boolean openCaptured) {
     if (type == null) return null;
+    PsiClass refClass = PsiUtil.resolveClassInType(type);
+    if (refClass instanceof PsiAnonymousClass) {
+      type = ((PsiAnonymousClass)refClass).getBaseClassType();
+    }
     if (type instanceof PsiCapturedWildcardType) {
       type = ((PsiCapturedWildcardType)type).getUpperBound();
     }
@@ -380,7 +390,7 @@ public class GenericsUtil {
           return classType;
         }
         PsiManager manager = aClass.getManager();
-        PsiType result = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory()
+        PsiType result = JavaPsiFacade.getElementFactory(manager.getProject())
           .createType(aClass, substitutor, PsiUtil.getLanguageLevel(aClass))
           .annotate(TypeAnnotationProvider.Static.create(applicableAnnotations));
         if (toExtend) result = PsiWildcardType.createExtends(manager, result);
@@ -391,9 +401,10 @@ public class GenericsUtil {
     PsiType componentType = transformed != null ? transformed.getDeepComponentType() : null;
     if (componentType instanceof PsiWildcardType) {
       componentType = ((PsiWildcardType)componentType).getExtendsBound();
-      int dims = transformed.getArrayDimensions();
-      for (int i = 0; i < dims; i++) componentType = componentType.createArrayType();
-      return componentType;
+      return PsiTypesUtil.createArrayType(componentType, transformed.getArrayDimensions());
+    }
+    if (transformed instanceof PsiEllipsisType) {
+      return ((PsiEllipsisType)transformed).toArrayType();
     }
 
     return transformed;
@@ -402,15 +413,10 @@ public class GenericsUtil {
   public static PsiSubstitutor substituteByParameterName(final PsiClass psiClass, final PsiSubstitutor parentSubstitutor) {
 
     final Map<PsiTypeParameter, PsiType> substitutionMap = parentSubstitutor.getSubstitutionMap();
-    final List<PsiType> result = new ArrayList<PsiType>(substitutionMap.size());
+    final List<PsiType> result = new ArrayList<>(substitutionMap.size());
     for (PsiTypeParameter typeParameter : psiClass.getTypeParameters()) {
       final String name = typeParameter.getName();
-      final PsiTypeParameter key = ContainerUtil.find(substitutionMap.keySet(), new Condition<PsiTypeParameter>() {
-        @Override
-        public boolean value(final PsiTypeParameter psiTypeParameter) {
-          return name.equals(psiTypeParameter.getName());
-        }
-      });
+      final PsiTypeParameter key = ContainerUtil.find(substitutionMap.keySet(), psiTypeParameter -> name.equals(psiTypeParameter.getName()));
       if (key != null) {
         result.add(substitutionMap.get(key));
       }
@@ -436,7 +442,7 @@ public class GenericsUtil {
       if (aClass != null) {
         PsiManager manager = aClass.getManager();
         PsiTypeParameter[] typeParams = aClass.getTypeParameters();
-        Map<PsiTypeParameter, PsiType> map = new HashMap<PsiTypeParameter, PsiType>();
+        Map<PsiTypeParameter, PsiType> map = new HashMap<>();
         for (PsiTypeParameter typeParam : typeParams) {
           PsiType substituted = resolveResult.getSubstitutor().substitute(typeParam);
           if (substituted instanceof PsiWildcardType) {
@@ -449,7 +455,7 @@ public class GenericsUtil {
           map.put(typeParam, substituted);
         }
 
-        PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
         PsiSubstitutor substitutor = factory.createSubstitutor(map);
         type = factory.createType(aClass, substitutor);
       }
@@ -468,8 +474,12 @@ public class GenericsUtil {
   }
 
   public static boolean checkNotInBounds(PsiType type, PsiType bound, PsiReferenceParameterList referenceParameterList) {
+    //4.10.2
+    //Given a generic type declaration C<F1,...,Fn> (n > 0), the direct supertypes of the parameterized type C<R1,...,Rn> where at least one of the Ri is a wildcard
+    //type argument, are the direct supertypes of the parameterized type C<X1,...,Xn> which is the result of applying capture conversion to C<R1,...,Rn>.
+    PsiType capturedType = PsiUtil.captureToplevelWildcards(type, referenceParameterList);
     //allow unchecked conversions in method calls but not in type declaration
-    return checkNotInBounds(type, bound, PsiTreeUtil.getParentOfType(referenceParameterList, PsiCallExpression.class) != null);
+    return checkNotInBounds(capturedType, bound, PsiTreeUtil.getParentOfType(referenceParameterList, PsiCallExpression.class) != null);
   }
 
   public static boolean checkNotInBounds(PsiType type, PsiType bound, boolean uncheckedConversionByDefault) {
@@ -544,5 +554,83 @@ public class GenericsUtil {
     else {
       return !TypeConversionUtil.isAssignable(bound, type, allowUncheckedConversion);
     }
+  }
+
+  @NotNull
+  public static PsiClassType getExpectedGenericType(PsiElement context,
+                                                    PsiClass aClass,
+                                                    PsiClassType expectedType) {
+    List<PsiType> arguments = getExpectedTypeArguments(context, aClass, Arrays.asList(aClass.getTypeParameters()), expectedType);
+    return JavaPsiFacade.getElementFactory(context.getProject()).createType(aClass, arguments.toArray(PsiType.EMPTY_ARRAY));
+  }
+
+  /**
+   * Tries to find the type parameters applied to a class which are compatible with expected supertype
+   *
+   * @param context      a context element
+   * @param aClass       a class which type parameters should be found
+   * @param typeParams   type parameters to substitute (a subset of all type parameters of a class)
+   * @param expectedType an expected supertype
+   * @return a list of type arguments which correspond to passed type parameters
+   */
+  @NotNull
+  public static List<PsiType> getExpectedTypeArguments(PsiElement context,
+                                                       PsiClass aClass,
+                                                       Iterable<? extends PsiTypeParameter> typeParams,
+                                                       PsiClassType expectedType) {
+    PsiClassType.ClassResolveResult resolve = expectedType.resolveGenerics();
+    PsiClass expectedClass = resolve.getElement();
+
+    if (!InheritanceUtil.isInheritorOrSelf(aClass, expectedClass, true)) {
+      return ContainerUtil.map(typeParams, p -> (PsiType)null);
+    }
+
+    PsiSubstitutor substitutor = TypeConversionUtil.getClassSubstitutor(expectedClass, aClass, PsiSubstitutor.EMPTY);
+    assert substitutor != null;
+
+    return ContainerUtil.map(typeParams, p -> getExpectedTypeArg(context, resolve, substitutor, p));
+  }
+
+  @Nullable
+  private static PsiType getExpectedTypeArg(PsiElement context,
+                                            PsiClassType.ClassResolveResult expectedType,
+                                            PsiSubstitutor superClassSubstitutor, PsiTypeParameter typeParam) {
+    PsiClass expectedClass = expectedType.getElement();
+    assert expectedClass != null;
+    for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(expectedClass)) {
+      PsiType paramSubstitution = superClassSubstitutor.substitute(parameter);
+      PsiClass inheritorCandidateParameter = PsiUtil.resolveClassInType(paramSubstitution);
+      if (inheritorCandidateParameter instanceof PsiTypeParameter &&
+          ((PsiTypeParameter)inheritorCandidateParameter).getOwner() == typeParam.getOwner() &&
+          inheritorCandidateParameter != typeParam) {
+        continue;
+      }
+
+      PsiType argSubstitution = expectedType.getSubstitutor().substitute(parameter);
+      PsiType substitution = JavaPsiFacade.getInstance(context.getProject()).getResolveHelper()
+        .getSubstitutionForTypeParameter(typeParam, paramSubstitution, argSubstitution, true, PsiUtil.getLanguageLevel(context));
+      if (substitution != null && substitution != PsiType.NULL) {
+        return substitution;
+      }
+    }
+    return null;
+  }
+
+  public static boolean isGenericReference(PsiJavaCodeReferenceElement referenceElement, PsiJavaCodeReferenceElement qualifierElement) {
+    final PsiReferenceParameterList qualifierParameterList = qualifierElement.getParameterList();
+    if (qualifierParameterList != null) {
+      final PsiTypeElement[] typeParameterElements = qualifierParameterList.getTypeParameterElements();
+      if (typeParameterElements.length > 0) {
+        return true;
+      }
+    }
+    final PsiReferenceParameterList parameterList = referenceElement.getParameterList();
+    if (parameterList != null) {
+      final PsiTypeElement[] typeParameterElements = parameterList.getTypeParameterElements();
+      if (typeParameterElements.length > 0) {
+        return true;
+      }
+    }
+    return false;
   }
 }

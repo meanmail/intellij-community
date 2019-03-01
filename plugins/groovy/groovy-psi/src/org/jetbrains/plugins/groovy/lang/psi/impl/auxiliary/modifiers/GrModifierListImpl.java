@@ -1,61 +1,38 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.modifiers;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.*;
 import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValueProvider.Result;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
-import com.intellij.util.ArrayFactory;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.config.GroovyConfigUtils;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.lexer.TokenSets;
 import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier;
+import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier.GrModifierConstant;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierFlags;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinitionBody;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstant;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
-import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.packaging.GrPackageDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.GrModifierListStub;
-import org.jetbrains.plugins.groovy.lang.psi.util.GrTraitUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtilKt;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -63,10 +40,11 @@ import java.util.Map;
  * @date: 18.03.2007
  */
 @SuppressWarnings({"StaticFieldReferencedViaSubclass"})
-public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> implements GrModifierList, StubBasedPsiElement<GrModifierListStub> {
+public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub>
+  implements GrModifierList, StubBasedPsiElement<GrModifierListStub>, PsiListLikeElement {
+
   public static final TObjectIntHashMap<String> NAME_TO_MODIFIER_FLAG_MAP = new TObjectIntHashMap<>();
   public static final Map<String, IElementType> NAME_TO_MODIFIER_ELEMENT_TYPE = ContainerUtil.newHashMap();
-  private static final ArrayFactory<GrAnnotation> ARRAY_FACTORY = GrAnnotation[]::new;
 
   private static final TObjectIntHashMap<String> PRIORITY = new TObjectIntHashMap<>(16);
 
@@ -84,6 +62,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
     NAME_TO_MODIFIER_FLAG_MAP.put(GrModifier.TRANSIENT, GrModifierFlags.TRANSIENT_MASK);
     NAME_TO_MODIFIER_FLAG_MAP.put(GrModifier.VOLATILE, GrModifierFlags.VOLATILE_MASK);
     NAME_TO_MODIFIER_FLAG_MAP.put(GrModifier.DEF, GrModifierFlags.DEF_MASK);
+    NAME_TO_MODIFIER_FLAG_MAP.put(GrModifier.DEFAULT, GrModifierFlags.DEFAULT_MASK);
 
 
     PRIORITY.put(GrModifier.PUBLIC,           0);
@@ -92,6 +71,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
     PRIORITY.put(GrModifier.PACKAGE_LOCAL,    0);
     PRIORITY.put(GrModifier.STATIC,           1);
     PRIORITY.put(GrModifier.ABSTRACT,         1);
+    PRIORITY.put(GrModifier.DEFAULT,          1);
     PRIORITY.put(GrModifier.FINAL,            2);
     PRIORITY.put(GrModifier.NATIVE,           3);
     PRIORITY.put(GrModifier.SYNCHRONIZED,     3);
@@ -102,7 +82,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
 
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.PUBLIC, GroovyTokenTypes.kPUBLIC);
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.ABSTRACT, GroovyTokenTypes.kABSTRACT);
-    NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.NATIVE, GroovyTokenTypes.kNATIVE);
+    NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.DEFAULT, GroovyTokenTypes.kDEFAULT);
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.PRIVATE, GroovyTokenTypes.kPRIVATE);
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.PROTECTED, GroovyTokenTypes.kPROTECTED);
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.SYNCHRONIZED, GroovyTokenTypes.kSYNCHRONIZED);
@@ -115,14 +95,12 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
     NAME_TO_MODIFIER_ELEMENT_TYPE.put(GrModifier.VOLATILE, GroovyTokenTypes.kVOLATILE);
   }
 
-  private static final String[] VISIBILITY_MODIFIERS = {GrModifier.PUBLIC, GrModifier.PROTECTED, GrModifier.PRIVATE};
-
   public GrModifierListImpl(@NotNull ASTNode node) {
     super(node);
   }
 
   public GrModifierListImpl(GrModifierListStub stub) {
-    this(stub, GroovyElementTypes.MODIFIERS);
+    this(stub, GroovyElementTypes.MODIFIER_LIST);
   }
 
   public GrModifierListImpl(GrModifierListStub stub, IStubElementType nodeType) {
@@ -130,12 +108,30 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitModifierList(this);
   }
 
+  @Override
   public String toString() {
     return "Modifiers";
+  }
+
+  @Override
+  public int getModifierFlags() {
+    final GrModifierListStub stub = getGreenStub();
+    if (stub != null) {
+      return stub.getModifiersFlags();
+    }
+    else {
+      return CachedValuesManager.getCachedValue(this, () -> {
+        int flags = 0;
+        for (PsiElement modifier : findChildrenByType(TokenSets.MODIFIERS)) {
+          flags |= NAME_TO_MODIFIER_FLAG_MAP.get(modifier.getText());
+        }
+        return Result.create(flags, this);
+      });
+    }
   }
 
   @Override
@@ -148,123 +144,28 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
       }
     }
 
-    return result.toArray(new PsiElement[result.size()]);
+    return result.toArray(PsiElement.EMPTY_ARRAY);
   }
 
   @Nullable
   @Override
-  public PsiElement getModifier(@GrModifier.GrModifierConstant @NotNull @NonNls String name) {
+  public PsiElement getModifier(@GrModifierConstant @NotNull @NonNls String name) {
     return findChildByType(NAME_TO_MODIFIER_ELEMENT_TYPE.get(name));
   }
 
   @Override
   public boolean hasExplicitVisibilityModifiers() {
-    final GrModifierListStub stub = getStub();
-    if (stub != null) {
-      return (stub.getModifiersFlags() & (GrModifierFlags.PUBLIC_MASK | GrModifierFlags.PROTECTED_MASK | GrModifierFlags.PRIVATE_MASK)) != 0;
-    }
-
-    for (@GrModifier.GrModifierConstant String type : VISIBILITY_MODIFIERS) {
-      if (hasExplicitModifier(type)) return true;
-    }
-    return false;
-  }
-
-  public static boolean checkModifierProperty(@NotNull GrModifierList modifierList, @GrModifier.GrModifierConstant @NotNull String modifier) {
-    final PsiElement owner = modifierList.getParent();
-    if (owner instanceof GrVariableDeclaration && owner.getParent() instanceof GrTypeDefinitionBody) {
-      PsiElement pParent = owner.getParent().getParent();
-      if (!modifierList.hasExplicitVisibilityModifiers()) { //properties are backed by private fields
-        if (!(pParent instanceof GrTypeDefinition && GrTraitUtil.isInterface((GrTypeDefinition)pParent))) {
-          if (modifier.equals(GrModifier.PRIVATE)) return true;
-          if (modifier.equals(GrModifier.PROTECTED)) return false;
-          if (modifier.equals(GrModifier.PUBLIC)) return false;
-        }
-      }
-
-      if (pParent instanceof GrTypeDefinition && GrTraitUtil.isInterface((GrTypeDefinition)pParent)) {
-        if (modifier.equals(GrModifier.STATIC)) return true;
-        if (modifier.equals(GrModifier.FINAL)) return true;
-      }
-      if (pParent instanceof GrTypeDefinition && modifier.equals(GrModifier.FINAL) && !modifierList.hasExplicitVisibilityModifiers()) {
-        PsiModifierList pModifierList = ((GrTypeDefinition)pParent).getModifierList();
-        if (pModifierList != null && PsiImplUtil.hasImmutableAnnotation(pModifierList)) {
-          return true;
-        }
-      }
-    }
-
-    if (owner instanceof GrMethod && owner.getParent() instanceof GrTypeDefinitionBody) {
-      PsiElement parent = owner.getParent().getParent();
-      if (parent instanceof GrTypeDefinition && ((GrTypeDefinition)parent).isInterface()) {
-        if (GrModifier.ABSTRACT.equals(modifier)) return true;
-        if (!((GrTypeDefinition)parent).isTrait() && GrModifier.PUBLIC.equals(modifier)) return true;
-      }
-    }
-
-    if (modifierList.hasExplicitModifier(modifier)) {
-      return true;
-    }
-
-    if (modifier.equals(GrModifier.PUBLIC)) {
-      if (owner instanceof GrPackageDefinition) return false;
-      if (owner instanceof GrVariableDeclaration && !(owner.getParent() instanceof GrTypeDefinitionBody) || owner instanceof GrVariable) {
-        return false;
-      }
-      //groovy type definitions and methods are public by default
-      return !modifierList.hasExplicitModifier(GrModifier.PRIVATE) && !modifierList.hasExplicitModifier(GrModifier.PROTECTED);
-    }
-
-    if (owner instanceof GrTypeDefinition) {
-      final GrTypeDefinition clazz = (GrTypeDefinition)owner;
-
-      if (modifier.equals(GrModifier.STATIC)) {
-        final PsiClass containingClass = clazz.getContainingClass();
-        return GrTraitUtil.isInterface(containingClass);
-      }
-      if (modifier.equals(GrModifier.ABSTRACT)) {
-        if (clazz.isInterface()) return true;
-        if (clazz.isEnum() &&
-            GroovyConfigUtils.getInstance().isVersionAtLeast(modifierList, GroovyConfigUtils.GROOVY2_0)) {
-          for (GrMethod method : clazz.getCodeMethods()) {
-            if (method.hasModifierProperty(PsiModifier.ABSTRACT)) return true;
-          }
-        }
-      }
-      if (modifier.equals(GrModifier.FINAL)) {
-        if (clazz.isEnum()) {
-          final GrField[] fields = clazz.getFields();
-          for (GrField field : fields) {
-            if (field instanceof GrEnumConstant && ((GrEnumConstant)field).getInitializingClass() != null) {
-              return false;
-            }
-          }
-          return true;
-        }
-      }
-    }
-
-    return false;
+    return GrModifierListUtil.hasExplicitVisibilityModifiers(this);
   }
 
   @Override
-  public boolean hasModifierProperty(@NotNull @NonNls String modifier) {
-    return checkModifierProperty(this, modifier);
+  public boolean hasModifierProperty(@NotNull String name) {
+    return GrModifierListUtil.hasModifierProperty(this, name);
   }
 
   @Override
-  public boolean hasExplicitModifier(@NotNull @NonNls String name) {
-    final GrModifierListStub stub = getStub();
-    if (stub != null) {
-      return hasMaskExplicitModifier(name, stub.getModifiersFlags());
-    }
-
-    return getModifier(name) != null;
-  }
-
-  public static boolean hasMaskExplicitModifier(String name, int mask) {
-    final int flag = NAME_TO_MODIFIER_FLAG_MAP.get(name);
-    return (mask & flag) != 0;
+  public boolean hasExplicitModifier(@NotNull String name) {
+    return GrModifierListUtil.hasExplicitModifier(this, name);
   }
 
   @Override
@@ -297,7 +198,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
   @NotNull
   @Override
   public GrAnnotation[] getRawAnnotations() {
-    return getStubOrPsiChildren(GroovyElementTypes.ANNOTATION, ARRAY_FACTORY);
+    return getStubOrPsiChildren(GroovyElementTypes.ANNOTATION, GrAnnotation.ARRAY_FACTORY);
   }
 
   private void setModifierPropertyInternal(String name, boolean doSet) {
@@ -369,9 +270,10 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
   @Override
   @NotNull
   public GrAnnotation[] getAnnotations() {
-    return CachedValuesManager.getCachedValue(this,
-                                              () -> CachedValueProvider.Result
-                                                .create(GrAnnotationCollector.getResolvedAnnotations(this), PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT));
+    return CachedValuesManager.getCachedValue(this, () -> Result.create(
+      GrAnnotationCollector.getResolvedAnnotations(this),
+      PsiModificationTracker.JAVA_STRUCTURE_MODIFICATION_COUNT, this
+    ));
   }
 
   @Override
@@ -385,7 +287,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
   @Nullable
   public PsiAnnotation findAnnotation(@NotNull @NonNls String qualifiedName) {
     for (GrAnnotation annotation : getAnnotations()) {
-      if (qualifiedName.equals(annotation.getQualifiedName())) {
+      if (annotation.hasQualifiedName(qualifiedName)) {
         return annotation;
       }
     }
@@ -398,7 +300,7 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
     final PsiClass psiClass = JavaPsiFacade.getInstance(getProject()).findClass(qualifiedName, getResolveScope());
     final GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(getProject());
     GrAnnotation annotation;
-    if (psiClass != null && psiClass.isAnnotationType()) {
+    if (psiClass != null) {
       annotation = (GrAnnotation)addAfter(factory.createModifierFromText("@xxx"), null);
       annotation.getClassReference().bindToElement(psiClass);
     }
@@ -419,5 +321,11 @@ public class GrModifierListImpl extends GrStubElementBase<GrModifierListStub> im
     }
 
     return annotation;
+  }
+
+  @NotNull
+  @Override
+  public List<? extends PsiElement> getComponents() {
+    return Arrays.asList(getModifiers());
   }
 }

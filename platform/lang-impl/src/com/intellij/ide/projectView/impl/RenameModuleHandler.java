@@ -28,8 +28,6 @@ import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleWithNameAlreadyExists;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.InputValidator;
 import com.intellij.openapi.ui.Messages;
@@ -48,13 +46,13 @@ public class RenameModuleHandler implements RenameHandler, TitledHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.projectView.actions.RenameModuleHandler");
 
   @Override
-  public boolean isAvailableOnDataContext(DataContext dataContext) {
+  public boolean isAvailableOnDataContext(@NotNull DataContext dataContext) {
     Module module = LangDataKeys.MODULE_CONTEXT.getData(dataContext);
     return module != null;
   }
 
   @Override
-  public boolean isRenaming(DataContext dataContext) {
+  public boolean isRenaming(@NotNull DataContext dataContext) {
     return isAvailableOnDataContext(dataContext);
   }
 
@@ -83,7 +81,7 @@ public class RenameModuleHandler implements RenameHandler, TitledHandler {
   private static class MyInputValidator implements InputValidator {
     private final Project myProject;
     private final Module myModule;
-    public MyInputValidator(Project project, Module module) {
+    MyInputValidator(Project project, Module module) {
       myProject = project;
       myModule = module;
     }
@@ -98,8 +96,7 @@ public class RenameModuleHandler implements RenameHandler, TitledHandler {
       final String oldName = myModule.getName();
       final ModifiableModuleModel modifiableModel = renameModule(inputString);
       if (modifiableModel == null) return false;
-      CommandProcessor.getInstance().executeCommand(myProject, () -> DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND,
-                                                                                                         () -> ApplicationManager.getApplication().runWriteAction(() -> modifiableModel.commit())), IdeBundle.message("command.renaming.module", oldName), null);
+      CommandProcessor.getInstance().executeCommand(myProject, () -> ApplicationManager.getApplication().runWriteAction(() -> modifiableModel.commit()), IdeBundle.message("command.renaming.module", oldName), null);
       return true;
     }
 

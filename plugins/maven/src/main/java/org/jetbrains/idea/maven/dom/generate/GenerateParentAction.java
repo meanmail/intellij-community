@@ -15,7 +15,6 @@
  */
 package org.jetbrains.idea.maven.dom.generate;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.util.xml.DomUtil;
@@ -32,6 +31,7 @@ import org.jetbrains.idea.maven.project.MavenProject;
 public class GenerateParentAction extends GenerateDomElementAction {
   public GenerateParentAction() {
     super(new MavenGenerateProvider<MavenDomParent>(MavenDomBundle.message("generate.parent"), MavenDomParent.class) {
+        @Override
         protected MavenDomParent doGenerate(@NotNull final MavenDomProjectModel mavenModel, Editor editor) {
           SelectMavenProjectDialog d = new SelectMavenProjectDialog(editor.getProject(), null);
           if (!d.showAndGet()) {
@@ -40,11 +40,8 @@ public class GenerateParentAction extends GenerateDomElementAction {
           final MavenProject parentProject = d.getResult();
           if (parentProject == null) return null;
 
-          return new WriteCommandAction<MavenDomParent>(editor.getProject(), getDescription()) {
-            protected void run(@NotNull Result result) throws Throwable {
-              result.setResult(MavenDomUtil.updateMavenParent(mavenModel, parentProject));
-            }
-          }.execute().getResultObject();
+          return WriteCommandAction.writeCommandAction(editor.getProject()).withName(getDescription())
+                                   .compute(() -> MavenDomUtil.updateMavenParent(mavenModel, parentProject));
         }
 
         @Override

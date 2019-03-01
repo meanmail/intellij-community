@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.intellij.ui.classFilter.ClassFilter;
  * @author egor
  */
 public interface FilteredRequestor extends LocatableEventRequestor {
+  @Override
   String getSuspendPolicy();
 
   boolean isInstanceFiltersEnabled();
@@ -34,4 +35,8 @@ public interface FilteredRequestor extends LocatableEventRequestor {
   boolean isClassFiltersEnabled();
   ClassFilter[] getClassFilters();
   ClassFilter[] getClassExclusionFilters();
+
+  default boolean isConditionEnabled() {
+    return false;
+  }
 }

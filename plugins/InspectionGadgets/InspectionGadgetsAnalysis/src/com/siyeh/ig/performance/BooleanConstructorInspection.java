@@ -26,6 +26,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
 import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -72,14 +73,8 @@ public class BooleanConstructorInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("boolean.constructor.simplify.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("boolean.constructor.simplify.quickfix");
     }
 
     @Override
@@ -100,6 +95,7 @@ public class BooleanConstructorInspection extends BaseInspection {
       final PsiExpression argument = arguments[0];
       final String text = argument.getText();
       final LanguageLevel languageLevel = PsiUtil.getLanguageLevel(expression);
+      CommentTracker tracker = new CommentTracker();
       @NonNls final String newExpression;
       if (PsiKeyword.TRUE.equals(text) || TRUE.equalsIgnoreCase(text)) {
         newExpression = "java.lang.Boolean.TRUE";
@@ -108,7 +104,7 @@ public class BooleanConstructorInspection extends BaseInspection {
         newExpression = "java.lang.Boolean.FALSE";
       }
       else if (languageLevel.equals(LanguageLevel.JDK_1_3)) {
-        newExpression = buildText(argument, false);
+        newExpression = buildText(tracker.markUnchanged(argument), false);
       }
       else {
         final PsiClass booleanClass = ClassUtils.findClass(CommonClassNames.JAVA_LANG_BOOLEAN, argument);
@@ -129,9 +125,9 @@ public class BooleanConstructorInspection extends BaseInspection {
             }
           }
         }
-        newExpression = buildText(argument, methodFound);
+        newExpression = buildText(tracker.markUnchanged(argument), methodFound);
       }
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+      PsiReplacementUtil.replaceExpression(expression, newExpression, tracker);
     }
 
     @NonNls

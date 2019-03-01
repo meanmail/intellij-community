@@ -1,17 +1,14 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.content;
 
 import com.intellij.openapi.vcs.VcsException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.api.SvnClient;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
+import org.jetbrains.idea.svn.api.Target;
 
-/**
- * @author Konstantin Kolosovsky.
- */
 public interface ContentClient extends SvnClient {
 
-  byte[] getContent(@NotNull SvnTarget target, @Nullable SVNRevision revision, @Nullable SVNRevision pegRevision)
-    throws VcsException, FileTooBigRuntimeException;
+  byte[] getContent(@NotNull Target target, @Nullable Revision revision, @Nullable Revision pegRevision) throws VcsException;
 }

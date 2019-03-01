@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.navigation.GotoClassContributor;
@@ -23,10 +9,7 @@ import com.intellij.psi.stubs.StubIndex;
 import com.intellij.util.ArrayUtil;
 import com.jetbrains.python.psi.PyQualifiedNameOwner;
 import com.jetbrains.python.psi.search.PyProjectScopeBuilder;
-import com.jetbrains.python.psi.stubs.PyClassNameIndex;
-import com.jetbrains.python.psi.stubs.PyFunctionNameIndex;
-import com.jetbrains.python.psi.stubs.PyModuleNameIndex;
-import com.jetbrains.python.psi.stubs.PyVariableNameIndex;
+import com.jetbrains.python.psi.stubs.*;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -38,6 +21,7 @@ import java.util.Set;
  * @author yole
  */
 public class PyGotoSymbolContributor implements GotoClassContributor {
+  @Override
   @NotNull
   public String[] getNames(final Project project, final boolean includeNonProjectItems) {
     Set<String> symbols = new HashSet<>();
@@ -45,9 +29,11 @@ public class PyGotoSymbolContributor implements GotoClassContributor {
     symbols.addAll(PyModuleNameIndex.getAllKeys(project));
     symbols.addAll(StubIndex.getInstance().getAllKeys(PyFunctionNameIndex.KEY, project));
     symbols.addAll(StubIndex.getInstance().getAllKeys(PyVariableNameIndex.KEY, project));
+    symbols.addAll(StubIndex.getInstance().getAllKeys(PyClassAttributesIndex.KEY, project));
     return ArrayUtil.toStringArray(symbols);
   }
 
+  @Override
   @NotNull
   public NavigationItem[] getItemsByName(final String name, final String pattern, final Project project, final boolean includeNonProjectItems) {
     final GlobalSearchScope scope = includeNonProjectItems
@@ -59,8 +45,8 @@ public class PyGotoSymbolContributor implements GotoClassContributor {
     symbols.addAll(PyModuleNameIndex.find(name, project, includeNonProjectItems));
     symbols.addAll(PyFunctionNameIndex.find(name, project, scope));
     symbols.addAll(PyVariableNameIndex.find(name, project, scope));
-
-    return symbols.toArray(new NavigationItem[symbols.size()]);
+    symbols.addAll(PyClassAttributesIndex.findClassAndInstanceAttributes(name, project, scope));
+    return symbols.toArray(NavigationItem.EMPTY_NAVIGATION_ITEM_ARRAY);
   }
 
   @Override

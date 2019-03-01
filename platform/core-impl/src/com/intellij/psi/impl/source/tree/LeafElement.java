@@ -64,16 +64,17 @@ public abstract class LeafElement extends TreeElement {
   @NotNull
   @Override
   public String getText() {
-    if (myText.length() > 1000 && !(myText instanceof String)) { // e.g. a large text file
-      String text = SoftReference.dereference(getUserData(CACHED_TEXT));
-      if (text == null) {
-        text = myText.toString();
-        putUserData(CACHED_TEXT, new SoftReference<String>(text));
+    CharSequence text = myText;
+    if (text.length() > 1000 && !(text instanceof String)) { // e.g. a large text file
+      String cachedText = SoftReference.dereference(getUserData(CACHED_TEXT));
+      if (cachedText == null) {
+        cachedText = text.toString();
+        putUserData(CACHED_TEXT, new SoftReference<>(cachedText));
       }
-      return text;
+      return cachedText;
     }
 
-    return myText.toString();
+    return text.toString();
   }
 
   public char charAt(int position) {
@@ -99,10 +100,10 @@ public abstract class LeafElement extends TreeElement {
   @Override
   public boolean textContains(char c) {
     final CharSequence text = myText;
-    final int len = myText.length();
+    final int len = text.length();
 
     if (len > TEXT_MATCHES_THRESHOLD) {
-      char[] chars = CharArrayUtil.fromSequenceWithoutCopying(myText);
+      char[] chars = CharArrayUtil.fromSequenceWithoutCopying(text);
       if (chars != null) {
         for (char aChar : chars) {
           if (aChar == c) return true;
@@ -121,8 +122,7 @@ public abstract class LeafElement extends TreeElement {
   @Override
   protected int textMatches(@NotNull CharSequence buffer, int start) {
     assert start >= 0 : start;
-    final CharSequence text = myText;
-    return leafTextMatches(text, buffer, start);
+    return leafTextMatches(myText, buffer, start);
   }
 
   static int leafTextMatches(@NotNull CharSequence text, @NotNull CharSequence buffer, int start) {
@@ -162,7 +162,6 @@ public abstract class LeafElement extends TreeElement {
   }
 
   @Override
-  @SuppressWarnings("MethodOverloadsMethodOfSuperclass")
   public boolean textMatches(@NotNull final CharSequence buf, int start, int end) {
     final CharSequence text = getChars();
     final int len = text.length();
@@ -182,17 +181,17 @@ public abstract class LeafElement extends TreeElement {
   }
 
   @Override
-  public void acceptTree(TreeElementVisitor visitor) {
+  public void acceptTree(@NotNull TreeElementVisitor visitor) {
     visitor.visitLeaf(this);
   }
 
   @Override
-  public ASTNode findChildByType(IElementType type) {
+  public ASTNode findChildByType(@NotNull IElementType type) {
     return null;
   }
 
   @Override
-  public ASTNode findChildByType(IElementType type, @Nullable ASTNode anchor) {
+  public ASTNode findChildByType(@NotNull IElementType type, @Nullable ASTNode anchor) {
     return null;
   }
 
@@ -256,7 +255,7 @@ public abstract class LeafElement extends TreeElement {
   }
 
   @Override
-  public void addLeaf(@NotNull final IElementType leafType, final CharSequence leafText, final ASTNode anchorBefore) {
+  public void addLeaf(@NotNull final IElementType leafType, @NotNull final CharSequence leafText, final ASTNode anchorBefore) {
     throw new IncorrectOperationException("Leaf elements cannot have children.");
   }
 
@@ -276,7 +275,7 @@ public abstract class LeafElement extends TreeElement {
   }
 
   @Override
-  public void replaceAllChildrenToChildrenOf(ASTNode anotherParent) {
+  public void replaceAllChildrenToChildrenOf(@NotNull ASTNode anotherParent) {
     throw new IncorrectOperationException("Leaf elements cannot have children.");
   }
 
@@ -286,7 +285,7 @@ public abstract class LeafElement extends TreeElement {
   }
 
   @Override
-  public void addChildren(ASTNode firstChild, ASTNode lastChild, ASTNode anchorBefore) {
+  public void addChildren(@NotNull ASTNode firstChild, ASTNode lastChild, ASTNode anchorBefore) {
     throw new IncorrectOperationException("Leaf elements cannot have children.");
   }
 
@@ -300,7 +299,7 @@ public abstract class LeafElement extends TreeElement {
     return getPsi(clazz, getPsi(), LOG);
   }
 
-  static <T extends PsiElement> T getPsi(@NotNull Class<T> clazz, PsiElement element, Logger log) {
+  static <T extends PsiElement> T getPsi(@NotNull Class<T> clazz, PsiElement element, @NotNull Logger log) {
     log.assertTrue(clazz.isInstance(element), "unexpected psi class. expected: " + clazz
                                              + " got: " + (element == null ? null : element.getClass()));
     //noinspection unchecked

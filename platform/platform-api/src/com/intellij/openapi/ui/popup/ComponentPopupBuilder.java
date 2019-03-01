@@ -140,7 +140,7 @@ public interface ComponentPopupBuilder {
   ComponentPopupBuilder setCouldPin(@Nullable Processor<JBPopup> callback);
 
   @NotNull
-  ComponentPopupBuilder setKeyboardActions(@NotNull List<Pair<ActionListener, KeyStroke>> keyboardActions);
+  ComponentPopupBuilder setKeyboardActions(@NotNull List<? extends Pair<ActionListener, KeyStroke>> keyboardActions);
 
   @NotNull
   ComponentPopupBuilder setSettingButtons(@NotNull Component button);
@@ -158,4 +158,12 @@ public interface ComponentPopupBuilder {
 
   @NotNull
   ComponentPopupBuilder setShowBorder(boolean show);
+
+  @NotNull
+  ComponentPopupBuilder setNormalWindowLevel(boolean b);
+
+  @NotNull
+  default ComponentPopupBuilder setBorderColor(Color color) {
+    return this;
+  }
 }

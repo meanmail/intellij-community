@@ -55,63 +55,74 @@ public class HgHistoryProvider implements VcsHistoryProvider {
     myProject = project;
   }
 
+  @Override
   public VcsDependentHistoryComponents getUICustomization(VcsHistorySession session,
                                                           JComponent forShortcutRegistration) {
     return VcsDependentHistoryComponents.createOnlyColumns(ColumnInfo.EMPTY_ARRAY);
   }
 
+  @Override
   public AnAction[] getAdditionalActions(Runnable runnable) {
     return new AnAction[]{ShowAllAffectedGenericAction.getInstance(),
       ActionManager.getInstance().getAction(VcsActions.ACTION_COPY_REVISION_NUMBER)};
   }
 
+  @Override
   public boolean isDateOmittable() {
     return false;
   }
 
+  @Override
   public String getHelpId() {
     return null;
   }
 
-  public VcsHistorySession createSessionFor(FilePath filePath) throws VcsException {
+  @Override
+  public VcsHistorySession createSessionFor(FilePath filePath) {
     final VirtualFile vcsRoot = VcsUtil.getVcsRootFor(myProject, filePath);
     if (vcsRoot == null) {
       return null;
     }
-    final List<VcsFileRevision> revisions = new ArrayList<>();
-    revisions.addAll(getHistory(filePath, vcsRoot, myProject));
-    return createAppendableSession(vcsRoot, revisions, null);
+    final List<VcsFileRevision> revisions = new ArrayList<>(getHistory(filePath, vcsRoot, myProject));
+    return createAppendableSession(vcsRoot, filePath, revisions, null);
   }
 
+  @Override
   public void reportAppendableHistory(FilePath filePath, final VcsAppendableHistorySessionPartner partner) throws VcsException {
     final VirtualFile vcsRoot = HgUtil.getHgRootOrThrow(myProject, filePath);
 
     final List<HgFileRevision> history = getHistory(filePath, vcsRoot, myProject);
     if (history.size() == 0) return;
 
-    final VcsAbstractHistorySession emptySession = createAppendableSession(vcsRoot, Collections.emptyList(), null);
+    final VcsAbstractHistorySession emptySession = createAppendableSession(vcsRoot, filePath, Collections.emptyList(), null);
     partner.reportCreatedEmptySession(emptySession);
 
     for (HgFileRevision hgFileRevision : history) {
       partner.acceptRevision(hgFileRevision);
     }
-    partner.finished();
   }
 
-  private VcsAbstractHistorySession createAppendableSession(final VirtualFile vcsRoot, List<VcsFileRevision> revisions, @Nullable VcsRevisionNumber number) {
+  @NotNull
+  private VcsAbstractHistorySession createAppendableSession(@NotNull VirtualFile vcsRoot,
+                                                            @NotNull FilePath filePath,
+                                                            @NotNull List<VcsFileRevision> revisions,
+                                                            @Nullable VcsRevisionNumber number) {
     return new VcsAbstractHistorySession(revisions, number) {
+      @Override
       @Nullable
       protected VcsRevisionNumber calcCurrentRevisionNumber() {
-        return new HgWorkingCopyRevisionsCommand(myProject).firstParent(vcsRoot);
+        if (filePath.isDirectory()) return new HgWorkingCopyRevisionsCommand(myProject).firstParent(vcsRoot);
+        return new HgWorkingCopyRevisionsCommand(myProject).parents(vcsRoot, filePath).first;
       }
 
+      @Override
       public HistoryAsTreeProvider getHistoryAsTreeProvider() {
         return null;
       }
 
       @Override
       public VcsHistorySession copy() {
-        return createAppendableSession(vcsRoot, getRevisionList(), getCurrentRevisionNumber());
+        return createAppendableSession(vcsRoot, filePath, getRevisionList(), getCurrentRevisionNumber());
       }
     };
   }
@@ -175,6 +186,7 @@ public class HgHistoryProvider implements VcsHistoryProvider {
     return HgHistoryUtil.getCommitRecords(project, result, new HgFileRevisionLogParser(project, originalHgFile, version));
   }
 
+  @Override
   public boolean supportsHistoryForDirectories() {
     return true;
   }

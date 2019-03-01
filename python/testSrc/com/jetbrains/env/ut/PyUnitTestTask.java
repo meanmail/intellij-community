@@ -1,8 +1,9 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.env.ut;
 
 import com.google.common.collect.Lists;
+import com.intellij.execution.ExecutionException;
 import com.intellij.execution.RunManager;
-import com.intellij.execution.RunManagerEx;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.execution.configurations.RunConfiguration;
@@ -13,7 +14,6 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
-import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.testframework.AbstractTestProxy;
 import com.intellij.execution.testframework.Filter;
 import com.intellij.execution.testframework.sm.runner.SMTestProxy;
@@ -21,26 +21,31 @@ import com.intellij.execution.testframework.sm.runner.ui.SMTRunnerConsoleView;
 import com.intellij.execution.testframework.sm.runner.ui.TestResultsViewer;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.RunContentDescriptor;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.testFramework.EdtTestUtil;
+import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebuggerTestUtil;
 import com.jetbrains.env.PyExecutionFixtureTestTask;
+import com.jetbrains.env.PyTestTask;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.sdk.PythonEnvUtil;
 import com.jetbrains.python.sdk.flavors.JythonSdkFlavor;
 import com.jetbrains.python.sdk.flavors.PythonSdkFlavor;
-import com.jetbrains.python.testing.AbstractPythonTestRunConfiguration;
+import com.jetbrains.python.testing.AbstractPythonLegacyTestRunConfiguration;
 import com.jetbrains.python.testing.PythonTestConfigurationType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +62,7 @@ import java.util.List;
 
 /**
  * Tasks to run unit test configurations.
- * You should extend it either implementing {@link #after()} and {@link #before()} or implement {@link #runTestOn(String)}
+ * You should extend it either implementing {@link #after()} and {@link #before()} or implement {@link PyTestTask#runTestOn(String, Sdk)}
  * yourself and use {@link #runConfiguration(com.intellij.execution.configurations.ConfigurationFactory, String, com.intellij.openapi.project.Project)}
  * or {@link #runConfiguration(com.intellij.execution.RunnerAndConfigurationSettings, com.intellij.execution.configurations.RunConfiguration)} .
  * Use {@link #myDescriptor} and {@link #myConsoleView} to check output
@@ -70,7 +75,7 @@ import java.util.List;
 public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
 
   protected ProcessHandler myProcessHandler;
-  private boolean shouldPrintOutput = false;
+  private static final boolean shouldPrintOutput = false;
   /**
    * Test root node
    */
@@ -121,48 +126,45 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
   }
 
   @Override
-  public void tearDown() throws Exception {
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-                                   @Override
-                                   public void run() {
-                                     try {
-                                       if (mySetUp) {
-                                         if (myConsoleView != null) {
-                                           Disposer.dispose(myConsoleView);
-                                           myConsoleView = null;
-                                         }
-                                         if (myDescriptor != null) {
-                                           Disposer.dispose(myDescriptor);
-                                           myDescriptor = null;
-                                         }
+  public void tearDown() {
+    EdtTestUtil.runInEdtAndWait(() -> {
+      if (mySetUp) {
+        if (myConsoleView != null) {
+          Disposer.dispose(myConsoleView);
+          myConsoleView = null;
+        }
+        if (myDescriptor != null) {
+          Disposer.dispose(myDescriptor);
+          myDescriptor = null;
+        }
 
 
-                                         PyUnitTestTask.super.tearDown();
+        super.tearDown();
 
-                                         mySetUp = false;
-                                       }
-                                     }
-                                     catch (Exception e) {
-                                       throw new RuntimeException(e);
-                                     }
-                                   }
-                                 }
-
-    );
+        mySetUp = false;
+      }
+    });
+    final CodeInsightTestFixture fixture = myFixture;
+    if (fixture != null) {
+      final Project project = fixture.getProject();
+      if (project != null && !project.isDisposed()) {
+        Disposer.dispose(project);
+      }
+    }
   }
 
   @Override
-  public void runTestOn(String sdkHome) throws Exception {
+  public void runTestOn(@NotNull String sdkHome, @Nullable Sdk existingSdk) throws Exception {
     final Project project = getProject();
-    final ConfigurationFactory factory = PythonTestConfigurationType.getInstance().PY_UNITTEST_FACTORY;
+    final ConfigurationFactory factory = PythonTestConfigurationType.getInstance().LEGACY_UNITTEST_FACTORY;
     runConfiguration(factory, sdkHome, project);
   }
 
   protected void runConfiguration(ConfigurationFactory factory, String sdkHome, final Project project) throws Exception {
     final RunnerAndConfigurationSettings settings =
-      RunManager.getInstance(project).createRunConfiguration("test", factory);
+      RunManager.getInstance(project).createConfiguration("test", factory);
 
-    AbstractPythonTestRunConfiguration config = (AbstractPythonTestRunConfiguration)settings.getConfiguration();
+    AbstractPythonLegacyTestRunConfiguration config = (AbstractPythonLegacyTestRunConfiguration)settings.getConfiguration();
 
 
     config.setSdkHome(sdkHome);
@@ -173,7 +175,7 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
 
 
     if (sdk instanceof JythonSdkFlavor) {
-      config.setInterpreterOptions(JythonSdkFlavor.getPythonPathCmdLineArgument(Lists.<String>newArrayList(myFixture.getTempDirPath())));
+      config.setInterpreterOptions(JythonSdkFlavor.getPythonPathCmdLineArgument(Lists.newArrayList(myFixture.getTempDirPath())));
     }
     else {
       PythonEnvUtil.addToPythonPath(config.getEnvs(), myFixture.getTempDirPath());
@@ -182,14 +184,12 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
 
     configure(config);
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        RunManagerEx.getInstanceEx(project).addConfiguration(settings, false);
-        RunManagerEx.getInstanceEx(project).setSelectedConfiguration(settings);
-        Assert.assertSame(settings, RunManagerEx.getInstanceEx(project).getSelectedConfiguration());
-      }
-    }.execute();
+    WriteAction.runAndWait(() -> {
+      RunManager runManager = RunManager.getInstance(project);
+      runManager.addConfiguration(settings);
+      runManager.setSelectedConfiguration(settings);
+      Assert.assertSame(settings, runManager.getSelectedConfiguration());
+    });
 
     runConfiguration(settings, config);
   }
@@ -210,7 +210,6 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
     else {
       environment = ExecutionEnvironmentBuilder.create(DefaultRunExecutor.getRunExecutorInstance(), settings).build();
     }
-    //noinspection ConstantConditions
 
     Assert.assertTrue(environment.getRunner().canRun(DefaultRunExecutor.EXECUTOR_ID, config));
 
@@ -222,35 +221,38 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
 
     myOutput = new StringBuilder();
 
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        try {
-          environment.getRunner().execute(environment, new ProgramRunner.Callback() {
-            @Override
-            public void processStarted(RunContentDescriptor descriptor) {
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      try {
+
+        TransactionGuard.submitTransaction(config.getProject(), () -> {
+          try {
+            environment.getRunner().execute(environment, descriptor -> {
               myDescriptor = descriptor;
               myProcessHandler = myDescriptor.getProcessHandler();
               myProcessHandler.addProcessListener(new ProcessAdapter() {
                 @Override
-                public void onTextAvailable(ProcessEvent event, Key outputType) {
+                public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
                   myOutput.append(event.getText());
                 }
               });
               myConsoleView = (SMTRunnerConsoleView)descriptor.getExecutionConsole();
               myTestProxy = myConsoleView.getResultsViewer().getTestsRootNode();
+              Disposer.register(myFixture.getProject(), myTestProxy);
               myConsoleView.getResultsViewer().addEventsListener(new TestResultsViewer.SMEventsAdapter() {
                 @Override
-                public void onTestingFinished(TestResultsViewer sender) {
+                public void onTestingFinished(@NotNull TestResultsViewer sender) {
                   s.up();
                 }
               });
-            }
-          });
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
-        }
+            });
+          }
+          catch (final ExecutionException e) {
+            throw new ProcessCanceledException(e);
+          }
+        });
+      }
+      catch (Exception e) {
+        throw new RuntimeException(e);
       }
     });
 
@@ -271,7 +273,7 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
     return 60000;
   }
 
-  protected void configure(AbstractPythonTestRunConfiguration config) {
+  protected void configure(AbstractPythonLegacyTestRunConfiguration config) {
   }
 
   /**
@@ -294,6 +296,7 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
     }
     return null;
   }
+
   public void assertFinished() {
     Assert.assertTrue("State is " + myTestProxy.getMagnitudeInfo().getTitle() + "\n" + output(),
                       myTestProxy.wasLaunched() && !myTestProxy.wasTerminated());
@@ -318,22 +321,19 @@ public abstract class PyUnitTestTask extends PyExecutionFixtureTestTask {
     final Editor editor = consoleView.getEditor();
     final List<String> resultStrings = new ArrayList<>();
     final List<Pair<Integer, Integer>> resultRanges = new ArrayList<>();
-    UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-      @Override
-      public void run() {
-        /**
-         * To fetch data from console we need to flush it first.
-         * It works locally, but does not work on TC (reasons are not clear yet and need to be investigated).
-         * So, we flush it explicitly to make test run on TC.
-         */
-        consoleView.flushDeferredText();
-        for (final RangeHighlighter highlighter : editor.getMarkupModel().getAllHighlighters()) {
-          if (highlighter instanceof RangeHighlighterEx) {
-            final int start = ((RangeHighlighterEx)highlighter).getAffectedAreaStartOffset();
-            final int end = ((RangeHighlighterEx)highlighter).getAffectedAreaEndOffset();
-            resultRanges.add(Pair.create(start, end));
-            resultStrings.add(editor.getDocument().getText().substring(start, end));
-          }
+    UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+      /**
+       * To fetch data from console we need to flush it first.
+       * It works locally, but does not work on TC (reasons are not clear yet and need to be investigated).
+       * So, we flush it explicitly to make test run on TC.
+       */
+      consoleView.flushDeferredText();
+      for (final RangeHighlighter highlighter : editor.getMarkupModel().getAllHighlighters()) {
+        if (highlighter instanceof RangeHighlighterEx) {
+          final int start = ((RangeHighlighterEx)highlighter).getAffectedAreaStartOffset();
+          final int end = ((RangeHighlighterEx)highlighter).getAffectedAreaEndOffset();
+          resultRanges.add(Pair.create(start, end));
+          resultStrings.add(editor.getDocument().getText().substring(start, end));
         }
       }
     });

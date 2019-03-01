@@ -1,24 +1,10 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.search;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
+import com.intellij.util.ObjectUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -29,7 +15,6 @@ import javax.swing.*;
  * @author Vladimir Kondratyev
  */
 public class TodoAttributes implements Cloneable {
-
   private Icon myIcon;
   private TextAttributes myTextAttributes;
   private boolean myShouldUseCustomColors;
@@ -41,8 +26,8 @@ public class TodoAttributes implements Cloneable {
   @NonNls private static final String ELEMENT_OPTION = "option";
   @NonNls private static final String USE_CUSTOM_COLORS_ATT = "useCustomColors";
 
-  public TodoAttributes(@NotNull Element element, @NotNull TextAttributes defaultTodoAttributes) throws InvalidDataException {
-    String icon = element.getAttributeValue(ATTRIBUTE_ICON,ICON_DEFAULT);
+  public TodoAttributes(@NotNull Element element, @NotNull TextAttributes defaultTodoAttributes) {
+    String icon = element.getAttributeValue(ATTRIBUTE_ICON, ICON_DEFAULT);
 
     if (ICON_DEFAULT.equals(icon)){
       myIcon = AllIcons.General.TodoDefault;
@@ -56,25 +41,23 @@ public class TodoAttributes implements Cloneable {
     else{
       throw new InvalidDataException(icon);
     }
-    if (element.getChild(ELEMENT_OPTION) == null) {
-      myTextAttributes = defaultTodoAttributes;
-    }
-    else {
-      myTextAttributes = new TextAttributes(element);
-    }
 
-    // default color setting
-    final String useCustomColors = element.getAttributeValue(USE_CUSTOM_COLORS_ATT);
-    myShouldUseCustomColors = useCustomColors != null && Boolean.valueOf(useCustomColors).booleanValue();
+    myShouldUseCustomColors = Boolean.parseBoolean(element.getAttributeValue(USE_CUSTOM_COLORS_ATT));
+    myTextAttributes = myShouldUseCustomColors && element.getChild(ELEMENT_OPTION) != null ? new TextAttributes(element) : defaultTodoAttributes;
   }
 
-  TodoAttributes(@NotNull Icon icon, @NotNull TextAttributes textAttributes){
+  public TodoAttributes(@NotNull Icon icon, @NotNull TextAttributes textAttributes){
     myIcon = icon;
     myTextAttributes = textAttributes;
   }
 
+  public TodoAttributes(@NotNull TextAttributes textAttributes){
+    myTextAttributes = textAttributes;
+  }
+
+  @NotNull
   public Icon getIcon(){
-    return myIcon;
+    return ObjectUtils.chooseNotNull(myIcon, AllIcons.General.TodoDefault);
   }
 
   @NotNull
@@ -91,25 +74,23 @@ public class TodoAttributes implements Cloneable {
     myIcon = icon;
   }
 
-  public void writeExternal(Element element) throws WriteExternalException {
-    String icon;
-    if (myIcon == AllIcons.General.TodoDefault){
-      icon = ICON_DEFAULT;
-    }
-    else if (myIcon == AllIcons.General.TodoQuestion){
+  public void writeExternal(@NotNull Element element) {
+    String icon = ICON_DEFAULT;
+    if (myIcon == AllIcons.General.TodoQuestion) {
       icon = ICON_QUESTION;
     }
-    else if (myIcon == AllIcons.General.TodoImportant){
+    else if (myIcon == AllIcons.General.TodoImportant) {
       icon = ICON_IMPORTANT;
     }
-    else{
-      throw new WriteExternalException("");
-    }
-    element.setAttribute(ATTRIBUTE_ICON, icon);
-    myTextAttributes.writeExternal(element);
 
-    // default color setting
-    element.setAttribute(USE_CUSTOM_COLORS_ATT, Boolean.toString(shouldUseCustomTodoColor()));
+    if (!icon.equals(ICON_DEFAULT)) {
+      element.setAttribute(ATTRIBUTE_ICON, icon);
+    }
+
+    if (shouldUseCustomTodoColor()) {
+      myTextAttributes.writeExternal(element);
+      element.setAttribute(USE_CUSTOM_COLORS_ATT, "true");
+    }
   }
 
   public boolean equals(Object o) {
@@ -130,7 +111,6 @@ public class TodoAttributes implements Cloneable {
     return result;
   }
 
-
   public boolean shouldUseCustomTodoColor() {
     return myShouldUseCustomColors;
   }
@@ -141,7 +121,6 @@ public class TodoAttributes implements Cloneable {
       myTextAttributes = defaultTodoAttributes;
     }
   }
-
 
   @Override
   public TodoAttributes clone() {

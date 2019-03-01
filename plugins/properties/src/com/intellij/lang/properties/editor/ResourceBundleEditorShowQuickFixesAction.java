@@ -19,6 +19,7 @@ import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInsight.daemon.impl.HighlightInfo;
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.CachedIntentions;
 import com.intellij.codeInsight.intention.impl.IntentionListStep;
 import com.intellij.codeInspection.QuickFix;
 import com.intellij.icons.AllIcons;
@@ -51,10 +52,10 @@ public class ResourceBundleEditorShowQuickFixesAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final ResourceBundleEditor editor = getEditor(e);
     LOG.assertTrue(editor != null);
-    final ResourceBundlePropertyStructureViewElement element = (ResourceBundlePropertyStructureViewElement)editor.getSelectedElementIfOnlyOne();
+    final PropertyStructureViewElement element = (PropertyStructureViewElement)editor.getSelectedElementIfOnlyOne();
     LOG.assertTrue(element != null);
 
     final PsiFile file = editor.getResourceBundle().getDefaultPropertiesFile().getContainingFile();
@@ -88,18 +89,18 @@ public class ResourceBundleEditorShowQuickFixesAction extends AnAction {
     LOG.assertTrue(project != null);
     JBPopupFactory
       .getInstance()
-      .createListPopup(new IntentionListStep(null, intentions, null, file, project))
+      .createListPopup(new IntentionListStep(null, null, file, project, CachedIntentions.create(project, file, null, intentions)))
       .showInBestPositionFor(e.getDataContext());
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final ResourceBundleEditor editor = getEditor(e);
     e.getPresentation().setEnabledAndVisible(editor != null &&
-                                             editor.getSelectedElementIfOnlyOne() instanceof ResourceBundlePropertyStructureViewElement);
+                                             editor.getSelectedElementIfOnlyOne() instanceof PropertyStructureViewElement);
   }
 
-  private static ResourceBundleEditor getEditor(AnActionEvent e) {
+  private static ResourceBundleEditor getEditor(@NotNull AnActionEvent e) {
     final FileEditor editor = PlatformDataKeys.FILE_EDITOR.getData(e.getDataContext());
     return editor instanceof ResourceBundleEditor ? (ResourceBundleEditor)editor : null;
   }

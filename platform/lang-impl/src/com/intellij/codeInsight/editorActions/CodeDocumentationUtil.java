@@ -22,7 +22,8 @@ import com.intellij.lang.LanguageCommenters;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.codeStyle.DocCommentSettings;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.text.CharArrayUtil;
 import org.jetbrains.annotations.NotNull;
@@ -36,8 +37,23 @@ public class CodeDocumentationUtil {
   private CodeDocumentationUtil() {
   }
 
+  /**
+   * @deprecated  Use createDocCommentLine(lineData,file,commenter) instead.
+   */
+  @SuppressWarnings("unused")
+  @Deprecated
   public static String createDocCommentLine(String lineData, Project project, CodeDocumentationAwareCommenter commenter) {
-    if (!CodeStyleSettingsManager.getSettings(project).JD_LEADING_ASTERISKS_ARE_ENABLED) {
+    return createLine(lineData, commenter, DocCommentSettings.DEFAULTS);
+  }
+
+  public static String createDocCommentLine(String lineData, PsiFile file, CodeDocumentationAwareCommenter commenter) {
+    DocCommentSettings settings = CodeStyleManager.getInstance(file.getProject()).getDocCommentSettings(file);
+    return createLine(lineData, commenter, settings);
+  }
+
+  @NotNull
+  private static String createLine(String lineData, CodeDocumentationAwareCommenter commenter, DocCommentSettings settings) {
+    if (!settings.isLeadingAsteriskEnabled()) {
       return " " + lineData + " ";
     }
     else {
@@ -97,12 +113,11 @@ public class CodeDocumentationUtil {
   @NotNull
   public static CommentContext tryParseCommentContext(@NotNull PsiFile file, @NotNull CharSequence chars, int offset, int lineStartOffset) {
     Commenter langCommenter = LanguageCommenters.INSTANCE.forLanguage(PsiUtilCore.getLanguageAtOffset(file, offset));
-    return tryParseCommentContext(langCommenter, chars, offset, lineStartOffset);
+    return tryParseCommentContext(langCommenter, chars, lineStartOffset);
   }
 
   static CommentContext tryParseCommentContext(@Nullable Commenter langCommenter,
                                                @NotNull CharSequence chars,
-                                               int offset,
                                                int lineStartOffset) {
     final boolean isInsideCommentLikeCode = langCommenter instanceof CodeDocumentationAwareCommenter;
     if (!isInsideCommentLikeCode) {
@@ -113,15 +128,9 @@ public class CodeDocumentationUtil {
 
     boolean docStart = commenter.getDocumentationCommentPrefix() != null
                        && CharArrayUtil.regionMatches(chars, commentStartOffset, commenter.getDocumentationCommentPrefix());
-    boolean cStyleStart = commenter.getBlockCommentPrefix() != null
-                          && CharArrayUtil.regionMatches(chars, commentStartOffset, commenter.getBlockCommentPrefix());
     boolean docAsterisk = commenter.getDocumentationCommentLinePrefix() != null
                           && CharArrayUtil.regionMatches(chars, commentStartOffset, commenter.getDocumentationCommentLinePrefix());
-    final int firstNonSpaceInLine = CharArrayUtil.shiftForward(chars, offset, " \t");
-    boolean slashSlash = commenter.getLineCommentPrefix() != null
-                         && CharArrayUtil.regionMatches(chars, commentStartOffset, commenter.getLineCommentPrefix())
-                         && firstNonSpaceInLine < chars.length() && chars.charAt(firstNonSpaceInLine) != '\n';
-    return new CommentContext(commenter, docStart, cStyleStart, docAsterisk, slashSlash, commentStartOffset);
+    return new CommentContext(commenter, docStart, docAsterisk, commentStartOffset);
   }
   
   /**
@@ -135,27 +144,20 @@ public class CodeDocumentationUtil {
     /** Indicates position at the line that starts from {@code '/**'} (in java language). */
     public boolean docStart;
 
-    /** Indicates position at the line that starts from {@code '/*'} (in java language). */
-    public boolean cStyleStart;
-
     /** Indicates position at the line that starts from {@code '*'} (non-first and non-last javadoc line in java language). */
     public boolean docAsterisk;
-
-    /** Indicates position at the line that starts from {@code '//'} (in java language). */
-    public boolean slashSlash;
 
     public CommentContext() {
       commenter = null;
       lineStart = 0;
     }
 
-    public CommentContext(CodeDocumentationAwareCommenter commenter, boolean docStart, boolean cStyleStart, boolean docAsterisk,
-                          boolean slashSlash, int lineStart) 
-    {
+    public CommentContext(CodeDocumentationAwareCommenter commenter,
+                          boolean docStart,
+                          boolean docAsterisk,
+                          int lineStart) {
       this.docStart = docStart;
-      this.cStyleStart = cStyleStart;
       this.docAsterisk = docAsterisk;
-      this.slashSlash = slashSlash;
       this.commenter = commenter;
       this.lineStart = lineStart;
     }

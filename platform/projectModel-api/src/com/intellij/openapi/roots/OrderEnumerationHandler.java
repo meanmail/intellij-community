@@ -29,16 +29,18 @@ public abstract class OrderEnumerationHandler {
   public static final ExtensionPointName<Factory> EP_NAME =
     ExtensionPointName.create("com.intellij.orderEnumerationHandlerFactory");
 
-  public static abstract class Factory {
+  public abstract static class Factory {
     /**
      * @deprecated this method isn't called anymore, override {@link #isApplicable(Module)} instead
      */
+    @Deprecated
     public boolean isApplicable(@NotNull Project project) {
       return true;
     }
 
     public abstract boolean isApplicable(@NotNull Module module);
 
+    @NotNull
     public abstract OrderEnumerationHandler createHandler(@NotNull Module module);
   }
 

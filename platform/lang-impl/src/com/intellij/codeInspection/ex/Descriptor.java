@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ex;
 
@@ -27,27 +13,26 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- * Date: Dec 8, 2004
- */
 public class Descriptor {
+  private static final Logger LOG = Logger.getInstance(Descriptor.class);
+
+  @NotNull
   private final String myText;
   private final String[] myGroup;
   private final HighlightDisplayKey myKey;
-
-  private Element myConfig;
   private final InspectionToolWrapper myToolWrapper;
   private final HighlightDisplayLevel myLevel;
-  private boolean myEnabled = false;
   @Nullable
   private final NamedScope myScope;
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.ex.Descriptor");
   private final ScopeToolState myState;
-  private final InspectionProfileImpl myInspectionProfile;
+  @NotNull
+  private final InspectionProfileModifiableModel myInspectionProfile;
   private final String myScopeName;
 
-  public Descriptor(@NotNull ScopeToolState state, @NotNull InspectionProfileImpl inspectionProfile, @NotNull Project project) {
+  private Element myConfig;
+  private boolean myEnabled;
+
+  public Descriptor(@NotNull ScopeToolState state, @NotNull InspectionProfileModifiableModel inspectionProfile, @NotNull Project project) {
     myState = state;
     myInspectionProfile = inspectionProfile;
     InspectionToolWrapper tool = state.getTool();
@@ -62,6 +47,7 @@ public class Descriptor {
     myToolWrapper = tool;
   }
 
+  @Override
   public boolean equals(Object obj) {
     if (!(obj instanceof Descriptor)) return false;
     final Descriptor descriptor = (Descriptor)obj;
@@ -71,6 +57,7 @@ public class Descriptor {
            myState.equalTo(descriptor.getState());
   }
 
+  @Override
   public int hashCode() {
     final int hash = myKey.hashCode() + 29 * myLevel.hashCode();
     return myScope != null ? myScope.hashCode() + 29 * hash : hash;
@@ -84,6 +71,7 @@ public class Descriptor {
     myEnabled = enabled;
   }
 
+  @NotNull
   public String getText() {
     return myText;
   }
@@ -120,10 +108,12 @@ public class Descriptor {
     return myToolWrapper.loadDescription();
   }
 
-  public InspectionProfileImpl getInspectionProfile() {
+  @NotNull
+  public InspectionProfileModifiableModel getInspectionProfile() {
     return myInspectionProfile;
   }
 
+  @NotNull
   public static Element createConfigElement(InspectionToolWrapper toolWrapper) {
     Element element = new Element("options");
     try {
@@ -135,6 +125,7 @@ public class Descriptor {
     return element;
   }
 
+  @NotNull
   public String[] getGroup() {
     return myGroup;
   }
@@ -149,6 +140,7 @@ public class Descriptor {
     return myScope;
   }
 
+  @NotNull
   public ScopeToolState getState() {
     return myState;
   }

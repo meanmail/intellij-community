@@ -28,7 +28,6 @@ import java.io.Serializable;
  * Thread-safe.
  * 
  * @author Denis Zhdanov
- * @since 4/12/13 11:49 AM
  * @param <T>  data class
  */
 @SuppressWarnings("UnusedDeclaration")
@@ -41,7 +40,7 @@ public class Key<T> implements Serializable, Comparable<Key<?>> {
   private final int myProcessingWeight;
 
   /**
-   * Creates new <code>Key</code> object.
+   * Creates new {@code Key} object.
    * 
    * @param dataClass         class of the payload data which will be associated with the current key
    * @param processingWeight  there is a possible case that when a {@link DataNode} object has children of more than on type (children

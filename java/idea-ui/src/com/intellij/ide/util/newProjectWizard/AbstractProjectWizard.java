@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.newProjectWizard;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.intellij.ide.highlighter.ModuleFileType;
 import com.intellij.ide.highlighter.ProjectFileType;
+import com.intellij.ide.util.projectWizard.ModuleBuilder;
 import com.intellij.ide.util.projectWizard.ModuleWizardStep;
 import com.intellij.ide.util.projectWizard.ProjectBuilder;
 import com.intellij.ide.util.projectWizard.WizardContext;
@@ -27,17 +14,14 @@ import com.intellij.ide.wizard.StepWithSubSteps;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.StorageScheme;
 import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.ui.IdeBorderFactory;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,7 +33,6 @@ import java.io.File;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 19.09.13
  */
 public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardStep> {
   protected final WizardContext myWizardContext;
@@ -71,7 +54,7 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
   @Override
   protected String addStepComponent(Component component) {
     if (component instanceof JComponent) {
-      ((JComponent)component).setBorder(IdeBorderFactory.createEmptyBorder(0, 0, 0, 0));
+      ((JComponent)component).setBorder(JBUI.Borders.empty());
     }
     return super.addStepComponent(component);
   }
@@ -142,6 +125,25 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
     return path;
   }
 
+  @Nullable
+  public ProjectBuilder getBuilder(Project project) {
+    final ProjectBuilder builder = getProjectBuilder();
+    if (builder instanceof ModuleBuilder) {
+      final ModuleBuilder moduleBuilder = (ModuleBuilder)builder;
+      if (moduleBuilder.getName() == null) {
+        moduleBuilder.setName(getProjectName());
+      }
+      if (moduleBuilder.getModuleFilePath() == null) {
+        moduleBuilder.setModuleFilePath(getModuleFilePath());
+      }
+    }
+    if (builder == null || !builder.validate(project, project)) {
+      return null;
+    }
+    return builder;
+  }
+
+
   @Override
   protected void updateStep() {
     if (!mySteps.isEmpty()) {
@@ -164,10 +166,8 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
 
   @Override
   protected final void doOKAction() {
-    final Ref<Boolean> result = Ref.create(false);
-    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> result.set(doFinishAction()));
-    if (!result.get()) return;
-    
+    if (!doFinishAction()) return;
+
     super.doOKAction();
   }
 
@@ -300,6 +300,7 @@ public abstract class AbstractProjectWizard extends AbstractWizard<ModuleWizardS
     super.doCancelAction();
   }
 
+  @Override
   protected boolean isLastStep() {
     return isLastStep(getCurrentStep());
   }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.codeInsight.hint.TooltipController;
@@ -23,7 +9,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.wm.ex.LayoutFocusTraversalPolicyExt;
 import com.intellij.ui.awt.RelativePoint;
@@ -43,6 +29,7 @@ import java.util.EventListener;
 import java.util.EventObject;
 
 public class LightweightHint extends UserDataHolderBase implements Hint {
+  public static final Key<Boolean> SHOWN_AT_DEBUG = Key.create("shown.at.debug");
   private static final Logger LOG = Logger.getInstance("#com.intellij.ui.LightweightHint");
 
   private final JComponent myComponent;
@@ -113,8 +100,8 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
   }
 
   /**
-   * Shows the hint in the layered pane. Coordinates <code>x</code> and <code>y</code>
-   * are in <code>parentComponent</code> coordinate system. Note that the component
+   * Shows the hint in the layered pane. Coordinates {@code x} and {@code y}
+   * are in {@code parentComponent} coordinate system. Note that the component
    * appears on 250 layer.
    */
   @Override
@@ -186,6 +173,11 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
           .setRequestFocus(hintHint.isRequestFocus())
           .setHint(true);
         myComponent.validate();
+        Border border = hintHint.getComponentBorder();
+        if (border != null) {
+          tooltip.setComponentBorder(border);
+        }
+
         myCurrentIdeTooltip = IdeTooltipManager.getInstance().show(tooltip, hintHint.isShowImmediately(), hintHint.isAnimationEnabled());
       }
       else {
@@ -210,14 +202,14 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
       }
 
       myPopup = JBPopupFactory.getInstance().createComponentPopupBuilder(actualComponent, myFocusRequestor)
-        .setRequestFocus(myFocusRequestor != null)
-        .setFocusable(myFocusRequestor != null)
+        .setRequestFocus(myFocusRequestor != null || hintHint.isRequestFocus())
+        .setFocusable(myFocusRequestor != null || hintHint.isRequestFocus())
         .setResizable(myResizable)
         .setMovable(myTitle != null)
         .setTitle(myTitle)
         .setModalContext(false)
         .setShowShadow(isRealPopup() && !isForceHideShadow())
-        .setCancelKeyEnabled(false)
+        .setCancelKeyEnabled(true)
         .setCancelOnClickOutside(myCancelOnClickOutside)
         .setCancelCallback(() -> {
           onPopupCancel();
@@ -232,6 +224,7 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
   }
 
   protected void onPopupCancel() {
+    hide();
   }
 
   private void fixActualPoint(Point actualPoint) {
@@ -318,6 +311,9 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
 
   @Override
   public boolean isVisible() {
+    Boolean shownAtDebug = getUserData(SHOWN_AT_DEBUG);
+    if (shownAtDebug != null) return shownAtDebug;
+    
     if (myIsRealPopup) {
       return myPopup != null && myPopup.isVisible();
     }
@@ -354,11 +350,10 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
           tooltip.hide();
         }
         else {
-          final JRootPane rootPane = myComponent.getRootPane();
-          if (rootPane != null) {
-            final Rectangle bounds = myComponent.getBounds();
-            final JLayeredPane layeredPane = rootPane.getLayeredPane();
-
+          JRootPane rootPane = myComponent.getRootPane();
+          JLayeredPane layeredPane = rootPane == null ? null : rootPane.getLayeredPane();
+          if (layeredPane != null) {
+            Rectangle bounds = myComponent.getBounds();
             try {
               if (myFocusBackComponent != null) {
                 LayoutFocusTraversalPolicyExt.setOverridenDefaultComponent(myFocusBackComponent);
@@ -448,12 +443,9 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
     }
     else {
       if (myCurrentIdeTooltip != null) {
-        Point screenPoint = point.getScreenPoint();
-        if (!screenPoint.equals(new RelativePoint(myCurrentIdeTooltip.getComponent(), myCurrentIdeTooltip.getPoint()).getScreenPoint())) {
-          myCurrentIdeTooltip.setPoint(point.getPoint());
-          myCurrentIdeTooltip.setComponent(point.getComponent());
-          IdeTooltipManager.getInstance().show(myCurrentIdeTooltip, true, false);
-        }
+        myCurrentIdeTooltip.setPoint(point.getPoint());
+        myCurrentIdeTooltip.setComponent(point.getComponent());
+        IdeTooltipManager.getInstance().show(myCurrentIdeTooltip, true, false);
       }
       else {
         Point targetPoint = point.getPoint(myComponent.getParent());
@@ -503,6 +495,17 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
 
       myComponent.revalidate();
       myComponent.repaint();
+    } else { // isAwtTooltip() case, we have to update Balloon size
+      Component c = myComponent;
+      while (c != null) {
+        if (c.getParent() instanceof JLayeredPane) {
+          c.setSize(c.getPreferredSize());
+          c.revalidate();
+          c.repaint();
+          break;
+        }
+        c = c.getParent();
+      }
     }
   }
 
@@ -515,7 +518,7 @@ public class LightweightHint extends UserDataHolderBase implements Hint {
   }
 
   public boolean isInsideHint(RelativePoint target) {
-    if (myComponent == null || !myComponent.isShowing()) return false;
+    if (!myComponent.isShowing()) return false;
 
     if (myIsRealPopup) {
       Window wnd = SwingUtilities.getWindowAncestor(myComponent);

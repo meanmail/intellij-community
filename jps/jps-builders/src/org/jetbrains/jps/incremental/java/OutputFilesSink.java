@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.incremental.java;
 
 import com.intellij.compiler.instrumentation.FailSafeClassReader;
@@ -41,7 +27,6 @@ import java.util.Set;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: 2/16/12
 */
 class OutputFilesSink implements OutputFileConsumer {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.incremental.java.OutputFilesSink");
@@ -49,9 +34,9 @@ class OutputFilesSink implements OutputFileConsumer {
   private final ModuleLevelBuilder.OutputConsumer myOutputConsumer;
   private final Callbacks.Backend myMappingsCallback;
   private final String myChunkName;
-  private final Set<File> mySuccessfullyCompiled = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+  private final Set<File> mySuccessfullyCompiled = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
 
-  public OutputFilesSink(CompileContext context,
+  OutputFilesSink(CompileContext context,
                          ModuleLevelBuilder.OutputConsumer outputConsumer,
                          Callbacks.Backend callback,
                          String chunkName) {
@@ -61,6 +46,7 @@ class OutputFilesSink implements OutputFileConsumer {
     myChunkName = "[" +chunkName + "]";
   }
 
+  @Override
   public void save(final @NotNull OutputFileObject fileObject) {
     final BinaryContent content = fileObject.getContent();
     final File srcFile = fileObject.getSourceFile();
@@ -79,11 +65,11 @@ class OutputFilesSink implements OutputFileConsumer {
               myOutputConsumer.registerCompiledClass(rootDescriptor.target, new CompiledClass(fileObject.getFile(), srcFile, fileObject.getClassName(), content)); // todo: avoid array copying?
             }
             else {
-              myOutputConsumer.registerOutputFile(rootDescriptor.target, fileObject.getFile(), Collections.<String>singleton(sourcePath));
+              myOutputConsumer.registerOutputFile(rootDescriptor.target, fileObject.getFile(), Collections.singleton(sourcePath));
             }
           }
         }
-        else { 
+        else {
           // was not able to determine the source root descriptor or the source root is excluded from compilation (e.g. for annotation processors)
           if (outKind == JavaFileObject.Kind.CLASS) {
             myOutputConsumer.registerCompiledClass(null, new CompiledClass(fileObject.getFile(), srcFile, fileObject.getClassName(), content));
@@ -101,7 +87,7 @@ class OutputFilesSink implements OutputFileConsumer {
           myMappingsCallback.associate(FileUtil.toSystemIndependentName(fileObject.getFile().getPath()), sourcePath, reader);
         }
         catch (Throwable e) {
-          // need this to make sure that unexpected errors in, for example, ASM will not ruin the compilation  
+          // need this to make sure that unexpected errors in, for example, ASM will not ruin the compilation
           final String message = "Class dependency information may be incomplete! Error parsing generated class " + fileObject.getFile().getPath();
           LOG.info(message, e);
           myContext.processMessage(new CompilerMessage(

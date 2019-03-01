@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.findUsages;
 
 import com.intellij.openapi.util.TextRange;
@@ -25,6 +11,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
+import org.jetbrains.plugins.groovy.lang.psi.api.EmptyGroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
@@ -50,7 +37,7 @@ public class LiteralConstructorReference extends PsiReferenceBase.Poly<GrListOrM
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     return getElement();
   }
 
@@ -79,7 +66,7 @@ public class LiteralConstructorReference extends PsiReferenceBase.Poly<GrListOrM
 
     final PsiType type = listOrMap.getType();
     final PsiType ownType = type instanceof PsiClassType ? ((PsiClassType)type).rawType() : type;
-    if (ownType != null && TypesUtil.isAssignableWithoutConversions(conversionType.rawType(), ownType, listOrMap)) return null;
+    if (ownType != null && TypesUtil.isAssignableWithoutConversions(conversionType.rawType(), ownType)) return null;
 
     final PsiClass resolved = conversionType.resolve();
     if (resolved != null) {
@@ -123,8 +110,7 @@ public class LiteralConstructorReference extends PsiReferenceBase.Poly<GrListOrM
           if (PsiType.BOOLEAN.equals(TypesUtil.unboxPrimitiveTypeWrapper(type))
               || TypesUtil.isEnum(type)
               || PsiUtil.isCompileStatic(expression)
-              || TypesUtil.isClassType(type, CommonClassNames.JAVA_LANG_STRING)
-              || TypesUtil.isClassType(type, CommonClassNames.JAVA_LANG_CLASS)) {
+              || TypesUtil.isClassType(type, CommonClassNames.JAVA_LANG_STRING, CommonClassNames.JAVA_LANG_CLASS)) {
             type = null;
           }
         }
@@ -141,6 +127,7 @@ public class LiteralConstructorReference extends PsiReferenceBase.Poly<GrListOrM
   private static PsiClassType filterOutTrashTypes(PsiType type) {
     if (!(type instanceof PsiClassType)) return null;
     if (type.equalsToText(CommonClassNames.JAVA_LANG_OBJECT)) return null;
+    if (TypesUtil.resolvesTo(type, CommonClassNames.JAVA_LANG_CLASS)) return null;
     if (TypesUtil.resolvesTo(type, CommonClassNames.JAVA_UTIL_MAP)) return null;
     if (TypesUtil.resolvesTo(type, CommonClassNames.JAVA_UTIL_HASH_MAP)) return null;
     if (TypesUtil.resolvesTo(type, CommonClassNames.JAVA_UTIL_LIST)) return null;
@@ -190,14 +177,8 @@ public class LiteralConstructorReference extends PsiReferenceBase.Poly<GrListOrM
 
     if (constructorCandidates.length == 0) {
       final GroovyResolveResult result = GroovyResolveResultImpl.from(classResolveResult);
-      if (result != GroovyResolveResult.EMPTY_RESULT) return new GroovyResolveResult[]{result};
+      if (result != EmptyGroovyResolveResult.INSTANCE) return new GroovyResolveResult[]{result};
     }
     return constructorCandidates;
-  }
-
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return EMPTY_ARRAY;
   }
 }

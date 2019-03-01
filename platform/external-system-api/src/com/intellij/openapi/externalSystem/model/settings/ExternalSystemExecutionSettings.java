@@ -1,69 +1,132 @@
 package com.intellij.openapi.externalSystem.model.settings;
 
-import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.util.SystemProperties;
+import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.Serializable;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.*;
 
 /**
- * There is a possible case that all work with external system is performed at a separate slave process (e.g. when we use
- * an external system api and don't want to pollute ide process with it). The code which is executed at the external process
- * is unaware of any ide-local settings defined by a user then.
- * <p/>
- * Example: a user experiences problem with external system integration and we instruct him to define a dedicated system property
- * which triggers verbose processing. That property is not visible to a slave process then, so, we need to deliver the data
- * to it somehow. That's why this class has been introduced - it's just a holder for such data.
- * <p/>
- * Thread-safe.
- * 
- * @author Denis Zhdanov
- * @since 8/9/11 12:12 PM
+ * Holds execution settings of particular invocation of an external system.
+ * E.g. task running or project importing.
  */
 public class ExternalSystemExecutionSettings implements Serializable, UserDataHolder {
 
   public static final String REMOTE_PROCESS_IDLE_TTL_IN_MS_KEY = "external.system.remote.process.idle.ttl.ms";
-  private static final int    DEFAULT_REMOTE_PROCESS_TTL_MS     = 60000;
+  private static final int DEFAULT_REMOTE_PROCESS_TTL_MS = -1;
 
   private static final long serialVersionUID = 1L;
 
-  @NotNull private final AtomicLong    myRemoteProcessIdleTtlInMs = new AtomicLong();
-  @NotNull private final AtomicBoolean myVerboseProcessing        = new AtomicBoolean();
+  private long myRemoteProcessIdleTtlInMs;
+  private boolean myVerboseProcessing;
+  @NotNull private final List<String> myJvmArguments;
+  @NotNull private final List<String> myArguments;
+  @NotNull
+  private final Map<String, String> myEnv;
+  private boolean myPassParentEnvs = true;
 
-  @NotNull private final AtomicReference<ExternalSystemTaskNotificationListener> myNotificationListener =
-    new AtomicReference<>();
-
-  @NotNull private transient UserDataHolderBase myUserData = new UserDataHolderBase();
+  @NotNull private final transient UserDataHolderBase myUserData = new UserDataHolderBase();
 
   public ExternalSystemExecutionSettings() {
     int ttl = SystemProperties.getIntProperty(REMOTE_PROCESS_IDLE_TTL_IN_MS_KEY, DEFAULT_REMOTE_PROCESS_TTL_MS);
     setRemoteProcessIdleTtlInMs(ttl);
+    myJvmArguments = new ArrayList<>();
+    myArguments = new ArrayList<>();
+    myEnv = new LinkedHashMap<>();
   }
 
   /**
    * @return ttl in milliseconds for the remote process (positive value); non-positive value if undefined
    */
   public long getRemoteProcessIdleTtlInMs() {
-    return myRemoteProcessIdleTtlInMs.get();
+    return myRemoteProcessIdleTtlInMs;
   }
 
   public void setRemoteProcessIdleTtlInMs(long remoteProcessIdleTtlInMs) {
-    myRemoteProcessIdleTtlInMs.set(remoteProcessIdleTtlInMs);
+    myRemoteProcessIdleTtlInMs = remoteProcessIdleTtlInMs;
   }
 
   public boolean isVerboseProcessing() {
-    return myVerboseProcessing.get();
+    return myVerboseProcessing;
   }
 
   public void setVerboseProcessing(boolean verboseProcessing) {
-    myVerboseProcessing.set(verboseProcessing);
+    myVerboseProcessing = verboseProcessing;
+  }
+
+  /**
+   * @deprecated use {@link #getJvmArguments()}
+   */
+  @Deprecated
+  @NotNull
+  @ApiStatus.ScheduledForRemoval(inVersion = "2020.1")
+  public Set<String> getVmOptions() {
+    return ContainerUtil.newLinkedHashSet(myJvmArguments);
+  }
+
+  @NotNull
+  public List<String> getJvmArguments() {
+    return Collections.unmodifiableList(myJvmArguments);
+  }
+
+  @NotNull
+  public List<String> getArguments() {
+    return Collections.unmodifiableList(myArguments);
+  }
+
+  @NotNull
+  public Map<String, String> getEnv() {
+    return Collections.unmodifiableMap(myEnv);
+  }
+
+  public boolean isPassParentEnvs() {
+    return myPassParentEnvs;
+  }
+
+  public ExternalSystemExecutionSettings withVmOptions(Collection<String> vmOptions) {
+    myJvmArguments.addAll(vmOptions);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withVmOptions(String... vmOptions) {
+    Collections.addAll(myJvmArguments, vmOptions);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withVmOption(String vmOption) {
+    myJvmArguments.add(vmOption);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withArguments(Collection<String> arguments) {
+    myArguments.addAll(arguments);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withArguments(String... arguments) {
+    Collections.addAll(myArguments, arguments);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withArgument(String argument) {
+    myArguments.add(argument);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings withEnvironmentVariables(Map<String, String> envs) {
+    myEnv.putAll(envs);
+    return this;
+  }
+
+  public ExternalSystemExecutionSettings passParentEnvs(boolean passParentEnvs) {
+    myPassParentEnvs = passParentEnvs;
+    return this;
   }
 
   @Nullable
@@ -76,13 +139,14 @@ public class ExternalSystemExecutionSettings implements Serializable, UserDataHo
   public <U> void putUserData(@NotNull Key<U> key, U value) {
     myUserData.putUserData(key, value);
   }
-  
+
   @Override
   public int hashCode() {
-    int result = (int)(myRemoteProcessIdleTtlInMs.get() ^ (myRemoteProcessIdleTtlInMs.get() >>> 32));
-    result = 31 * result + (myVerboseProcessing.get() ? 1 : 0);
-    ExternalSystemTaskNotificationListener listener = myNotificationListener.get();
-    return listener == null ? result : 31 * result + listener.hashCode();
+    int result = (int)(myRemoteProcessIdleTtlInMs ^ (myRemoteProcessIdleTtlInMs >>> 32));
+    result = 31 * result + (myVerboseProcessing ? 1 : 0);
+    result = 31 * result + myJvmArguments.hashCode();
+    result = 31 * result + myArguments.hashCode();
+    return result;
   }
 
   @Override
@@ -92,16 +156,10 @@ public class ExternalSystemExecutionSettings implements Serializable, UserDataHo
 
     ExternalSystemExecutionSettings that = (ExternalSystemExecutionSettings)o;
 
-    if (myRemoteProcessIdleTtlInMs.get() != that.myRemoteProcessIdleTtlInMs.get()) return false;
-    if (myVerboseProcessing.get() != that.myVerboseProcessing.get()) return false;
-    ExternalSystemTaskNotificationListener notificationListener = myNotificationListener.get();
-    ExternalSystemTaskNotificationListener thatNotificationListener = that.myNotificationListener.get();
-    if ((notificationListener == null && thatNotificationListener != null)
-        || (notificationListener != null && !notificationListener.equals(thatNotificationListener)))
-    {
-      return false;
-    }
-
+    if (myRemoteProcessIdleTtlInMs != that.myRemoteProcessIdleTtlInMs) return false;
+    if (myVerboseProcessing != that.myVerboseProcessing) return false;
+    if (!myJvmArguments.equals(that.myJvmArguments)) return false;
+    if (!myArguments.equals(that.myArguments)) return false;
     return true;
   }
 }

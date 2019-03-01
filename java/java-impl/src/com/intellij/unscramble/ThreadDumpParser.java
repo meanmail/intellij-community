@@ -21,7 +21,6 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -30,7 +29,10 @@ import java.util.regex.Pattern;
  * @author yole
  */
 public class ThreadDumpParser {
-  private static final Pattern ourThreadStartPattern = Pattern.compile("^\\s*\"(.+)\".+(prio=\\d+ (?:os_prio=[^\\s]+ )?tid=[^\\s]+ nid=[^\\s]+|[Ii][Dd]=\\d+) ([^\\[]+)");
+  private static final Pattern ourThreadStartPattern = Pattern.compile("^\"(.+)\".+(prio=\\d+ (?:os_prio=[^\\s]+ )?.*tid=[^\\s]+ nid=[^\\s]+|[Ii][Dd]=\\d+) ([^\\[]+)");
+  private static final Pattern ourForcedThreadStartPattern = Pattern.compile("^Thread (\\d+): \\(state = (.+)\\)");
+  private static final Pattern ourYourkitThreadStartPattern = Pattern.compile("(.+) \\[([A-Z_, ]*)]");
+  private static final Pattern ourYourkitThreadStartPattern2 = Pattern.compile("(.+) (?:State:)? (.+) CPU usage on sample: .+");
   private static final Pattern ourThreadStatePattern = Pattern.compile("java\\.lang\\.Thread\\.State: (.+) \\((.+)\\)");
   private static final Pattern ourThreadStatePattern2 = Pattern.compile("java\\.lang\\.Thread\\.State: (.+)");
   private static final Pattern ourWaitingForLockPattern = Pattern.compile("- waiting (on|to lock) <(.+)>");
@@ -53,7 +55,7 @@ public class ThreadDumpParser {
       if (line.startsWith("============") || line.contains("Java-level deadlock")) {
         break;
       }
-      ThreadState state = tryParseThreadStart(line);
+      ThreadState state = tryParseThreadStart(line.trim());
       if (state != null) {
         if (lastThreadState != null) {
           lastThreadState.setStackTrace(lastThreadStack.toString(), !haveNonEmptyStackTrace);
@@ -114,7 +116,7 @@ public class ThreadDumpParser {
     return null;
   }
 
-  public static void sortThreads(List<ThreadState> result) {
+  public static void sortThreads(List<? extends ThreadState> result) {
     Collections.sort(result, (o1, o2) -> getInterestLevel(o2) - getInterestLevel(o1));
   }
 
@@ -188,7 +190,7 @@ public class ThreadDumpParser {
   }
 
   @Nullable
-  private static ThreadState tryParseThreadStart(final String line) {
+  private static ThreadState tryParseThreadStart(String line) {
     Matcher m = ourThreadStartPattern.matcher(line);
     if (m.find()) {
       final ThreadState state = new ThreadState(m.group(1), m.group(3));
@@ -197,6 +199,38 @@ public class ThreadDumpParser {
       }
       return state;
     }
+
+    m = ourForcedThreadStartPattern.matcher(line);
+    if (m.matches()) {
+      return new ThreadState(m.group(1), m.group(2));
+    }
+
+    boolean daemon = line.contains(" [DAEMON]");
+    if (daemon) {
+      line = StringUtil.replace(line, " [DAEMON]", "");
+    }
+
+    m = matchYourKit(line);
+    if (m != null) {
+      ThreadState state = new ThreadState(m.group(1), m.group(2));
+      state.setDaemon(daemon);
+      return state;
+    }
+    return null;
+  }
+
+  @Nullable
+  private static Matcher matchYourKit(String line) {
+    if (line.contains("[")) {
+      Matcher m = ourYourkitThreadStartPattern.matcher(line);
+      if (m.matches()) return m;
+    }
+
+    if (line.contains("CPU usage on sample:")) {
+      Matcher m = ourYourkitThreadStartPattern2.matcher(line);
+      if (m.matches()) return m;
+    }
+
     return null;
   }
 

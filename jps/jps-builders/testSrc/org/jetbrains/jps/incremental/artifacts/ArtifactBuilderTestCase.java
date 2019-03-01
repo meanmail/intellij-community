@@ -15,18 +15,21 @@
  */
 package org.jetbrains.jps.incremental.artifacts;
 
-import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.project.IntelliJProjectConfiguration;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.io.DirectoryContentSpec;
 import com.intellij.util.io.TestFileSystemBuilder;
 import com.intellij.util.text.UniqueNameGenerator;
 import org.jetbrains.jps.builders.BuildResult;
 import org.jetbrains.jps.builders.CompileScopeTestBuilder;
 import org.jetbrains.jps.builders.JpsBuildTestCase;
+import org.jetbrains.jps.model.JpsDummyElement;
 import org.jetbrains.jps.model.JpsElementFactory;
 import org.jetbrains.jps.model.artifact.DirectoryArtifactType;
 import org.jetbrains.jps.model.artifact.JpsArtifact;
 import org.jetbrains.jps.model.artifact.JpsArtifactService;
+import org.jetbrains.jps.model.artifact.JpsArtifactType;
 import org.jetbrains.jps.model.java.JpsJavaExtensionService;
 import org.jetbrains.jps.model.java.JpsJavaLibraryType;
 import org.jetbrains.jps.model.library.JpsLibrary;
@@ -85,7 +88,7 @@ public abstract class ArtifactBuilderTestCase extends JpsBuildTestCase {
   }
 
   private Set<String> getArtifactNames() {
-    Set<String> usedNames = new HashSet<String>();
+    Set<String> usedNames = new HashSet<>();
     for (JpsArtifact artifact : JpsArtifactService.getInstance().getArtifacts(myProject)) {
       usedNames.add(artifact.getName());
     }
@@ -93,8 +96,14 @@ public abstract class ArtifactBuilderTestCase extends JpsBuildTestCase {
   }
 
   protected JpsArtifact addArtifact(String name, LayoutElementTestUtil.LayoutElementCreator root) {
+    return addArtifact(name, root, DirectoryArtifactType.INSTANCE);
+  }
+
+  protected JpsArtifact addArtifact(String name, LayoutElementTestUtil.LayoutElementCreator root,
+                                    JpsArtifactType<JpsDummyElement> artifactType) {
     assertFalse("JpsArtifact " + name + " already exists", getArtifactNames().contains(name));
-    JpsArtifact artifact = JpsArtifactService.getInstance().addArtifact(myProject, name, root.buildElement(), DirectoryArtifactType.INSTANCE,
+    JpsArtifact artifact = JpsArtifactService.getInstance().addArtifact(myProject, name, root.buildElement(),
+                                                                        artifactType,
                                                                         JpsElementFactory.getInstance().createDummyElement());
     artifact.setOutputPath(getAbsolutePath("out/artifacts/" + name));
     return artifact;
@@ -108,7 +117,7 @@ public abstract class ArtifactBuilderTestCase extends JpsBuildTestCase {
 
   protected void buildAll() {
     Collection<JpsArtifact> artifacts = JpsArtifactService.getInstance().getArtifacts(myProject);
-    buildArtifacts(artifacts.toArray(new JpsArtifact[artifacts.size()]));
+    buildArtifacts(artifacts.toArray(new JpsArtifact[0]));
   }
 
   protected void buildArtifacts(JpsArtifact... artifacts) {
@@ -124,7 +133,7 @@ public abstract class ArtifactBuilderTestCase extends JpsBuildTestCase {
   }
 
   protected static String getJUnitJarPath() {
-    final File file = PathManager.findFileInLibDirectory("junit.jar");
+    final File file = new File(assertOneElement(IntelliJProjectConfiguration.getProjectLibraryClassesRootPaths("JUnit3")));
     assertTrue("File " + file.getAbsolutePath() + " doesn't exist", file.exists());
     return FileUtil.toSystemIndependentName(file.getAbsolutePath());
   }
@@ -156,6 +165,10 @@ public abstract class ArtifactBuilderTestCase extends JpsBuildTestCase {
   }
 
   protected static void assertOutput(JpsArtifact a, TestFileSystemBuilder expected) {
+    assertOutput(a.getOutputPath(), expected);
+  }
+
+  protected static void assertOutput(JpsArtifact a, DirectoryContentSpec expected) {
     assertOutput(a.getOutputPath(), expected);
   }
 

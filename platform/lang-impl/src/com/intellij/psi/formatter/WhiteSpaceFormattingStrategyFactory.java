@@ -32,11 +32,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * Contains utility methods for working with {@link WhiteSpaceFormattingStrategy}.
  *
  * @author Denis Zhdanov
- * @since 10/1/10 3:31 PM
  */
 public class WhiteSpaceFormattingStrategyFactory {
 
-  private static final List<WhiteSpaceFormattingStrategy> SHARED_STRATEGIES = Arrays.<WhiteSpaceFormattingStrategy>asList(
+  private static final List<WhiteSpaceFormattingStrategy> SHARED_STRATEGIES = Arrays.asList(
     new StaticSymbolWhiteSpaceDefinitionStrategy(' ', '\t', '\n')
   );
 

@@ -14,7 +14,6 @@ import java.util.*;
 
 /**
  * @author Denis Zhdanov
- * @since 8/9/11 6:25 PM
  */
 public class ContentRootData extends AbstractExternalEntityData {
 
@@ -25,7 +24,7 @@ public class ContentRootData extends AbstractExternalEntityData {
   @NotNull private final String myRootPath;
 
   /**
-   * Creates new <code>GradleContentRootImpl</code> object.
+   * Creates new {@code GradleContentRootImpl} object.
    *
    * @param rootPath  path to the root directory
    */
@@ -41,7 +40,7 @@ public class ContentRootData extends AbstractExternalEntityData {
   @NotNull
   public Collection<SourceRoot> getPaths(@NotNull ExternalSystemSourceType type) {
     final Collection<SourceRoot> result = myData.get(type);
-    return result == null ? Collections.<SourceRoot>emptyList() : result;
+    return result == null ? Collections.emptyList() : result;
   }
 
   public void storePath(@NotNull ExternalSystemSourceType type, @NotNull String path) throws IllegalArgumentException {

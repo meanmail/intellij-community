@@ -31,7 +31,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * @author peter
@@ -60,7 +59,7 @@ public class TemplateDataLanguageMappings extends LanguagePerFileMappings<Langua
   @Nullable
   @Override
   public Language getMapping(@Nullable VirtualFile file) {
-    final Language t = getMappingInner(file, getMappings(), myPropertyPusher.getFileDataKey());
+    Language t = getConfiguredMapping(file);
     return t == null || t == Language.ANY ? getDefaultMapping(file) : t;
   }
 

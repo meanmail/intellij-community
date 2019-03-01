@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -45,9 +45,8 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/30/2014
  */
-public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSourceFoldersModuleExtension> {
+public class MavenSourceFoldersModuleExtension extends ModuleExtension {
 
   private ModifiableRootModel myRootModel;
   private JpsModule myDummyJpsModule;
@@ -81,6 +80,7 @@ public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSour
     }
   }
 
+  @NotNull
   @Override
   public ModuleExtension getModifiableModel(boolean writable) {
     return new MavenSourceFoldersModuleExtension();
@@ -149,11 +149,11 @@ public class MavenSourceFoldersModuleExtension extends ModuleExtension<MavenSour
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
   }
 
   public void clearSourceFolders() {

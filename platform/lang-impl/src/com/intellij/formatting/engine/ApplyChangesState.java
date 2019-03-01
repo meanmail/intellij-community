@@ -22,6 +22,7 @@ import com.intellij.openapi.editor.TextChange;
 import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.impl.BulkChangesMerger;
 import com.intellij.openapi.editor.impl.TextChangeImpl;
+import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,7 +35,7 @@ public class ApplyChangesState extends State {
    * There is a possible case that formatting introduced big number of changes to the underlying document. That number may be
    * big enough for that their subsequent appliance is much slower than direct replacing of the whole document text.
    * <p/>
-   * Current constant holds minimum number of changes that should trigger such <code>'replace whole text'</code> optimization.
+   * Current constant holds minimum number of changes that should trigger such {@code 'replace whole text'} optimization.
    */
   private static final int BULK_REPLACE_OPTIMIZATION_CRITERIA = 3000;
 
@@ -49,7 +50,7 @@ public class ApplyChangesState extends State {
   private int myIndex;
   private boolean myResetBulkUpdateState;
 
-  private BlockIndentOptions myBlockIndentOptions;
+  private final BlockIndentOptions myBlockIndentOptions;
 
   public ApplyChangesState(FormattingModel model, WrapBlocksState state, FormattingProgressCallback callback) {
     myModel = model;
@@ -72,8 +73,7 @@ public class ApplyChangesState extends State {
     Document document = documentModel.getDocument();
     CaretOffsetUpdater caretOffsetUpdater = new CaretOffsetUpdater(document);
 
-    if (document instanceof DocumentEx) ((DocumentEx)document).setInBulkUpdate(true);
-    try {
+    DocumentUtil.executeInBulk(document, true, ()->{
       List<TextChange> changes = new ArrayList<>();
       int shift = 0;
       int currentIterationShift = 0;
@@ -99,16 +99,13 @@ public class ApplyChangesState extends State {
       caretOffsetUpdater.update(changes);
       CharSequence mergeResult = BulkChangesMerger.INSTANCE.mergeToCharSequence(document.getChars(), document.getTextLength(), changes);
       document.replaceString(0, document.getTextLength(), mergeResult);
-    }
-    finally {
-      if (document instanceof DocumentEx) ((DocumentEx)document).setInBulkUpdate(false);
-    }
+    });
 
     caretOffsetUpdater.restoreCaretLocations();
     cleanupBlocks(blocksToModify);
   }
 
-  private static void cleanupBlocks(List<LeafBlockWrapper> blocks) {
+  private static void cleanupBlocks(List<? extends LeafBlockWrapper> blocks) {
     for (LeafBlockWrapper block : blocks) {
       block.getParent().dispose();
       block.dispose();

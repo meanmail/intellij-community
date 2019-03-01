@@ -18,6 +18,7 @@ package com.intellij.execution.process;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collections;
@@ -25,7 +26,7 @@ import java.util.Map;
 
 /**
  * @author Roman.Chernyatchik, oleg
- * @deprecated Use GeneralCommandLine instead
+ * @deprecated Use {@link com.intellij.execution.configurations.GeneralCommandLine} instead
  * @deprecated Usages only in Ruby. Move to Ruby module?
  */
 @Deprecated
@@ -33,6 +34,7 @@ public class CommandLineArgumentsProvider {
     /**
    * @return Commands to execute (one command corresponds to one add argument)
    */
+  @NotNull
   public String[] getArguments() { return ArrayUtil.EMPTY_STRING_ARRAY; }
 
   public boolean passParentEnvs() { return false; }
@@ -42,10 +44,7 @@ public class CommandLineArgumentsProvider {
 
 
   public String getCommandLineString() {
-    return toCommandLine(getArguments());
-  }
-
-  public static String toCommandLine(String... commands) {
+    String[] commands = getArguments();
     if (commands.length > 0) {
       commands[0] = FileUtil.toSystemDependentName(commands[0]);
       return StringUtil.join(commands, " ");

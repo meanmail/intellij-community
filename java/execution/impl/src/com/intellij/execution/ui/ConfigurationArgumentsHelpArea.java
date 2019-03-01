@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,10 @@ import com.intellij.execution.ExecutionBundle;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.ui.FixedSizeButton;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.PopupHandler;
 import com.intellij.util.PlatformIcons;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -38,7 +39,7 @@ public class ConfigurationArgumentsHelpArea extends JPanel {
   public ConfigurationArgumentsHelpArea() {
     super(new BorderLayout());
     add(myPanel);
-    setBorder(IdeBorderFactory.createEmptyBorder(10, 0, 0, 0));
+    setBorder(JBUI.Borders.emptyTop(10));
 
     final DefaultActionGroup group = new DefaultActionGroup();
     group.add(new MyCopyAction());
@@ -81,13 +82,13 @@ public class ConfigurationArgumentsHelpArea extends JPanel {
   }
 
   private class MyCopyAction extends AnAction {
-    public MyCopyAction() {
+    MyCopyAction() {
       super(ExecutionBundle.message("run.configuration.arguments.help.panel.copy.action.name"));
       copyFrom(ActionManager.getInstance().getAction(IdeActions.ACTION_COPY));
     }
 
     @Override
-    public void actionPerformed(final AnActionEvent e) {
+    public void actionPerformed(@NotNull final AnActionEvent e) {
       final StringSelection contents = new StringSelection(myHelpArea.getText().trim());
       CopyPasteManager.getInstance().setContents(contents);
     }

@@ -19,11 +19,11 @@ import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.RoamingType;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
 import org.intellij.images.options.Options;
 import org.intellij.images.options.OptionsManager;
 import org.jdom.Element;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Options configurable manager.
@@ -45,22 +45,12 @@ final class OptionsManagerImpl extends OptionsManager implements PersistentState
   @Override
   public Element getState() {
     Element element = new Element("state");
-    try {
-      options.writeExternal(element);
-    }
-    catch (WriteExternalException e) {
-      throw new RuntimeException(e);
-    }
+    options.writeExternal(element);
     return element;
   }
 
   @Override
-  public void loadState(final Element state) {
-    try {
-      options.readExternal(state);
-    }
-    catch (InvalidDataException e) {
-      throw new RuntimeException(e);
-    }
+  public void loadState(@NotNull final Element state) {
+    options.readExternal(state);
   }
 }

@@ -21,12 +21,11 @@ public class YAMLPlainTextImpl extends YAMLScalarImpl implements YAMLScalar {
   @NotNull
   @Override
   public List<TextRange> getContentRanges() {
-    final int myStart = getTextOffset();
-    final ASTNode node = getNode();
+    final int myStart = getTextRange().getStartOffset();
     final List<TextRange> result = new ArrayList<>();
 
     boolean seenText = false;
-    for (ASTNode child = node.getFirstChildNode(); child != null; child = child.getTreeNext()) {
+    for (ASTNode child = getFirstContentNode(); child != null; child = child.getTreeNext()) {
       if (child.getElementType() == YAMLTokenTypes.TEXT) {
         seenText = true;
         result.add(child.getTextRange().shiftRight(-myStart));
@@ -52,7 +51,7 @@ public class YAMLPlainTextImpl extends YAMLScalarImpl implements YAMLScalar {
       return " ";
     }
   }
-  
+
   private static boolean isNewline(@NotNull CharSequence text, @NotNull TextRange range) {
     return range.getLength() == 1 && text.charAt(range.getStartOffset()) == '\n';
   }
@@ -79,10 +78,10 @@ public class YAMLPlainTextImpl extends YAMLScalarImpl implements YAMLScalar {
         currentLength = 0;
         continue;
       }
-      
+
       currentLength++;
     }
-    
+
     return result;
   }
 
@@ -95,7 +94,6 @@ public class YAMLPlainTextImpl extends YAMLScalarImpl implements YAMLScalar {
     }
 
     final char firstChar = input.charAt(0);
-    //noinspection StatementWithEmptyBody
     if ((firstChar == '?' || firstChar == ':' || firstChar == '-') && input.length() > 1 && YAMLGrammarCharUtil.isPlainSafe(input.charAt(1))) {
       // then it's OK
     }
@@ -108,7 +106,6 @@ public class YAMLPlainTextImpl extends YAMLScalarImpl implements YAMLScalar {
       if (c == '\n' && !isSurroundedByNoSpace(input, i)) {
         throw new IllegalArgumentException("Could not form line with leading/trailing whitespace");
       }
-      //noinspection StatementWithEmptyBody
       if (YAMLGrammarCharUtil.isSpaceLike(c)
         || (YAMLGrammarCharUtil.isPlainSafe(c) && c != ':' && c != '#')
         || (c == '#' && YAMLGrammarCharUtil.isNonSpaceChar(input.charAt(i - 1)))

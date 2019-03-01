@@ -1,32 +1,20 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.imports;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
 import com.intellij.util.ArrayUtil;
@@ -34,10 +22,13 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.codeInsight.PyCodeInsightSettings;
 import com.jetbrains.python.documentation.docstrings.DocStringUtil;
+import com.jetbrains.python.documentation.doctest.PyDocstringFile;
 import com.jetbrains.python.formatter.PyBlock;
 import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.resolve.QualifiedNameFinder;
+import com.jetbrains.python.pyi.PyiFile;
+import com.jetbrains.python.pyi.PyiUtil;
 import com.jetbrains.python.sdk.PythonSdkType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -53,10 +44,9 @@ import static com.jetbrains.python.psi.PyUtil.sure;
 /**
  * Does the actual job of adding an import statement into a file.
  * User: dcheryasov
- * Date: Apr 24, 2009 3:17:59 AM
  */
 public class AddImportHelper {
-  private static final Logger LOG = Logger.getInstance("#" + AddImportHelper.class.getName());
+  private static final Logger LOG = Logger.getInstance(AddImportHelper.class);
 
   // normal imports go first, then "from" imports
   private static final Comparator<PyImportStatementBase> IMPORT_TYPE_COMPARATOR = (import1, import2) -> {
@@ -65,8 +55,14 @@ public class AddImportHelper {
     return firstIsFromImport - secondIsFromImport;
   };
 
-  private static final Comparator<PyImportStatementBase> IMPORT_NAMES_COMPARATOR =
-    (import1, import2) -> ContainerUtil.compareLexicographically(getSortNames(import1), getSortNames(import2));
+  @NotNull
+  private static Comparator<PyImportStatementBase> getImportNamesComparator(@NotNull PyCodeStyleSettings settings) {
+    return (import1, import2) -> {
+      final Comparator<String> stringComparator =
+        settings.OPTIMIZE_IMPORTS_CASE_INSENSITIVE_ORDER ? String.CASE_INSENSITIVE_ORDER : Comparator.naturalOrder();
+      return ContainerUtil.compareLexicographically(getSortNames(import1), getSortNames(import2), Comparator.nullsFirst(stringComparator));
+    };
+  }
 
   @NotNull
   private static List<String> getSortNames(@NotNull PyImportStatementBase importStatement) {
@@ -98,16 +94,17 @@ public class AddImportHelper {
    * Creates and return comparator for import statements that compares them according to the rules specified in the code style settings.
    * It's intended to be used for imports that have the same import priority in order to sort them within the corresponding group.
    *
+   * @param settingsAnchor file to use as an anchor to detect settings of Optimize Imports
    * @see ImportPriority
    */
   @NotNull
-  public static Comparator<PyImportStatementBase> getSameGroupImportsComparator(@NotNull Project project) {
-    final PyCodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project).getCustomSettings(PyCodeStyleSettings.class);
+  public static Comparator<PyImportStatementBase> getSameGroupImportsComparator(@NotNull PsiFile settingsAnchor) {
+    final PyCodeStyleSettings settings = CodeStyle.getCustomSettings(settingsAnchor, PyCodeStyleSettings.class);
     if (settings.OPTIMIZE_IMPORTS_SORT_BY_TYPE_FIRST) {
-      return IMPORT_TYPE_COMPARATOR.thenComparing(IMPORT_NAMES_COMPARATOR);
+      return IMPORT_TYPE_COMPARATOR.thenComparing(getImportNamesComparator(settings));
     }
     else {
-      return IMPORT_NAMES_COMPARATOR.thenComparing(IMPORT_TYPE_COMPARATOR);
+      return getImportNamesComparator(settings).thenComparing(IMPORT_TYPE_COMPARATOR);
     }
   }
 
@@ -117,7 +114,27 @@ public class AddImportHelper {
     THIRD_PARTY,
     PROJECT
   }
-  
+
+  static class ImportPriorityChoice {
+    private final ImportPriority myPriority;
+    private final String myDescription;
+
+    ImportPriorityChoice(@NotNull ImportPriority priority, @NotNull String description) {
+      myPriority = priority;
+      myDescription = description;
+    }
+
+    @NotNull
+    public ImportPriority getPriority() {
+      return myPriority;
+    }
+
+    @NotNull
+    public String getDescription() {
+      return myDescription;
+    }
+  }
+
   private static final ImportPriority UNRESOLVED_SYMBOL_PRIORITY = ImportPriority.THIRD_PARTY;
 
   private AddImportHelper() {
@@ -151,6 +168,15 @@ public class AddImportHelper {
     return PsiTreeUtil.getParentOfType(anchor, PyStatement.class, false);
   }
 
+  /**
+   * Returns position in the file after all leading comments, docstring and import statements.
+   * <p>
+   * Returned PSI element is intended to be used as "anchor" parameter for {@link PsiElement#addBefore(PsiElement, PsiElement)},
+   * hence {@code null} means that element to be inserted will be the first in the file.
+   *
+   * @param file target file where some new top-level element is going to be inserted
+   * @return anchor PSI element as described
+   */
   @Nullable
   public static PsiElement getFileInsertPosition(final PsiFile file) {
     return getInsertPosition(file, null, null);
@@ -184,9 +210,13 @@ public class AddImportHelper {
         feeler = feeler.getNextSibling();
         skippedOverImports = true;
       }
-      else if (PyUtil.instanceOf(feeler, PsiWhiteSpace.class, PsiComment.class)) {
+      else if (PsiTreeUtil.instanceOf(feeler, PsiWhiteSpace.class, PsiComment.class)) {
         seeker = feeler;
         feeler = feeler.getNextSibling();
+      }
+      else if (PsiTreeUtil.instanceOf(feeler, OuterLanguageElement.class)) {
+        feeler = feeler.getNextSibling();
+        seeker = feeler;
       }
       // maybe we arrived at the doc comment stmt; skip over it, too
       else if (!skippedOverImports && !skippedOverDoc && insertParent instanceof PyFile) {
@@ -212,7 +242,7 @@ public class AddImportHelper {
       newImport.putCopyableUserData(PyBlock.IMPORT_GROUP_BEGIN, true);
     }
     if (priorityBelow != null) {
-      // actually not necessary because existing import with higher priority (i.e. lower import group) 
+      // actually not necessary because existing import with higher priority (i.e. lower import group)
       // probably should have IMPORT_GROUP_BEGIN flag already, but we add it anyway just for safety
       if (priorityBelow.compareTo(priority) > 0) {
         importBelow.putCopyableUserData(PyBlock.IMPORT_GROUP_BEGIN, true);
@@ -235,34 +265,53 @@ public class AddImportHelper {
     if (newImport == null) {
       return false;
     }
-    return getSameGroupImportsComparator(existingImport.getProject()).compare(newImport, existingImport) < 0;
+    return getSameGroupImportsComparator(existingImport.getContainingFile()).compare(newImport, existingImport) < 0;
+  }
+
+  @NotNull
+  public static ImportPriority getImportPriority(@NotNull PsiElement importLocation, @NotNull PsiFileSystemItem toImport) {
+    final ImportPriorityChoice choice = getImportPriorityWithReason(importLocation, toImport);
+    LOG.debug(String.format("Import group for %s at %s is %s: %s", toImport, importLocation.getContainingFile(),
+                            choice.myPriority, choice.myDescription));
+    return choice.myPriority;
   }
 
   @NotNull
   public static ImportPriority getImportPriority(@NotNull PyImportStatementBase importStatement) {
+    final ImportPriorityChoice choice = getImportPriorityWithReason(importStatement);
+    LOG.debug(String.format("Import group for '%s' is %s: %s", importStatement.getText(), choice.myPriority, choice.myDescription));
+    return choice.myPriority;
+  }
+
+  @NotNull
+  static ImportPriorityChoice getImportPriorityWithReason(@NotNull PyImportStatementBase importStatement) {
     final PsiElement resolved;
+    final PsiElement resolveAnchor;
     if (importStatement instanceof PyFromImportStatement) {
       final PyFromImportStatement fromImportStatement = (PyFromImportStatement)importStatement;
       if (fromImportStatement.isFromFuture()) {
-        return ImportPriority.FUTURE;
+        return new ImportPriorityChoice(ImportPriority.FUTURE, "import from __future__");
       }
       if (fromImportStatement.getRelativeLevel() > 0) {
-        return ImportPriority.PROJECT;
+        return new ImportPriorityChoice(ImportPriority.PROJECT, "explicit relative import");
       }
+      resolveAnchor = ((PyFromImportStatement)importStatement).getImportSource();
       resolved = fromImportStatement.resolveImportSource();
     }
     else {
       final PyImportElement firstImportElement = ArrayUtil.getFirstElement(importStatement.getImportElements());
       if (firstImportElement == null) {
-        return UNRESOLVED_SYMBOL_PRIORITY;
+        return new ImportPriorityChoice(UNRESOLVED_SYMBOL_PRIORITY, "incomplete import statement");
       }
+      resolveAnchor = firstImportElement;
       resolved = firstImportElement.resolve();
     }
     if (resolved == null) {
-      return UNRESOLVED_SYMBOL_PRIORITY;
+      return new ImportPriorityChoice(UNRESOLVED_SYMBOL_PRIORITY,
+                                      resolveAnchor == null ? "incomplete import statement" : resolveAnchor.getText() + " is unresolved");
     }
 
-    final PsiFileSystemItem resolvedFileOrDir;
+    PsiFileSystemItem resolvedFileOrDir;
     if (resolved instanceof PsiDirectory) {
       resolvedFileOrDir = (PsiFileSystemItem)resolved;
     }
@@ -273,29 +322,41 @@ public class AddImportHelper {
     else {
       resolvedFileOrDir = resolved.getContainingFile();
     }
-    
-    if (resolvedFileOrDir == null) {
-      return UNRESOLVED_SYMBOL_PRIORITY;
+
+    if (resolvedFileOrDir instanceof PyiFile) {
+      resolvedFileOrDir = as(PyiUtil.getOriginalElement((PyiFile)resolvedFileOrDir), PsiFileSystemItem.class);
     }
-    
-    return getImportPriority(importStatement, resolvedFileOrDir);
+
+    if (resolvedFileOrDir == null) {
+      return new ImportPriorityChoice(UNRESOLVED_SYMBOL_PRIORITY, resolved + " is not a file or directory");
+    }
+
+    return getImportPriorityWithReason(importStatement, resolvedFileOrDir);
   }
 
   @NotNull
-  public static ImportPriority getImportPriority(@NotNull PsiElement importLocation, @NotNull PsiFileSystemItem toImport) {
+  static ImportPriorityChoice getImportPriorityWithReason(@NotNull PsiElement importLocation, @NotNull PsiFileSystemItem toImport) {
     final VirtualFile vFile = toImport.getVirtualFile();
     if (vFile == null) {
-      return UNRESOLVED_SYMBOL_PRIORITY;
+      return new ImportPriorityChoice(UNRESOLVED_SYMBOL_PRIORITY, toImport + " doesn't have an associated virtual file");
     }
     final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(toImport.getProject());
     final ProjectFileIndex fileIndex = projectRootManager.getFileIndex();
     if (fileIndex.isInContent(vFile) && !fileIndex.isInLibraryClasses(vFile)) {
-      return ImportPriority.PROJECT;
+      return new ImportPriorityChoice(ImportPriority.PROJECT, vFile + " belongs to the project and not under interpreter paths");
     }
     final Module module = ModuleUtilCore.findModuleForPsiElement(importLocation);
     final Sdk pythonSdk = module != null ? PythonSdkType.findPythonSdk(module) : projectRootManager.getProjectSdk();
 
-    return PythonSdkType.isStdLib(vFile, pythonSdk) ? ImportPriority.BUILTIN : ImportPriority.THIRD_PARTY;
+    if (PythonSdkType.isStdLib(vFile, pythonSdk)) {
+      return new ImportPriorityChoice(ImportPriority.BUILTIN, vFile + " is either in lib but not under site-packages," +
+                                                              " or belongs to the root of skeletons," +
+                                                              " or is a .pyi stub definition for stdlib module");
+    }
+    else {
+      return new ImportPriorityChoice(ImportPriority.THIRD_PARTY, pythonSdk == null ? "SDK for " + vFile + " isn't found"
+                                                                                    : "Fall back value for " + vFile);
+    }
   }
 
   /**
@@ -318,12 +379,10 @@ public class AddImportHelper {
       return false;
     }
     final List<PyImportElement> existingImports = ((PyFile)file).getImportTargets();
-    for (PyImportElement element : existingImports) {
-      final QualifiedName qName = element.getImportedQName();
-      if (qName != null && name.equals(qName.toString())) {
-        if ((asName != null && asName.equals(element.getAsName())) || (asName == null && element.getAsName() == null)) {
-          return false;
-        }
+    for (PyImportElement existingImport : existingImports) {
+      final String existingName = Objects.toString(existingImport.getImportedQName(), "");
+      if (name.equals(existingName) && Comparing.equal(asName, existingImport.getAsName())) {
+        return false;
       }
     }
 
@@ -375,7 +434,7 @@ public class AddImportHelper {
    * Adds a new {@link PyFromImportStatement} statement within other top-level imports or as specified by anchor.
    *
    * @param file      where to operate
-   * @param newImport new "from import" statement to insert. It may be generated, because it won't be used for resolving anyway. 
+   * @param newImport new "from import" statement to insert. It may be generated, because it won't be used for resolving anyway.
    *                  You might want to use overloaded version of this method to generate such statement automatically.
    * @param anchor    place where the imported name was used. It will be used to determine proper block where new import should be inserted,
    *                  e.g. inside conditional block or try/except statement. Also if anchor is another import statement, new import statement
@@ -389,14 +448,24 @@ public class AddImportHelper {
                                             @Nullable PsiElement anchor) {
     try {
       final PyImportStatementBase parentImport = PsiTreeUtil.getParentOfType(anchor, PyImportStatementBase.class, false);
+      final InjectedLanguageManager manager = InjectedLanguageManager.getInstance(file.getProject());
+      final PsiLanguageInjectionHost injectionHost = manager.getInjectionHost(file);
+      final boolean insideDoctest = file instanceof PyDocstringFile &&
+                                    injectionHost != null &&
+                                    DocStringUtil.getParentDefinitionDocString(injectionHost) == injectionHost;
+
       final PsiElement insertParent;
       if (parentImport != null && parentImport.getContainingFile() == file) {
         insertParent = parentImport.getParent();
       }
+      else if (injectionHost != null && !insideDoctest) {
+        insertParent = manager.getTopLevelFile(file);
+      }
       else {
         insertParent = file;
       }
-      if (InjectedLanguageManager.getInstance(file.getProject()).isInjectedFragment(file)) {
+
+      if (insideDoctest) {
         final PsiElement element = insertParent.addBefore(newImport, getInsertPosition(insertParent, newImport, priority));
         PsiElement whitespace = element.getNextSibling();
         if (!(whitespace instanceof PsiWhiteSpace)) {
@@ -404,13 +473,11 @@ public class AddImportHelper {
         }
         insertParent.addBefore(whitespace, element);
       }
+      else if (anchor instanceof PyImportStatementBase) {
+        insertParent.addAfter(newImport, anchor);
+      }
       else {
-        if (anchor instanceof PyImportStatementBase) {
-          insertParent.addAfter(newImport, anchor);
-        }
-        else {
-          insertParent.addBefore(newImport, getInsertPosition(insertParent, newImport, priority));
-        }
+        insertParent.addBefore(newImport, getInsertPosition(insertParent, newImport, priority));
       }
     }
     catch (IncorrectOperationException e) {
@@ -440,22 +507,27 @@ public class AddImportHelper {
                                                        @Nullable ImportPriority priority,
                                                        @Nullable PsiElement anchor) {
     final List<PyFromImportStatement> existingImports = ((PyFile)file).getFromImports();
-    for (PyFromImportStatement existingImport : existingImports) {
-      if (existingImport.isStarImport()) {
-        continue;
-      }
-      final QualifiedName qName = existingImport.getImportSourceQName();
-      if (qName != null && qName.toString().equals(from) && existingImport.getRelativeLevel() == 0) {
-        for (PyImportElement el : existingImport.getImportElements()) {
-          final QualifiedName importedQName = el.getImportedQName();
-          if (importedQName != null && StringUtil.equals(name, importedQName.toString()) && StringUtil.equals(asName, el.getAsName())) {
-            return false;
-          }
+    final PyCodeStyleSettings pySettings = CodeStyle.getCustomSettings(file, PyCodeStyleSettings.class);
+    if (!pySettings.OPTIMIZE_IMPORTS_ALWAYS_SPLIT_FROM_IMPORTS) {
+      for (PyFromImportStatement existingImport : existingImports) {
+        if (existingImport.isStarImport()) {
+          continue;
         }
-        final PyElementGenerator generator = PyElementGenerator.getInstance(file.getProject());
-        final PyImportElement importElement = generator.createImportElement(LanguageLevel.forElement(file), name);
-        existingImport.add(importElement);
-        return false;
+        final String existingSource = Objects.toString(existingImport.getImportSourceQName(), "");
+        if (from.equals(existingSource) && existingImport.getRelativeLevel() == 0) {
+          for (PyImportElement el : existingImport.getImportElements()) {
+            final String existingName = Objects.toString(el.getImportedQName(), "");
+            if (name.equals(existingName) && Comparing.equal(asName, el.getAsName())) {
+              return false;
+            }
+          }
+          final PyElementGenerator generator = PyElementGenerator.getInstance(file.getProject());
+          final PyImportElement importElement = generator.createImportElement(LanguageLevel.forElement(file), name, asName);
+          existingImport.add(importElement);
+          // May need to add parentheses, trailing comma, etc.
+          CodeStyleManager.getInstance(file.getProject()).reformat(existingImport);
+          return true;
+        }
       }
     }
     addFromImportStatement(file, from, name, asName, priority, anchor);
@@ -474,32 +546,52 @@ public class AddImportHelper {
    * @see #addImportStatement
    * @see #addOrUpdateFromImportStatement
    */
-  public static void addImport(final PsiNamedElement target, final PsiFile file, final PyElement element) {
-    final boolean useQualified = !PyCodeInsightSettings.getInstance().PREFER_FROM_IMPORT;
-    final PsiFileSystemItem toImport =
-      target instanceof PsiFileSystemItem ? ((PsiFileSystemItem)target).getParent() : target.getContainingFile();
+  public static void addImport(@NotNull PsiNamedElement target, @NotNull PsiFile file, @NotNull PyElement element) {
+    if (target instanceof PsiFileSystemItem) {
+      addFileSystemItemImport((PsiFileSystemItem)target, file, element);
+      return;
+    }
+
+    final String name = target.getName();
+    if (name == null) return;
+
+    final PsiFileSystemItem toImport = target.getContainingFile();
     if (toImport == null) return;
+
+    final QualifiedName importPath = QualifiedNameFinder.findCanonicalImportPath(target, element);
+    if (importPath == null) return;
+
+    final String path = importPath.toString();
     final ImportPriority priority = getImportPriority(file, toImport);
-    final QualifiedName qName = QualifiedNameFinder.findCanonicalImportPath(target, element);
-    if (qName == null) return;
-    String path = qName.toString();
-    if (target instanceof PsiFileSystemItem && qName.getComponentCount() == 1) {
+    if (!PyCodeInsightSettings.getInstance().PREFER_FROM_IMPORT) {
       addImportStatement(file, path, null, priority, element);
+
+      final PyElementGenerator elementGenerator = PyElementGenerator.getInstance(file.getProject());
+      element.replace(elementGenerator.createExpressionFromText(LanguageLevel.forElement(target), path + "." + name));
     }
     else {
-      final QualifiedName toImportQName = QualifiedNameFinder.findCanonicalImportPath(toImport, element);
-      if (toImportQName == null) return;
-      if (useQualified) {
-        addImportStatement(file, path, null, priority, element);
-        final PyElementGenerator elementGenerator = PyElementGenerator.getInstance(file.getProject());
-        final String targetName = PyUtil.getElementNameWithoutExtension(target);
-        element.replace(elementGenerator.createExpressionFromText(LanguageLevel.forElement(target), toImportQName + "." + targetName));
-      }
-      else {
-        final String name = target.getName();
-        if (name != null)
-          addOrUpdateFromImportStatement(file, toImportQName.toString(), name, null, priority, element);
-      }
+      addOrUpdateFromImportStatement(file, path, name, null, priority, element);
+    }
+  }
+
+  private static void addFileSystemItemImport(@NotNull PsiFileSystemItem target, @NotNull PsiFile file, @NotNull PyElement element) {
+    final PsiFileSystemItem toImport = target.getParent();
+    if (toImport == null) return;
+
+    final QualifiedName importPath = QualifiedNameFinder.findCanonicalImportPath(target, element);
+    if (importPath == null) return;
+
+    final ImportPriority priority = getImportPriority(file, toImport);
+    if (importPath.getComponentCount() == 1 || !PyCodeInsightSettings.getInstance().PREFER_FROM_IMPORT) {
+      final String path = importPath.toString();
+
+      addImportStatement(file, path, null, priority, element);
+
+      final PyElementGenerator elementGenerator = PyElementGenerator.getInstance(file.getProject());
+      element.replace(elementGenerator.createExpressionFromText(LanguageLevel.forElement(target), path));
+    }
+    else {
+      addOrUpdateFromImportStatement(file, importPath.removeLastComponent().toString(), target.getName(), null, priority, element);
     }
   }
 }

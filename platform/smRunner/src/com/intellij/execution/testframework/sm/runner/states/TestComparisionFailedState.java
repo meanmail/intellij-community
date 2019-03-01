@@ -20,9 +20,12 @@ import com.intellij.execution.testframework.CompositePrintable;
 import com.intellij.execution.testframework.Printer;
 import com.intellij.execution.testframework.stacktrace.DiffHyperlink;
 import com.intellij.execution.ui.ConsoleViewContentType;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.io.File;
 
 /**
  * @author Roman.Chernyatchik
@@ -30,7 +33,9 @@ import org.jetbrains.annotations.Nullable;
 public class TestComparisionFailedState extends TestFailedState {
   private final String myErrorMsgPresentation;
   private final String myStacktracePresentation;
-  private DiffHyperlink myHyperlink;
+  private final DiffHyperlink myHyperlink;
+  private boolean myToDeleteExpectedFile;
+  private boolean myToDeleteActualFile;
 
 
   public TestComparisionFailedState(@Nullable final String localizedMessage,
@@ -47,7 +52,7 @@ public class TestComparisionFailedState extends TestFailedState {
                                     @Nullable final String filePath) {
     this(localizedMessage, stackTrace, actualText, expectedText, filePath, null);
   }
-  
+
   public TestComparisionFailedState(@Nullable final String localizedMessage,
                                     @Nullable final String stackTrace,
                                     @NotNull final String actualText,
@@ -81,5 +86,23 @@ public class TestComparisionFailedState extends TestFailedState {
   @Nullable
   public DiffHyperlink getHyperlink() {
     return myHyperlink;
+  }
+
+  public void setToDeleteExpectedFile(boolean expectedTemp) {
+    myToDeleteExpectedFile = expectedTemp;
+  }
+
+  public void setToDeleteActualFile(boolean actualTemp) {
+    myToDeleteActualFile = actualTemp;
+  }
+
+  @Override
+  public void dispose() {
+    if (myToDeleteActualFile) {
+      FileUtil.delete(new File(myHyperlink.getActualFilePath()));
+    }
+    if (myToDeleteExpectedFile) {
+      FileUtil.delete(new File(myHyperlink.getFilePath()));
+    }
   }
 }

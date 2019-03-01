@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.roots.ui.configuration;
 
@@ -41,17 +27,26 @@ import com.intellij.openapi.roots.ui.configuration.actions.ToggleExcludedStateAc
 import com.intellij.openapi.roots.ui.configuration.actions.ToggleSourcesStateAction;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.ui.DocumentAdapter;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.TreeSpeedSearch;
+import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.treeStructure.Tree;
+import com.intellij.util.ui.GridBag;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.tree.TreeUtil;
+import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
 import javax.swing.tree.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
@@ -61,8 +56,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- * Date: Oct 9, 2003
- * Time: 1:19:47 PM
  */
 public class ContentEntryTreeEditor {
   private final Project myProject;
@@ -75,6 +68,7 @@ public class ContentEntryTreeEditor {
   private ContentEntryEditor myContentEntryEditor;
   private final MyContentEntryEditorListener myContentEntryEditorListener = new MyContentEntryEditorListener();
   private final FileChooserDescriptor myDescriptor;
+  private final JTextField myExcludePatternsField;
 
   public ContentEntryTreeEditor(Project project, List<ModuleSourceRootEditHandler<?>> editHandlers) {
     myProject = project;
@@ -88,9 +82,33 @@ public class ContentEntryTreeEditor {
     TreeUtil.installActions(myTree);
     new TreeSpeedSearch(myTree);
 
+    JPanel excludePatternsPanel = new JPanel(new GridBagLayout());
+    excludePatternsPanel.setBorder(JBUI.Borders.empty(5));
+    GridBag gridBag = new GridBag().setDefaultWeightX(1, 1.0).setDefaultPaddingX(JBUI.scale(5));
+    excludePatternsPanel.add(new JLabel(ProjectBundle.message("module.paths.exclude.patterns")), gridBag.nextLine().next());
+    myExcludePatternsField = new JTextField();
+    myExcludePatternsField.getDocument().addDocumentListener(new DocumentAdapter() {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
+        if (myContentEntryEditor != null) {
+          ContentEntry entry = myContentEntryEditor.getContentEntry();
+          if (entry != null) {
+            List<String> patterns = StringUtil.split(myExcludePatternsField.getText().trim(), ";");
+            if (!patterns.equals(entry.getExcludePatterns())) {
+              entry.setExcludePatterns(patterns);
+            }
+          }
+        }
+      }
+    });
+    excludePatternsPanel.add(myExcludePatternsField, gridBag.next().fillCellHorizontally());
+    JBLabel excludePatternsLegendLabel = new JBLabel(XmlStringUtil.wrapInHtml("Use <b>;</b> to separate name patterns, <b>*</b> for any number of symbols, <b>?</b> for one."));
+    excludePatternsLegendLabel.setForeground(JBColor.GRAY);
+    excludePatternsPanel.add(excludePatternsLegendLabel, gridBag.nextLine().next().next().fillCellHorizontally());
     myTreePanel = new MyPanel(new BorderLayout());
-    final JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myTree);
+    final JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(myTree, true);
     myTreePanel.add(scrollPane, BorderLayout.CENTER);
+    myTreePanel.add(excludePatternsPanel, BorderLayout.SOUTH);
 
     myTreePanel.setVisible(false);
     myDescriptor = FileChooserDescriptorFactory.createMultipleFoldersDescriptor();
@@ -148,14 +166,16 @@ public class ContentEntryTreeEditor {
     final ContentEntry entry = contentEntryEditor.getContentEntry();
     assert entry != null : contentEntryEditor;
     final VirtualFile file = entry.getFile();
-    myDescriptor.setRoots(file);
-    if (file == null) {
-      final String path = VfsUtilCore.urlToPath(entry.getUrl());
+    if (file != null) {
+      myDescriptor.setRoots(file);
+    }
+    else {
+      String path = VfsUtilCore.urlToPath(entry.getUrl());
       myDescriptor.setTitle(FileUtil.toSystemDependentName(path));
     }
+    myExcludePatternsField.setText(StringUtil.join(entry.getExcludePatterns(), ";"));
 
     final Runnable init = () -> {
-      //noinspection ConstantConditions
       myFileSystemTree.updateTree();
       myFileSystemTree.select(file, null);
     };
@@ -200,7 +220,7 @@ public class ContentEntryTreeEditor {
   }
 
   public void requestFocus() {
-    myTree.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
   }
 
   public void update() {
@@ -254,14 +274,15 @@ public class ContentEntryTreeEditor {
             AllIcons.Actions.NewFolder);
     }
 
+    @NotNull
     @Override
-    public JComponent createCustomComponent(Presentation presentation) {
-      return IconWithTextAction.createCustomComponentImpl(this, presentation);
+    public JComponent createCustomComponent(@NotNull Presentation presentation, @NotNull String place) {
+      return IconWithTextAction.createCustomComponentImpl(this, presentation, place);
     }
   }
 
   private static class MyFileTreeBuilder extends FileTreeBuilder {
-    public MyFileTreeBuilder(JTree tree,
+    MyFileTreeBuilder(JTree tree,
                              DefaultTreeModel treeModel,
                              AbstractTreeStructure treeStructure,
                              Comparator<NodeDescriptor> comparator,
@@ -283,7 +304,7 @@ public class ContentEntryTreeEditor {
 
     @Override
     @Nullable
-    public Object getData(@NonNls final String dataId) {
+    public Object getData(@NotNull @NonNls final String dataId) {
       if (FileSystemTree.DATA_KEY.is(dataId)) {
         return myFileSystemTree;
       }

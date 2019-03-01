@@ -74,10 +74,10 @@ public class MethodInheritanceUtils {
     public static PsiClass[] findAvailableSuperClassesForMethod(PsiMethod method){
         final List<PsiClass> sourceClasses = new ArrayList<>();
         findAvailableSuperClasses(method, sourceClasses);
-        return sourceClasses.toArray(new PsiClass[sourceClasses.size()]);
+        return sourceClasses.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    private static void findAvailableSuperClasses(PsiMethod method, List<PsiClass> sourceClasses){
+    private static void findAvailableSuperClasses(PsiMethod method, List<? super PsiClass> sourceClasses){
         final PsiMethod[] superMethods = method.findSuperMethods(true);
         for(PsiMethod superMethod : superMethods){
             final PsiClass containingClass = superMethod.getContainingClass();
@@ -97,17 +97,17 @@ public class MethodInheritanceUtils {
                 sourceClasses.add(containingClass);
             }
         }
-        return sourceClasses.toArray(new PsiClass[sourceClasses.size()]);
+        return sourceClasses.toArray(PsiClass.EMPTY_ARRAY);
     }
 
     public static PsiClass[] getNonLibrarySuperClasses(PsiClass sourceClass){
 
         final List<PsiClass> out = new ArrayList<>();
         findNonLibrarySupers(sourceClass, out);
-        return out.toArray(new PsiClass[out.size()]);
+        return out.toArray(PsiClass.EMPTY_ARRAY);
     }
 
-    private static void findNonLibrarySupers(PsiClass sourceClass, List<PsiClass> out){
+    private static void findNonLibrarySupers(PsiClass sourceClass, List<? super PsiClass> out){
         final PsiClass[] supers = sourceClass.getSupers();
         for(PsiClass psiClass : supers){
             if(!(psiClass instanceof PsiCompiledElement) && !out.contains(psiClass))
@@ -127,7 +127,7 @@ public class MethodInheritanceUtils {
                 out.add(psiClass);
             }
         }
-        return out.toArray(new PsiClass[out.size()]);
+        return out.toArray(PsiClass.EMPTY_ARRAY);
     }
 
     

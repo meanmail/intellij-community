@@ -20,6 +20,7 @@ import com.intellij.execution.filters.TextConsoleBuilder;
 import com.intellij.execution.filters.TextConsoleBuilderFactory;
 import com.intellij.execution.impl.ConsoleBuffer;
 import com.intellij.execution.impl.ConsoleViewImpl;
+import com.intellij.execution.process.AnsiEscapeDecoder;
 import com.intellij.execution.process.ProcessAdapter;
 import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
@@ -27,6 +28,7 @@ import com.intellij.execution.ui.ConsoleView;
 import com.intellij.execution.ui.ConsoleViewContentType;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -42,6 +44,8 @@ import com.intellij.ui.FilterComponent;
 import com.intellij.util.Alarm;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.accessibility.AccessibleContextUtil;
+import com.intellij.util.ui.accessibility.ScreenReader;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -58,6 +62,7 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.Reader;
 import java.util.List;
+import java.util.function.BiConsumer;
 
 /**
  * @author Eugene.Kudelevsky
@@ -158,27 +163,31 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
     return reader;
   }
 
-  @SuppressWarnings({"NonStaticInitializer"})
   private JComponent createToolbar() {
     String customFilter = myModel.getCustomFilter();
 
     myFilter.reset();
     myFilter.setSelectedItem(customFilter != null ? customFilter : "");
-    new AnAction() {
-      {
-        registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK)),
-                                  LogConsoleBase.this);
-      }
+    // Don't override Shift-TAB if screen reader is active. It is unclear why overriding
+    // Shift-TAB was necessary in the first place.
+    // See https://github.com/JetBrains/intellij-community/commit/a36a3a00db97e4d5b5c112bb4136a41d9435f667
+    if (!ScreenReader.isActive()) {
+      new AnAction() {
+        {
+          registerCustomShortcutSet(new CustomShortcutSet(KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK)),
+                                    LogConsoleBase.this);
+        }
 
-      @Override
-      public void actionPerformed(final AnActionEvent e) {
-        myFilter.requestFocusInWindow();
-      }
-    };
+        @Override
+        public void actionPerformed(@NotNull final AnActionEvent e) {
+          myFilter.requestFocusInWindow();
+        }
+      };
+    }
 
     if (myBuildInActions) {
       final JComponent tbComp =
-        ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, getOrCreateActions(), true).getComponent();
+        ActionManager.getInstance().createActionToolbar("LogConsole", getOrCreateActions(), true).getComponent();
       myTopComponent.add(tbComp, BorderLayout.CENTER);
       myTopComponent.add(getSearchComponent(), BorderLayout.EAST);
     }
@@ -216,7 +225,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
   }
 
   @Override
-  public void onFilterStateChange(final LogFilter filter) {
+  public void onFilterStateChange(@NotNull final LogFilter filter) {
     filterConsoleOutput();
   }
 
@@ -303,8 +312,9 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
       else {
         try {
           final BufferedReader reader = readerThread.myReader;
-          while (reader != null && reader.ready()) {
-            addMessage(reader.readLine());
+          while (reader.ready()) {
+            //ensure have read lock before requiring for sync, otherwise dispose() under write action would lead to deadlock
+            ReadAction.run(() -> addMessage(reader.readLine()));
           }
         }
         catch (IOException ignore) {}
@@ -314,6 +324,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
   }
 
   protected synchronized void addMessage(final String text) {
+    if (myDisposed) return;
     if (text == null) return;
     if (myContentPreprocessor != null) {
       final List<LogFragment> fragments = myContentPreprocessor.parseLogLine(text + "\n");
@@ -351,7 +362,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
     if (process != null) {
       final ProcessAdapter stopListener = new ProcessAdapter() {
         @Override
-        public void processTerminated(final ProcessEvent event) {
+        public void processTerminated(@NotNull final ProcessEvent event) {
           process.removeProcessListener(this);
           stopRunning(true);
         }
@@ -368,13 +379,26 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
       }
     } else {
       if (ConsoleBuffer.useCycleBuffer()) {
-        final int toRemove = myOriginalDocument.length() - ConsoleBuffer.getCycleBufferSize();
-        if (toRemove > 0) {
-          myOriginalDocument.delete(0, toRemove);
-        }
+        resizeBuffer(myOriginalDocument, ConsoleBuffer.getCycleBufferSize());
       }
     }
     return myOriginalDocument;
+  }
+
+  static void resizeBuffer(@NotNull StringBuffer buffer, int size) {
+    final int toRemove = buffer.length() - size;
+    if (toRemove > 0) {
+
+      int indexOfNewline = buffer.indexOf("\n", toRemove);
+
+      if (indexOfNewline == -1) {
+        buffer.delete(0, toRemove);
+      }
+      else {
+        buffer.delete(0, indexOfNewline + 1);
+      }
+    }
+    
   }
 
   @Nullable
@@ -423,12 +447,18 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
     console.clear();
     myModel.processingStarted();
 
-    final String[] lines = myOriginalDocument != null ? myOriginalDocument.toString().split("\n") : ArrayUtil.EMPTY_STRING_ARRAY;;
+    final String[] lines = myOriginalDocument != null ? myOriginalDocument.toString().split("\n") : ArrayUtil.EMPTY_STRING_ARRAY;
     int offset = 0;
     boolean caretPositioned = false;
+    AnsiEscapeDecoder decoder = new AnsiEscapeDecoder();
 
     for (String line : lines) {
-      final int printed = printMessageToConsole(line);
+      @SuppressWarnings("CodeBlock2Expr")
+      final int printed = printMessageToConsole(line, (text, key) -> {
+        decoder.escapeText(text, key, (chunk, attributes) -> {
+          console.print(chunk, ConsoleViewContentType.getConsoleViewType(attributes));
+        });
+      });
       if (printed > 0) {
         if (!caretPositioned) {
           if (Comparing.strEqual(myLineUnderSelection, line)) {
@@ -451,16 +481,11 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
     }
   }
 
-  private int printMessageToConsole(String line) {
-    final ConsoleView console = getConsoleNotNull();
+  private int printMessageToConsole(@NotNull String line, @NotNull BiConsumer<? super String, ? super Key> printer) {
     if (myContentPreprocessor != null) {
       List<LogFragment> fragments = myContentPreprocessor.parseLogLine(line + '\n');
       for (LogFragment fragment : fragments) {
-        ConsoleViewContentType consoleViewType = ConsoleViewContentType.getConsoleViewType(fragment.getOutputType());
-        if (consoleViewType != null) {
-          String formattedText = myFormatter.formatMessage(fragment.getText());
-          console.print(formattedText, consoleViewType);
-        }
+        printer.accept(myFormatter.formatMessage(fragment.getText()), fragment.getOutputType());
       }
       return line.length() + 1;
     }
@@ -469,17 +494,12 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
       if (processingResult.isApplicable()) {
         final Key key = processingResult.getKey();
         if (key != null) {
-          ConsoleViewContentType type = ConsoleViewContentType.getConsoleViewType(key);
-          if (type != null) {
-            final String messagePrefix = processingResult.getMessagePrefix();
-            if (messagePrefix != null) {
-              String formattedPrefix = myFormatter.formatPrefix(messagePrefix);
-              console.print(formattedPrefix, type);
-            }
-            String formattedMessage = myFormatter.formatMessage(line);
-            console.print(formattedMessage + "\n", type);
-            return (messagePrefix != null ? messagePrefix.length() : 0) + line.length() + 1;
+          final String messagePrefix = processingResult.getMessagePrefix();
+          if (messagePrefix != null) {
+            printer.accept(myFormatter.formatPrefix(messagePrefix), key);
           }
+          printer.accept(myFormatter.formatMessage(line) + "\n", key);
+          return (messagePrefix != null ? messagePrefix.length() : 0) + line.length() + 1;
         }
       }
       return 0;
@@ -537,7 +557,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
 
   @Override
   public JComponent getSearchComponent() {
-    myLogFilterCombo.setModel(new DefaultComboBoxModel(myFilters.toArray(new LogFilter[myFilters.size()])));
+    myLogFilterCombo.setModel(new DefaultComboBoxModel(myFilters.toArray(new LogFilter[0])));
     resetLogFilter();
     myLogFilterCombo.addActionListener(new ActionListener() {
       @Override
@@ -552,6 +572,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
         ProgressManager.getInstance().run(task);
       }
     });
+    AccessibleContextUtil.setName(myLogFilterCombo, "Message severity filter");
     myTextFilterWrapper.removeAll();
     myTextFilterWrapper.add(getTextFilterComponent());
     return mySearchComponent;
@@ -593,6 +614,14 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
   }
 
   private static class LightProcessHandler extends ProcessHandler {
+
+    private final AnsiEscapeDecoder myDecoder = new AnsiEscapeDecoder();
+
+    @Override
+    public void notifyTextAvailable(@NotNull String text, @NotNull Key outputType) {
+      myDecoder.escapeText(text, outputType, (chunk, attributes) -> super.notifyTextAvailable(chunk, attributes));
+    }
+
     @Override
     protected void destroyProcessImpl() {
       throw new UnsupportedOperationException();
@@ -620,7 +649,7 @@ public abstract class LogConsoleBase extends AdditionalTabComponent implements L
     private boolean myRunning = false;
     private final Alarm myAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, LogConsoleBase.this);
 
-    public ReaderThread(@Nullable Reader reader) {
+    ReaderThread(@Nullable Reader reader) {
       myReader = reader != null ? new BufferedReader(reader) : null;
     }
 

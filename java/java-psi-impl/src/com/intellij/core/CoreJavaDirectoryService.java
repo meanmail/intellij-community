@@ -25,6 +25,7 @@ import com.intellij.psi.impl.compiled.ClsFileImpl;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,12 @@ public class CoreJavaDirectoryService extends JavaDirectoryService {
   @Override
   public PsiPackage getPackage(@NotNull PsiDirectory dir) {
     return ServiceManager.getService(dir.getProject(), CoreJavaFileManager.class).getPackage(dir);
+  }
+
+  @Nullable
+  @Override
+  public PsiPackage getPackageInSources(@NotNull PsiDirectory dir) {
+    return getPackage(dir);
   }
 
   @NotNull
@@ -62,11 +69,11 @@ public class CoreJavaDirectoryService extends JavaDirectoryService {
       if (file instanceof PsiClassOwner && file.getViewProvider().getLanguages().size() == 1) {
         PsiClass[] psiClasses = ((PsiClassOwner)file).getClasses();
         if (psiClasses.length == 0) continue;
-        if (classes == null) classes = new ArrayList<PsiClass>();
+        if (classes == null) classes = new ArrayList<>();
         ContainerUtil.addAll(classes, psiClasses);
       }
     }
-    return classes == null ? PsiClass.EMPTY_ARRAY : classes.toArray(new PsiClass[classes.size()]);
+    return classes == null ? PsiClass.EMPTY_ARRAY : classes.toArray(PsiClass.EMPTY_ARRAY);
   }
 
   @NotNull

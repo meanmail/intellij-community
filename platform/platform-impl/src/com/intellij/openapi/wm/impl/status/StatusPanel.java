@@ -32,10 +32,10 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.ui.ClickListener;
-import com.intellij.ui.JBColor;
 import com.intellij.util.Alarm;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -107,7 +107,7 @@ class StatusPanel extends JPanel {
           EventLog.toggleLog(getActiveProject(), myCurrentNotification);
           myAfterClick = true;
           myTextPanel.setExplicitSize(myTextPanel.getSize());
-          myTextPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+          UIUtil.setCursor(myTextPanel, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
         }
         return true;
       }
@@ -121,7 +121,7 @@ class StatusPanel extends JPanel {
         myTextPanel.revalidate();
         myAfterClick = false;
         if (myCurrentNotification == null) {
-          myTextPanel.setCursor(Cursor.getDefaultCursor());
+          UIUtil.setCursor(myTextPanel, Cursor.getDefaultCursor());
         }
       }
 
@@ -136,13 +136,6 @@ class StatusPanel extends JPanel {
     });
 
     add(myTextPanel, BorderLayout.WEST);
-
-    JPanel panel = new JPanel();
-    panel.setOpaque(isOpaque());
-    JLabel label = new JLabel("aaa");
-    label.setBackground(JBColor.YELLOW);
-    add(panel, BorderLayout.CENTER);
-
   }
 
   private Action createCopyAction() {
@@ -207,7 +200,7 @@ class StatusPanel extends JPanel {
     }
 
     if (myCurrentNotification != null) {
-      myTextPanel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+      UIUtil.setCursor(myTextPanel, Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
       new Runnable() {
         @Override
         public void run() {
@@ -226,7 +219,7 @@ class StatusPanel extends JPanel {
     }
     else {
       myTimeStart = -1;
-      myTextPanel.setCursor(Cursor.getDefaultCursor());
+      UIUtil.setCursor(myTextPanel, Cursor.getDefaultCursor());
       myDirty = true;
       setStatusText(nonLogText);
     }
@@ -236,9 +229,6 @@ class StatusPanel extends JPanel {
 
   private void setStatusText(String text) {
     myTextPanel.setText(text);
-    if (!myAfterClick) {
-      myTextPanel.revalidate();
-    }
   }
 
   public String getText() {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
 import com.intellij.debugger.engine.JavaValue;
@@ -22,6 +8,7 @@ import com.intellij.debugger.impl.DebuggerUtilsImpl;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.ui.impl.watch.UserExpressionDescriptorImpl;
 import com.intellij.debugger.ui.impl.watch.ValueDescriptorImpl;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiType;
@@ -40,6 +27,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.tree.TreePath;
+import java.awt.*;
 import java.util.List;
 
 /**
@@ -67,7 +55,7 @@ public class CustomFieldInplaceEditor extends XDebuggerTreeInplaceEditor {
   public static void editNew(@NotNull XValueNodeImpl parentNode) {
     ValueDescriptorImpl descriptor = ((JavaValue)parentNode.getValueContainer()).getDescriptor();
     EnumerationChildrenRenderer renderer = EnumerationChildrenRenderer.getCurrent(descriptor);
-    XDebuggerTreeNode newNode = parentNode.addTemporaryEditorNode();
+    XDebuggerTreeNode newNode = parentNode.addTemporaryEditorNode(AllIcons.Debugger.Db_watch, null);
     DebuggerUIUtil.invokeLater(() -> new CustomFieldInplaceEditor(newNode, null, renderer) {
       @Override
       public void cancelEditing() {
@@ -76,7 +64,7 @@ public class CustomFieldInplaceEditor extends XDebuggerTreeInplaceEditor {
       }
 
       @Override
-      protected List<Pair<String, TextWithImports>> getRendererChildren() {
+      protected List<EnumerationChildrenRenderer.ChildInfo> getRendererChildren() {
         if (myRenderer != null) {
           return myRenderer.getChildren();
         }
@@ -86,6 +74,7 @@ public class CustomFieldInplaceEditor extends XDebuggerTreeInplaceEditor {
 
         Renderer lastRenderer = descriptor.getLastRenderer();
         if (lastRenderer instanceof CompoundNodeRenderer &&
+            NodeRendererSettings.getInstance().getCustomRenderers().contains((NodeRenderer)lastRenderer) &&
             !(((CompoundNodeRenderer)lastRenderer).getChildrenRenderer() instanceof ExpressionChildrenRenderer)) {
             ((CompoundNodeRenderer)lastRenderer).setChildrenRenderer(enumerationChildrenRenderer);
         }
@@ -107,20 +96,21 @@ public class CustomFieldInplaceEditor extends XDebuggerTreeInplaceEditor {
     return type != null ? type.name() : null;
   }
 
-  protected List<Pair<String, TextWithImports>> getRendererChildren() {
+  protected List<EnumerationChildrenRenderer.ChildInfo> getRendererChildren() {
     return myRenderer.getChildren();
   }
 
   @Override
   public void doOKAction() {
-    List<Pair<String, TextWithImports>> children = getRendererChildren();
+    List<EnumerationChildrenRenderer.ChildInfo> children = getRendererChildren();
     TextWithImports newText = TextWithImportsImpl.fromXExpression(myExpressionEditor.getExpression());
     if (myDescriptor == null) {
-      children.add(0, Pair.create("", newText));
+      children.add(0, new EnumerationChildrenRenderer.ChildInfo("", newText, false));
     }
     else {
       int index = myDescriptor.getEnumerationIndex();
-      children.set(index, Pair.create(children.get(index).first, newText));
+      EnumerationChildrenRenderer.ChildInfo old = children.get(index);
+      children.set(index, new EnumerationChildrenRenderer.ChildInfo(old.myName, newText, old.myOnDemand));
     }
 
     myTree.putClientProperty(XDebuggerTreeRestorer.SELECTION_PATH_PROPERTY,
@@ -137,5 +127,18 @@ public class CustomFieldInplaceEditor extends XDebuggerTreeInplaceEditor {
       public void computePresentation(@NotNull XValueNode node, @NotNull XValuePlace place) {
       }
     }).getPath();
+  }
+
+  @Nullable
+  @Override
+  protected Rectangle getEditorBounds() {
+    Rectangle bounds = super.getEditorBounds();
+    if (bounds == null) {
+      return null;
+    }
+    int afterIconX = getAfterIconX();
+    bounds.x += afterIconX;
+    bounds.width -= afterIconX;
+    return bounds;
   }
 }

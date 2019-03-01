@@ -1,31 +1,29 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.openapi.projectRoots.Sdk;
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.packaging.PyPackageManager;
+import com.jetbrains.python.packaging.PyRequirement;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.sdk.PythonSdkType;
+import com.jetbrains.python.sdk.pipenv.PipenvKt;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 /**
  * @author vlan
  */
-public class PyPackageRequirementsInspectionTest extends PyTestCase {
+public class PyPackageRequirementsInspectionTest extends PyInspectionTestCase {
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyPackageRequirementsInspection.class;
+  }
+
   @Override
   public void setUp() throws Exception {
     super.setUp();
@@ -35,36 +33,72 @@ public class PyPackageRequirementsInspectionTest extends PyTestCase {
   }
 
   public void testPartiallySatisfiedRequirementsTxt() {
-    doTest("test1.py");
+    doMultiFileTest("test1.py");
   }
 
   public void testPartiallySatisfiedSetupPy() {
-    doTest("test1.py");
+    myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
+    myFixture.configureFromTempProjectFile("test1.py");
+    configureInspection();
   }
 
   public void testImportsNotInRequirementsTxt() {
-    doTest("test1.py");
+    doMultiFileTest("test1.py");
   }
 
   public void testDuplicateInstallAndTests() {
-    doTest("test1.py");
+    myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
+    myFixture.configureFromTempProjectFile("test1.py");
+    configureInspection();
   }
 
   // PY-16753
   public void testIpAddressNotInRequirements() {
-    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doTest("test1.py"));
+    runWithLanguageLevel(LanguageLevel.PYTHON34, () -> doMultiFileTest("test1.py"));
   }
 
   // PY-17422
   public void testTypingNotInRequirements() {
-    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> doTest("test1.py"));
+    runWithLanguageLevel(LanguageLevel.PYTHON35, () -> doMultiFileTest("test1.py"));
   }
 
-  private void doTest(@NotNull final String filename) {
-    final String testName = getTestName(false);
-    myFixture.copyDirectoryToProject("inspections/PyPackageRequirementsInspection/" + testName, "");
-    myFixture.configureFromTempProjectFile(filename);
-    myFixture.enableInspections(PyPackageRequirementsInspection.class);
-    myFixture.checkHighlighting(true, false, true);
+  // PY-26725
+  public void testSecretsNotInRequirements() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, () -> doMultiFileTest("test1.py"));
+  }
+
+  // PY-11963
+  // PY-26050
+  public void testMismatchBetweenPackageAndRequirement() {
+    doMultiFileTest("test1.py");
+  }
+
+  public void testOnePackageManyPossibleRequirements() {
+    doMultiFileTest("test1.py");
+  }
+
+  // PY-20489
+  public void testPackageInstalledIntoModule() {
+    doMultiFileTest();
+  }
+
+  // PY-27337
+  public void testPackageInExtrasRequire() {
+    myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
+    myFixture.configureFromTempProjectFile("a.py");
+    configureInspection();
+  }
+
+  // PY-30803
+  public void testPipEnvEnvironmentMarkers() {
+    myFixture.copyDirectoryToProject(getTestDirectoryPath(), "");
+    final VirtualFile pipFileLock = myFixture.findFileInTempDir("Pipfile.lock");
+    assertNotNull(pipFileLock);
+    final PyPackageManager packageManager = PyPackageManager.getInstance(getProjectDescriptor().getSdk());
+    final List<PyRequirement> requirements = PipenvKt.getPipFileLockRequirements(pipFileLock, packageManager);
+    final List<String> names = StreamEx.of(requirements).map(PyRequirement::getName).toList();
+    assertNotEmpty(names);
+    assertContainsElements(names, "atomicwrites", "attrs", "more-itertools", "pluggy", "py", "pytest", "six");
+    assertDoesntContain(names, "pathlib2");
   }
 }

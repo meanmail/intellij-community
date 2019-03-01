@@ -17,9 +17,9 @@ package com.jetbrains.python.psi.impl.stubs;
 
 import com.intellij.psi.stubs.StubBase;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.util.QualifiedName;
 import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.psi.PyTargetExpression;
-import com.intellij.psi.util.QualifiedName;
 import com.jetbrains.python.psi.stubs.PyTargetExpressionStub;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,18 +32,24 @@ public class PyTargetExpressionStubImpl extends StubBase<PyTargetExpression> imp
   private final QualifiedName myInitializer;
   private final boolean myQualified;
   private final String myTypeComment;
-
+  private final String myAnnotation;
+  private final boolean myHasAssignedValue;
+  
   @Nullable private final String myDocString;
   private final CustomTargetExpressionStub myCustomStub;
 
   public PyTargetExpressionStubImpl(String name,
                                     @Nullable String docString,
-                                    @Nullable String typeComment, 
+                                    @Nullable String typeComment,
+                                    @Nullable String annotation,
+                                    boolean hasAssignedValue,
                                     CustomTargetExpressionStub customStub,
                                     StubElement parent) {
     super(parent, PyElementTypes.TARGET_EXPRESSION);
     myName = name;
     myTypeComment = typeComment;
+    myAnnotation = annotation;
+    myHasAssignedValue = hasAssignedValue;
     myInitializerType = InitializerType.Custom;
     myInitializer = null;
     myQualified = false;
@@ -51,16 +57,20 @@ public class PyTargetExpressionStubImpl extends StubBase<PyTargetExpression> imp
     myDocString = docString;
   }
   
-  public PyTargetExpressionStubImpl(final String name, 
+  public PyTargetExpressionStubImpl(final String name,
                                     @Nullable String docString,
                                     final InitializerType initializerType,
                                     final QualifiedName initializer,
                                     final boolean qualified,
                                     @Nullable String typeComment, 
+                                    @Nullable String annotation,
+                                    boolean hasAssignedValue,
                                     final StubElement parentStub) {
     super(parentStub, PyElementTypes.TARGET_EXPRESSION);
     myName = name;
     myTypeComment = typeComment;
+    myAnnotation = annotation;
+    myHasAssignedValue = hasAssignedValue;
     assert initializerType != InitializerType.Custom;
     myInitializerType = initializerType;
     myInitializer = initializer;
@@ -69,14 +79,17 @@ public class PyTargetExpressionStubImpl extends StubBase<PyTargetExpression> imp
     myDocString = docString;
   }
 
+  @Override
   public String getName() {
     return myName;
   }
 
+  @Override
   public InitializerType getInitializerType() {
     return myInitializerType;
   }
 
+  @Override
   public QualifiedName getInitializer() {
     return myInitializer;
   }
@@ -88,7 +101,7 @@ public class PyTargetExpressionStubImpl extends StubBase<PyTargetExpression> imp
 
   @Nullable
   @Override
-  public <T extends CustomTargetExpressionStub> T getCustomStub(Class<T> stubClass) {
+  public <T> T getCustomStub(Class<T> stubClass) {
     if (stubClass.isInstance(myCustomStub)) {
       return stubClass.cast(myCustomStub);
     }
@@ -105,6 +118,17 @@ public class PyTargetExpressionStubImpl extends StubBase<PyTargetExpression> imp
   @Override
   public String getTypeComment() {
     return myTypeComment;
+  }
+
+  @Nullable
+  @Override
+  public String getAnnotation() {
+    return myAnnotation;
+  }
+
+  @Override
+  public boolean hasAssignedValue() {
+    return myHasAssignedValue;
   }
 
   @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,6 +29,7 @@ import com.jetbrains.python.packaging.PyPackageUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.PyResolveContext;
+import com.jetbrains.python.psi.resolve.PyResolveImportUtil;
 import com.jetbrains.python.psi.stubs.PyClassNameIndex;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -44,25 +45,6 @@ public class SetupTaskIntrospector {
   private static final Map<String, List<SetupTask>> ourDistutilsTaskCache = new HashMap<>();
   private static final Map<String, List<SetupTask>> ourSetuptoolsTaskCache = new HashMap<>();
 
-  public static boolean usesSetuptools(@NotNull PyFile file) {
-    final List<PyFromImportStatement> imports = file.getFromImports();
-    for (PyFromImportStatement anImport : imports) {
-      final QualifiedName qName = anImport.getImportSourceQName();
-      if (qName != null && qName.matches("setuptools")) {
-        return true;
-      }
-    }
-
-    final List<PyImportElement> importElements = file.getImportTargets();
-    for (PyImportElement element : importElements) {
-      final QualifiedName qName = element.getImportedQName();
-      if (qName != null && qName.matches("setuptools")) {
-        return true;
-      }
-    }
-    return false;
-  }
-
   @Nullable
   public static List<SetupTask.Option> getSetupTaskOptions(Module module, String taskName) {
     for (SetupTask task : getTaskList(module)) {
@@ -75,38 +57,56 @@ public class SetupTaskIntrospector {
 
   public static List<SetupTask> getTaskList(Module module) {
     final PyFile setupPy = PyPackageUtil.findSetupPy(module);
-    return getTaskList(module, setupPy != null && usesSetuptools(setupPy));
+    return getTaskList(module, setupPy != null && PyPsiUtils.containsImport(setupPy, "setuptools"));
   }
 
-  private static List<SetupTask> getTaskList(Module module, boolean setuptools) {
-    final String name = (setuptools ? "setuptools" : "distutils") + ".command.install.install";
-    final Map<String, List<SetupTask>> cache = setuptools ? ourSetuptoolsTaskCache : ourDistutilsTaskCache;
-    final PyClass installClass = PyClassNameIndex.findClass(name, module.getProject());
-    if (installClass != null) {
-      final PsiDirectory distutilsCommandDir = installClass.getContainingFile().getParent();
-      if (distutilsCommandDir != null) {
-        final String path = distutilsCommandDir.getVirtualFile().getPath();
+  @NotNull
+  private static List<SetupTask> getTaskList(@NotNull Module module, boolean setuptools) {
+    final QualifiedName name = QualifiedName.fromDottedString((setuptools ? "setuptools" : "distutils") + ".command.install.install");
+    final PsiElement install = PyResolveImportUtil.resolveTopLevelMember(name, PyResolveImportUtil.fromModule(module));
+
+    if (install instanceof PyClass) {
+      final PsiDirectory commandDir = install.getContainingFile().getParent();
+      if (commandDir != null) {
+        final Map<String, List<SetupTask>> cache = setuptools ? ourSetuptoolsTaskCache : ourDistutilsTaskCache;
+        final String path = commandDir.getVirtualFile().getPath();
+
         List<SetupTask> tasks = cache.get(path);
         if (tasks == null) {
-          tasks = collectTasks(distutilsCommandDir, setuptools);
+          tasks = collectTasks(module, commandDir, setuptools);
           cache.put(path, tasks);
         }
         return tasks;
       }
     }
+
     return Collections.emptyList();
   }
 
   private static final Set<String> SKIP_NAMES = ImmutableSet.of(PyNames.INIT_DOT_PY, "alias.py", "setopt.py", "savecfg.py");
 
-  private static List<SetupTask> collectTasks(PsiDirectory dir, boolean setuptools) {
-    List<SetupTask> result = new ArrayList<>();
-    for (PsiFile commandFile : dir.getFiles()) {
+  @NotNull
+  private static List<SetupTask> collectTasks(@NotNull Module module, @NotNull PsiDirectory commandDir, boolean setuptools) {
+    final List<SetupTask> result = new ArrayList<>();
+    for (PsiFile commandFile : commandDir.getFiles()) {
       if (commandFile instanceof PyFile && !SKIP_NAMES.contains(commandFile.getName())) {
         final String taskName = FileUtil.getNameWithoutExtension(commandFile.getName());
         result.add(createTaskFromFile((PyFile)commandFile, taskName, setuptools));
       }
     }
+
+    if (setuptools) {
+      final QualifiedName name = QualifiedName.fromComponents("wheel", "bdist_wheel", "bdist_wheel");
+      final PsiElement bdistWheel = PyResolveImportUtil.resolveTopLevelMember(name, PyResolveImportUtil.fromModule(module));
+
+      if (bdistWheel instanceof PyClass) {
+        final PsiFile file = bdistWheel.getContainingFile();
+        if (file instanceof PyFile) {
+          result.add(createTaskFromFile((PyFile)file, "bdist_wheel", true));
+        }
+      }
+    }
+
     return result;
   }
 
@@ -136,7 +136,7 @@ public class SetupTaskIntrospector {
 
       final PyTargetExpression negativeOpt = taskClass.findClassAttribute("negative_opt", true, null);
       final Map<String, String> negativeOptMap = negativeOpt == null
-                                                 ? Collections.<String, String>emptyMap()
+                                                 ? Collections.emptyMap()
                                                  : parseNegativeOpt(negativeOpt.findAssignedValue());
 
 

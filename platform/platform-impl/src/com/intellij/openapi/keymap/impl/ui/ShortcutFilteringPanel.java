@@ -16,6 +16,7 @@
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.HelpTooltip;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
 import com.intellij.openapi.actionSystem.MouseShortcut;
@@ -26,6 +27,7 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.ui.components.panels.VerticalLayout;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -39,8 +41,8 @@ import java.beans.PropertyChangeListener;
  * @author Sergey.Malenkov
  */
 final class ShortcutFilteringPanel extends JPanel {
-  final KeyboardShortcutPanel myKeyboardPanel = new KeyboardShortcutPanel(new VerticalLayout(JBUI.scale(2)));
-  final MouseShortcutPanel myMousePanel = new MouseShortcutPanel(true);
+  private final KeyboardShortcutPanel myKeyboardPanel = new KeyboardShortcutPanel(false, new VerticalLayout(JBUI.scale(2)));
+  private final MouseShortcutPanel myMousePanel = new MouseShortcutPanel(true);
 
   private Shortcut myShortcut;
   private JBPopup myPopup;
@@ -111,7 +113,7 @@ final class ShortcutFilteringPanel extends JPanel {
 
     JLabel label = new JLabel(KeyMapBundle.message("filter.mouse.pad.label"));
     label.setOpaque(false);
-    label.setIcon(AllIcons.General.MouseShortcut);
+    label.setIcon(AllIcons.General.Mouse);
     label.setForeground(MouseShortcutPanel.FOREGROUND);
     label.setBorder(JBUI.Borders.empty(14, 4));
     myMousePanel.add(BorderLayout.CENTER, label);
@@ -135,7 +137,7 @@ final class ShortcutFilteringPanel extends JPanel {
     }
   }
 
-  void showPopup(Component component) {
+  void showPopup(Component component, Component emitter) {
     if (myPopup == null || myPopup.getContent() == null) {
       myPopup = JBPopupFactory.getInstance().createComponentPopupBuilder(this, myKeyboardPanel.myFirstStroke)
         .setRequestFocus(true)
@@ -144,9 +146,9 @@ final class ShortcutFilteringPanel extends JPanel {
         .setMovable(true)
         .createPopup();
       IdeEventQueue.getInstance().addPostprocessor(new IdeEventQueue.EventDispatcher() {
-        boolean isEscWasPressed = false;
+        boolean isEscWasPressed;
         @Override
-        public boolean dispatch(AWTEvent e) {
+        public boolean dispatch(@NotNull AWTEvent e) {
           if (e instanceof KeyEvent && e.getID() == KeyEvent.KEY_PRESSED) {
             boolean isEsc =  ((KeyEvent)e).getKeyCode() == KeyEvent.VK_ESCAPE;
             if (isEscWasPressed && isEsc) {
@@ -158,6 +160,8 @@ final class ShortcutFilteringPanel extends JPanel {
         }
       }, myPopup);
     }
+
+    HelpTooltip.setMasterPopup(emitter, myPopup);
     myPopup.showUnderneathOf(component);
   }
 

@@ -1,28 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.local;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.IoTestUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.testFramework.fixtures.BareTestFixtureTestCase;
 import com.intellij.testFramework.rules.TempDirectory;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Before;
@@ -32,24 +19,20 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static com.intellij.openapi.util.io.IoTestUtil.*;
 import static com.intellij.testFramework.PlatformTestUtil.assertPathsEqual;
-import static org.junit.Assert.*;
-import static org.junit.Assume.assumeTrue;
 
 public class SymlinkHandlingTest extends BareTestFixtureTestCase {
   @Rule public TempDirectory myTempDir = new TempDirectory();
 
   @Before
   public void setUp() {
-    assumeTrue(SystemInfo.areSymLinksSupported);
+    IoTestUtil.assumeSymLinkCreationIsSupported();
   }
 
   @Test
-  public void testMissingLink() throws Exception {
+  public void testMissingLink() {
     File missingFile = new File(myTempDir.getRoot(), "missing_file");
     assertTrue(missingFile.getPath(), !missingFile.exists() || missingFile.delete());
     File missingLinkFile = createSymLink(missingFile.getPath(), myTempDir.getRoot() + "/missing_link", false);
@@ -60,7 +43,7 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
   }
 
   @Test
-  public void testSelfLink() throws Exception {
+  public void testSelfLink() {
     String target = new File(myTempDir.getRoot(), "self_link").getPath();
     File selfLinkFile = createSymLink(target, target, false);
     VirtualFile selfLinkVFile = refreshAndFind(selfLinkFile);
@@ -70,7 +53,7 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
   }
 
   @Test
-  public void testDotLink() throws Exception {
+  public void testDotLink() {
     File dotLinkFile = createSymLink(".", myTempDir.getRoot() + "/dot_link");
     VirtualFile dotLinkVFile = refreshAndFind(dotLinkFile);
     assertNotNull(dotLinkVFile);
@@ -194,12 +177,7 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
     assertTrue("link=" + linkFile + ", vLink=" + linkVFile,
                linkVFile != null && !linkVFile.isDirectory() && linkVFile.is(VFileProperty.SYMLINK));
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        linkVFile.delete(SymlinkHandlingTest.this);
-      }
-    }.execute();
+    WriteAction.runAndWait(() -> linkVFile.delete(this));
     assertFalse(linkVFile.toString(), linkVFile.isValid());
     assertFalse(linkFile.exists());
     assertTrue(targetFile.exists());
@@ -212,12 +190,7 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
     assertTrue("link=" + linkDir + ", vLink=" + linkVDir,
                linkVDir != null && linkVDir.isDirectory() && linkVDir.is(VFileProperty.SYMLINK) && linkVDir.getChildren().length == 1);
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        linkVDir.delete(SymlinkHandlingTest.this);
-      }
-    }.execute();
+    WriteAction.runAndWait(() -> linkVDir.delete(this));
     assertFalse(linkVDir.toString(), linkVDir.isValid());
     assertFalse(linkDir.exists());
     assertTrue(targetDir.exists());
@@ -263,19 +236,19 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
   }
 
   @Test
-  public void testDirLinkSwitchWithDifferentlenghtContent() throws Exception {
+  public void testDirLinkSwitchWithDifferentContentLength() throws Exception {
     doTestDirLinkSwitch("text", "longer text");
   }
 
   @Test
-  public void testDirLinkSwitchWithSameLengthContent() throws Exception {
+  public void testDirLinkSwitchWithSameContentLength() throws Exception {
     doTestDirLinkSwitch("text 1", "text 2");
   }
 
   private void doTestDirLinkSwitch(String text1, String text2) throws Exception {
     File targetDir1 = myTempDir.newFolder("target1");
     File targetDir2 = myTempDir.newFolder("target2");
-    
+
     File target1Child = new File(targetDir1, "child1.txt");
     assertTrue(target1Child.createNewFile());
     File target2Child = new File(targetDir2, "child1.txt");
@@ -308,16 +281,16 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
   }
 
   @Test
-  public void testFileLinkSwitchWithDifferentlenghtContent() throws Exception {
+  public void testFileLinkSwitchWithDifferentContentLength() throws Exception {
     doTestLinkSwitch("text", "longer text");
   }
 
   @Test
-  public void testFileLinkSwitchWithSameLengthContent() throws Exception {
+  public void testFileLinkSwitchWithSameContentLength() throws Exception {
     doTestLinkSwitch("text 1", "text 2");
   }
 
-  private void doTestLinkSwitch(String text1, String text2) throws IOException, InterruptedException {
+  private void doTestLinkSwitch(String text1, String text2) throws IOException {
     File target1 = myTempDir.newFile("target1.txt");
     FileUtil.writeToFile(target1, text1);
     File target2 = myTempDir.newFile("target2.txt");
@@ -396,8 +369,7 @@ public class SymlinkHandlingTest extends BareTestFixtureTestCase {
     VirtualFile vDir = refreshAndFind(from);
     assertNotNull(vDir);
 
-    Set<String> expectedSet =
-      Stream.concat(Stream.of(expected).map(FileUtil::toSystemIndependentName), Stream.of(vDir.getPath())).collect(Collectors.toSet());
+    Set<String> expectedSet = StreamEx.of(expected).map(FileUtil::toSystemIndependentName).append(vDir.getPath()).toSet();
 
     Set<String> actualSet = new java.util.HashSet<>();
     VfsUtilCore.visitChildrenRecursively(vDir, new VirtualFileVisitor() {

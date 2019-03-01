@@ -1,40 +1,26 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory
 import com.intellij.openapi.options.ConfigurableUi
 import com.intellij.openapi.progress.runModalTask
-import com.intellij.openapi.ui.DialogBuilder
-import com.intellij.openapi.ui.TextBrowseFolderListener
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.ui.DocumentAdapter
+import com.intellij.openapi.ui.ValidationInfo
+import com.intellij.ui.components.dialog
+import com.intellij.ui.layout.*
 import com.intellij.util.Function
 import com.intellij.util.containers.ContainerUtil
 import com.intellij.util.io.delete
 import com.intellij.util.io.exists
 import com.intellij.util.text.nullize
-import com.intellij.util.ui.FormBuilder
+import com.intellij.util.text.trimMiddle
 import com.intellij.util.ui.table.TableModelEditor
 import gnu.trove.THashSet
 import org.jetbrains.settingsRepository.git.asProgressMonitor
 import org.jetbrains.settingsRepository.git.cloneBare
-import javax.swing.JTextField
-import javax.swing.event.DocumentEvent
+import kotlin.properties.Delegates.notNull
 
 private val COLUMNS = arrayOf(object : TableModelEditor.EditableColumnInfo<ReadonlySource, Boolean>() {
   override fun getColumnClass() = Boolean::class.java
@@ -60,19 +46,23 @@ internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
     override fun getItemClass() = ReadonlySource::class.java
 
     override fun edit(item: ReadonlySource, mutator: Function<ReadonlySource, ReadonlySource>, isAdd: Boolean) {
-      val dialogBuilder = DialogBuilder()
-      val urlField = TextFieldWithBrowseButton(JTextField(20))
-      urlField.addBrowseFolderListener(TextBrowseFolderListener(FileChooserDescriptorFactory.createSingleFolderDescriptor()))
-      urlField.textField.document.addDocumentListener(object : DocumentAdapter() {
-        override fun textChanged(event: DocumentEvent) {
-          dialogBuilder.setOkActionEnabled(checkUrl(urlField.text.nullize()))
+      var urlField: TextFieldWithBrowseButton by notNull()
+      val panel = panel {
+        row("URL:") {
+          urlField = textFieldWithBrowseButton("Choose Local Git Repository", fileChooserDescriptor = FileChooserDescriptorFactory.createSingleFolderDescriptor())
         }
-      })
-
-      dialogBuilder.title("Add read-only source").resizable(false).centerPanel(FormBuilder.createFormBuilder().addLabeledComponent("URL:", urlField).panel).setPreferredFocusComponent(urlField)
-      if (dialogBuilder.showAndGet()) {
-        mutator.`fun`(item).url = urlField.text
       }
+
+      dialog(title = "Add read-only source", panel = panel, focusedComponent = urlField) {
+        val url = urlField.text.nullize(true)
+        validateUrl(url, null)?.let {
+          return@dialog listOf(ValidationInfo(it))
+        }
+
+        mutator.`fun`(item).url = url
+        return@dialog null
+      }
+        .show()
     }
 
     override fun applyEdited(oldItem: ReadonlySource, newItem: ReadonlySource) {
@@ -83,7 +73,7 @@ internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
   }
 
   val editor = TableModelEditor(COLUMNS, itemEditor, "No sources configured")
-  editor.reset(icsManager.settings.readOnlySources)
+  editor.reset(if (ApplicationManager.getApplication().isUnitTestMode) emptyList() else icsManager.settings.readOnlySources)
   return object : ConfigurableUi<IcsSettings> {
     override fun isModified(settings: IcsSettings) = editor.isModified
 
@@ -117,12 +107,9 @@ internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
           indicator.text = "Deleting old repositories"
           for (path in toDelete) {
             indicator.checkCanceled()
-            try {
+            LOG.runAndLogException {
               indicator.text2 = path
               root.resolve(path).delete()
-            }
-            catch (e: Exception) {
-              LOG.error(e)
             }
           }
         }
@@ -130,21 +117,23 @@ internal fun createReadOnlySourcesEditor(): ConfigurableUi<IcsSettings> {
         if (toCheckout.isNotEmpty()) {
           for (source in toCheckout) {
             indicator.checkCanceled()
-            try {
-              indicator.text = "Cloning ${StringUtil.trimMiddle(source.url!!, 255)}"
+            LOG.runAndLogException {
+              indicator.text = "Cloning ${source.url!!.trimMiddle(255)}"
               val dir = root.resolve(source.path!!)
               if (dir.exists()) {
                 dir.delete()
               }
               cloneBare(source.url!!, dir, icsManager.credentialsStore, indicator.asProgressMonitor()).close()
             }
-            catch (e: Exception) {
-              LOG.error(e)
-            }
           }
         }
 
         icsManager.readOnlySourcesManager.setSources(newList)
+
+        // blindly reload all
+        icsManager.schemeManagerFactory.value.process {
+          it.reload()
+        }
       }
     }
 

@@ -29,13 +29,18 @@ import org.jetbrains.annotations.Nullable;
  */
 public class PyStructureViewFactory implements PsiStructureViewFactory {
   @Override
-  public StructureViewBuilder getStructureViewBuilder(final PsiFile psiFile) {
+  public StructureViewBuilder getStructureViewBuilder(@NotNull final PsiFile psiFile) {
     return new TreeBasedStructureViewBuilder() {
 
       @Override
       @NotNull
       public StructureViewModel createStructureViewModel(@Nullable Editor editor) {
         return new PyStructureViewModel(psiFile, editor);
+      }
+
+      @Override
+      public boolean isRootNodeShown() {
+        return false;
       }
     };
   }

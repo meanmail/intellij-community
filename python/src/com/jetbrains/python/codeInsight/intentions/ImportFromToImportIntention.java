@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.intentions;
 
 import com.google.common.collect.Sets;
-import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -26,7 +11,6 @@ import com.intellij.psi.*;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashMap;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
@@ -49,12 +33,9 @@ import static com.jetbrains.python.psi.PyUtil.sure;
  * Qualifies any names imported from that module by module name.
  * <br><small>
  * User: dcheryasov
- * Date: Sep 26, 2009 9:12:28 AM
  * </small>
  */
-public class ImportFromToImportIntention implements IntentionAction {
-  private String myText;
-
+public class ImportFromToImportIntention extends PyBaseIntentionAction {
   /**
    * This class exists to extract bunches of info we can't store in our stateless instance.
    * Instead, we store it per thread.
@@ -90,11 +71,6 @@ public class ImportFromToImportIntention implements IntentionAction {
       }
       return ret;
     }
-  }
-
-  @NotNull
-  public String getText() {
-    return myText;
   }
 
   @Nullable
@@ -139,11 +115,13 @@ public class ImportFromToImportIntention implements IntentionAction {
     return dots;
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return PyBundle.message("INTN.Family.convert.import.qualify");
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     if (!(file instanceof PyFile)) {
       return false;
@@ -176,7 +154,7 @@ public class ImportFromToImportIntention implements IntentionAction {
       info.myModuleName = PyPsiUtils.toPath(info.myModuleReference);
     }
     if (info.myModuleReference != null && info.myModuleName != null && info.myFromImportStatement != null) {
-      myText = info.getText();
+      setText(info.getText());
       return true;
     }
     return false;
@@ -194,7 +172,8 @@ public class ImportFromToImportIntention implements IntentionAction {
     target_node.addChild(sure(generator.createFromText(LanguageLevel.getDefault(), PyReferenceExpression.class, qualifier, new int[]{0,0}).getNode()), target_node.getFirstChildNode());
   }
 
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+  @Override
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     InfoHolder info = InfoHolder.collect(getElementFromEditor(editor, file));
     try {
       String qualifier; // we don't always qualify with module name
@@ -212,6 +191,7 @@ public class ImportFromToImportIntention implements IntentionAction {
       final Map<PsiReference, PyImportElement> references = new HashMap<>();
       final List<PsiReference> star_references = new ArrayList<>();
       PsiTreeUtil.processElements(file, new PsiElementProcessor() {
+        @Override
         public boolean execute(@NotNull PsiElement element) {
           PyPsiUtils.assertValid(element);
           if (element instanceof PyReferenceExpression && PsiTreeUtil.getParentOfType(element, PyImportElement.class) == null) {
@@ -247,7 +227,7 @@ public class ImportFromToImportIntention implements IntentionAction {
         possible_targets.addAll(references.keySet());
         possible_targets.addAll(star_references);
       }
-      final Set<PsiElement> ignored = Sets.<PsiElement>newHashSet(Arrays.asList(info.myFromImportStatement.getImportElements()));
+      final Set<PsiElement> ignored = Sets.newHashSet(Arrays.asList(info.myFromImportStatement.getImportElements()));
       if (top_name != null && showConflicts(project, findDefinitions(top_name, possible_targets, ignored),
                                             top_name, info.myModuleName)) {
         return; // got conflicts
@@ -298,10 +278,6 @@ public class ImportFromToImportIntention implements IntentionAction {
     catch (IncorrectOperationException ignored) {
       PyUtil.showBalloon(project, PyBundle.message("QFIX.action.failed"), MessageType.WARNING);
     }
-  }
-
-  public boolean startInWriteAction() {
-    return true;
   }
 }
 

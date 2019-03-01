@@ -1,121 +1,106 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository
 
+import com.intellij.ide.actions.ActionsCollector
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.TextFieldWithBrowseButton
+import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.openapi.util.text.StringUtil
-import com.intellij.util.ArrayUtil
+import com.intellij.ui.components.DialogManager
 import com.intellij.util.text.nullize
+import kotlinx.coroutines.runBlocking
 import org.jetbrains.settingsRepository.actions.NOTIFICATION_GROUP
-import java.awt.Container
 import java.awt.event.ActionEvent
 import javax.swing.AbstractAction
 import javax.swing.Action
+import javax.swing.JTextField
 
-internal fun checkUrl(url: String?): Boolean {
-  try {
-    return url != null && url.length > 1 && icsManager.repositoryService.checkUrl(url, false)
-  }
-  catch (e: Throwable) {
-    return false
-  }
+fun validateUrl(url: String?, project: Project?): String? {
+  return if (url == null) "URL is empty" else icsManager.repositoryService.checkUrl(url, project)
 }
 
-fun updateSyncButtonState(url: String?, syncActions: Array<Action>) {
-  val enabled = checkUrl(url)
-  for (syncAction in syncActions) {
-    syncAction.isEnabled = enabled
-  }
-}
-
-fun createMergeActions(project: Project?, urlTextField: TextFieldWithBrowseButton, dialogParent: Container, okAction: (() -> Unit)): Array<Action> {
+internal fun createMergeActions(project: Project?, urlTextField: TextFieldWithBrowseButton, dialogManager: DialogManager): List<Action> {
   var syncTypes = SyncType.values()
   if (SystemInfo.isMac) {
-    syncTypes = ArrayUtil.reverseArray(syncTypes)
+    syncTypes = syncTypes.reversedArray()
+  }
+  // TextFieldWithBrowseButton not painted correctly if specified as validation info component, so, use textField directly
+  return syncTypes.map { SyncAction(it, urlTextField.textField, project, dialogManager) }
+}
+
+private class SyncAction(private val syncType: SyncType,
+                         private val urlTextField: JTextField,
+                         private val project: Project?,
+                         private val dialogManager: DialogManager) : AbstractAction(icsMessage("action.${syncType.messageKey}Settings.text")) {
+  private fun saveRemoteRepositoryUrl(): ValidationInfo? {
+    val url = urlTextField.text.nullize(true)
+    validateUrl(url, project)?.let {
+      return createError(it)
+    }
+
+    val repositoryManager = icsManager.repositoryManager
+    repositoryManager.createRepositoryIfNeed()
+    repositoryManager.setUpstream(url, null)
+    return null
   }
 
-  val icsManager = icsManager
+  private fun createError(message: String) = ValidationInfo(message, urlTextField)
 
-  return Array(3) {
-    val syncType = syncTypes[it]
-    object : AbstractAction(icsMessage("action.${if (syncType == SyncType.MERGE) "Merge" else (if (syncType == SyncType.OVERWRITE_LOCAL) "ResetToTheirs" else "ResetToMy")}Settings.text")) {
-      private fun saveRemoteRepositoryUrl(): Boolean {
-        val url = urlTextField.text.nullize()
-        if (url != null && !icsManager.repositoryService.checkUrl(url, true, project)) {
-          return false
-        }
-
-        val repositoryManager = icsManager.repositoryManager
-        repositoryManager.createRepositoryIfNeed()
-        repositoryManager.setUpstream(url, null)
-        return true
-      }
-
-      override fun actionPerformed(event: ActionEvent) {
-        val repositoryWillBeCreated = !icsManager.repositoryManager.isRepositoryExists()
-        var upstreamSet = false
-        try {
-          if (!saveRemoteRepositoryUrl()) {
-            if (repositoryWillBeCreated) {
-              // remove created repository
-              icsManager.repositoryManager.deleteRepository()
-            }
-            return
-          }
-          upstreamSet = true
-
-          if (repositoryWillBeCreated) {
-            icsManager.newStreamProvider()
-          }
-
-          if (repositoryWillBeCreated && syncType != SyncType.OVERWRITE_LOCAL) {
-            ApplicationManager.getApplication().saveSettings()
-
-            icsManager.sync(syncType, project, { copyLocalConfig() })
-          }
-          else {
-            icsManager.sync(syncType, project, null)
-          }
-        }
-        catch (e: Throwable) {
-          if (repositoryWillBeCreated) {
-            // remove created repository
-            icsManager.repositoryManager.deleteRepository()
-          }
-
-          LOG.warn(e)
-
-          if (!upstreamSet || e is NoRemoteRepositoryException) {
-            Messages.showErrorDialog(dialogParent, icsMessage("set.upstream.failed.message", e.message), icsMessage("set.upstream.failed.title"))
-          }
-          else {
-            Messages.showErrorDialog(dialogParent, StringUtil.notNullize(e.message, "Internal error"), icsMessage(if (e is AuthenticationException) "sync.not.authorized.title" else "sync.rejected.title"))
-          }
-          return
-        }
-
-
-        NOTIFICATION_GROUP.createNotification(icsMessage("sync.done.message"), NotificationType.INFORMATION).notify(project)
-        okAction()
+  override fun actionPerformed(event: ActionEvent) {
+    dialogManager.performAction {
+      runBlocking {
+        doSync()
       }
     }
+  }
+
+  private suspend fun doSync(): List<ValidationInfo>? {
+    val icsManager = icsManager
+    ActionsCollector.getInstance().record("Ics.${getValue(Action.NAME)}", IcsManager::class.java)
+    val isRepositoryWillBeCreated = !icsManager.repositoryManager.isRepositoryExists()
+    var upstreamSet = false
+    try {
+      saveRemoteRepositoryUrl()?.let {
+        if (isRepositoryWillBeCreated) {
+          // remove created repository
+          icsManager.repositoryManager.deleteRepository()
+        }
+        return listOf(it)
+      }
+
+      upstreamSet = true
+
+      if (isRepositoryWillBeCreated) {
+        icsManager.setApplicationLevelStreamProvider()
+      }
+
+      if (isRepositoryWillBeCreated && syncType != SyncType.OVERWRITE_LOCAL) {
+        ApplicationManager.getApplication().saveSettings()
+        icsManager.sync(syncType, project) { copyLocalConfig() }
+      }
+      else {
+        icsManager.sync(syncType, project, null)
+      }
+    }
+    catch (e: Throwable) {
+      if (isRepositoryWillBeCreated) {
+        // remove created repository
+        icsManager.repositoryManager.deleteRepository()
+      }
+
+      LOG.warn(e)
+
+      if (!upstreamSet || e is NoRemoteRepositoryException) {
+        return listOf(createError(icsMessage("set.upstream.failed.message", e.message)))
+      }
+      else {
+        return listOf(createError(e.message ?: "Internal error"))
+      }
+    }
+
+    NOTIFICATION_GROUP.createNotification(icsMessage("sync.done.message"), NotificationType.INFORMATION).notify(project)
+    return emptyList()
   }
 }

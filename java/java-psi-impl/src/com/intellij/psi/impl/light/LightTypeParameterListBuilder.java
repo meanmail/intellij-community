@@ -26,7 +26,7 @@ import java.util.List;
  * @author Max Medvedev
  */
 public class LightTypeParameterListBuilder extends LightElement implements PsiTypeParameterList {
-  private final List<PsiTypeParameter> myParameters = new ArrayList<PsiTypeParameter>();
+  private final List<PsiTypeParameter> myParameters = new ArrayList<>();
   private PsiTypeParameter[] cached;
 
   public LightTypeParameterListBuilder(PsiManager manager, final Language language) {
@@ -48,6 +48,7 @@ public class LightTypeParameterListBuilder extends LightElement implements PsiTy
     }
   }
 
+  @NotNull
   @Override
   public PsiTypeParameter[] getTypeParameters() {
     if (cached == null) {
@@ -55,7 +56,7 @@ public class LightTypeParameterListBuilder extends LightElement implements PsiTy
         cached = PsiTypeParameter.EMPTY_ARRAY;
       }
       else {
-        cached = myParameters.toArray(new PsiTypeParameter[myParameters.size()]);
+        cached = myParameters.toArray(PsiTypeParameter.EMPTY_ARRAY);
       }
     }
     return cached;

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.maven.plugins.groovy;
 
 import com.intellij.codeInsight.actions.ReformatCodeProcessor;
@@ -41,9 +27,10 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.dom.MavenVersionComparable;
 import org.jetbrains.idea.maven.dom.converters.MavenDependencyCompletionUtil;
 import org.jetbrains.idea.maven.indices.MavenProjectIndicesManager;
+import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsManager;
-import org.jetbrains.idea.maven.utils.library.RepositoryUtils;
+import org.jetbrains.idea.maven.utils.library.RepositoryLibraryDescription;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethodCall;
@@ -55,7 +42,6 @@ import java.util.Set;
 
 /**
  * @author Vladislav.Soroka
- * @since 8/30/2016
  */
 public class MavenGroovyPomCompletionContributor extends CompletionContributor {
   public static final Key<VirtualFile> ORIGINAL_POM_FILE = Key.create("ORIGINAL_POM_FILE");
@@ -83,7 +69,7 @@ public class MavenGroovyPomCompletionContributor extends CompletionContributor {
       buf.append('<').append(s).append("/>");
     }
 
-    PsiFile psiFile = PsiFileFactory.getInstance(project).createFileFromText("pom.xml", XMLLanguage.INSTANCE, buf);
+    PsiFile psiFile = PsiFileFactory.getInstance(project).createFileFromText(MavenConstants.POM_XML, XMLLanguage.INSTANCE, buf);
     psiFile.putUserData(ORIGINAL_POM_FILE, virtualFile);
     List<Object> variants = ContainerUtil.newArrayList();
 
@@ -208,8 +194,8 @@ public class MavenGroovyPomCompletionContributor extends CompletionContributor {
     for (String version : versions) {
       newResultSet.addElement(LookupElementBuilder.create(prefix + version));
     }
-    newResultSet.addElement(LookupElementBuilder.create(prefix + RepositoryUtils.ReleaseVersionId));
-    newResultSet.addElement(LookupElementBuilder.create(prefix + RepositoryUtils.LatestVersionId));
+    newResultSet.addElement(LookupElementBuilder.create(prefix + RepositoryLibraryDescription.ReleaseVersionId));
+    newResultSet.addElement(LookupElementBuilder.create(prefix + RepositoryLibraryDescription.LatestVersionId));
   }
 
   @NotNull
@@ -241,7 +227,7 @@ public class MavenGroovyPomCompletionContributor extends CompletionContributor {
     private static final InsertHandler<LookupElement> INSTANCE = new MavenDependencyInsertHandler();
 
     @Override
-    public void handleInsert(final InsertionContext context, LookupElement item) {
+    public void handleInsert(@NotNull final InsertionContext context, @NotNull LookupElement item) {
       String s = item.getLookupString();
       int idx = s.indexOf(':');
       String groupId = s.substring(0, idx);

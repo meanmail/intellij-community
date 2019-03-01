@@ -23,9 +23,6 @@ import com.intellij.util.xml.GenericDomValue;
 import com.intellij.util.xml.converters.values.ClassValueConverter;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * User: Sergey.Vasiliev
- */
 public class ClassValueConverterImpl extends ClassValueConverter {
   private static final JavaClassReferenceProvider REFERENCE_PROVIDER = new JavaClassReferenceProvider();
 
@@ -35,6 +32,7 @@ public class ClassValueConverterImpl extends ClassValueConverter {
     REFERENCE_PROVIDER.setOption(JavaClassReferenceProvider.ALLOW_DOLLAR_NAMES, Boolean.TRUE);
   }
 
+  @Override
   @NotNull
   public PsiReference[] createReferences(final GenericDomValue genericDomValue, final PsiElement element, final ConvertContext context) {
     return REFERENCE_PROVIDER.getReferencesByElement(element);

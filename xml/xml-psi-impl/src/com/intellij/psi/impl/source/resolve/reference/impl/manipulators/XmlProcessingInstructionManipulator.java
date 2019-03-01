@@ -32,10 +32,6 @@ import org.jetbrains.annotations.NotNull;
 
 import static com.intellij.xml.util.documentation.HtmlDescriptorsTable.LOG;
 
-/**
- * User: anna
- * Date: 2/20/13
- */
 public class XmlProcessingInstructionManipulator extends AbstractElementManipulator<XmlProcessingInstruction> {
 
   @Override
@@ -51,7 +47,7 @@ public class XmlProcessingInstructionManipulator extends AbstractElementManipula
       text = elementToReplace.getText();
       final int offsetInParent = elementToReplace.getStartOffsetInParent();
       String textBeforeRange = text.substring(0, range.getStartOffset() - offsetInParent);
-      String textAfterRange = text.substring(range.getEndOffset() - offsetInParent, text.length());
+      String textAfterRange = text.substring(range.getEndOffset() - offsetInParent);
       newContent = element.getText().startsWith("'") || element.getText().endsWith("'") ?
                    newContent.replace("'", "&apos;") : newContent.replace("\"", "&quot;");
       text = textBeforeRange + newContent + textAfterRange;

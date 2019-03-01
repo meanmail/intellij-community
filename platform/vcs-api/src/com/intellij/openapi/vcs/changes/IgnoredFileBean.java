@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 20.12.2006
- * Time: 15:24:28
- */
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
@@ -32,69 +26,71 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.impl.NullVirtualFile;
 import com.intellij.util.PathUtilRt;
 import com.intellij.util.PatternUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.regex.Matcher;
+import java.util.Objects;
+import java.util.regex.Pattern;
 
-public class IgnoredFileBean {
+public class IgnoredFileBean implements IgnoredFileDescriptor {
   private final String myPath;
   private final String myFilenameIfFile;
   private final String myMask;
-  private final Matcher myMatcher;
+  private final Pattern myPattern;
   private final IgnoreSettingsType myType;
   private final Project myProject;
   private volatile VirtualFile myCachedResolved;
 
-  IgnoredFileBean(String path, IgnoreSettingsType type, Project project) {
+  IgnoredFileBean(@NotNull String path, @NotNull IgnoreSettingsType type, @Nullable Project project) {
     myPath = path;
     myType = type;
     myFilenameIfFile = IgnoreSettingsType.FILE.equals(type) ? PathUtilRt.getFileName(path) : null;
     myProject = project;
     myMask = null;
-    myMatcher = null;
+    myPattern = null;
   }
 
-  Project getProject() {
-    return myProject;
-  }
-
-  IgnoredFileBean(String mask) {
+  IgnoredFileBean(@NotNull String mask) {
     myType = IgnoreSettingsType.MASK;
     myMask = mask;
-    if (mask == null) {
-      myMatcher = null;
-    }
-    else {
-      myMatcher = PatternUtil.fromMask(mask).matcher("");
-    }
+    myPattern = PatternUtil.fromMask(mask);
     myPath = null;
     myFilenameIfFile = null;
     myProject = null;
   }
 
   @Nullable
+  Project getProject() {
+    return myProject;
+  }
+
+  @Override
+  @Nullable
   public String getPath() {
     return myPath;
   }
 
+  @Override
   @Nullable
   public String getMask() {
     return myMask;
   }
 
+  @Override
+  @NotNull
   public IgnoreSettingsType getType() {
     return myType;
   }
 
   @Override
-  public boolean equals(Object o) {
+  public boolean equals(@Nullable Object o) {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
 
     IgnoredFileBean that = (IgnoredFileBean)o;
 
-    if (myPath != null ? !myPath.equals(that.myPath) : that.myPath != null) return false;
-    if (myMask != null ? !myMask.equals(that.myMask) : that.myMask != null) return false;
+    if (!Objects.equals(myPath, that.myPath)) return false;
+    if (!Objects.equals(myMask, that.myMask)) return false;
     if (myType != that.myType) return false;
 
     return true;
@@ -108,10 +104,10 @@ public class IgnoredFileBean {
     return result;
   }
 
-  public boolean matchesFile(VirtualFile file) {
+  @Override
+  public boolean matchesFile(@NotNull VirtualFile file) {
     if (myType == IgnoreSettingsType.MASK) {
-      myMatcher.reset(file.getName());
-      return myMatcher.matches();
+      return myPattern.matcher(file.getName()).matches();
     }
     else {
       // quick check for 'file' == exact match pattern
@@ -133,6 +129,7 @@ public class IgnoredFileBean {
     }
   }
 
+  @NotNull
   private VirtualFile resolve() {
     if (myCachedResolved == null) {
       VirtualFile resolved = doResolve();

@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2010 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util;
 
 import com.intellij.ide.projectView.impl.nodes.ClassTreeNode;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
 import com.intellij.psi.PsiClass;
@@ -80,12 +65,7 @@ public class TreeJavaClassChooserDialog extends AbstractTreeClassChooserDialog<P
       return new Filter<PsiClass>() {
         @Override
         public boolean isAccepted(final PsiClass element) {
-          return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-            @Override
-            public Boolean compute() {
-              return classFilter.isAccepted(element);
-            }
-          });
+          return ReadAction.compute(() -> classFilter.isAccepted(element));
         }
       };
     }
@@ -100,6 +80,7 @@ public class TreeJavaClassChooserDialog extends AbstractTreeClassChooserDialog<P
     return descriptor.getPsiClass();
   }
 
+  @Override
   @NotNull
   protected List<PsiClass> getClassesByName(final String name,
                                             final boolean checkBoxState,
@@ -120,7 +101,7 @@ public class TreeJavaClassChooserDialog extends AbstractTreeClassChooserDialog<P
   private static class JavaInheritorsProvider extends BaseClassInheritorsProvider<PsiClass> {
     private final Project myProject;
 
-    public JavaInheritorsProvider(Project project, PsiClass baseClass, GlobalSearchScope scope) {
+    JavaInheritorsProvider(Project project, PsiClass baseClass, GlobalSearchScope scope) {
       super(baseClass, scope);
       myProject = project;
     }
@@ -163,6 +144,7 @@ public class TreeJavaClassChooserDialog extends AbstractTreeClassChooserDialog<P
       myBase = base;
     }
 
+    @Override
     public boolean isAccepted(PsiClass aClass) {
       if (!myAcceptsInner && !(aClass.getParent() instanceof PsiJavaFile)) return false;
       if (!myAdditionalCondition.value(aClass)) return false;

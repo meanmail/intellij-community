@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: Alexey
- * Date: 18.12.2006
- * Time: 20:18:31
- */
 package com.intellij.util.containers;
 
 import gnu.trove.TObjectHashingStrategy;
@@ -27,33 +21,38 @@ import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.SoftReference;
-import java.util.Map;
 
 /**
  * Concurrent soft key:K -> strong value:V map
  * Null keys are allowed
  * Null values are NOT allowed
- * @deprecated Use {@link ContainerUtil#createConcurrentSoftMap()} instead
+ * Use {@link ContainerUtil#createConcurrentSoftMap()} to create this
  */
 final class ConcurrentSoftHashMap<K, V> extends ConcurrentRefHashMap<K, V> {
+  ConcurrentSoftHashMap() {
+  }
+
+  ConcurrentSoftHashMap(int initialCapacity,
+                        float loadFactor,
+                        int concurrencyLevel,
+                        @NotNull TObjectHashingStrategy<? super K> hashingStrategy) {
+    super(initialCapacity, loadFactor, concurrencyLevel, hashingStrategy);
+  }
+
   private static class SoftKey<K, V> extends SoftReference<K> implements KeyReference<K, V> {
     private final int myHash; // Hashcode of key, stored here since the key may be tossed by the GC
-    private final TObjectHashingStrategy<K> myStrategy;
-    private final V value;
+    private final TObjectHashingStrategy<? super K> myStrategy;
 
-    private SoftKey(@NotNull K k, final int hash, @NotNull TObjectHashingStrategy<K> strategy, V v, @NotNull ReferenceQueue<K> q) {
+    private SoftKey(@NotNull K k,
+                    final int hash,
+                    @NotNull TObjectHashingStrategy<? super K> strategy,
+                    @NotNull ReferenceQueue<K> q) {
       super(k, q);
       myStrategy = strategy;
-      value = v;
       myHash = hash;
     }
 
-    @NotNull
     @Override
-    public V getValue() {
-      return value;
-    }
-
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof KeyReference)) return false;
@@ -64,39 +63,16 @@ final class ConcurrentSoftHashMap<K, V> extends ConcurrentRefHashMap<K, V> {
       return myStrategy.equals(t, u);
     }
 
+    @Override
     public int hashCode() {
       return myHash;
     }
   }
 
+  @NotNull
   @Override
-  protected KeyReference<K, V> createKeyReference(@NotNull K key, @NotNull V value, @NotNull TObjectHashingStrategy<K> hashingStrategy) {
-    return new SoftKey<K, V>(key, hashingStrategy.computeHashCode(key), hashingStrategy, value, myReferenceQueue);
-  }
-
-  public ConcurrentSoftHashMap(int initialCapacity, float loadFactor) {
-    super(initialCapacity, loadFactor);
-  }
-
-  public ConcurrentSoftHashMap(int initialCapacity) {
-    super(initialCapacity);
-  }
-
-  public ConcurrentSoftHashMap() {
-  }
-
-  public ConcurrentSoftHashMap(int initialCapacity,
-                               float loadFactor,
-                               int concurrencyLevel,
-                               @NotNull TObjectHashingStrategy<K> hashingStrategy) {
-    super(initialCapacity, loadFactor, concurrencyLevel, hashingStrategy);
-  }
-
-  public ConcurrentSoftHashMap(Map<? extends K, ? extends V> t) {
-    super(t);
-  }
-
-  public ConcurrentSoftHashMap(@NotNull TObjectHashingStrategy<K> hashingStrategy) {
-    super(hashingStrategy);
+  protected KeyReference<K, V> createKeyReference(@NotNull K key,
+                                                  @NotNull TObjectHashingStrategy<? super K> hashingStrategy) {
+    return new SoftKey<>(key, hashingStrategy.computeHashCode(key), hashingStrategy, myReferenceQueue);
   }
 }

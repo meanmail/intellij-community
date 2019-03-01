@@ -15,6 +15,8 @@
  */
 package com.intellij.slicer;
 
+import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil;
+import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
@@ -24,7 +26,9 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtilRt;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,7 +44,12 @@ import java.util.Set;
 class SliceForwardUtil {
   static boolean processUsagesFlownFromThe(@NotNull PsiElement element,
                                            @NotNull final JavaSliceUsage parent,
-                                           @NotNull final Processor<SliceUsage> processor) {
+                                           @NotNull final Processor<? super SliceUsage> processor) {
+    PsiExpression expression = getMethodCallTarget(element);
+    if (expression != null &&
+        !SliceUtil.createAndProcessSliceUsage(expression, parent, parent.getSubstitutor(), parent.indexNesting, "", processor)) {
+      return false;
+    }
     Pair<PsiElement, PsiSubstitutor> pair = getAssignmentTarget(element, parent);
     if (pair != null) {
       PsiElement target = pair.getFirst();
@@ -63,16 +72,14 @@ class SliceForwardUtil {
             if (parameters.length <= parameterIndex) return true;
             PsiParameter actualParam = parameters[parameterIndex];
 
-            SliceUsage usage = SliceUtil.createSliceUsage(actualParam, parent, superSubstitutor,parent.indexNesting, "");
-            return processor.process(usage);
+            return SliceUtil.createAndProcessSliceUsage(actualParam, parent, superSubstitutor, parent.indexNesting, "", processor);
           };
           if (!myProcessor.process(method)) return false;
           return OverridingMethodsSearch.search(method, parent.getScope().toSearchScope(), true).forEach(myProcessor);
         }
       }
 
-      SliceUsage usage = SliceUtil.createSliceUsage(target, parent, parent.getSubstitutor(),parent.indexNesting, "");
-      return processor.process(usage);
+      return SliceUtil.createAndProcessSliceUsage(target, parent, parent.getSubstitutor(),parent.indexNesting, "", processor);
     }
 
     if (element instanceof PsiReferenceExpression) {
@@ -94,7 +101,7 @@ class SliceForwardUtil {
   private static boolean processAssignedFrom(@NotNull PsiElement from,
                                              @NotNull PsiElement context,
                                              @NotNull JavaSliceUsage parent,
-                                             @NotNull final Processor<SliceUsage> processor) {
+                                             @NotNull final Processor<? super SliceUsage> processor) {
     if (from instanceof PsiLocalVariable) {
       return searchReferencesAndProcessAssignmentTarget(from, context, parent, processor);
     }
@@ -176,7 +183,7 @@ class SliceForwardUtil {
   private static boolean searchReferencesAndProcessAssignmentTarget(@NotNull PsiElement element,
                                                                     @Nullable final PsiElement context,
                                                                     @NotNull JavaSliceUsage parent,
-                                                                    @NotNull Processor<SliceUsage> processor) {
+                                                                    @NotNull Processor<? super SliceUsage> processor) {
     return ReferencesSearch.search(element).forEach(reference -> {
       PsiElement element1 = reference.getElement();
       if (context != null && element1.getTextOffset() < context.getTextOffset()) return true;
@@ -186,19 +193,31 @@ class SliceForwardUtil {
 
   private static boolean processAssignmentTarget(@NotNull PsiElement element,
                                                  @NotNull JavaSliceUsage parent,
-                                                 @NotNull Processor<SliceUsage> processor) {
+                                                 @NotNull Processor<? super SliceUsage> processor) {
     if (!parent.params.scope.contains(element)) return true;
     if (element instanceof PsiCompiledElement) element = element.getNavigationElement();
+    if (element.getLanguage() != JavaLanguage.INSTANCE) {
+      return SliceUtil.createAndProcessSliceUsage(element, parent, EmptySubstitutor.getInstance(), parent.indexNesting, "", processor);
+    }
     Pair<PsiElement, PsiSubstitutor> pair = getAssignmentTarget(element, parent);
     if (pair != null) {
-      SliceUsage usage = SliceUtil.createSliceUsage(element, parent, pair.getSecond(),parent.indexNesting, "");
-      return processor.process(usage);
+      return SliceUtil.createAndProcessSliceUsage(element, parent, pair.getSecond(), parent.indexNesting, "", processor);
     }
     if (parent.params.showInstanceDereferences && isDereferenced(element)) {
       SliceUsage usage = new JavaSliceDereferenceUsage(element.getParent(), parent, parent.getSubstitutor());
       return processor.process(usage);
     }
     return true;
+  }
+
+  private static PsiExpression getMethodCallTarget(PsiElement element) {
+    element = complexify(element);
+    PsiMethodCallExpression call = null;
+    if (element.getParent() instanceof PsiExpressionList) {
+      call = ObjectUtils.tryCast(element.getParent().getParent(), PsiMethodCallExpression.class);
+    }
+    PsiExpression value = JavaMethodContractUtil.findReturnedValue(call);
+    return value == element ? call : null;
   }
 
   private static boolean isDereferenced(@NotNull PsiElement element) {
@@ -252,6 +271,13 @@ class SliceForwardUtil {
       PsiReturnStatement statement = (PsiReturnStatement)parent;
       if (element.equals(statement.getReturnValue())) {
         target = PsiTreeUtil.getParentOfType(statement, PsiMethod.class);
+      }
+    }
+    else if (element instanceof PsiExpression){
+      PsiMethodCallExpression call = ExpressionUtils.getCallForQualifier((PsiExpression)element);
+      PsiExpression maybeQualifier = JavaMethodContractUtil.findReturnedValue(call);
+      if (maybeQualifier == element) {
+        target = call;
       }
     }
 

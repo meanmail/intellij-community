@@ -17,13 +17,20 @@ package com.intellij.util.ui.components;
 
 import com.intellij.ui.components.JBPanel;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.accessibility.AccessibleContextDelegate;
+import org.jetbrains.annotations.NotNull;
 
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
 import java.awt.*;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class BorderLayoutPanel extends JBPanel<BorderLayoutPanel> {
+  private boolean myDelegateAccessibleContext;
+
   public BorderLayoutPanel() {
     this(0, 0);
   }
@@ -32,28 +39,73 @@ public class BorderLayoutPanel extends JBPanel<BorderLayoutPanel> {
     super(new BorderLayout(JBUI.scale(hgap), JBUI.scale(vgap)));
   }
 
-  public BorderLayoutPanel addToCenter(Component comp) {
+  @NotNull
+  public BorderLayoutPanel addToCenter(@NotNull Component comp) {
     add(comp, BorderLayout.CENTER);
     return this;
   }
 
-  public BorderLayoutPanel addToRight(Component comp) {
+  @NotNull
+  public BorderLayoutPanel addToRight(@NotNull Component comp) {
     add(comp, BorderLayout.EAST);
     return this;
   }
 
-  public BorderLayoutPanel addToLeft(Component comp) {
+  @NotNull
+  public BorderLayoutPanel addToLeft(@NotNull Component comp) {
     add(comp, BorderLayout.WEST);
     return this;
   }
 
-  public BorderLayoutPanel addToTop(Component comp) {
+  @NotNull
+  public BorderLayoutPanel addToTop(@NotNull Component comp) {
     add(comp, BorderLayout.NORTH);
     return this;
   }
 
-  public BorderLayoutPanel addToBottom(Component comp) {
+  @NotNull
+  public BorderLayoutPanel addToBottom(@NotNull Component comp) {
     add(comp, BorderLayout.SOUTH);
     return this;
+  }
+
+  /**
+   * Enables delegating the {@link AccessibleContext} implementation of this panel to the first (and only) component contained
+   * in this panel.
+   *
+   * By delegating to the inner component, we essentially remove this panel from the Accessibility component tree.
+   *
+   * The reason we need this is that many screen readers don't always know how to deal with labels wrapped in panels.
+   * For example, they expect items of list boxes or combo boxes to have the {@link AccessibleRole#LABEL} as well as some text.
+   */
+  public void setDelegateAccessibleContextToWrappedComponent(boolean delegateAccessibleContext) {
+    if (delegateAccessibleContext != myDelegateAccessibleContext) {
+      this.accessibleContext = null;
+    }
+    myDelegateAccessibleContext = delegateAccessibleContext;
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (this.accessibleContext == null) {
+      if (myDelegateAccessibleContext) {
+        if (getComponentCount() == 1) {
+          AccessibleContext context = getComponent(0).getAccessibleContext();
+          if (context != null) {
+            this.accessibleContext = new MyAccessibleContextDelegate(context);
+          }
+        }
+      }
+    }
+    return super.getAccessibleContext();
+  }
+
+  private class MyAccessibleContextDelegate extends AccessibleContextDelegate {
+    MyAccessibleContextDelegate(AccessibleContext context) {super(context);}
+
+    @Override
+    public Container getDelegateParent() {
+      return getParent();
+    }
   }
 }

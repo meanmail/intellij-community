@@ -27,8 +27,6 @@ import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleWithNameAlreadyExists;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ex.ProjectEx;
 import com.intellij.openapi.ui.InputValidator;
@@ -44,10 +42,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class RenameProjectHandler implements RenameHandler, TitledHandler {
-  private static final Logger LOG = Logger.getInstance("#" + RenameProjectHandler.class.getName());
+  private static final Logger LOG = Logger.getInstance(RenameProjectHandler.class);
 
   @Override
-  public boolean isAvailableOnDataContext(DataContext dataContext) {
+  public boolean isAvailableOnDataContext(@NotNull DataContext dataContext) {
     return isAvailable(dataContext);
   }
 
@@ -57,7 +55,7 @@ public class RenameProjectHandler implements RenameHandler, TitledHandler {
   }
 
   @Override
-  public boolean isRenaming(DataContext dataContext) {
+  public boolean isRenaming(@NotNull DataContext dataContext) {
     return isAvailableOnDataContext(dataContext);
   }
 
@@ -121,7 +119,9 @@ public class RenameProjectHandler implements RenameHandler, TitledHandler {
         return false;
       }
       final Ref<Boolean> success = Ref.create(Boolean.TRUE);
-      CommandProcessor.getInstance().executeCommand(project, () -> ApplicationManager.getApplication().runWriteAction(() -> DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> modifiableModel.commit())), IdeBundle.message("command.renaming.module", module.getName()), null);
+      CommandProcessor.getInstance().executeCommand(project,
+                                                    () -> ApplicationManager.getApplication().runWriteAction(() -> modifiableModel.commit()),
+                                                    IdeBundle.message("command.renaming.module", module.getName()), null);
       return success.get().booleanValue();
     }
     return true;

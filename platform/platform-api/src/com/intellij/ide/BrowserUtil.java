@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
 import com.intellij.execution.configurations.GeneralCommandLine;
@@ -22,7 +8,6 @@ import com.intellij.ide.browsers.BrowserLauncherAppless;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NonNls;
@@ -49,7 +34,7 @@ public class BrowserUtil {
   // with RFC is that we do not allow schemes with length=1 (in other case
   // local paths like "C:/temp/index.html" would be erroneously interpreted as
   // external URLs.)
-  private static final Pattern ourExternalPrefix = Pattern.compile("^[\\w\\+\\.\\-]{2,}:");
+  private static final Pattern ourExternalPrefix = Pattern.compile("^[\\w+.\\-]{2,}:");
   private static final Pattern ourAnchorSuffix = Pattern.compile("#(.*)$");
 
   private BrowserUtil() { }
@@ -69,7 +54,7 @@ public class BrowserUtil {
   }
 
   public static void browse(@NotNull VirtualFile file) {
-    browse(VfsUtil.toUri(file));
+    browse(file.getUrl());
   }
 
   public static void browse(@NotNull File file) {
@@ -83,9 +68,8 @@ public class BrowserUtil {
   /**
    * @deprecated Use {@link #browse(String)}
    */
-  @SuppressWarnings("UnusedDeclaration")
   @Deprecated
-  public static void launchBrowser(@NotNull @NonNls String url) {
+  public static void launchBrowser(@NotNull String url) {
     browse(url);
   }
 
@@ -98,12 +82,12 @@ public class BrowserUtil {
     return launcher == null ? new BrowserLauncherAppless() : launcher;
   }
 
-  public static void open(@NotNull @NonNls String url) {
+  public static void open(@NotNull String url) {
     getBrowserLauncher().open(url);
   }
 
   /**
-   * Main method: tries to launch a browser using every possible way
+   * tries to launch a browser using every possible way
    */
   public static void browse(@NotNull URI uri) {
     getBrowserLauncher().browse(uri);
@@ -111,13 +95,6 @@ public class BrowserUtil {
 
   public static void browse(@NotNull String url, @Nullable Project project) {
     getBrowserLauncher().browse(url, null, project);
-  }
-
-  @SuppressWarnings("UnusedDeclaration")
-  @NotNull
-  @Deprecated
-  public static List<String> getOpenBrowserCommand(@NonNls @NotNull String browserPathOrName) {
-    return getOpenBrowserCommand(browserPathOrName, false);
   }
 
   @NotNull

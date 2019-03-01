@@ -1,392 +1,556 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.jsonSchema.impl;
 
-
-import com.intellij.codeInsight.completion.CompletionContributor;
-import com.intellij.codeInsight.completion.CompletionParameters;
-import com.intellij.codeInsight.completion.CompletionResultSet;
-import com.intellij.idea.RareLogger;
-import com.intellij.json.JsonLanguage;
-import com.intellij.lang.annotation.AnnotationHolder;
-import com.intellij.lang.annotation.Annotator;
-import com.intellij.lang.documentation.CompositeDocumentationProvider;
-import com.intellij.lang.documentation.DocumentationProvider;
+import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.openapi.fileTypes.LanguageFileType;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.NullableLazyValue;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.vfs.VfsUtil;
-import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.util.ClearableLazyValue;
+import com.intellij.openapi.util.Factory;
+import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.util.Consumer;
-import com.intellij.util.NotNullFunction;
-import com.intellij.util.PairConsumer;
-import com.intellij.util.Processor;
+import com.intellij.openapi.vfs.impl.http.HttpVirtualFile;
+import com.intellij.util.containers.ConcurrentList;
 import com.intellij.util.containers.ContainerUtil;
-import com.jetbrains.jsonSchema.JsonSchemaFileTypeManager;
+import com.intellij.util.containers.MultiMap;
+import com.intellij.util.messages.MessageBusConnection;
+import com.jetbrains.jsonSchema.JsonPointerUtil;
+import com.jetbrains.jsonSchema.JsonSchemaCatalogEntry;
+import com.jetbrains.jsonSchema.JsonSchemaCatalogProjectConfiguration;
 import com.jetbrains.jsonSchema.JsonSchemaVfsListener;
-import com.jetbrains.jsonSchema.extension.JsonSchemaFileProvider;
-import com.jetbrains.jsonSchema.extension.JsonSchemaImportedProviderMarker;
-import com.jetbrains.jsonSchema.extension.JsonSchemaProviderFactory;
+import com.jetbrains.jsonSchema.extension.*;
+import com.jetbrains.jsonSchema.ide.JsonSchemaService;
+import com.jetbrains.jsonSchema.remote.JsonFileResolver;
+import com.jetbrains.jsonSchema.remote.JsonSchemaCatalogManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.io.Reader;
-import java.io.StringReader;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
-public class JsonSchemaServiceImpl implements JsonSchemaServiceEx {
-  private static final Logger LOGGER = Logger.getInstance(JsonSchemaServiceImpl.class);
-  private static final Logger RARE_LOGGER = RareLogger.wrap(LOGGER, false);
-  public static final Comparator<JsonSchemaFileProvider> FILE_PROVIDER_COMPARATOR = new Comparator<JsonSchemaFileProvider>() {
-    @Override
-    public int compare(JsonSchemaFileProvider o1, JsonSchemaFileProvider o2) {
-      return Integer.compare(o1.getOrder(), o2.getOrder());
-    }
-  };
-  @NotNull
-  private final Project myProject;
-  private final Object myLock;
-  private final Map<VirtualFile, JsonSchemaObjectCodeInsightWrapper> myWrappers = new HashMap<>();
-  private final Set<VirtualFile> mySchemaFiles = ContainerUtil.newConcurrentSet();
-  private volatile boolean initialized;
-  private final JsonSchemaExportedDefinitions myDefinitions;
+public class JsonSchemaServiceImpl implements JsonSchemaService {
+  private static final Logger LOG = Logger.getInstance(JsonSchemaServiceImpl.class);
+
+  @NotNull private final Project myProject;
+  @NotNull private final MyState myState;
+  @NotNull private final ClearableLazyValue<Set<String>> myBuiltInSchemaIds;
+  @NotNull private final Set<String> myRefs = ContainerUtil.newConcurrentSet();
+  private final AtomicLong myAnyChangeCount = new AtomicLong(0);
+
+  @NotNull private final JsonSchemaCatalogManager myCatalogManager;
 
   public JsonSchemaServiceImpl(@NotNull Project project) {
-    myLock = new Object();
     myProject = project;
-    myDefinitions = new JsonSchemaExportedDefinitions(this::iterateSchemas);
-    ApplicationManager
-      .getApplication().getMessageBus().connect(project).subscribe(VirtualFileManager.VFS_CHANGES, new JsonSchemaVfsListener(project, this));
-    ensureSchemaFiles();
+    myState = new MyState(() -> getProvidersFromFactories(), myProject);
+    myBuiltInSchemaIds = new ClearableLazyValue<Set<String>>() {
+      @NotNull
+      @Override
+      protected Set<String> compute() {
+        return myState.getFiles().stream().map(f -> JsonCachedValues.getSchemaId(f, myProject)).collect(Collectors.toSet());
+      }
+    };
+    myCatalogManager = new JsonSchemaCatalogManager(myProject);
+
+    MessageBusConnection connection = project.getMessageBus().connect();
+    connection.subscribe(JsonSchemaVfsListener.JSON_SCHEMA_CHANGED, myAnyChangeCount::incrementAndGet);
+    connection.subscribe(JsonSchemaVfsListener.JSON_DEPS_CHANGED, () -> {
+      myRefs.clear();
+      myAnyChangeCount.incrementAndGet();
+    });
+    JsonSchemaVfsListener.startListening(project, this, connection);
+    myCatalogManager.startUpdates();
   }
 
   @NotNull
-  protected JsonSchemaProviderFactory[] getProviderFactories() {
-    return JsonSchemaProviderFactory.EP_NAME.getExtensions();
-  }
-
-  private List<JsonSchemaFileProvider> getProviders() {
-    final List<JsonSchemaFileProvider> providers = new ArrayList<>();
+  private List<JsonSchemaFileProvider> getProvidersFromFactories() {
+    List<JsonSchemaFileProvider> providers = new ArrayList<>();
     for (JsonSchemaProviderFactory factory : getProviderFactories()) {
-      providers.addAll(factory.getProviders(myProject));
+      try {
+        providers.addAll(factory.getProviders(myProject));
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
+      }
+      catch (Exception e) {
+        PluginException.logPluginError(Logger.getInstance(JsonSchemaService.class), e.getMessage(), e, factory.getClass());
+      }
     }
-    Collections.sort(providers, FILE_PROVIDER_COMPARATOR);
     return providers;
   }
 
-
-  @Nullable
-  public Annotator getAnnotator(@Nullable VirtualFile file) {
-    CodeInsightProviders wrapper = getWrapper(file);
-    return wrapper != null ? wrapper.getAnnotator() : null;
-  }
-
-  @Nullable
-  public CompletionContributor getCompletionContributor(@Nullable VirtualFile file) {
-    CodeInsightProviders wrapper = getWrapper(file);
-    return wrapper != null ? wrapper.getContributor() : null;
-  }
-
-  public boolean hasSchema(@Nullable VirtualFile file) {
-    CodeInsightProviders wrapper = getWrapper(file);
-    return wrapper != null;
-  }
-
-  @Override
-  public boolean isRegisteredSchemaFile(@NotNull Project project, @NotNull VirtualFile file) {
-    if (!initialized) {
-      ensureSchemaFiles();
-    }
-    return mySchemaFiles.contains(file);
-  }
-
-  private void ensureSchemaFiles() {
-    synchronized (myLock) {
-      if (!initialized) {
-        for (JsonSchemaFileProvider provider : getProviders()) {
-          final VirtualFile schemaFile = provider.getSchemaFile();
-          if (schemaFile != null) {
-            mySchemaFiles.add(schemaFile);
-          }
-        }
-        initialized = true;
-      }
-    }
-  }
-
-  @Override
-  public boolean isSchemaFile(@NotNull VirtualFile file, @NotNull final Consumer<String> errorConsumer) {
-    final String text;
-    try {
-      text = VfsUtilCore.loadText(file);
-    }
-    catch (IOException e) {
-      errorConsumer.consume(e.getMessage());
-      return false;
-    }
-    try {
-      return JsonSchemaReader.isJsonSchema(getDefinitions(), file, text, errorConsumer);
-    }
-    catch (Exception e) {
-      reset();
-      errorConsumer.consume(e.getMessage());
-      return false;
-    }
-  }
-
   @NotNull
-  private JsonSchemaExportedDefinitions getDefinitions() {
-    final JsonSchemaExportedDefinitions definitions;
-    synchronized (myLock) {
-      definitions = myDefinitions;
-    }
-    return definitions;
+  protected List<JsonSchemaProviderFactory> getProviderFactories() {
+    return JsonSchemaProviderFactory.EP_NAME.getExtensionList();
   }
 
   @Nullable
   @Override
-  public DocumentationProvider getDocumentationProvider(@Nullable VirtualFile file) {
-    CodeInsightProviders wrapper = getWrapper(file);
-    return wrapper != null ? wrapper.getDocumentationProvider() : null;
-  }
-
-  @Override
-  public void iterateSchemaObjects(VirtualFile file, @NotNull Processor<JsonSchemaObject> consumer) {
-    final CodeInsightProviders wrapper = getWrapper(file);
-    if (wrapper == null) return;
-    wrapper.iterateSchemaObjects(consumer);
+  public JsonSchemaFileProvider getSchemaProvider(@NotNull VirtualFile schemaFile) {
+    return myState.getProvider(schemaFile);
   }
 
   @Nullable
   @Override
-  public List<Pair<Boolean, String>> getMatchingSchemaDescriptors(@Nullable VirtualFile file) {
-    final List<JsonSchemaObjectCodeInsightWrapper> wrappers = getWrappers(file);
-    if (wrappers == null || wrappers.isEmpty()) return null;
-    return ContainerUtil.map(wrappers, (NotNullFunction<JsonSchemaObjectCodeInsightWrapper, Pair<Boolean, String>>)
-      wrapper -> Pair.create(wrapper.isUserSchema(), wrapper.getName()));
-  }
-
-  @Nullable
-  private JsonSchemaObjectCodeInsightWrapper createWrapper(@NotNull JsonSchemaFileProvider provider) {
-    final JsonSchemaObject resultObject = readObject(provider, getDefinitions());
-    if (resultObject == null) return null;
-    return new JsonSchemaObjectCodeInsightWrapper(myProject, provider.getName(), provider.getSchemaType(), provider.getSchemaFile(), resultObject);
-  }
-
-  private static JsonSchemaObject readObject(@NotNull JsonSchemaFileProvider provider,
-                                             @Nullable final JsonSchemaExportedDefinitions definitions) {
-    final VirtualFile file = provider.getSchemaFile();
-    if (file == null) return null;
-    Reader reader = null;
-    try {
-      //noinspection StaticMethodReferencedViaSubclass
-      final String text = VfsUtil.loadText(file);
-      reader = new StringReader(text);
-      return new JsonSchemaReader(provider.getSchemaFile()).read(reader, definitions);
-    }
-    catch (Exception e) {
-      logException(provider, e);
-    } finally {
-      if (reader != null) try {
-        reader.close();
-      }
-      catch (IOException e) {
-        logException(provider, e);
-      }
-    }
-    return null;
-  }
-
-  private static void logException(@NotNull JsonSchemaFileProvider provider, Exception e) {
-    final String message = "Error while processing json schema file: " + e.getMessage();
-    if (provider instanceof JsonSchemaImportedProviderMarker) {
-      RARE_LOGGER.info(message, e);
-    } else {
-      LOGGER.error(message, e);
-    }
+  public JsonSchemaFileProvider getSchemaProvider(@NotNull JsonSchemaObject schemaObject) {
+    VirtualFile file = resolveSchemaFile(schemaObject);
+    return file == null ? null : getSchemaProvider(file);
   }
 
   @Override
   public void reset() {
-    synchronized (myLock) {
-      myWrappers.clear();
-      myDefinitions.reset();
-      initialized = false;
-      mySchemaFiles.clear();
+    myState.reset();
+    myBuiltInSchemaIds.drop();
+    myAnyChangeCount.incrementAndGet();
+    for (Runnable action: myResetActions) {
+      action.run();
     }
-    JsonSchemaFileTypeManager.getInstance().reset();
+    DaemonCodeAnalyzer.getInstance(myProject).restart();
+  }
+
+  @Override
+  @NotNull
+  public Project getProject() {
+    return myProject;
+  }
+
+  @Override
+  @Nullable
+  public VirtualFile findSchemaFileByReference(@NotNull String reference, @Nullable VirtualFile referent) {
+    final Optional<VirtualFile> optional = findBuiltInSchemaByReference(reference);
+    return optional.orElseGet(() -> {
+      if (reference.startsWith("#")) return referent;
+      return JsonFileResolver.resolveSchemaByReference(referent, JsonPointerUtil.normalizeId(reference));
+    });
+  }
+
+  private Optional<VirtualFile> findBuiltInSchemaByReference(@NotNull String reference) {
+    String id = JsonPointerUtil.normalizeId(reference);
+    if (!myBuiltInSchemaIds.getValue().contains(id)) return Optional.empty();
+    return myState.getFiles().stream()
+        .filter(file -> id.equals(JsonCachedValues.getSchemaId(file, myProject)))
+        .findFirst();
+  }
+
+  @Override
+  @NotNull
+  public Collection<VirtualFile> getSchemaFilesForFile(@NotNull final VirtualFile file) {
+    return getSchemasForFile(file, false, false);
+  }
+
+  @NotNull
+  public Collection<VirtualFile> getSchemasForFile(@NotNull VirtualFile file, boolean single, boolean onlyUserSchemas) {
+    String schemaUrl = null;
+    if (!onlyUserSchemas) {
+      // prefer schema-schema if it is specified in "$schema" property
+      schemaUrl = JsonCachedValues.getSchemaUrlFromSchemaProperty(file, myProject);
+      if (isSchemaUrl(schemaUrl)) {
+        final VirtualFile virtualFile = resolveFromSchemaProperty(schemaUrl, file);
+        if (virtualFile != null) return Collections.singletonList(virtualFile);
+      }
+    }
+
+
+    List<JsonSchemaFileProvider> providers = getProvidersForFile(file);
+
+    // proper priority:
+    // 1) user providers
+    // 2) $schema property
+    // 3) built-in providers
+    // 4) schema catalog
+
+    boolean checkSchemaProperty = true;
+    if (!onlyUserSchemas && providers.stream().noneMatch(p -> p.getSchemaType() == SchemaType.userSchema)) {
+      if (schemaUrl == null) schemaUrl = JsonCachedValues.getSchemaUrlFromSchemaProperty(file, myProject);
+      VirtualFile virtualFile = resolveFromSchemaProperty(schemaUrl, file);
+      if (virtualFile != null) return Collections.singletonList(virtualFile);
+      checkSchemaProperty = false;
+    }
+
+    if (!single) {
+      List<VirtualFile> files = ContainerUtil.newArrayList();
+      for (JsonSchemaFileProvider provider : providers) {
+        VirtualFile schemaFile = getSchemaForProvider(myProject, provider);
+        if (schemaFile != null) {
+          files.add(schemaFile);
+        }
+      }
+      if (!files.isEmpty()) {
+        return files;
+      }
+    }
+    else if (!providers.isEmpty()) {
+      final JsonSchemaFileProvider selected;
+      if (providers.size() > 2) return ContainerUtil.emptyList();
+      if (providers.size() > 1) {
+        final Optional<JsonSchemaFileProvider> userSchema =
+          providers.stream().filter(provider -> SchemaType.userSchema.equals(provider.getSchemaType())).findFirst();
+        if (!userSchema.isPresent()) return ContainerUtil.emptyList();
+        selected = userSchema.get();
+      } else selected = providers.get(0);
+      VirtualFile schemaFile = getSchemaForProvider(myProject, selected);
+      return ContainerUtil.createMaybeSingletonList(schemaFile);
+    }
+
+    if (onlyUserSchemas) {
+      return ContainerUtil.emptyList();
+    }
+
+    if (checkSchemaProperty) {
+      if (schemaUrl == null) schemaUrl = JsonCachedValues.getSchemaUrlFromSchemaProperty(file, myProject);
+      VirtualFile virtualFile = resolveFromSchemaProperty(schemaUrl, file);
+      if (virtualFile != null) return Collections.singletonList(virtualFile);
+    }
+
+    return ContainerUtil.createMaybeSingletonList(resolveSchemaFromOtherSources(file));
+  }
+
+  @NotNull
+  public List<JsonSchemaFileProvider> getProvidersForFile(@NotNull VirtualFile file) {
+    return ContainerUtil.filter(myState.getProviders(), provider -> isProviderAvailable(file, provider));
   }
 
   @Nullable
-  private CodeInsightProviders getWrapper(@Nullable VirtualFile file) {
-    if (file == null) return null;
-    final FileType type = file.getFileType();
-    if (type instanceof LanguageFileType && ((LanguageFileType)type).getLanguage().isKindOf(JsonLanguage.INSTANCE)) {
-      final List<JsonSchemaObjectCodeInsightWrapper> wrappers = getWrappers(file);
-      if (wrappers == null || wrappers.isEmpty()) {
-        return null;
-      }
-      return (wrappers.size() == 1 ? wrappers.get(0) : new CompositeCodeInsightProviderWithWarning(wrappers));
+  private VirtualFile resolveFromSchemaProperty(@Nullable String schemaUrl, @NotNull VirtualFile file) {
+    if (schemaUrl != null) {
+      VirtualFile virtualFile = findSchemaFileByReference(schemaUrl, file);
+      if (virtualFile != null) return virtualFile;
     }
     return null;
   }
 
-  public void iterateSchemas(@NotNull final PairConsumer<VirtualFile, NullableLazyValue<JsonSchemaObject>> consumer) {
-    for (JsonSchemaFileProvider provider : getProviders()) {
-      consumer.consume(provider.getSchemaFile(),
-                       new NullableLazyValue<JsonSchemaObject>() {
-                         @Override
-                         protected JsonSchemaObject compute() {
-                           return readObject(provider, null);
-                         }
-                       });
-    }
-  }
-
-  public void dropProviderFromCache(@NotNull final VirtualFile key) {
-    synchronized (myLock) {
-      final Set<VirtualFile> dirtySet = myDefinitions.dropKey(key);
-      final Iterator<VirtualFile> iterator = myWrappers.keySet().iterator();
-      while (iterator.hasNext()) {
-        final VirtualFile current = iterator.next();
-        if (dirtySet.contains(current)) iterator.remove();
-      }
-    }
-  }
-
-  @Nullable
-  private List<JsonSchemaObjectCodeInsightWrapper> getWrappers(@Nullable VirtualFile file) {
-    if (file == null) return null;
-    final List<JsonSchemaObjectCodeInsightWrapper> wrappers = new ArrayList<>();
-    synchronized (myLock) {
-      final Set<VirtualFile> files = mySchemaFiles.isEmpty() ? new HashSet<>() : null;
-      for (JsonSchemaFileProvider provider : getProviders()) {
-        final VirtualFile key = provider.getSchemaFile();
-        if (files != null) files.add(key);
-        if (provider.isAvailable(myProject, file)) {
-          JsonSchemaObjectCodeInsightWrapper wrapper = myWrappers.get(key);
-          if (wrapper == null) {
-            wrapper = createWrapper(provider);
-            if (wrapper == null) return null;
-            myWrappers.putIfAbsent(key, wrapper);
+  @Override
+  public List<JsonSchemaInfo> getAllUserVisibleSchemas() {
+    List<JsonSchemaCatalogEntry> schemas = myCatalogManager.getAllCatalogEntries();
+    Collection<? extends JsonSchemaFileProvider> providers = myState.getProviders();
+    List<JsonSchemaInfo> results = ContainerUtil.newArrayListWithCapacity(schemas.size() + providers.size());
+    Map<String, JsonSchemaInfo> processedRemotes = ContainerUtil.newHashMap();
+    for (JsonSchemaFileProvider provider: providers) {
+      if (provider.isUserVisible()) {
+        final String remoteSource = provider.getRemoteSource();
+        if (remoteSource != null) {
+          if (!processedRemotes.containsKey(remoteSource)) {
+            final JsonSchemaInfo info = new JsonSchemaInfo(provider);
+            processedRemotes.put(remoteSource, info);
+            results.add(info);
           }
-          wrappers.add(wrapper);
+        }
+        else {
+          results.add(new JsonSchemaInfo(provider));
         }
       }
-      if (files != null) mySchemaFiles.addAll(files);
     }
-    return wrappers;
-  }
 
-  private static class CompositeCodeInsightProviderWithWarning implements CodeInsightProviders {
-    private final List<JsonSchemaObjectCodeInsightWrapper> myWrappers;
-    private final CompletionContributor myContributor;
-    private final Annotator myAnnotator;
-    private final DocumentationProvider myDocumentationProvider;
-
-    public CompositeCodeInsightProviderWithWarning(List<JsonSchemaObjectCodeInsightWrapper> wrappers) {
-      final List<JsonSchemaObjectCodeInsightWrapper> userSchemaWrappers =
-        ContainerUtil.filter(wrappers, JsonSchemaObjectCodeInsightWrapper::isUserSchema);
-      // filter for the case when there are one system schema and one (several) user schemas
-      // then do not use provided system schema: user schema will override it (maybe the user updated the version himself)
-      // if there are 2 or more system schemas - just go the common way: it is unclear what happened and why
-      if (!userSchemaWrappers.isEmpty() && ((userSchemaWrappers.size() + 1) == wrappers.size())) {
-        myWrappers = userSchemaWrappers;
+    for (JsonSchemaCatalogEntry schema: schemas) {
+      final String url = schema.getUrl();
+      if (!processedRemotes.containsKey(url)) {
+        final JsonSchemaInfo info = new JsonSchemaInfo(url);
+        if (schema.getDescription() != null) {
+          info.setDocumentation(schema.getDescription());
+        }
+        if (schema.getName() != null) {
+          info.setName(schema.getName());
+        }
+        results.add(info);
       }
       else {
-        myWrappers = wrappers;
+        // use documentation from schema catalog for bundled schemas if possible
+        // we don't have our own docs, so let's reuse the existing docs from the catalog
+        JsonSchemaInfo info = processedRemotes.get(url);
+        if (info.getDocumentation() == null) {
+          info.setDocumentation(schema.getDescription());
+        }
+        if (info.getName() == null) {
+          info.setName(schema.getName());
+        }
       }
-      myContributor = new CompletionContributor() {
+    }
+    return results;
+  }
+
+  @Nullable
+  @Override
+  public JsonSchemaObject getSchemaObject(@NotNull final VirtualFile file) {
+    Collection<VirtualFile> schemas = getSchemasForFile(file, true, false);
+    if (schemas.size() == 0) return null;
+    assert schemas.size() == 1;
+    VirtualFile schemaFile = schemas.iterator().next();
+    return JsonCachedValues.getSchemaObject(replaceHttpFileWithBuiltinIfNeeded(schemaFile), myProject);
+  }
+
+  public VirtualFile replaceHttpFileWithBuiltinIfNeeded(VirtualFile schemaFile) {
+    // this hack is needed to handle user-defined mappings via urls
+    // we cannot perform that inside corresponding provider, because it leads to recursive component dependency
+    // this way we're preventing http files when a built-in schema exists
+    if (!JsonSchemaCatalogProjectConfiguration.getInstance(myProject).isPreferRemoteSchemas()
+        && schemaFile instanceof HttpVirtualFile) {
+      String url = schemaFile.getUrl();
+      VirtualFile first1 = getLocalSchemaByUrl(url);
+      return first1 != null ? first1 : schemaFile;
+    }
+    return schemaFile;
+  }
+
+  @Nullable
+  public VirtualFile getLocalSchemaByUrl(String url) {
+    return myState.getFiles().stream()
+                  .filter(f -> {
+                     JsonSchemaFileProvider prov = getSchemaProvider(f);
+                     return prov != null && !(prov.getSchemaFile() instanceof HttpVirtualFile)
+                            && (url.equals(prov.getRemoteSource()) || JsonFileResolver.replaceUnsafeSchemaStoreUrls(url).equals(prov.getRemoteSource())
+                             || url.equals(JsonFileResolver.replaceUnsafeSchemaStoreUrls(prov.getRemoteSource())));
+                  }).findFirst().orElse(null);
+  }
+
+  @Nullable
+  @Override
+  public JsonSchemaObject getSchemaObjectForSchemaFile(@NotNull VirtualFile schemaFile) {
+    return JsonCachedValues.getSchemaObject(schemaFile, myProject);
+  }
+
+  @Override
+  public boolean isSchemaFile(@NotNull VirtualFile file) {
+    return isMappedSchema(file)
+           || isSchemaByProvider(file)
+           || hasSchemaSchema(file);
+  }
+
+  @Override
+  public boolean isSchemaFile(@NotNull JsonSchemaObject schemaObject) {
+    VirtualFile file = resolveSchemaFile(schemaObject);
+    return file != null && isSchemaFile(file);
+  }
+
+  private boolean isMappedSchema(@NotNull VirtualFile file) {
+    return isMappedSchema(file, true);
+  }
+
+  public boolean isMappedSchema(@NotNull VirtualFile file, boolean canRecompute) {
+    return (canRecompute || myState.isComputed()) && myState.getFiles().contains(file);
+  }
+
+  private boolean isSchemaByProvider(@NotNull VirtualFile file) {
+    JsonSchemaFileProvider provider = myState.getProvider(file);
+    if (provider == null) {
+      for (JsonSchemaFileProvider stateProvider: myState.getProviders()) {
+        if (isSchemaProvider(stateProvider) && stateProvider.isAvailable(file))
+          return true;
+      }
+      return false;
+    }
+    return isSchemaProvider(provider);
+  }
+
+  private static boolean isSchemaProvider(JsonSchemaFileProvider provider) {
+    VirtualFile schemaFile = provider.getSchemaFile();
+    if (!(schemaFile instanceof HttpVirtualFile)) return false;
+    String url = schemaFile.getUrl();
+    return isSchemaUrl(url);
+  }
+
+  private static boolean isSchemaUrl(@Nullable String url) {
+    return url != null && url.startsWith("http://json-schema.org/") && (url.endsWith("/schema") || url.endsWith("/schema#"));
+  }
+
+  @Override
+  public JsonSchemaVersion getSchemaVersion(@NotNull VirtualFile file) {
+    if (isMappedSchema(file)) {
+      JsonSchemaFileProvider provider = myState.getProvider(file);
+      if (provider != null) {
+        return provider.getSchemaVersion();
+      }
+    }
+
+    return getSchemaVersionFromSchemaUrl(file);
+  }
+
+  @Nullable
+  private JsonSchemaVersion getSchemaVersionFromSchemaUrl(@NotNull VirtualFile file) {
+    Ref<String> res = Ref.create(null);
+    //noinspection CodeBlock2Expr
+    ApplicationManager.getApplication().runReadAction(() -> {
+      res.set(JsonCachedValues.getSchemaUrlFromSchemaProperty(file, myProject));
+    });
+    if (res.isNull()) return null;
+    return JsonSchemaVersion.byId(res.get());
+  }
+
+  private boolean hasSchemaSchema(VirtualFile file) {
+    return getSchemaVersionFromSchemaUrl(file) != null;
+  }
+
+  private static boolean isProviderAvailable(@NotNull final VirtualFile file, @NotNull JsonSchemaFileProvider provider) {
+    return provider.isAvailable(file);
+  }
+
+  @Nullable
+  private VirtualFile resolveSchemaFromOtherSources(@NotNull VirtualFile file) {
+    return myCatalogManager.getSchemaFileForFile(file);
+  }
+
+  @Override
+  public void registerRemoteUpdateCallback(Runnable callback) {
+    myCatalogManager.registerCatalogUpdateCallback(callback);
+  }
+
+  @Override
+  public void unregisterRemoteUpdateCallback(Runnable callback) {
+    myCatalogManager.unregisterCatalogUpdateCallback(callback);
+  }
+
+  private final ConcurrentList<Runnable> myResetActions = ContainerUtil.createConcurrentList();
+
+  @Override
+  public void registerResetAction(Runnable action) {
+    myResetActions.add(action);
+  }
+
+  @Override
+  public void unregisterResetAction(Runnable action) {
+    myResetActions.remove(action);
+  }
+
+  @Override
+  public void registerReference(String ref) {
+    int index = StringUtil.lastIndexOfAny(ref, "\\/");
+    if (index >= 0) {
+      ref = ref.substring(index + 1);
+    }
+    myRefs.add(ref);
+  }
+
+  @Override
+  public boolean possiblyHasReference(String ref) {
+    return myRefs.contains(ref);
+  }
+
+  @Override
+  public void triggerUpdateRemote() {
+    myCatalogManager.triggerUpdateCatalog(myProject);
+  }
+
+  @Override
+  public boolean isApplicableToFile(@Nullable VirtualFile file) {
+    if (file == null) return false;
+    for (JsonSchemaEnabler e : JsonSchemaEnabler.EXTENSION_POINT_NAME.getExtensionList()) {
+      if (e.isEnabledForFile(file)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static class MyState {
+    @NotNull private final Factory<List<JsonSchemaFileProvider>> myFactory;
+    @NotNull private final Project myProject;
+    @NotNull private final ClearableLazyValue<MultiMap<VirtualFile, JsonSchemaFileProvider>> myData;
+    private final AtomicBoolean myIsComputed = new AtomicBoolean(false);
+
+    private MyState(@NotNull final Factory<List<JsonSchemaFileProvider>> factory, @NotNull Project project) {
+      myFactory = factory;
+      myProject = project;
+      myData = new ClearableLazyValue<MultiMap<VirtualFile, JsonSchemaFileProvider>>() {
+        @NotNull
         @Override
-        public void fillCompletionVariants(@NotNull CompletionParameters parameters, @NotNull CompletionResultSet result) {
-          for (JsonSchemaObjectCodeInsightWrapper wrapper : myWrappers) {
-            wrapper.getContributor().fillCompletionVariants(parameters, result);
-          }
+        public MultiMap<VirtualFile, JsonSchemaFileProvider> compute() {
+          myIsComputed.set(true);
+          return createFileProviderMap(myFactory.create(), myProject);
+        }
+
+        @NotNull
+        @Override
+        public final synchronized MultiMap<VirtualFile, JsonSchemaFileProvider> getValue() {
+          return super.getValue();
+        }
+
+        @Override
+        public final synchronized void drop() {
+          myIsComputed.set(false);
+          super.drop();
         }
       };
-      myAnnotator = new Annotator() {
-        @Override
-        public void annotate(@NotNull PsiElement element, @NotNull AnnotationHolder holder) {
-          for (JsonSchemaObjectCodeInsightWrapper wrapper : myWrappers) {
-            wrapper.getAnnotator().annotate(element, holder);
-          }
+    }
+
+    public void reset() {
+      myData.drop();
+    }
+
+    @NotNull
+    public Collection<? extends JsonSchemaFileProvider> getProviders() {
+      return myData.getValue().values();
+    }
+
+    @NotNull
+    public Set<VirtualFile> getFiles() {
+      return myData.getValue().keySet();
+    }
+
+    @Nullable
+    public JsonSchemaFileProvider getProvider(@NotNull final VirtualFile file) {
+      final Collection<JsonSchemaFileProvider> providers = myData.getValue().get(file);
+      return providers.stream().filter(p -> p.getSchemaType() == SchemaType.userSchema).findFirst().orElse(providers.stream().findFirst().orElse(null));
+    }
+
+    public boolean isComputed() {
+      return myIsComputed.get();
+    }
+
+    @NotNull
+    private static MultiMap<VirtualFile, JsonSchemaFileProvider> createFileProviderMap(@NotNull List<JsonSchemaFileProvider> list,
+                                                                                       @NotNull Project project) {
+      // if there are different providers with the same schema files,
+      // stream API does not allow to collect same keys with Collectors.toMap(): throws duplicate key
+      final MultiMap<VirtualFile, JsonSchemaFileProvider> map = MultiMap.create();
+      for (JsonSchemaFileProvider provider : list) {
+        VirtualFile schemaFile;
+        try {
+          schemaFile = getSchemaForProvider(project, provider);
         }
-      };
-      final List<DocumentationProvider> list = new ArrayList<>();
-      for (JsonSchemaObjectCodeInsightWrapper wrapper : myWrappers) {
-        list.add(wrapper.getDocumentationProvider());
+        catch (ProcessCanceledException e) {
+          throw e;
+        }
+        catch (Exception e) {
+          LOG.error(e);
+          continue;
+        }
+
+        if (schemaFile != null) {
+          map.putValue(schemaFile, provider);
+        }
       }
-      myDocumentationProvider = CompositeDocumentationProvider.wrapProviders(list);
-    }
-
-    @NotNull
-    @Override
-    public CompletionContributor getContributor() {
-      return myContributor;
-    }
-
-    @NotNull
-    @Override
-    public Annotator getAnnotator() {
-      return myAnnotator;
-    }
-
-    @NotNull
-    @Override
-    public DocumentationProvider getDocumentationProvider() {
-      return myDocumentationProvider;
-    }
-
-    @Override
-    public boolean iterateSchemaObjects(@NotNull Processor<JsonSchemaObject> consumer) {
-      for (JsonSchemaObjectCodeInsightWrapper wrapper : myWrappers) {
-        if (!wrapper.iterateSchemaObjects(consumer)) return false;
-      }
-      return true;
-    }
-
-    @Override
-    public void iterateSchemaFiles(@NotNull PairConsumer<VirtualFile, String> consumer) {
-      for (JsonSchemaObjectCodeInsightWrapper wrapper : myWrappers) {
-        wrapper.iterateSchemaFiles(consumer);
-      }
+      return map;
     }
   }
 
-  @Override
-  public boolean checkFileForId(@NotNull final String id, @NotNull final VirtualFile file) {
-    return myDefinitions.checkFileForId(id, file);
-  }
-
-  @Override
   @Nullable
-  public VirtualFile getSchemaFileById(@NotNull String id) {
-    return myDefinitions.getSchemaFileById(id);
+  private static VirtualFile getSchemaForProvider(@NotNull Project project, @NotNull JsonSchemaFileProvider provider) {
+    if (JsonSchemaCatalogProjectConfiguration.getInstance(project).isPreferRemoteSchemas()) {
+      final String source = provider.getRemoteSource();
+      if (source != null && !source.endsWith("!")) {
+        return VirtualFileManager.getInstance().findFileByUrl(source);
+      }
+    }
+    return provider.getSchemaFile();
   }
 
-  @Override
   @Nullable
-  public Collection<Pair<VirtualFile, String>> getSchemaFilesByFile(@NotNull final VirtualFile file) {
-    final CodeInsightProviders wrapper = getWrapper(file);
-    if (wrapper != null) {
-      final List<Pair<VirtualFile, String>> result = new ArrayList<>();
-      wrapper.iterateSchemaFiles((schemaFile, schemaId) -> result.add(Pair.create(schemaFile, schemaId)));
-      return result;
-    }
-    return null;
-  }
-
   @Override
-  public Set<VirtualFile> getSchemaFiles() {
-    if (!initialized) {
-      ensureSchemaFiles();
+  public VirtualFile resolveSchemaFile(@NotNull JsonSchemaObject schemaObject) {
+    VirtualFile rawFile = schemaObject.getRawFile();
+    if (rawFile != null) {
+      return rawFile;
     }
-    return Collections.unmodifiableSet(mySchemaFiles);
+
+    String fileUrl = schemaObject.getFileUrl();
+    if (fileUrl == null) {
+      return null;
+    }
+
+    return VirtualFileManager.getInstance().findFileByUrl(fileUrl);
   }
 }

@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.intellij.plugins.intelliLang.inject.xml;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogBuilder;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -28,6 +13,7 @@ import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.*;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
@@ -37,7 +23,6 @@ import com.intellij.util.containers.ContainerUtil;
 import org.intellij.plugins.intelliLang.Configuration;
 import org.intellij.plugins.intelliLang.inject.AbstractLanguageInjectionSupport;
 import org.intellij.plugins.intelliLang.inject.EditInjectionSettingsAction;
-import org.intellij.plugins.intelliLang.inject.InjectLanguageAction;
 import org.intellij.plugins.intelliLang.inject.InjectorUtils;
 import org.intellij.plugins.intelliLang.inject.config.*;
 import org.intellij.plugins.intelliLang.inject.config.ui.AbstractInjectionPanel;
@@ -74,11 +59,13 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
     return false;
   }
 
+  @Override
   @NotNull
   public String getId() {
     return XML_SUPPORT_ID;
   }
 
+  @Override
   @NotNull
   public Class[] getPatternClasses() {
     return new Class[] {XmlPatterns.class};
@@ -109,6 +96,7 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
     return false;
   }
 
+  @Override
   public boolean removeInjectionInPlace(final PsiLanguageInjectionHost host) {
     return removeInjection(host);
   }
@@ -127,10 +115,11 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
       newInjections.add(newInjection);
     }
     configuration.replaceInjectionsWithUndo(
-      project, newInjections, injections, Collections.<PsiElement>emptyList());
+      project, host.getContainingFile(), newInjections, injections, Collections.emptyList());
     return true;
   }
 
+  @Override
   public boolean editInjectionInPlace(final PsiLanguageInjectionHost host) {
     if (!isMine(host)) return false;
     final Project project = host.getProject();
@@ -143,9 +132,9 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
       xmlInjection == null? showDefaultInjectionUI(project, originalInjection.copy()) : showInjectionUI(project, xmlInjection);
     if (newInjection != null) {
       configuration.replaceInjectionsWithUndo(
-        project, Collections.singletonList(newInjection),
+        project, host.getContainingFile(), Collections.singletonList(newInjection),
         Collections.singletonList(originalInjection),
-        Collections.<PsiElement>emptyList());
+        Collections.emptyList());
     }
     return true;
   }
@@ -184,9 +173,9 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
 
     AbstractTagInjection result;
     final InjectionPlace place = injection.getInjectionPlaces()[0];
-    final ElementPattern<PsiElement> rootPattern = place.getElementPattern();
-    final ElementPatternCondition<PsiElement> rootCondition = rootPattern.getCondition();
-    final Class<PsiElement> elementClass = rootCondition.getInitialCondition().getAcceptedClass();
+    final ElementPattern<? extends PsiElement> rootPattern = place.getElementPattern();
+    final ElementPatternCondition<? extends PsiElement> rootCondition = rootPattern.getCondition();
+    final Class<? extends PsiElement> elementClass = rootCondition.getInitialCondition().getAcceptedClass();
     if (XmlAttribute.class.equals(elementClass)) {
       result = new XmlAttributeInjection().copyFrom(injection);
     }
@@ -195,7 +184,7 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
     }
     else return null;
     result.setInjectionPlaces(InjectionPlace.EMPTY_ARRAY);
-    for (PatternCondition<? super PsiElement> condition : rootCondition.getConditions()) {
+    for (PatternCondition<?> condition : rootCondition.getConditions()) {
       final String value = extractValue(condition);
       if ("withLocalName".equals(condition.getDebugMethodName())) {
         if (value == null) return null;
@@ -265,8 +254,9 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
     return null;
   }
 
+  @Override
   public BaseInjection createInjection(Element element) {
-    String place = StringUtil.notNullize(element.getChildText("place"), "");
+    String place = StringUtil.notNullize(element.getChildText("place"));
     if (place.startsWith("xmlAttribute")) {
       return new XmlAttributeInjection();
     }
@@ -278,10 +268,6 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
     }
   }
 
-  public Configurable[] createSettings(final Project project, final Configuration configuration) {
-    return new Configurable[0];
-  }
-
   private static boolean doInjectInXmlText(final XmlText host, final String languageId) {
     final XmlTag tag = host.getParentTag();
     if (tag != null) {
@@ -290,21 +276,21 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
       injection.setTagName(tag.getLocalName());
       injection.setTagNamespace(tag.getNamespace());
       injection.generatePlaces();
-      doEditInjection(host.getProject(), injection);
+      doEditInjection(host.getProject(), host.getContainingFile(), injection);
       return true;
     }
     return false;
   }
 
-  private static void doEditInjection(final Project project, final XmlTagInjection template) {
+  private static void doEditInjection(final Project project, PsiFile psiFile, final XmlTagInjection template) {
     final Configuration configuration = InjectorUtils.getEditableInstance(project);
     final AbstractTagInjection originalInjection = (AbstractTagInjection)configuration.findExistingInjection(template);
 
     final XmlTagInjection newInjection = originalInjection == null? template : new XmlTagInjection().copyFrom(originalInjection);
     configuration.replaceInjectionsWithUndo(
-      project, Collections.singletonList(newInjection),
+      project, psiFile, Collections.singletonList(newInjection),
       ContainerUtil.createMaybeSingletonList(originalInjection),
-      Collections.<PsiElement>emptyList());
+      Collections.emptyList());
   }
 
   private static boolean doInjectInAttributeValue(final XmlAttributeValue host, final String languageId) {
@@ -318,20 +304,20 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
       injection.setTagName(tag.getLocalName());
       injection.setTagNamespace(tag.getNamespace());
       injection.generatePlaces();
-      doEditInjection(host.getProject(), injection);
+      doEditInjection(host.getProject(), host.getContainingFile(), injection);
       return true;
     }
     return false;
   }
 
-  private static void doEditInjection(final Project project, final XmlAttributeInjection template) {
+  private static void doEditInjection(final Project project, PsiFile file, final XmlAttributeInjection template) {
     final Configuration configuration = InjectorUtils.getEditableInstance(project);
     final BaseInjection originalInjection = configuration.findExistingInjection(template);
     final BaseInjection newInjection = originalInjection == null ? template : originalInjection.copy();
     configuration.replaceInjectionsWithUndo(
-      project, Collections.singletonList(newInjection),
+      project, file, Collections.singletonList(newInjection),
       ContainerUtil.createMaybeSingletonList(originalInjection),
-      Collections.<PsiElement>emptyList());
+      Collections.emptyList());
   }
 
   private static ArrayList<BaseInjection> collectInjections(final PsiElement host,
@@ -348,18 +334,18 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
   }
 
   @Override
-  public AnAction[] createAddActions(final Project project, final Consumer<BaseInjection> consumer) {
+  public AnAction[] createAddActions(final Project project, final Consumer<? super BaseInjection> consumer) {
     return new AnAction[] {
       new AnAction("XML Tag Injection", null, PlatformIcons.XML_TAG_ICON) {
         @Override
-        public void actionPerformed(final AnActionEvent e) {
+        public void actionPerformed(@NotNull final AnActionEvent e) {
           final BaseInjection newInjection = showInjectionUI(project, new XmlTagInjection());
           if (newInjection != null) consumer.consume(newInjection);
         }
       },
       new AnAction("XML Attribute Injection", null, PlatformIcons.ANNOTATION_TYPE_ICON) {
         @Override
-        public void actionPerformed(final AnActionEvent e) {
+        public void actionPerformed(@NotNull final AnActionEvent e) {
           final BaseInjection injection = showInjectionUI(project, new XmlAttributeInjection());
           if (injection != null) consumer.consume(injection);
         }
@@ -368,10 +354,10 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
   }
 
   @Override
-  public AnAction createEditAction(final Project project, final Factory<BaseInjection> producer) {
+  public AnAction createEditAction(final Project project, final Factory<? extends BaseInjection> producer) {
     return new AnAction() {
       @Override
-      public void actionPerformed(final AnActionEvent e) {
+      public void actionPerformed(@NotNull final AnActionEvent e) {
         final BaseInjection originalInjection = producer.create();
         final BaseInjection injection = createFrom(originalInjection);
         if (injection != null) {
@@ -381,7 +367,7 @@ public class XmlLanguageInjectionSupport extends AbstractLanguageInjectionSuppor
           }
         }
         else {
-          createDefaultEditAction(project, producer).actionPerformed(null);
+          perform(project, producer);
         }
       }
     };

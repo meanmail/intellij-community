@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileEditor.ex;
 
 import com.intellij.openapi.Disposable;
@@ -26,11 +12,16 @@ import com.intellij.openapi.fileEditor.impl.EditorComposite;
 import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.fileEditor.impl.EditorsSplitters;
 import com.intellij.openapi.fileEditor.impl.FileEditorManagerImpl;
+import com.intellij.openapi.fileEditor.impl.text.AsyncEditorLoader;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.BusyObject;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
 
 import javax.swing.*;
 import java.awt.*;
@@ -39,14 +30,14 @@ import java.util.List;
 import java.util.Set;
 
 public abstract class FileEditorManagerEx extends FileEditorManager implements BusyObject {
-  protected final List<EditorDataProvider> myDataProviders = new ArrayList<>();
+  private final List<EditorDataProvider> myDataProviders = new ArrayList<>();
 
   public static FileEditorManagerEx getInstanceEx(@NotNull Project project) {
     return (FileEditorManagerEx)getInstance(project);
   }
 
   /**
-   * @return <code>JComponent</code> which represent the place where all editors are located
+   * @return {@code JComponent} which represent the place where all editors are located
    */
   public abstract JComponent getComponent();
 
@@ -74,13 +65,16 @@ public abstract class FileEditorManagerEx extends FileEditorManager implements B
   public abstract void updateFilePresentation(@NotNull VirtualFile file);
 
   /**
-   *
+   * Synchronous version of {@link #getActiveWindow()}. Will return {@code null} if invoked not from EDT.
    * @return current window in splitters
    */
   public abstract EditorWindow getCurrentWindow();
 
+  /**
+   * Asynchronous version of {@link #getCurrentWindow()}. Execution happens after focus settle down. Can be invoked on any thread.
+   */
   @NotNull
-  public abstract AsyncResult<EditorWindow> getActiveWindow();
+  public abstract Promise<EditorWindow> getActiveWindow();
 
   public abstract void setCurrentWindow(EditorWindow window);
 
@@ -103,8 +97,8 @@ public abstract class FileEditorManagerEx extends FileEditorManager implements B
   public abstract EditorWindow[] getWindows();
 
   /**
-   * @return arrays of all files (including <code>file</code> itself) that belong
-   * to the same tabbed container. The method returns empty array if <code>file</code>
+   * @return arrays of all files (including {@code file} itself) that belong
+   * to the same tabbed container. The method returns empty array if {@code file}
    * is not open. The returned files have the same order as they have in the
    * tabbed container.
    */
@@ -126,7 +120,7 @@ public abstract class FileEditorManagerEx extends FileEditorManager implements B
   public abstract VirtualFile getCurrentFile();
 
   @Nullable
-  public abstract Pair <FileEditor, FileEditorProvider> getSelectedEditorWithProvider(@NotNull VirtualFile file);
+  public abstract FileEditorWithProvider getSelectedEditorWithProvider(@NotNull VirtualFile file);
 
   /**
    * Closes all files IN ACTIVE SPLITTER (window).
@@ -183,12 +177,7 @@ public abstract class FileEditorManagerEx extends FileEditorManager implements B
   public void registerExtraEditorDataProvider(@NotNull final EditorDataProvider provider, Disposable parentDisposable) {
     myDataProviders.add(provider);
     if (parentDisposable != null) {
-      Disposer.register(parentDisposable, new Disposable() {
-        @Override
-        public void dispose() {
-          myDataProviders.remove(provider);
-        }
-      });
+      Disposer.register(parentDisposable, () -> myDataProviders.remove(provider));
     }
   }
 
@@ -210,4 +199,8 @@ public abstract class FileEditorManagerEx extends FileEditorManager implements B
   @NotNull
   public abstract ActionCallback notifyPublisher(@NotNull Runnable runnable);
 
+  @Override
+  public void runWhenLoaded(@NotNull Editor editor, @NotNull Runnable runnable) {
+    AsyncEditorLoader.performWhenLoaded(editor, runnable);
+  }
 }

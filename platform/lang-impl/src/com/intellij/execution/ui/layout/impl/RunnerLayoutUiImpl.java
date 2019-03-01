@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,13 +37,13 @@ import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.ui.content.ContentManagerListener;
 import com.intellij.ui.switcher.QuickActionProvider;
-import com.intellij.ui.switcher.SwitchProvider;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
+import java.util.List;
 
 public class RunnerLayoutUiImpl implements Disposable.Parent, RunnerLayoutUi, LayoutStateDefaults, LayoutViewOptions, DataProvider {
   private final RunnerLayout myLayout;
@@ -85,14 +85,15 @@ public class RunnerLayoutUiImpl implements Disposable.Parent, RunnerLayoutUi, La
 
   @NotNull
   @Override
-  public LayoutStateDefaults initFocusContent(@NotNull final String id, @NotNull final String condition) {
-    return initFocusContent(id, condition, new LayoutAttractionPolicy.FocusOnce());
+  public LayoutStateDefaults initContentAttraction(@NotNull String contentId, @NotNull String condition, @NotNull LayoutAttractionPolicy policy) {
+    getLayout().setDefaultToFocus(contentId, condition, policy);
+    return this;
   }
 
   @NotNull
   @Override
-  public LayoutStateDefaults initFocusContent(@NotNull final String id, @NotNull final String condition, @NotNull final LayoutAttractionPolicy policy) {
-    getLayout().setDefaultToFocus(id, condition, policy);
+  public LayoutStateDefaults cancelContentAttraction(@NotNull String condition) {
+    getLayout().cancelDefaultFocusBy(condition);
     return this;
   }
 
@@ -377,10 +378,22 @@ public class RunnerLayoutUiImpl implements Disposable.Parent, RunnerLayoutUi, La
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
-    if (SwitchProvider.KEY.is(dataId) || QuickActionProvider.KEY.is(dataId) || RunnerContentUi.KEY.is(dataId)) {
+  public Object getData(@NotNull @NonNls String dataId) {
+    if (QuickActionProvider.KEY.is(dataId) || RunnerContentUi.KEY.is(dataId)) {
       return myContentUI;
     }
     return null;
+  }
+
+  public void setLeftToolbarVisible(boolean value) {
+    myContentUI.setLeftToolbarVisible(value);
+  }
+
+  public void setContentToolbarBefore(boolean value) {
+    myContentUI.setContentToolbarBefore(value);
+  }
+
+  public List<AnAction> getActions() {
+    return myContentUI.getActions(true);
   }
 }

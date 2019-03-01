@@ -20,7 +20,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.util.IncorrectOperationException;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
@@ -36,19 +35,6 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyDoubleNegationInspection extends BaseInspection {
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONFUSING_CODE_CONSTRUCTS;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Double negation";
-  }
-
-  @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
     return "Double negation #ref #loc";
@@ -60,16 +46,11 @@ public class GroovyDoubleNegationInspection extends BaseInspection {
     return new DoubleNegationFix();
   }
 
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
   private static class DoubleNegationFix extends GroovyFix {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return "Remove double negation";
     }
 

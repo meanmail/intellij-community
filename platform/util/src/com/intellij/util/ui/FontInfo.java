@@ -1,23 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui;
 
-import java.awt.Font;
-import java.awt.GraphicsEnvironment;
-import java.awt.Rectangle;
+import java.awt.*;
 import java.awt.font.FontRenderContext;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -110,7 +94,7 @@ public final class FontInfo {
    */
   public static List<FontInfo> getAll(boolean withAllStyles) {
     return GraphicsEnvironment.isHeadless()
-           ? Collections.<FontInfo>emptyList()
+           ? Collections.emptyList()
            : withAllStyles
              ? LazyListByFont.LIST
              : LazyListByName.LIST;
@@ -131,7 +115,7 @@ public final class FontInfo {
 
   private static List<FontInfo> byName() {
     String[] names = GraphicsEnvironment.getLocalGraphicsEnvironment().getAvailableFontFamilyNames(ENGLISH);
-    List<FontInfo> list = new ArrayList<FontInfo>(names.length);
+    List<FontInfo> list = new ArrayList<>(names.length);
     for (String name : names) {
       FontInfo info = byName(name);
       if (info != null) list.add(info);
@@ -142,7 +126,7 @@ public final class FontInfo {
         if (info != null) list.add(info);
       }
     }
-    Collections.sort(list, COMPARATOR);
+    list.sort(COMPARATOR);
     return Collections.unmodifiableList(list);
   }
 
@@ -152,7 +136,7 @@ public final class FontInfo {
 
   private static List<FontInfo> byFont() {
     Font[] fonts = GraphicsEnvironment.getLocalGraphicsEnvironment().getAllFonts();
-    List<FontInfo> list = new ArrayList<FontInfo>(fonts.length);
+    List<FontInfo> list = new ArrayList<>(fonts.length);
     for (Font font : fonts) {
       FontInfo info = byFont(font);
       if (info != null) list.add(info);
@@ -161,7 +145,7 @@ public final class FontInfo {
       FontInfo info = find(list, name);
       if (info != null) list.remove(info);
     }
-    Collections.sort(list, COMPARATOR);
+    list.sort(COMPARATOR);
     return Collections.unmodifiableList(list);
   }
 
@@ -171,7 +155,7 @@ public final class FontInfo {
       if (font == null) {
         font = new Font(name, Font.PLAIN, DEFAULT_SIZE);
         // Java uses Dialog family for nonexistent fonts 
-        if (!Font.DIALOG.equals(name) && Font.DIALOG.equals(font.getFamily(ENGLISH))) {
+        if (!Font.DIALOG.equals(name) && UIUtil.isDialogFont(font)) {
           throw new IllegalArgumentException("not supported " + font);
         }
       }
@@ -181,9 +165,9 @@ public final class FontInfo {
       }
       int width = getFontWidth(font, Font.PLAIN);
       if (!plainOnly) {
-        if (width != getFontWidth(font, Font.BOLD)) width = 0;
-        if (width != getFontWidth(font, Font.ITALIC)) width = 0;
-        if (width != getFontWidth(font, Font.BOLD | Font.ITALIC)) width = 0;
+        if (width != 0 && width != getFontWidth(font, Font.BOLD)) width = 0;
+        if (width != 0 && width != getFontWidth(font, Font.ITALIC)) width = 0;
+        if (width != 0 && width != getFontWidth(font, Font.BOLD | Font.ITALIC)) width = 0;
       }
       return new FontInfo(name, font, width > 0);
     }
@@ -208,6 +192,10 @@ public final class FontInfo {
     }
     int width = getCharWidth(font, ' ');
     return width == getCharWidth(font, 'l') && width == getCharWidth(font, 'W') ? width : 0;
+  }
+
+  public static boolean isMonospaced(Font font) {
+    return getFontWidth(font, Font.PLAIN) > 0;
   }
 
   private static int getCharWidth(Font font, char ch) {

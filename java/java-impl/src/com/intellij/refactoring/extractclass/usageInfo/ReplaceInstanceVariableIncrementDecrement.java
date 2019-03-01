@@ -23,7 +23,7 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.Nullable;
 
 public class ReplaceInstanceVariableIncrementDecrement extends FixableUsageInfo {
-  private final PsiExpression reference;
+  private final PsiUnaryExpression reference;
   private final @Nullable String setterName;
   private final @Nullable String getterName;
   private final String delegateName;
@@ -39,27 +39,14 @@ public class ReplaceInstanceVariableIncrementDecrement extends FixableUsageInfo 
     this.setterName = setterName;
     this.delegateName = delegateName;
     fieldName = name;
-    final PsiPrefixExpression prefixExpr = PsiTreeUtil.getParentOfType(reference, PsiPrefixExpression.class);
-    if (prefixExpr != null) {
-      this.reference = prefixExpr;
-    }
-    else {
-      this.reference = PsiTreeUtil.getParentOfType(reference, PsiPostfixExpression.class);
-    }
+    this.reference = PsiTreeUtil.getParentOfType(reference, PsiUnaryExpression.class);
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
 
-    final PsiReferenceExpression lhs;
-    final PsiJavaToken sign;
-    if (reference instanceof PsiPrefixExpression) {
-      lhs = (PsiReferenceExpression)((PsiPrefixExpression)reference).getOperand();
-      sign = ((PsiPrefixExpression)reference).getOperationSign();
-    }
-    else {
-      lhs = (PsiReferenceExpression)((PsiPostfixExpression)reference).getOperand();
-      sign = ((PsiPostfixExpression)reference).getOperationSign();
-    }
+    final PsiReferenceExpression lhs = (PsiReferenceExpression)reference.getOperand();
+    final PsiJavaToken sign = reference.getOperationSign();
     final PsiElement qualifier = lhs.getQualifier();
     final String operator = sign.getText();
     final String newExpression;
@@ -67,7 +54,7 @@ public class ReplaceInstanceVariableIncrementDecrement extends FixableUsageInfo 
       newExpression = (qualifier != null ? qualifier.getText() + "." : "") + delegateName + "." + fieldName + operator;
     } else {
       final String strippedOperator = getStrippedOperator(operator);
-      newExpression = (qualifier != null ? qualifier.getText() + "." : "") + delegateName + 
+      newExpression = (qualifier != null ? qualifier.getText() + "." : "") + delegateName +
                       '.' + callSetter(delegateName + '.' + callGetter() + strippedOperator + "1");
     }
     MutationUtils.replaceExpression(newExpression, reference);

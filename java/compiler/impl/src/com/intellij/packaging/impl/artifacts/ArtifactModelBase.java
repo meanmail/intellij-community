@@ -34,11 +34,12 @@ public abstract class ArtifactModelBase implements ArtifactModel {
 
   protected abstract List<? extends Artifact> getArtifactsList();
 
+  @Override
   @NotNull
   public Artifact[] getArtifacts() {
     if (myArtifactsArray == null) {
       final List<? extends Artifact> validArtifacts = ContainerUtil.findAll(getArtifactsList(), VALID_ARTIFACT_CONDITION);
-      myArtifactsArray = validArtifacts.toArray(new Artifact[validArtifacts.size()]);
+      myArtifactsArray = validArtifacts.toArray(new Artifact[0]);
     }
     return myArtifactsArray;
   }
@@ -48,6 +49,7 @@ public abstract class ArtifactModelBase implements ArtifactModel {
     return Collections.unmodifiableList(getArtifactsList());
   }
 
+  @Override
   public Artifact findArtifact(@NotNull String name) {
     if (myArtifactsMap == null) {
       myArtifactsMap = new HashMap<>();
@@ -58,16 +60,19 @@ public abstract class ArtifactModelBase implements ArtifactModel {
     return myArtifactsMap.get(name);
   }
 
+  @Override
   @NotNull
   public Artifact getArtifactByOriginal(@NotNull Artifact artifact) {
     return artifact;
   }
 
+  @Override
   @NotNull
   public Artifact getOriginalArtifact(@NotNull Artifact artifact) {
     return artifact;
   }
 
+  @Override
   @NotNull
   public Collection<? extends Artifact> getArtifactsByType(@NotNull ArtifactType type) {
     final List<Artifact> result = new ArrayList<>();

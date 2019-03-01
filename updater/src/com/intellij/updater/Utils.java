@@ -1,205 +1,249 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
 import java.io.*;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.LinkedHashSet;
-import java.util.List;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.DosFileAttributeView;
+import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 public class Utils {
-  // keep buffer static as there may be many calls of the copyStream method.
-  private static final byte[] BUFFER = new byte[64 * 1024];
+  private static final String OS_NAME = System.getProperty("os.name").toLowerCase(Locale.US);
+  public static final boolean IS_WINDOWS = OS_NAME.startsWith("windows");
+  public static final boolean IS_MAC = OS_NAME.startsWith("mac");
+
+  private static final long REQUIRED_FREE_SPACE = 2_000_000_000L;
+
+  private static final int BUFFER_SIZE = 8192;  // to minimize native memory allocations for I/O operations
+  private static final byte[] BUFFER = new byte[BUFFER_SIZE];
+
   private static File myTempDir;
 
   public static boolean isZipFile(String fileName) {
     return fileName.endsWith(".zip") || fileName.endsWith(".jar");
   }
 
-  public static File getTempFile(String path) throws IOException {
-    int index = 0;
-    File myTempFile = new File(path + ".tmp." + index++);
-    while (myTempFile.exists()) {
-      myTempFile = new File(path + ".tmp." + index++);
+  public static String findDirectory(long requiredFreeSpace) {
+    String dir = System.getProperty("idea.updater.log");
+    if (dir == null || !isValidDir(dir, requiredFreeSpace)) {
+      dir = System.getProperty("java.io.tmpdir");
+      if (!isValidDir(dir, requiredFreeSpace)) {
+        dir = System.getProperty("user.home");
+      }
     }
-    if (myTempFile.setWritable(true, false)) throw new IOException("Cannot set write permissions for dir: " + myTempFile);
-    return myTempFile;
+    return dir;
   }
 
-  @SuppressWarnings({"SSBasedInspection"})
-  public static File createTempFile() throws IOException {
+  private static boolean isValidDir(String path, long space) {
+    File dir = new File(path);
+    return dir.isDirectory() && dir.canWrite() && dir.getUsableSpace() >= space;
+  }
+
+  public static File getTempFile(String name) throws IOException {
     if (myTempDir == null) {
-      long requiredFreeSpace = 1000000000;
-      myTempDir = getTempFile(Runner.getDir(requiredFreeSpace) + "/idea.updater.files");
-      delete(myTempDir);
-      myTempDir.mkdirs();
-      Runner.logger().info("created temp file: " + myTempDir.getPath());
+      myTempDir = Files.createTempDirectory(Paths.get(findDirectory(REQUIRED_FREE_SPACE)), "idea.updater.files.").toFile();
+      Runner.logger().info("created working directory: " + myTempDir);
     }
-    return getTempFile(myTempDir + "/temp");
-  }
 
-  public static File createTempDir() throws IOException {
-    File result = createTempFile();
-    delete(result);
-    Runner.logger().info("deleted tmp dir: " + result.getPath());
-    result.mkdirs();
-    Runner.logger().info("created tmp dir: " + result.getPath());
-    if (! result.exists()) throw new IOException("Cannot create temp dir: " + result);
-    return result;
+    File myTempFile;
+    int index = 0;
+    do {
+      myTempFile = new File(myTempDir, name + ".tmp." + index++);
+    }
+    while (myTempFile.exists());
+    return myTempFile;
   }
 
   public static void cleanup() throws IOException {
     if (myTempDir == null) return;
     delete(myTempDir);
-    Runner.logger().info("deleted file " + myTempDir.getPath());
+    Runner.logger().info("deleted working directory: " + myTempDir.getPath());
     myTempDir = null;
   }
 
   public static void delete(File file) throws IOException {
-    if (file.isDirectory()) {
-      File[] files = file.listFiles();
-      if (files != null) {
-        for (File each : files) {
-          delete(each);
-          Runner.logger().info("deleted file " + each.getPath());
+    Path start = file.toPath();
+    if (Files.exists(start, LinkOption.NOFOLLOW_LINKS)) {
+      Files.walkFileTree(start, new SimpleFileVisitor<Path>() {
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+          tryDelete(file);
+          return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+          tryDelete(dir);
+          return FileVisitResult.CONTINUE;
+        }
+      });
+    }
+  }
+
+  @SuppressWarnings("SSBasedInspection")
+  private static void tryDelete(Path path) throws IOException {
+    for (int i = 0; i < 10; i++) {
+      try {
+        if (Files.deleteIfExists(path) || !Files.exists(path)) {
+          Runner.logger().info("deleted: " + path);
+          return;
         }
       }
-    }
-    for (int i = 0; i < 10; i++) {
-      if (file.delete() || !file.exists()) return;
-      try {
-        Thread.sleep(10);
-      } catch (InterruptedException ignore) {
-        Runner.printStackTrace(ignore);
+      catch (AccessDeniedException e) {
+        try {
+          DosFileAttributeView view = Files.getFileAttributeView(path, DosFileAttributeView.class);
+          if (view != null && view.readAttributes().isReadOnly()) {
+            view.setReadOnly(false);
+            continue;
+          }
+        }
+        catch (IOException ignore) { }
       }
+      catch (IOException ignore) { }
+
+      pause(10);
     }
-    if (file.exists()) throw new IOException("Cannot delete file " + file);
+
+    throw new IOException("Cannot delete: " + path);
+  }
+
+  public static boolean isExecutable(File file) {
+    return file.canExecute();
+  }
+
+  public static void setExecutable(File file) throws IOException {
+    setExecutable(file, true);
   }
 
   public static void setExecutable(File file, boolean executable) throws IOException {
-    if (executable && !file.setExecutable(true, false)) {
-      Runner.logger().error("Can't set executable permissions for file");
+    Runner.logger().info("Setting executable permissions for: " + file);
+    if (!file.setExecutable(executable, false)) {
       throw new IOException("Cannot set executable permissions for: " + file);
     }
   }
 
-  public static boolean isLink(File file) throws IOException {
-    return Files.isSymbolicLink(Paths.get(file.getAbsolutePath()));
+  public static boolean isLink(File file) {
+    return Files.isSymbolicLink(file.toPath());
+  }
+
+  public static String readLink(File link) throws IOException {
+    return Files.readSymbolicLink(link.toPath()).toString();
   }
 
   public static void createLink(String target, File link) throws IOException {
-    if (target == "") {
-      Runner.logger().error("Can't create link for " +  link.getName());
-    } else {
-      if (link.exists()) {
-        delete(link);
-      }
-      Files.createSymbolicLink(Paths.get(link.getAbsolutePath()), Paths.get(target));
-    }
+    Path path = link.toPath();
+    Files.deleteIfExists(path);
+    Files.createSymbolicLink(path, Paths.get(target));
   }
 
   public static void copy(File from, File to) throws IOException {
-    Runner.logger().info("from " + from.getPath() + " to " + to.getPath());
-    if (from.isDirectory()) {
-      to.mkdirs();
-      File[] files = from.listFiles();
-      if (files == null) throw new IOException("Cannot get directory's content: " + from);
-      for (File each : files) {
-        copy(each, new File(to, each.getName()));
-      }
+    if (!from.exists()) throw new IOException("Source does not exist: " + from);
+
+    if (isLink(from)) {
+      if (to.exists()) throw new IOException("Target already exists: " + to);
+      Runner.logger().info("Link: " + from.getPath() + " to " + to.getPath());
+
+      File dir = to.getParentFile();
+      if (!(dir.isDirectory() || dir.mkdirs())) throw new IOException("Cannot create: " + dir);
+
+      createLink(readLink(from), to);
+    }
+    else if (from.isDirectory()) {
+      Runner.logger().info("Dir: " + from.getPath() + " to " + to.getPath());
+      if (!(to.mkdirs() || to.isDirectory())) throw new IOException("Cannot create: " + to);
     }
     else {
-      if (! isLink(from)) {
-        InputStream in = new BufferedInputStream(new FileInputStream(from));
-        try {
-          copyStreamToFile(in, to);
-        }
-        finally {
-          in.close();
-        }
-        setExecutable(to, from.canExecute());
+      if (to.exists()) throw new IOException("Target already exists: " + to);
+      Runner.logger().info("File: " + from.getPath() + " to " + to.getPath());
+
+      File dir = to.getParentFile();
+      if (!(dir.isDirectory() || dir.mkdirs())) throw new IOException("Cannot create: " + dir);
+
+      try (InputStream in = new BufferedInputStream(new FileInputStream(from))) {
+        copyStreamToFile(in, to);
+      }
+
+      if (isExecutable(from)) {
+        setExecutable(to);
       }
     }
   }
 
+  @SuppressWarnings("SSBasedInspection")
+  public static void copyDirectory(Path from, Path to) throws IOException {
+    Runner.logger().info(from + " -> " + to);
 
-  public static void mirror(File from, File to) throws IOException {
-    if (from.exists()) {
-      copy(from, to);
-    } else {
-      delete(to);
-    }
+    CopyOption[] options = {LinkOption.NOFOLLOW_LINKS, StandardCopyOption.COPY_ATTRIBUTES};
+    Files.walkFileTree(from, new SimpleFileVisitor<Path>() {
+      @Override
+      public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+        if (dir != from || !Files.exists(to)) {
+          Path copy = to.resolve(from.relativize(dir));
+          Runner.logger().info("  " + dir + " -> " + copy);
+          Files.createDirectory(copy);
+        }
+        return FileVisitResult.CONTINUE;
+      }
+
+      @Override
+      public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+        Path copy = to.resolve(from.relativize(file));
+        Runner.logger().info("  " + file + " -> " + copy);
+        Files.copy(file, copy, options);
+        return FileVisitResult.CONTINUE;
+      }
+    });
   }
 
   public static void copyFileToStream(File from, OutputStream out) throws IOException {
-    InputStream in = new BufferedInputStream(new FileInputStream(from));
-    try {
+    try (InputStream in = new BufferedInputStream(new FileInputStream(from))) {
       copyStream(in, out);
-    }
-    finally {
-      in.close();
     }
   }
 
   public static void copyStreamToFile(InputStream from, File to) throws IOException {
-    to.getParentFile().mkdirs();
-    OutputStream out = new BufferedOutputStream(new FileOutputStream(to));
-    try {
+    File directory = to.getParentFile();
+    if (!(directory.isDirectory() || directory.mkdirs())) {
+      throw new IOException("Cannot create: " + directory);
+    }
+    try (OutputStream out = new BufferedOutputStream(new FileOutputStream(to))) {
       copyStream(from, out);
     }
-    finally {
-      out.close();
-    }
-  }
-
-  public static void copyBytesToStream(ByteArrayOutputStream from, OutputStream to) throws IOException {
-    OutputStream out = new BufferedOutputStream(to);
-    try {
-      from.writeTo(out);
-    }
-    finally {
-      out.flush();
-    }
-  }
-
-  public static void copyBytesToStream(byte[] bytes, OutputStream to) throws IOException {
-    to.write(bytes);
   }
 
   public static byte[] readBytes(InputStream in) throws IOException {
     ByteArrayOutputStream byteOut = new ByteArrayOutputStream();
-    try {
-      copyStream(in, byteOut);
-    }
-    finally {
-      byteOut.close();
-    }
+    copyStream(in, byteOut);
     return byteOut.toByteArray();
   }
 
-  public static void copyStream(InputStream in, OutputStream out) throws IOException {
+  public static byte[] readBytes(InputStream in, int count) throws IOException {
+    byte[] bytes = new byte[count];
+    int offset = 0;
+    while (offset < count) {
+      int n = in.read(bytes, offset, count - offset);
+      if (n < 0) throw new IOException("Premature end of stream");
+      offset += n;
+    }
+    return bytes;
+  }
+
+  public static void writeBytes(byte[] from, int length, OutputStream to) throws IOException {
+    int offset = 0;
+    while (offset < length) {
+      int chunkSize = Math.min(BUFFER_SIZE, length - offset);
+      to.write(from, offset, chunkSize);
+      offset += chunkSize;
+    }
+  }
+
+  public static void copyStream(InputStream from, OutputStream to) throws IOException {
     while (true) {
-      int read = in.read(BUFFER);
+      int read = from.read(BUFFER);
       if (read < 0) break;
-      out.write(BUFFER, 0, read);
+      to.write(BUFFER, 0, read);
     }
   }
 
@@ -210,8 +254,7 @@ public class Utils {
 
   public static InputStream findEntryInputStream(ZipFile zipFile, String entryPath) throws IOException {
     ZipEntry entry = zipFile.getEntry(entryPath);
-    if (entry == null) return null;
-    return findEntryInputStreamForEntry(zipFile, entry);
+    return entry != null ? findEntryInputStreamForEntry(zipFile, entry) : null;
   }
 
   public static ZipEntry getZipEntry(ZipFile zipFile, String entryPath) throws IOException {
@@ -231,24 +274,21 @@ public class Utils {
     return new BufferedInputStream(zipFile.getInputStream(entry));
   }
 
-  public static LinkedHashSet<String> collectRelativePaths(File dir, boolean includeDirectories) {
+  public static LinkedHashSet<String> collectRelativePaths(File dir) {
     LinkedHashSet<String> result = new LinkedHashSet<>();
-    collectRelativePaths(dir, result, null, includeDirectories);
+    collectRelativePaths(dir, result, null);
     return result;
   }
 
-  private static void collectRelativePaths(File dir, LinkedHashSet<String> result, String parentPath, boolean includeDirectories) {
+  private static void collectRelativePaths(File dir, LinkedHashSet<? super String> result, String parentPath) {
     File[] children = dir.listFiles();
     if (children == null) return;
 
     for (File each : children) {
-      String relativePath = (parentPath == null ? "" : parentPath + "/") + each.getName();
+      String relativePath = (parentPath == null ? "" : parentPath + '/') + each.getName();
       if (each.isDirectory()) {
-        if (includeDirectories) {
-          // The trailing slash is very important, as it's used by zip to determine whether it is a directory.
-          result.add(relativePath + "/");
-        }
-        collectRelativePaths(each, result, relativePath, includeDirectories);
+        result.add(relativePath + '/');  // the trailing slash is used by zip to determine whether it is a directory
+        collectRelativePaths(each, result, relativePath);
       }
       else {
         result.add(relativePath);
@@ -261,25 +301,24 @@ public class Utils {
   }
 
   private static class NormalizedZipInputStream extends InputStream {
-    private List<? extends ZipEntry> myEntries;
+    private final ZipFile myZip;
+    private final List<? extends ZipEntry> myEntries;
     private InputStream myStream = null;
     private int myNextEntry = 0;
-    private final ZipFile myZip;
-    private byte[] myByte = new byte[1];
+    private final byte[] myByte = new byte[1];
 
-    NormalizedZipInputStream(File file) throws IOException {
+    private NormalizedZipInputStream(File file) throws IOException {
       myZip = new ZipFile(file);
       myEntries = Collections.list(myZip.entries());
-      Collections.sort(myEntries, (Comparator<ZipEntry>)(a, b) -> a.getName().compareTo(b.getName()));
-
+      Collections.sort(myEntries, Comparator.comparing(ZipEntry::getName));
       loadNextEntry();
     }
 
     private void loadNextEntry() throws IOException {
       if (myStream != null) {
         myStream.close();
+        myStream = null;
       }
-      myStream = null;
       while (myNextEntry < myEntries.size() && myStream == null) {
         myStream = findEntryInputStreamForEntry(myZip, myEntries.get(myNextEntry++));
       }
@@ -311,5 +350,18 @@ public class Utils {
       }
       myZip.close();
     }
+  }
+
+  public static class OpenByteArrayOutputStream extends ByteArrayOutputStream {
+    @Override
+    @SuppressWarnings("NonPrivateFieldAccessedInSynchronizedContext")
+    public synchronized void writeTo(OutputStream out) throws IOException {
+      writeBytes(buf, count, out);
+    }
+  }
+
+  public static void pause(long millis) {
+    try { Thread.sleep(millis); }
+    catch (InterruptedException ignore) { }
   }
 }

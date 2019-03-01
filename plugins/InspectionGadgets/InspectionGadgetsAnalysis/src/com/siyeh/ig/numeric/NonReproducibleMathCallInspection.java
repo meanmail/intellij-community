@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,12 +18,12 @@ package com.siyeh.ig.numeric;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -32,7 +32,6 @@ import java.util.Set;
 
 public class NonReproducibleMathCallInspection extends BaseInspection {
 
-  @SuppressWarnings("StaticCollection")
   @NonNls private static final Set<String> nonReproducibleMethods =
     new HashSet<>(20);
 
@@ -78,29 +77,21 @@ public class NonReproducibleMathCallInspection extends BaseInspection {
   }
 
   private static class MakeStrictFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "non.reproducible.math.call.replace.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiIdentifier nameIdentifier =
-        (PsiIdentifier)descriptor.getPsiElement();
-      final PsiReferenceExpression reference =
-        (PsiReferenceExpression)nameIdentifier.getParent();
+    public void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiIdentifier nameIdentifier = (PsiIdentifier)descriptor.getPsiElement();
+      final PsiReferenceExpression reference = (PsiReferenceExpression)nameIdentifier.getParent();
       assert reference != null;
       final String name = reference.getReferenceName();
-      PsiReplacementUtil.replaceExpression(reference, "StrictMath." + name);
+      PsiReplacementUtil.replaceExpression(reference, "StrictMath." + name, new CommentTracker());
     }
   }
 

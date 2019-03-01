@@ -1,29 +1,16 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.impl.event.DocumentEventImpl;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.util.PsiModificationTracker;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.LinkedList;
@@ -31,23 +18,24 @@ import java.util.LinkedList;
 /**
  * @author peter
  */
-public class OffsetTranslator implements Disposable {
+class OffsetTranslator implements Disposable {
   static final Key<OffsetTranslator> RANGE_TRANSLATION = Key.create("completion.rangeTranslation");
 
   private final PsiFile myOriginalFile;
   private final Document myCopyDocument;
-  private final LinkedList<DocumentEvent> myTranslation = new LinkedList<DocumentEvent>();
+  private final LinkedList<DocumentEvent> myTranslation = new LinkedList<>();
 
-  public OffsetTranslator(final Document originalDocument, final PsiFile originalFile, Document copyDocument) {
+  OffsetTranslator(Document originalDocument, PsiFile originalFile, Document copyDocument, int start, int end, String replacement) {
     myOriginalFile = originalFile;
     myCopyDocument = copyDocument;
     myCopyDocument.putUserData(RANGE_TRANSLATION, this);
+    myTranslation.addFirst(new DocumentEventImpl(copyDocument, start, originalDocument.getImmutableCharSequence().subSequence(start, end), replacement, 0, false));
     Disposer.register(originalFile.getProject(), this);
 
-    final LinkedList<DocumentEvent> sinceCommit = new LinkedList<DocumentEvent>();
-    originalDocument.addDocumentListener(new DocumentAdapter() {
+    final LinkedList<DocumentEvent> sinceCommit = new LinkedList<>();
+    originalDocument.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         if (isUpToDate()) {
           DocumentEventImpl inverse =
             new DocumentEventImpl(originalDocument, e.getOffset(), e.getNewFragment(), e.getOldFragment(), 0, false);
@@ -55,18 +43,9 @@ public class OffsetTranslator implements Disposable {
         }
       }
     }, this);
-    
-    myCopyDocument.addDocumentListener(new DocumentAdapter() {
-      @Override
-      public void documentChanged(DocumentEvent e) {
-        if (isUpToDate()) {
-          myTranslation.addFirst(e);
-        }
-      }
-    });
 
     originalFile.getProject().getMessageBus().connect(this).subscribe(PsiModificationTracker.TOPIC, new PsiModificationTracker.Listener() {
-      long lastModCount = originalFile.getViewProvider().getModificationStamp();
+      final long lastModCount = originalFile.getViewProvider().getModificationStamp();
       @Override
       public void modificationCountChanged() {
         if (isUpToDate() && lastModCount != originalFile.getViewProvider().getModificationStamp()) {
@@ -90,7 +69,7 @@ public class OffsetTranslator implements Disposable {
   }
 
   @Nullable
-  public Integer translateOffset(Integer offset) {
+  Integer translateOffset(Integer offset) {
     for (DocumentEvent event : myTranslation) {
       offset = translateOffset(offset, event);
       if (offset == null) {

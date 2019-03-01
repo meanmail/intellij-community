@@ -17,9 +17,10 @@ package com.intellij.lexer;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 
@@ -27,7 +28,7 @@ import java.util.Map;
  * @author max
  */
 public class LayeredLexer extends DelegateLexer {
-  public static ThreadLocal<Boolean> ourDisableLayersFlag = new ThreadLocal<Boolean>();
+  public static ThreadLocal<Boolean> ourDisableLayersFlag = new ThreadLocal<>();
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.lexer.LayeredLexer");
   private static final int IN_LAYER_STATE = 1024; // TODO: Other value?
@@ -35,7 +36,7 @@ public class LayeredLexer extends DelegateLexer {
 
   private int myState;
 
-  private final Map<IElementType, Lexer> myStartTokenToLayerLexer = new HashMap<IElementType, Lexer>();
+  private final Map<IElementType, Lexer> myStartTokenToLayerLexer = new HashMap<>();
   private Lexer myCurrentLayerLexer;
   // In some cases IDEA-57933 layered lexer is not able to parse all the token, that triggered this lexer,
   // for this purposes we store left part of token in the following fields
@@ -43,8 +44,8 @@ public class LayeredLexer extends DelegateLexer {
   private int myLayerLeftPart = -1;
   private int myBaseTokenEnd = -1;
 
-  private final HashSet<Lexer> mySelfStoppingLexers = new HashSet<Lexer>(1);
-  private final HashMap<Lexer, IElementType[]> myStopTokens = new HashMap<Lexer,IElementType[]>(1);
+  private final HashSet<Lexer> mySelfStoppingLexers = new HashSet<>(1);
+  private final HashMap<Lexer, IElementType[]> myStopTokens = new HashMap<>(1);
 
 
   public LayeredLexer(Lexer baseLexer) {
@@ -68,7 +69,7 @@ public class LayeredLexer extends DelegateLexer {
 
   private void activateLayerIfNecessary() {
     final IElementType baseTokenType = super.getTokenType();
-    myCurrentLayerLexer = myStartTokenToLayerLexer.get(baseTokenType);
+    myCurrentLayerLexer = findLayerLexer(baseTokenType);
     if (myCurrentLayerLexer != null) {
       myCurrentBaseTokenType = baseTokenType;
       myBaseTokenEnd = super.getTokenEnd();
@@ -77,6 +78,11 @@ public class LayeredLexer extends DelegateLexer {
         super.advance();
       }
     }
+  }
+
+  @Nullable
+  protected Lexer findLayerLexer(IElementType baseTokenType) {
+    return myStartTokenToLayerLexer.get(baseTokenType);
   }
 
   @Override
@@ -137,24 +143,21 @@ public class LayeredLexer extends DelegateLexer {
       }
       if (layerTokenType == null) {
         int tokenEnd = myCurrentLayerLexer.getTokenEnd();
-        if (!mySelfStoppingLexers.contains(myCurrentLayerLexer)) {
-          myCurrentLayerLexer = null;
+        boolean selfStopping = mySelfStoppingLexers.contains(myCurrentLayerLexer);
+        myCurrentLayerLexer = null;
+        if (!selfStopping) {
           super.advance();
-          activateLayerIfNecessary();
-        } else {
-          myCurrentLayerLexer = null;
-
           // In case when we have non-covered gap we should return left part as next token
-          if (tokenEnd != myBaseTokenEnd) {
-            myState = IN_LAYER_LEXER_FINISHED_STATE;
-            myLayerLeftPart = tokenEnd;
-            if (LOG.isDebugEnabled()) {
-              LOG.debug("We've got not covered gap from layered lexer: " + activeLayerLexer +
-                        "\n on token: " + getBufferSequence().subSequence(myLayerLeftPart, myBaseTokenEnd));
-            }
-            return;
+        } else if (tokenEnd != myBaseTokenEnd) {
+          myState = IN_LAYER_LEXER_FINISHED_STATE;
+          myLayerLeftPart = tokenEnd;
+          if (LOG.isDebugEnabled()) {
+            LOG.debug("We've got not covered gap from layered lexer: " + activeLayerLexer +
+                      "\n on token: " + getBufferSequence().subSequence(myLayerLeftPart, myBaseTokenEnd));
           }
+          return;
         }
+        activateLayerIfNecessary();
       }
     } else {
       super.advance();

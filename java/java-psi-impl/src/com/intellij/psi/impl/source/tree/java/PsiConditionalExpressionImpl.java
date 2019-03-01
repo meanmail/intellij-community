@@ -152,7 +152,7 @@ public class PsiConditionalExpressionImpl extends ExpressionPsiElement implement
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     if (ElementType.EXPRESSION_BIT_SET.contains(child.getElementType())){
       int role = getChildRole(child, ChildRole.CONDITION);
@@ -181,6 +181,7 @@ public class PsiConditionalExpressionImpl extends ExpressionPsiElement implement
     }
   }
 
+  @Override
   public String toString() {
     return "PsiConditionalExpression:" + getText();
   }

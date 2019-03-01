@@ -13,12 +13,17 @@ import com.intellij.navigation.ItemPresentation;
 
 public class JsonPropertyImpl extends JsonPropertyMixin implements JsonProperty {
 
-  public JsonPropertyImpl(ASTNode node) {
+  public JsonPropertyImpl(@NotNull ASTNode node) {
     super(node);
   }
 
+  public void accept(@NotNull JsonElementVisitor visitor) {
+    visitor.visitProperty(this);
+  }
+
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
-    if (visitor instanceof JsonElementVisitor) ((JsonElementVisitor)visitor).visitProperty(this);
+    if (visitor instanceof JsonElementVisitor) accept((JsonElementVisitor)visitor);
     else super.accept(visitor);
   }
 

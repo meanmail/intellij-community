@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.committed;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.CachingCommittedChangesProvider;
@@ -39,12 +24,12 @@ import java.util.List;
 
 public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
   private final IssueLinkRenderer myRenderer;
-  private final List<CommittedChangeListDecorator> myDecorators;
+  private final List<? extends CommittedChangeListDecorator> myDecorators;
   private final Project myProject;
   private int myDateWidth;
   private int myFontSize;
 
-  public CommittedChangeListRenderer(final Project project, final List<CommittedChangeListDecorator> decorators) {
+  public CommittedChangeListRenderer(final Project project, final List<? extends CommittedChangeListDecorator> decorators) {
     myProject = project;
     myRenderer = new IssueLinkRenderer(project, this);
     myDecorators = decorators;
@@ -56,8 +41,9 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
     return DateFormatUtil.formatPrettyDateTime(date);
   }
 
-  public static Pair<String, Boolean> getDescriptionOfChangeList(final String text) {
-    return new Pair<>(text.replaceAll("\n", " // "), text.contains("\n"));
+  @NotNull
+  public static String getDescriptionOfChangeList(@NotNull String text) {
+    return text.replaceAll("\n", " // ");
   }
 
   public static String truncateDescription(final String initDescription, final FontMetrics fontMetrics, int maxWidth) {
@@ -70,6 +56,7 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
     return description;
   }
 
+  @Override
   public void customizeCellRenderer(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
     customize(tree, value, selected, expanded, leaf, row, hasFocus);
   }
@@ -100,9 +87,7 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
     }
     int dateCommitterSize = myDateWidth + boldMetrics.stringWidth(changeList.getCommitterName());
 
-    final Pair<String, Boolean> descriptionInfo = getDescriptionOfChangeList(changeList.getName().trim());
-    boolean truncated = descriptionInfo.getSecond().booleanValue();
-    String description = descriptionInfo.getFirst();
+    String description = getDescriptionOfChangeList(changeList.getName().trim());
 
     for (CommittedChangeListDecorator decorator : myDecorators) {
       final Icon icon = decorator.decorate(changeList);
@@ -145,14 +130,14 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
       append(branch, SimpleTextAttributes.GRAY_ITALIC_ATTRIBUTES);
     }
 
-    if (description.isEmpty() && !truncated) {
+    if (description.isEmpty()) {
       append(VcsBundle.message("committed.changes.empty.comment"), SimpleTextAttributes.GRAYED_ATTRIBUTES);
       appendTextPadding(descMaxWidth);
     }
     else if (descMaxWidth < 0) {
       myRenderer.appendTextWithLinks(description);
     }
-    else if (descWidth < descMaxWidth && !truncated) {
+    else if (descWidth < descMaxWidth) {
       myRenderer.appendTextWithLinks(description);
       appendTextPadding(descMaxWidth);
     }
@@ -186,11 +171,6 @@ public class CommittedChangeListRenderer extends ColoredTreeCellRenderer {
       return description.substring(0, pos).trim();
     }
     return description.substring(0, description.length()-1);
-  }
-
-  @NotNull
-  public Dimension getPreferredSize() {
-    return new Dimension(2000, super.getPreferredSize().height);
   }
 
   public static int getRowX(JTree tree, int depth) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -93,7 +92,7 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
 
     private final String typeString;
 
-    DeclareCollectionAsInterfaceFix(String typeString) {
+    DeclareCollectionAsInterfaceFix(@NotNull String typeString) {
       this.typeString = typeString;
     }
 
@@ -111,8 +110,7 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       final PsiElement parent = element.getParent();
       if (!(parent instanceof PsiJavaCodeReferenceElement)) {
@@ -217,17 +215,9 @@ public class DeclareCollectionAsInterfaceInspection extends BaseInspection {
       final List<PsiClass> weaklingList = new ArrayList<>(weaklings);
       final PsiClass objectClass = javaLangObject.resolve();
       weaklingList.remove(objectClass);
-      if (weaklingList.isEmpty()) {
-        final String typeText = type.getCanonicalText();
-        final String interfaceText = CollectionUtils.getInterfaceForClass(typeText);
-        if (interfaceText == null) {
-          return;
-        }
-        registerError(nameElement, interfaceText);
-      }
-      else {
-        final PsiClass weakling = weaklingList.get(0);
-        final String qualifiedName = weakling.getQualifiedName();
+      String qualifiedName = weaklingList.isEmpty() ? CollectionUtils.getInterfaceForClass(type.getCanonicalText())
+                                                    : weaklingList.get(0).getQualifiedName();
+      if (qualifiedName != null) {
         registerError(nameElement, qualifiedName);
       }
     }

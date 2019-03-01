@@ -26,7 +26,7 @@ def format_rest(docstring):
     from docutils import nodes
     from docutils.core import publish_string
     from docutils.frontend import OptionParser
-    from docutils.nodes import Text, field_body, field_name
+    from docutils.nodes import Text, field_body, field_name, SkipNode
     from docutils.parsers.rst import directives
     from docutils.parsers.rst.directives.admonitions import BaseAdmonition
     from docutils.writers import Writer
@@ -70,52 +70,6 @@ def format_rest(docstring):
 
         def unimplemented_visit(self, node):
             pass
-
-        def visit_field_name(self, node):
-            atts = {}
-            if self.in_docinfo:
-                atts['class'] = 'docinfo-name'
-            else:
-                atts['class'] = 'field-name'
-
-            self.context.append('')
-            atts['align'] = "right"
-            self.body.append(self.starttag(node, 'th', '', **atts))
-
-        def visit_field_body(self, node):
-            self.body.append(self.starttag(node, 'td', '', CLASS='field-body'))
-            parent_text = node.parent[0][0].astext()
-            if hasattr(node.parent, "type"):
-                self.body.append("(")
-                self.body.append(self.starttag(node, 'a', '',
-                                               href='psi_element://#typename#' + node.parent.type))
-                self.body.append(node.parent.type)
-                self.body.append("</a>")
-                self.body.append(") ")
-            elif parent_text.startswith("type "):
-                index = parent_text.index("type ")
-                type_string = parent_text[index + len("type ")]
-                self.body.append(self.starttag(node, 'a', '',
-                                               href='psi_element://#typename#' + type_string))
-            elif parent_text.startswith("rtype"):
-                type_string = node.children[0][0].astext()
-                self.body.append(self.starttag(node, 'a', '',
-                                               href='psi_element://#typename#' + type_string))
-
-            self.set_class_on_child(node, 'first', 0)
-            field = node.parent
-            if (self.compact_field_list or
-                    isinstance(field.parent, nodes.docinfo) or
-                        field.parent.index(field) == len(field.parent) - 1):
-                # If we are in a compact list, the docinfo, or if this is
-                # the last field of the field list, do not add vertical
-                # space after last element.
-                self.set_class_on_child(node, 'last', -1)
-
-        def depart_field_body(self, node):
-            if node.parent[0][0].astext().startswith("type "):
-                self.body.append("</a>")
-            HTMLTranslator.depart_field_body(self, node)
 
         def visit_reference(self, node):
             atts = {}
@@ -189,47 +143,7 @@ def format_rest(docstring):
             pass
 
         def visit_field_list(self, node):
-            fields = {}
-            for n in node.children:
-                if not n.children:
-                    continue
-                child = n.children[0]
-                rawsource = child.rawsource
-                if rawsource.startswith("param "):
-                    index = rawsource.index("param ")
-                    if not child.children:
-                        continue
-                    param_name = rawsource[index + len("param "):]
-                    param_type = None
-                    parts = param_name.rsplit(None, 1)
-                    if len(parts) == 2:
-                        param_type, param_name = parts
-                    # Strip leading escaped asterisks for vararg parameters in Google code style docstrings
-                    param_name = re.sub(r'\\\*', '*', param_name)
-                    child.children[0] = Text(param_name)
-                    fields[param_name] = n
-                    if param_type:
-                        n.type = param_type
-                if rawsource == "return":
-                    fields["return"] = n
-
-            for n in node.children:
-                if len(n.children) < 2:
-                    continue
-                field_name, field_body = n.children[0], n.children[1]
-                rawsource = field_name.rawsource
-                if rawsource.startswith("type "):
-                    index = rawsource.index("type ")
-                    name = re.sub(r'\\\*', '*', rawsource[index + len("type "):])
-                    if name in fields:
-                        fields[name].type = self._strip_markup(field_body.astext())[1]
-                        node.children.remove(n)
-                if rawsource == "rtype":
-                    if "return" in fields:
-                        fields["return"].type = self._strip_markup(field_body.astext())[1]
-                        node.children.remove(n)
-
-            HTMLTranslator.visit_field_list(self, node)
+            raise SkipNode
 
         def unknown_visit(self, node):
             """ Ignore unknown nodes """
@@ -370,6 +284,11 @@ def format_epytext(docstring):
 
 
 def main():
+    # Remove existing Sphinx extensions registered via
+    # sphinxcontrib setuptools namespace package, as they
+    # conflict with sphinxcontrib.napoleon that we bundle.
+    sys.modules.pop('sphinxcontrib', None)
+
     args = sys.argv[1:]
 
     docstring_format = args[0] if args else 'rest'
@@ -394,4 +313,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except ImportError:
+        print_safe('sys.path = %s\n\n' % sys.path, error=True)
+        raise

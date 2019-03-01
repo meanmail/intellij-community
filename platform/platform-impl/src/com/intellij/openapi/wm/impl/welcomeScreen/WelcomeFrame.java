@@ -1,33 +1,21 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
  */
 package com.intellij.openapi.wm.impl.welcomeScreen;
 
+import com.intellij.ide.GeneralSettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.MnemonicHelper;
-import com.intellij.openapi.application.*;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ApplicationNamesInfo;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerAdapter;
+import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.util.DimensionService;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.*;
@@ -39,8 +27,10 @@ import com.intellij.openapi.wm.impl.status.IdeStatusBarImpl;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.BalloonLayout;
 import com.intellij.ui.BalloonLayoutImpl;
+import com.intellij.ui.mac.touchbar.TouchBarsManager;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.accessibility.AccessibleContextAccessor;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.accessibility.AccessibleContext;
@@ -54,6 +44,7 @@ public class WelcomeFrame extends JFrame implements IdeFrame, AccessibleContextA
   public static final ExtensionPointName<WelcomeFrameProvider> EP = ExtensionPointName.create("com.intellij.welcomeFrameProvider");
   static final String DIMENSION_KEY = "WELCOME_SCREEN";
   private static IdeFrame ourInstance;
+  private static Disposable ourTouchbar;
   private final WelcomeScreen myScreen;
   private final BalloonLayout myBalloonLayout;
 
@@ -68,9 +59,9 @@ public class WelcomeFrame extends JFrame implements IdeFrame, AccessibleContextA
     setTitle(ApplicationNamesInfo.getInstance().getFullProductName());
     AppUIUtil.updateWindowIcon(this);
 
-    ProjectManager.getInstance().addProjectManagerListener(new ProjectManagerAdapter() {
+    ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
       @Override
-      public void projectOpened(Project project) {
+      public void projectOpened(@NotNull Project project) {
         dispose();
       }
     });
@@ -113,24 +104,16 @@ public class WelcomeFrame extends JFrame implements IdeFrame, AccessibleContextA
     frame.setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
     frame.addWindowListener(
       new WindowAdapter() {
+        @Override
         public void windowClosing(final WindowEvent e) {
-          frame.dispose();
-
           if (ProjectManager.getInstance().getOpenProjects().length == 0) {
             ApplicationManagerEx.getApplicationEx().exit();
           }
+          else {
+            frame.dispose();
+          }
         }
-      }
-    );
-  }
-
-  public static void clearRecents() {
-    if (ourInstance != null) {
-      if (ourInstance instanceof WelcomeFrame) {
-        WelcomeScreen screen = ((WelcomeFrame)ourInstance).myScreen;
-        // todo clear recent projects
-      }
-    }
+      });
   }
 
   private static WelcomeScreen createScreen(JRootPane rootPane) {
@@ -145,37 +128,52 @@ public class WelcomeFrame extends JFrame implements IdeFrame, AccessibleContextA
     }
     return screen;
   }
-  
+
   public static void resetInstance() {
     ourInstance = null;
-  }
-
-  public static void showNow() {
-    if (ourInstance == null) {
-      IdeFrame frame = null;
-      for (WelcomeFrameProvider provider : EP.getExtensions()) {
-        frame = provider.createFrame();
-        if (frame != null) break;
-      }
-      if (frame == null) {
-        frame = new WelcomeFrame();
-      }
-      IdeMenuBar.installAppMenuIfNeeded((JFrame)frame);
-      ((JFrame)frame).setVisible(true);
-      ourInstance = frame;
+    if (ourTouchbar != null) {
+      Disposer.dispose(ourTouchbar);
+      ourTouchbar = null;
     }
   }
 
+  public static void showNow() {
+    if (ourInstance != null) {
+      return;
+    }
+
+    if (!GeneralSettings.getInstance().isShowWelcomeScreen()) {
+      ApplicationManagerEx.getApplicationEx().exit(false, true);
+    }
+
+    IdeFrame frame = null;
+    for (WelcomeFrameProvider provider : EP.getExtensionList()) {
+      frame = provider.createFrame();
+      if (frame != null) {
+        break;
+      }
+    }
+
+    if (frame == null) {
+      frame = new WelcomeFrame();
+    }
+    ((JFrame)frame).setVisible(true);
+    IdeMenuBar.installAppMenuIfNeeded((JFrame)frame);
+    ourInstance = frame;
+    ourTouchbar = TouchBarsManager.showDialogWrapperButtons(frame.getComponent());
+  }
+
   public static void showIfNoProjectOpened() {
-    ApplicationManager.getApplication().invokeLater(new DumbAwareRunnable() {
-      @Override
-      public void run() {
-        WindowManagerImpl windowManager = (WindowManagerImpl)WindowManager.getInstance();
-        windowManager.disposeRootFrame();
-        IdeFrameImpl[] frames = windowManager.getAllProjectFrames();
-        if (frames.length == 0) {
-          showNow();
-        }
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      return;
+    }
+
+    ApplicationManager.getApplication().invokeLater(() -> {
+      WindowManagerImpl windowManager = (WindowManagerImpl)WindowManager.getInstance();
+      windowManager.disposeRootFrame();
+      IdeFrameImpl[] frames = windowManager.getAllProjectFrames();
+      if (frames.length == 0) {
+        showNow();
       }
     }, ModalityState.NON_MODAL);
   }
@@ -183,7 +181,6 @@ public class WelcomeFrame extends JFrame implements IdeFrame, AccessibleContextA
   @Override
   public StatusBar getStatusBar() {
     Container pane = getContentPane();
-    //noinspection ConstantConditions
     return pane instanceof JComponent ? UIUtil.findComponentOfType((JComponent)pane, IdeStatusBarImpl.class) : null;
   }
 

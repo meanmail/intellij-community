@@ -30,7 +30,6 @@ import java.io.IOException;
  *
  * @author Konstantin Bulenkov
  * @see com.intellij.openapi.vfs.VirtualFile
- * @since 9.0
  */
 public class VirtualFileWrapper {
   private final File myFile;
@@ -47,8 +46,8 @@ public class VirtualFileWrapper {
   /**
    * Tests whether the file passed to constructor exists.
    *
-   * @return  <code>true</code> if and only if the file passed to constructor
-   * exists; <code>false</code> otherwise
+   * @return  {@code true} if and only if the file passed to constructor
+   * exists; {@code false} otherwise
    *
    * @throws SecurityException
    *          If a security manager exists and its <code>{@link

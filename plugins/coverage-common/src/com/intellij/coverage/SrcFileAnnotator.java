@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.coverage;
 
@@ -22,12 +8,12 @@ import com.intellij.history.LocalHistory;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
@@ -41,7 +27,6 @@ import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
@@ -90,7 +75,7 @@ public class SrcFileAnnotator implements Disposable {
   private SoftReference<TIntIntHashMap> myOldToNewLines;
   private SoftReference<byte[]> myOldContent;
   private final static Object LOCK = new Object();
-  
+
   private final Alarm myUpdateAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, this);
 
   public SrcFileAnnotator(final PsiFile file, final Editor editor) {
@@ -100,7 +85,7 @@ public class SrcFileAnnotator implements Disposable {
     myDocument = myEditor.getDocument();
   }
 
-  
+
   public void hideCoverageData() {
     Editor editor = myEditor;
     PsiFile file = myFile;
@@ -202,12 +187,13 @@ public class SrcFileAnnotator implements Disposable {
   @Nullable
   private SoftReference<TIntIntHashMap> doGetLineMapping(final long date, boolean oldToNew, MyEditorBean editorBean) {
     VirtualFile virtualFile = editorBean.getVFile();
+    if (myOldContent == null && ApplicationManager.getApplication().isDispatchThread()) return null;
     final byte[] oldContent;
     synchronized (LOCK) {
       if (myOldContent == null) {
-        if (ApplicationManager.getApplication().isDispatchThread()) return null;
         final LocalHistory localHistory = LocalHistory.getInstance();
         byte[] byteContent = localHistory.getByteContent(virtualFile, new FileRevisionTimestampComparator() {
+          @Override
           public boolean isSuitable(long revisionTimestamp) {
             return revisionTimestamp < date;
           }
@@ -215,7 +201,7 @@ public class SrcFileAnnotator implements Disposable {
 
         if (byteContent == null && virtualFile.getTimeStamp() > date) {
           byteContent = loadFromVersionControl(date, virtualFile);
-        } 
+        }
         myOldContent = new SoftReference<>(byteContent);
       }
       oldContent = myOldContent.get();
@@ -283,6 +269,7 @@ public class SrcFileAnnotator implements Disposable {
     final Document document = myDocument;
     if (editor == null || psiFile == null || document == null) return;
     final VirtualFile file = getVirtualFile(psiFile);
+    if (file == null || !file.isValid()) return;
     final MyEditorBean editorBean = new MyEditorBean(editor, file, document);
     final MarkupModel markupModel = DocumentMarkupModel.forDocument(document, myProject, true);
     final List<RangeHighlighter> highlighters = new ArrayList<>();
@@ -332,13 +319,7 @@ public class SrcFileAnnotator implements Disposable {
       return;
     }
 
-    final Module module = ApplicationManager.getApplication().runReadAction(new Computable<Module>() {
-      @Nullable
-      @Override
-      public Module compute() {
-        return ModuleUtilCore.findModuleForPsiElement(psiFile);
-      }
-    });
+    final Module module = ReadAction.compute(() -> ModuleUtilCore.findModuleForPsiElement(psiFile));
     if (module != null) {
       if (engine.recompileProjectAndRerunAction(module, suite, () -> CoverageDataManager.getInstance(myProject).chooseSuitesBundle(suite))) {
         return;
@@ -361,7 +342,7 @@ public class SrcFileAnnotator implements Disposable {
         if (fileData != null) {
           final Object[] lines = fileData.getLines();
           if (lines != null) {
-            final Object[] postProcessedLines = suite.getCoverageEngine().postProcessExecutableLines(lines, editor);
+            final Object[] postProcessedLines = engine.postProcessExecutableLines(lines, editor);
             for (Object lineData : postProcessedLines) {
               if (lineData instanceof LineData) {
                 final int line = ((LineData)lineData).getLineNumber() - 1;
@@ -377,12 +358,12 @@ public class SrcFileAnnotator implements Disposable {
                   // use id mapping
                   lineNumberInCurrent = line;
                 }
-                LOG.assertTrue(lineNumberInCurrent < document.getLineCount());
+                if (engine.isGeneratedCode(myProject, qualifiedName, lineData)) continue;
                 executableLines.put(line, (LineData)lineData);
-  
+
                 classLines.put(line, postProcessedLines);
                 classNames.put(line, qualifiedName);
-  
+
                 ApplicationManager.getApplication().invokeLater(() -> {
                   if (lineNumberInCurrent >= document.getLineCount()) return;
                   if (editorBean.isDisposed()) return;
@@ -423,9 +404,9 @@ public class SrcFileAnnotator implements Disposable {
       }
     });
 
-    final DocumentListener documentListener = new DocumentAdapter() {
+    final DocumentListener documentListener = new DocumentListener() {
       @Override
-      public void documentChanged(final DocumentEvent e) {
+      public void documentChanged(@NotNull final DocumentEvent e) {
         myNewToOldLines = null;
         myOldToNewLines = null;
         List<RangeHighlighter> rangeHighlighters = editor.getUserData(COVERAGE_HIGHLIGHTERS);
@@ -510,7 +491,7 @@ public class SrcFileAnnotator implements Disposable {
       final TIntIntHashMap newLineMapping = getOldToNewLineMapping(date, editorBean);
       return newLineMapping != null ? newLineMapping.get(newLine.intValue()) : newLine.intValue();
     };
-    final CoverageLineMarkerRenderer markerRenderer = coverageSuite.getCoverageEngine()
+    final LineMarkerRendererWithErrorStripe markerRenderer = coverageSuite
       .getLineMarkerRenderer(line, className, executableLines, coverageByTestApplicable, coverageSuite, newToOldConverter,
                              oldToNewConverter, CoverageDataManager.getInstance(myProject).isSubCoverageActive());
     highlighter.setLineMarkerRenderer(markerRenderer);
@@ -636,6 +617,7 @@ public class SrcFileAnnotator implements Disposable {
     }
   }
 
+  @Override
   public void dispose() {
     hideCoverageData();
     myEditor = null;
@@ -648,7 +630,7 @@ public class SrcFileAnnotator implements Disposable {
     private final VirtualFile myVFile;
     private final Document myDocument;
 
-    public MyEditorBean(Editor editor, VirtualFile VFile, Document document) {
+    MyEditorBean(Editor editor, VirtualFile VFile, Document document) {
       myEditor = editor;
       myVFile = VFile;
       myDocument = document;

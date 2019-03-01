@@ -14,39 +14,43 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 20-Dec-2007
- */
 package com.intellij.codeInspection.reference;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.module.Module;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.roots.ProjectFileIndex;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiElement;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 public class RefDirectoryImpl extends RefElementImpl implements RefDirectory{
+  private volatile RefModule myRefModule; // it's guaranteed that getModule() used after initialize()
   protected RefDirectoryImpl(PsiDirectory psiElement, RefManager refManager) {
     super(psiElement.getName(), psiElement, refManager);
+  }
+
+  @Override
+  protected void initialize() {
+    PsiDirectory psiElement = ObjectUtils.tryCast(getPsiElement(), PsiDirectory.class);
+    LOG.assertTrue(psiElement != null);
     final PsiDirectory parentDirectory = psiElement.getParentDirectory();
-    if (parentDirectory != null && parentDirectory.getManager().isInProject(parentDirectory)) {
-      final RefElementImpl refElement = (RefElementImpl)refManager.getReference(parentDirectory);
+    if (parentDirectory != null && ProjectFileIndex.getInstance(psiElement.getProject()).isInSourceContent(parentDirectory.getVirtualFile())) {
+      final WritableRefElement refElement = (WritableRefElement)getRefManager().getReference(parentDirectory);
       if (refElement != null) {
         refElement.add(this);
         return;
       }
     }
-    final Module module = ModuleUtilCore.findModuleForPsiElement(psiElement);
-    if (module != null) {
-      final RefModuleImpl refModule = (RefModuleImpl)refManager.getRefModule(module);
-      if (refModule != null) {
-        refModule.add(this);
-        return;
-      }
+    myRefModule = getRefManager().getRefModule(ModuleUtilCore.findModuleForPsiElement(psiElement));
+    if (myRefModule != null) {
+      ((WritableRefEntity)myRefModule).add(this);
+      return;
     }
-    ((RefProjectImpl)refManager.getRefProject()).add(this);
+    ((WritableRefEntity)myManager.getRefProject()).add(this);
   }
 
   @Override
@@ -55,8 +59,22 @@ public class RefDirectoryImpl extends RefElementImpl implements RefDirectory{
   }
 
   @Override
-  protected void initialize() {
+  public boolean isValid() {
+    if (isDeleted()) return false;
+    return ReadAction.compute(() -> {
+      if (getRefManager().getProject().isDisposed()) return false;
+
+      VirtualFile directory = getVirtualFile();
+      return directory != null && directory.isValid();
+    });
   }
+
+  @Nullable
+  @Override
+  public RefModule getModule() {
+    return myRefModule != null ? myRefModule : super.getModule();
+  }
+
 
   @NotNull
   @Override
@@ -66,7 +84,7 @@ public class RefDirectoryImpl extends RefElementImpl implements RefDirectory{
 
   @Override
   public String getExternalName() {
-    final PsiElement element = getElement();
+    final PsiElement element = getPsiElement();
     assert element != null;
     return ((PsiDirectory)element).getVirtualFile().getPath();
   }

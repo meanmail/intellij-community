@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.completion
 
+import com.intellij.application.options.CodeStyle
 import com.intellij.codeInsight.CodeInsightSettings
 import com.intellij.codeInsight.JavaProjectCodeInsightSettings
 import com.intellij.codeInsight.completion.CompletionType
@@ -23,7 +9,6 @@ import com.intellij.codeInsight.completion.impl.CamelHumpMatcher
 import com.intellij.codeInsight.lookup.LookupElement
 import com.intellij.codeInsight.lookup.LookupElementPresentation
 import com.intellij.codeInsight.lookup.PsiTypeLookupItem
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager
 import com.intellij.psi.statistics.StatisticsManager
 import com.intellij.psi.statistics.impl.StatisticsManagerImpl
 import com.intellij.psi.util.PsiTreeUtil
@@ -43,12 +28,13 @@ class GroovyCompletionTest extends GroovyCompletionTestBase {
   @Override
   protected void setUp() {
     super.setUp()
-    CamelHumpMatcher.forceStartMatching(testRootDisposable)
+    CamelHumpMatcher.forceStartMatching(myFixture.testRootDisposable)
   }
 
   @Override
   protected void tearDown() {
     CodeInsightSettings.instance.COMPLETION_CASE_SENSITIVE = CodeInsightSettings.FIRST_LETTER
+    CodeInsightSettings.instance.AUTOCOMPLETE_ON_CODE_COMPLETION = true
     super.tearDown()
   }
 
@@ -315,7 +301,7 @@ class Foo<A, B> {
   }
 
   void testCompletionNamedArgumentWithoutSpace() {
-    def settings = CodeStyleSettingsManager.getSettings(project).getCustomSettings(GroovyCodeStyleSettings.class)
+    def settings = CodeStyle.getSettings(project).getCustomSettings(GroovyCodeStyleSettings.class)
     settings.SPACE_IN_NAMED_ARGUMENT = false
 
     try {
@@ -884,7 +870,7 @@ return foo()"""
 
   void testNamedArgsUsedInFile() {
     myFixture.configureByFile(getTestName(false) + ".groovy")
-    doVariantableTest 'false', 'foo2', 'float', 'foo1', 'foo3', 'foo4', 'foo5'
+    doVariantableTest 'foo2', 'false', 'float', 'foo1', 'foo3', 'foo4', 'foo5'
   }
 
   void testSuggestMembersOfExpectedType() {
@@ -955,12 +941,12 @@ class Fopppp {
 
   void testExcludeStringBuffer() {
     assert doContainsTest('StringBuffer', 'StringBuff<caret>f')
-    JavaProjectCodeInsightSettings.setExcludedNames(project, testRootDisposable, StringBuffer.name)
+    JavaProjectCodeInsightSettings.setExcludedNames(project, myFixture.testRootDisposable, StringBuffer.name)
     assert !doContainsTest('StringBuffer', 'StringBuff<caret>f')
   }
 
   void testStaticMethodOnExcludedClass() {
-    JavaProjectCodeInsightSettings.setExcludedNames(project, testRootDisposable, String.name)
+    JavaProjectCodeInsightSettings.setExcludedNames(project, myFixture.testRootDisposable, String.name)
     assert doContainsTest('valueOf', 'String.val<caret>f')
   }
 
@@ -1084,6 +1070,10 @@ class X {
     doBasicTest()
   }
 
+  void testClassNameBeforeParentheses2() {
+    doBasicTest()
+  }
+
   void testNewClassGenerics() {
     checkSingleItemCompletion 'new ArrayLi<caret>', 'new ArrayList<<caret>>()'
   }
@@ -1097,7 +1087,7 @@ class X {
   }
 
   void testSortOrder0() {
-    doVariantableTest 'se', 'setProperty', 'setMetaClass', 'setSe'
+    doVariantableTest 'se', 'setProperty', 'setSe', 'setMetaClass'
   }
 
   void testPrimitiveCastOverwrite() {
@@ -1729,7 +1719,7 @@ class Baz {}''', '', CompletionType.BASIC, CompletionResult.contain, 'xxx', 'yyy
   }
 
   void "test honor statistics"() {
-    ((StatisticsManagerImpl)StatisticsManager.instance).enableStatistics(testRootDisposable)
+    ((StatisticsManagerImpl)StatisticsManager.instance).enableStatistics(myFixture.testRootDisposable)
 
     myFixture.addClass("class Foo { Object getMessage() {} }; class Bar extends Foo { Object getMessages(); }")
     configure "b = new Bar();\nb.mes<caret>"
@@ -1857,7 +1847,7 @@ class Autocompletion {
   }
 
   void testSpaceBeforeMethodCallParentheses() {
-    def settings = CodeStyleSettingsManager.getSettings(myFixture.project).getCommonSettings(GroovyLanguage.INSTANCE)
+    def settings = CodeStyle.getSettings(myFixture.project).getCommonSettings(GroovyLanguage.INSTANCE)
 
     boolean old = settings.SPACE_BEFORE_METHOD_CALL_PARENTHESES
     try {
@@ -1954,5 +1944,28 @@ class C implements T<String> {
   <caret>
 }
 ''', '', CompletionType.BASIC, CompletionResult.contain, 1, 'public String quack')
+  }
+
+  void "test non-imported class after new"() {
+    def uClass = myFixture.addClass('package foo; public class U {}')
+    configure('new U<caret>x')
+    myFixture.completeBasic()
+    assert myFixture.lookupElements[0].object == uClass
+  }
+
+  void "test after new editing prefix back and forth when sometimes there are expected type suggestions and sometimes not"() {
+    CodeInsightSettings.instance.AUTOCOMPLETE_ON_CODE_COMPLETION = false
+
+    myFixture.addClass("class Super {}")
+    myFixture.addClass("class Sub extends Super {}")
+    myFixture.addClass("package foo; public class SubOther {}")
+    myFixture.configureByText('a.groovy', "Super s = new SubO<caret>")
+
+    myFixture.completeBasic()
+    myFixture.assertPreferredCompletionItems 0, 'SubOther'
+    myFixture.type('\b')
+    myFixture.assertPreferredCompletionItems 0, 'Sub'
+    myFixture.type('O')
+    myFixture.assertPreferredCompletionItems 0, 'SubOther'
   }
 }

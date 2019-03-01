@@ -14,22 +14,17 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Jul 26, 2002
- * Time: 2:16:32 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
+import com.intellij.codeInsight.daemon.QuickFixActionRegistrar;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
+import com.intellij.codeInsight.guess.GuessManager;
 import com.intellij.codeInsight.intention.HighPriorityAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInspection.LocalQuickFixAndIntentionActionOnPsiElement;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -39,20 +34,28 @@ import com.intellij.psi.util.TypeConversionUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 import static com.intellij.util.ObjectUtils.assertNotNull;
 
 public class AddTypeCastFix extends LocalQuickFixAndIntentionActionOnPsiElement implements HighPriorityAction {
   private final PsiType myType;
+  private final String myName;
 
   public AddTypeCastFix(@NotNull PsiType type, @NotNull PsiExpression expression) {
+    this(type, expression, "add.typecast.text");
+  }
+
+  public AddTypeCastFix(@NotNull PsiType type, @NotNull PsiExpression expression, String messageKey) {
     super(expression);
     myType = type;
+    myName = QuickFixBundle.message(messageKey, type.isValid() ? type.getCanonicalText() : "");
   }
 
   @Override
   @NotNull
   public String getText() {
-    return QuickFixBundle.message("add.typecast.text", myType.getCanonicalText());
+    return myName;
   }
 
   @Override
@@ -67,9 +70,10 @@ public class AddTypeCastFix extends LocalQuickFixAndIntentionActionOnPsiElement 
                              @NotNull PsiElement startElement,
                              @NotNull PsiElement endElement) {
     return myType.isValid() &&
-           PsiTypesUtil.isDenotableType(myType) &&
-           startElement.isValid() && 
-           startElement.getManager().isInProject(startElement);
+           !PsiType.VOID.equals(myType) &&
+           PsiTypesUtil.isDenotableType(myType, startElement) &&
+           PsiTypesUtil.allTypeParametersResolved(startElement, myType) &&
+           BaseIntentionAction.canModify(startElement);
   }
 
   @Override
@@ -78,7 +82,6 @@ public class AddTypeCastFix extends LocalQuickFixAndIntentionActionOnPsiElement 
                      @Nullable("is null when called from inspection") Editor editor,
                      @NotNull PsiElement startElement,
                      @NotNull PsiElement endElement) {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     addTypeCast(project, (PsiExpression)startElement, myType);
   }
 
@@ -95,7 +98,7 @@ public class AddTypeCastFix extends LocalQuickFixAndIntentionActionOnPsiElement 
     if (type.equals(PsiType.NULL)) return null;
     if (type instanceof PsiEllipsisType) type = ((PsiEllipsisType)type).toArrayType();
     String text = "(" + type.getCanonicalText(false) + ")value";
-    PsiElementFactory factory = JavaPsiFacade.getInstance(original.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(original.getProject());
     PsiTypeCastExpression typeCast = (PsiTypeCastExpression)factory.createExpressionFromText(text, original);
     typeCast = (PsiTypeCastExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(typeCast);
     typeCast = (PsiTypeCastExpression)CodeStyleManager.getInstance(project).reformat(typeCast);
@@ -129,8 +132,26 @@ public class AddTypeCastFix extends LocalQuickFixAndIntentionActionOnPsiElement 
     return typeCast;
   }
 
-  @Override
-  public boolean startInWriteAction() {
-    return true;
+  public static void registerFix(QuickFixActionRegistrar registrar,
+                                 PsiExpression qualifier,
+                                 PsiJavaCodeReferenceElement ref, 
+                                 TextRange fixRange) {
+    String referenceName = ref.getReferenceName();
+    if (referenceName == null) return;
+    PsiElement gParent = ref.getParent();
+    List<PsiType> conjuncts = GuessManager.getInstance(qualifier.getProject()).getControlFlowExpressionTypeConjuncts(qualifier);
+    for (PsiType conjunct : conjuncts) {
+      PsiClass psiClass = PsiUtil.resolveClassInType(conjunct);
+      if (psiClass == null) continue;
+      if (gParent instanceof PsiMethodCallExpression) {
+        if (psiClass.findMethodsByName(referenceName).length == 0) {
+          continue;
+        }
+      }
+      else if (psiClass.findFieldByName(referenceName, true) == null) {
+        continue;
+      }
+      registrar.register(fixRange, new AddTypeCastFix(conjunct, qualifier, "add.qualifier.typecast.text"), null);
+    }
   }
 }

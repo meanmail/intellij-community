@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.status.ui;
 
 import com.intellij.icons.AllIcons;
@@ -20,14 +6,17 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
+import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
 import com.intellij.openapi.wm.StatusBarWidget;
 import com.intellij.openapi.wm.WindowManager;
 import com.intellij.openapi.wm.impl.status.EditorBasedWidget;
 import com.intellij.util.Consumer;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.CalledInAny;
 import org.jetbrains.annotations.CalledInAwt;
@@ -50,9 +39,11 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
   @NotNull private final HgChangesetStatus myChangesStatus;
   private final boolean myIsIncoming;
   private boolean isAlreadyShown;
+  @NotNull private final Icon myEnabledIcon;
+  @NotNull private final Icon myDisabledIcon;
 
   private volatile String myTooltip = "";
-  private Icon myCurrentIcon = AllIcons.Ide.IncomingChangesOff;
+  private Icon myCurrentIcon;
 
   public HgIncomingOutgoingWidget(@NotNull HgVcs vcs,
                                   @NotNull Project project,
@@ -65,6 +56,9 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
     myProjectSettings = projectSettings;
     myChangesStatus = new HgChangesetStatus(isIncoming ? "In" : "Out");
     isAlreadyShown = false;
+    myEnabledIcon = myIsIncoming ? AllIcons.Ide.IncomingChangesOn : AllIcons.Ide.OutgoingChangesOn;
+    myDisabledIcon = ObjectUtils.notNull(IconLoader.getDisabledIcon(myEnabledIcon), myEnabledIcon);
+    myCurrentIcon = myDisabledIcon;
     Disposer.register(project, this);
   }
 
@@ -108,11 +102,7 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
   @Override
   // Updates branch information on click
   public Consumer<MouseEvent> getClickConsumer() {
-    return new Consumer<MouseEvent>() {
-      public void consume(MouseEvent mouseEvent) {
-        update();
-      }
-    };
+    return mouseEvent -> update();
   }
 
 
@@ -123,23 +113,17 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
   @Override
   public void update(final Project project, @Nullable VirtualFile root) {
     if (!isVisible()) return;
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if ((project == null) || project.isDisposed()) {
-          emptyTooltip();
-          return;
-        }
-
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if ((project == null) || project.isDisposed()) {
         emptyTooltip();
-        myCurrentIcon = AllIcons.Ide.IncomingChangesOff;
-        if (myChangesStatus.getNumChanges() > 0) {
-          myCurrentIcon = myIsIncoming ? AllIcons.Ide.IncomingChangesOn : AllIcons.Ide.OutgoingChangesOn;
-          myTooltip = "\n" + myChangesStatus.getToolTip();
-        }
-        if (!isVisible() || !isAlreadyShown) return;
-        myStatusBar.updateWidget(ID());
+        return;
       }
+
+      boolean changesAvailable = myChangesStatus.getNumChanges() > 0;
+      myCurrentIcon = changesAvailable ? myEnabledIcon : myDisabledIcon;
+      myTooltip = changesAvailable ? "\n" + myChangesStatus.getToolTip() : "No changes available";
+      if (!isVisible() || !isAlreadyShown) return;
+      myStatusBar.updateWidget(ID());
     });
   }
 
@@ -166,32 +150,27 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
     }
   }
 
+  @Override
   public void show() {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if (isAlreadyShown) {
-          return;
-        }
-        StatusBar statusBar = WindowManager.getInstance().getStatusBar(myProject);
-        if (null != statusBar && isVisible()) {
-          statusBar.addWidget(HgIncomingOutgoingWidget.this, myProject);
-          isAlreadyShown = true;
-          myProject.getMessageBus().syncPublisher(HgVcs.REMOTE_TOPIC).update(myProject, null);
-        }
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (isAlreadyShown) {
+        return;
+      }
+      StatusBar statusBar = WindowManager.getInstance().getStatusBar(myProject);
+      if (null != statusBar && isVisible()) {
+        statusBar.addWidget(this, myProject);
+        isAlreadyShown = true;
+        BackgroundTaskUtil.syncPublisher(myProject, HgVcs.REMOTE_TOPIC).update(myProject, null);
       }
     }, ModalityState.any());
   }
 
+  @Override
   public void hide() {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        deactivate();
-      }
-    }, ModalityState.any());
+    ApplicationManager.getApplication().invokeLater(() -> deactivate(), ModalityState.any());
   }
 
+  @Override
   @CalledInAny
   public void update() {
     update(myProject, null);
@@ -213,7 +192,7 @@ public class HgIncomingOutgoingWidget extends EditorBasedWidget
 
   //if smb call hide widget then it removed from status bar ans dispose method called.
   // if we do not override dispose IDE call EditorWidget dispose method and set connection to null.
-  //next, if we repeat hide/show dipose eth will be calles several times,but connection will be null -> NPE or already disposed message.
+  //next, if we repeat hide/show dispose eth will be callees several times,but connection will be null -> NPE or already disposed message.
   @Override
   public void dispose() {
     if (!isDisposed()) {

@@ -1,26 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.impl.schema;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
@@ -42,25 +28,13 @@ import org.jetbrains.annotations.NotNull;
 import java.util.*;
 import java.util.function.BiFunction;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 7/5/12
- * Time: 5:34 PM
- */
 public class SchemaDefinitionsSearch implements QueryExecutor<PsiElement, PsiElement> {
   @Override
-  public boolean execute(@NotNull final PsiElement queryParameters, @NotNull final Processor<PsiElement> consumer) {
+  public boolean execute(@NotNull final PsiElement queryParameters, @NotNull final Processor<? super PsiElement> consumer) {
     if (queryParameters instanceof XmlTagImpl) {
       final XmlTagImpl xml = (XmlTagImpl) queryParameters;
-      if (ApplicationManager.getApplication().runReadAction((Computable<Boolean>)() -> isTypeElement(xml))) {
-        final Collection<SchemaTypeInfo> infos = ApplicationManager.getApplication().runReadAction(new Computable<Collection<SchemaTypeInfo>>() {
-
-          @Override
-          public Collection<SchemaTypeInfo> compute() {
-            return gatherInheritors(xml);
-          }
-        });
+      if (ReadAction.compute(() -> isTypeElement(xml))) {
+        final Collection<SchemaTypeInfo> infos = ReadAction.compute(() -> gatherInheritors(xml));
 
         if (infos != null && ! infos.isEmpty()) {
           final XmlFile file = XmlUtil.getContainingFile(xml);
@@ -69,12 +43,7 @@ public class SchemaDefinitionsSearch implements QueryExecutor<PsiElement, PsiEle
           //if (module == null) return false;
 
           final VirtualFile vf = file.getVirtualFile();
-          String thisNs = ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-            @Override
-            public String compute() {
-              return XmlNamespaceIndex.getNamespace(vf, project, file);
-            }
-          });
+          String thisNs = ReadAction.compute(() -> XmlNamespaceIndex.getNamespace(vf, project, file));
           thisNs = thisNs == null ? getDefaultNs(file) : thisNs;
           // so thisNs can be null
           if (thisNs == null) return false;
@@ -88,12 +57,7 @@ public class SchemaDefinitionsSearch implements QueryExecutor<PsiElement, PsiEle
               if (Comparing.equal(info.getNamespaceUri(), thisNs)) {
                 targetFiles.add(file);
               }
-              final Collection<XmlFile> files = ApplicationManager.getApplication().runReadAction(new Computable<Collection<XmlFile>>() {
-                @Override
-                public Collection<XmlFile> compute() {
-                  return XmlUtil.findNSFilesByURI(info.getNamespaceUri(), project, module);
-                }
-              });
+              final Collection<XmlFile> files = ReadAction.compute(() -> XmlUtil.findNSFilesByURI(info.getNamespaceUri(), project, module));
               if (files != null) {
                 targetFiles.addAll(files);
               }
@@ -228,16 +192,13 @@ public class SchemaDefinitionsSearch implements QueryExecutor<PsiElement, PsiEle
   }
 
   private String getDefaultNs(final XmlFile file) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-      @Override
-      public String compute() {
-        String nsUri;
-        final XmlTag tag = file.getDocument().getRootTag();
-        XmlAttribute xmlns = tag.getAttribute("xmlns", XmlUtil.XML_SCHEMA_URI);
-        xmlns = xmlns == null ? tag.getAttribute("xmlns") : xmlns;
-        nsUri = xmlns == null ? null : xmlns.getValue();
-        return nsUri;
-      }
+    return ReadAction.compute(() -> {
+      String nsUri;
+      final XmlTag tag = file.getDocument().getRootTag();
+      XmlAttribute xmlns = tag.getAttribute("xmlns", XmlUtil.XML_SCHEMA_URI);
+      xmlns = xmlns == null ? tag.getAttribute("xmlns") : xmlns;
+      nsUri = xmlns == null ? null : xmlns.getValue();
+      return nsUri;
     });
   }
 }

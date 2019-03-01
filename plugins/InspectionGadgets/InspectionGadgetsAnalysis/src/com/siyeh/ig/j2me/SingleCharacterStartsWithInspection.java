@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2007 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +18,16 @@ package com.siyeh.ig.j2me;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -52,29 +55,20 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
     return new SingleCharacterStartsWithFix();
   }
 
-  private static class SingleCharacterStartsWithFix
-    extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
+  private static class SingleCharacterStartsWithFix extends InspectionGadgetsFix {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "single.character.startswith.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiReferenceExpression methodExpression =
-        (PsiReferenceExpression)element.getParent();
-      final PsiMethodCallExpression methodCall =
-        (PsiMethodCallExpression)methodExpression.getParent();
+      final PsiReferenceExpression methodExpression = (PsiReferenceExpression)element.getParent();
+      final PsiMethodCallExpression methodCall = (PsiMethodCallExpression)methodExpression.getParent();
       final PsiElement qualifier = methodExpression.getQualifier();
       if (qualifier == null) {
         return;
@@ -83,24 +77,41 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
       final PsiExpression[] expressions = argumentList.getExpressions();
       final PsiExpression expression = expressions[0];
       final String expressionText = expression.getText();
-      String character = expressionText.substring(1,
-                                                  expressionText.length() - 1);
+      String character = expressionText.substring(1, expressionText.length() - 1);
       if (character.equals("'")) {
         character = "\\'";
       }
       final String qualifierText = qualifier.getText();
-      @NonNls final String newExpression;
-      final String referenceName = methodExpression.getReferenceName();
-      if (HardcodedMethodConstants.STARTS_WITH.equals(referenceName)) {
-        newExpression = qualifierText + ".length() > 0 && " +
-                        qualifierText + ".charAt(0) == '" + character + '\'';
+      @NonNls final StringBuilder newExpression = new StringBuilder();
+      final PsiClass stringClass = ClassUtils.findClass(CommonClassNames.JAVA_LANG_STRING, qualifier);
+      // String.isEmpty() was introduced in Java 6
+      final PsiMethod[] isEmptyMethod = (stringClass == null) ? PsiMethod.EMPTY_ARRAY : stringClass.findMethodsByName("isEmpty", false);
+      if (isEmptyMethod.length > 0) {
+        newExpression.append("!").append(qualifierText).append(".isEmpty() && ");
       }
       else {
-        newExpression = qualifierText + ".length() > 0 && " +
-                        qualifierText + ".charAt(" + qualifierText +
-                        ".length() - 1) == '" + character + '\'';
+        newExpression.append(qualifierText).append(".length() > 0 && ");
       }
-      PsiReplacementUtil.replaceExpression(methodCall, newExpression);
+      final String referenceName = methodExpression.getReferenceName();
+      newExpression.append(qualifierText).append(".charAt(");
+      if (HardcodedMethodConstants.STARTS_WITH.equals(referenceName)) {
+        newExpression.append("0) == '");
+      }
+      else {
+        newExpression.append(qualifierText).append(".length() - 1) == '");
+      }
+      newExpression.append(character).append('\'');
+      final CommentTracker commentTracker = new CommentTracker();
+      commentTracker.markUnchanged(qualifier);
+      PsiExpression newCall = JavaPsiFacade.getElementFactory(project).createExpressionFromText(newExpression.toString(), methodCall);
+      if (newCall instanceof PsiPolyadicExpression) {
+        PsiElement insertedElement = ExpressionUtils.replacePolyadicWithParent(methodCall, newCall, commentTracker);
+        if (insertedElement != null) {
+          CodeStyleManager.getInstance(project).reformat(insertedElement);
+          return;
+        }
+      }
+      PsiReplacementUtil.replaceExpression(methodCall, newExpression.toString(), commentTracker);
     }
   }
 
@@ -113,11 +124,9 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
     extends BaseInspectionVisitor {
 
     @Override
-    public void visitMethodCallExpression(
-      @NotNull PsiMethodCallExpression call) {
+    public void visitMethodCallExpression(@NotNull PsiMethodCallExpression call) {
       super.visitMethodCallExpression(call);
-      final PsiReferenceExpression methodExpression =
-        call.getMethodExpression();
+      final PsiReferenceExpression methodExpression = call.getMethodExpression();
       final String methodName = methodExpression.getReferenceName();
       if (!HardcodedMethodConstants.STARTS_WITH.equals(methodName) &&
           !HardcodedMethodConstants.ENDS_WITH.equals(methodName)) {
@@ -131,8 +140,7 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
       if (!isSingleCharacterStringLiteral(args[0])) {
         return;
       }
-      final PsiExpression qualifier =
-        methodExpression.getQualifierExpression();
+      final PsiExpression qualifier = methodExpression.getQualifierExpression();
       if (qualifier == null) {
         return;
       }
@@ -143,8 +151,7 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
       registerMethodCallError(call);
     }
 
-    private static boolean isSingleCharacterStringLiteral(
-      PsiExpression arg) {
+    private static boolean isSingleCharacterStringLiteral(PsiExpression arg) {
       final PsiType type = arg.getType();
       if (!TypeUtils.isJavaLangString(type)) {
         return false;
@@ -154,10 +161,7 @@ public class SingleCharacterStartsWithInspection extends BaseInspection {
       }
       final PsiLiteralExpression literal = (PsiLiteralExpression)arg;
       final String value = (String)literal.getValue();
-      if (value == null) {
-        return false;
-      }
-      return value.length() == 1;
+      return value != null && value.length() == 1;
     }
   }
 }

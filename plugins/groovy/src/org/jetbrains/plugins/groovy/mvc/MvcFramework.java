@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.mvc;
 
@@ -52,9 +38,9 @@ import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.PathUtil;
 import com.intellij.util.PathsList;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -105,8 +91,8 @@ public abstract class MvcFramework {
 
   @NotNull
   public Map<String, Runnable> createConfigureActions(final @NotNull Module module) {
-    return Collections.<String, Runnable>singletonMap("Configure " + getFrameworkName() + " SDK",
-                                                      () -> configureAsLibraryDependency(module));
+    return Collections.singletonMap("Configure " + getFrameworkName() + " SDK",
+                                    () -> configureAsLibraryDependency(module));
   }
 
   protected void configureAsLibraryDependency(@NotNull Module module) {
@@ -243,23 +229,23 @@ public abstract class MvcFramework {
     final List<File> toExclude = new ArrayList<>();
 
     VirtualFile sdkRoot = getSdkRoot(module);
-    if (sdkRoot != null) toExclude.add(VfsUtil.virtualToIoFile(sdkRoot));
+    if (sdkRoot != null) toExclude.add(VfsUtilCore.virtualToIoFile(sdkRoot));
 
     ContainerUtil.addIfNotNull(toExclude, getCommonPluginsDir(module));
     final VirtualFile appRoot = findAppRoot(module);
     if (appRoot != null) {
       VirtualFile pluginDir = appRoot.findChild(MvcModuleStructureUtil.PLUGINS_DIRECTORY);
-      if (pluginDir != null) toExclude.add(VfsUtil.virtualToIoFile(pluginDir));
+      if (pluginDir != null) toExclude.add(VfsUtilCore.virtualToIoFile(pluginDir));
 
 
       VirtualFile libDir = appRoot.findChild("lib");
-      if (libDir != null) toExclude.add(VfsUtil.virtualToIoFile(libDir));
+      if (libDir != null) toExclude.add(VfsUtilCore.virtualToIoFile(libDir));
     }
 
     final Library library = MvcModuleStructureUtil.findUserLibrary(module, getUserLibraryName());
     if (library != null) {
       for (VirtualFile file : library.getFiles(OrderRootType.CLASSES)) {
-        toExclude.add(VfsUtil.virtualToIoFile(PathUtil.getLocalFile(file)));
+        toExclude.add(VfsUtilCore.virtualToIoFile(VfsUtil.getLocalFile(file)));
       }
     }
     return toExclude;
@@ -276,7 +262,7 @@ public abstract class MvcFramework {
     eachRoot:
     for (VirtualFile file : rootFiles) {
       for (final File excluded : toExclude) {
-        if (VfsUtil.isAncestor(excluded, VfsUtil.virtualToIoFile(file), false)) {
+        if (VfsUtilCore.isAncestor(excluded, VfsUtilCore.virtualToIoFile(file), false)) {
           continue eachRoot;
         }
       }
@@ -286,7 +272,8 @@ public abstract class MvcFramework {
   }
 
   public PathsList getApplicationClassPath(Module module) {
-    final List<VirtualFile> classPath = OrderEnumerator.orderEntries(module).recursively().withoutSdk().getPathsList().getVirtualFiles();
+    final List<VirtualFile> classPath = ContainerUtil.newArrayList();
+    classPath.addAll(OrderEnumerator.orderEntries(module).recursively().withoutSdk().getPathsList().getVirtualFiles());
 
     retainOnlyJarsAndDirectories(classPath);
 
@@ -343,11 +330,11 @@ public abstract class MvcFramework {
     }
 
     final ConfigurationFactory factory = configurationType.getConfigurationFactories()[0];
-    final RunnerAndConfigurationSettings runSettings = runManager.createRunConfiguration(name,
+    final RunnerAndConfigurationSettings runSettings = runManager.createConfiguration(name,
                                                                                                                                  factory);
     final MvcRunConfiguration configuration = (MvcRunConfiguration)runSettings.getConfiguration();
     configuration.setModule(module);
-    runManager.addConfiguration(runSettings, false);
+    runManager.addConfiguration(runSettings);
     runManager.setSelectedConfiguration(runSettings);
 
     RunManagerEx.disableTasks(module.getProject(), configuration, CompileStepBeforeRun.ID, CompileStepBeforeRunNoErrorCheck.ID);
@@ -427,7 +414,7 @@ public abstract class MvcFramework {
   }
 
   public static GeneralCommandLine createCommandLine(@NotNull JavaParameters params) throws CantRunException {
-    return CommandLineBuilder.createFromJavaParameters(params);
+    return params.toCommandLine();
   }
 
   private void extractPlugins(Project project, @Nullable VirtualFile pluginRoot, boolean refreshPluginRoot, Map<String, VirtualFile> res) {
@@ -533,7 +520,7 @@ public abstract class MvcFramework {
 
   public abstract String getSomeFrameworkClass();
 
-  public static void addAvailableSystemScripts(final Collection<String> result, @NotNull Module module) {
+  public static void addAvailableSystemScripts(final Collection<? super String> result, @NotNull Module module) {
     VirtualFile scriptRoot = null;
 
     GlobalSearchScope searchScope = GlobalSearchScope.moduleWithDependenciesAndLibrariesScope(module, false);
@@ -570,7 +557,7 @@ public abstract class MvcFramework {
 
   public abstract boolean isToReformatOnCreation(VirtualFile file);
 
-  public static void addAvailableScripts(final Collection<String> result, @Nullable final VirtualFile root) {
+  public static void addAvailableScripts(final Collection<? super String> result, @Nullable final VirtualFile root) {
     if (root == null || !root.isDirectory()) {
       return;
     }
@@ -635,6 +622,7 @@ public abstract class MvcFramework {
 
   public boolean isRunTargetActionSupported(Module module) { return false; }
 
+  @Contract("null -> null")
   @Nullable
   public static MvcFramework getInstance(@Nullable final Module module) {
     if (module == null) {

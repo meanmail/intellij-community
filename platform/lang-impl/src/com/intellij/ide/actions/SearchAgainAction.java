@@ -19,18 +19,15 @@ package com.intellij.ide.actions;
 import com.intellij.find.FindManager;
 import com.intellij.find.FindUtil;
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.CommonDataKeys;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.actionSystem.Presentation;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
-import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
+import org.jetbrains.annotations.NotNull;
 
 public class SearchAgainAction extends AnAction implements DumbAware {
   public SearchAgainAction() {
@@ -38,7 +35,7 @@ public class SearchAgainAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final FileEditor editor = e.getData(PlatformDataKeys.FILE_EDITOR);
     if (editor == null || project == null) return;
@@ -60,7 +57,7 @@ public class SearchAgainAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent event){
+  public void update(@NotNull AnActionEvent event){
     Presentation presentation = event.getPresentation();
     Project project = event.getData(CommonDataKeys.PROJECT);
     if (project == null) {
@@ -68,6 +65,6 @@ public class SearchAgainAction extends AnAction implements DumbAware {
       return;
     }
     FileEditor editor = event.getData(PlatformDataKeys.FILE_EDITOR);
-    presentation.setEnabled(editor instanceof TextEditor);
+    presentation.setEnabled(editor instanceof TextEditor && !((TextEditor)editor).getEditor().isOneLineMode());
   }
 }

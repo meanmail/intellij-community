@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn;
 
 import com.intellij.openapi.util.io.FileUtil;
@@ -22,12 +8,14 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.status.Status;
 import org.jetbrains.idea.svn.status.StatusType;
-import org.tmatesoft.svn.core.SVNURL;
 
 import java.io.File;
 import java.util.Set;
+
+import static com.intellij.vcsUtil.VcsUtil.getFilePath;
 
 public class NestedCopiesBuilder implements StatusReceiver {
 
@@ -41,6 +29,7 @@ public class NestedCopiesBuilder implements StatusReceiver {
     myCopies = ContainerUtil.newHashSet();
   }
 
+  @Override
   public void process(@NotNull FilePath path, final Status status) {
     VirtualFile file = path.getVirtualFile();
 
@@ -52,35 +41,37 @@ public class NestedCopiesBuilder implements StatusReceiver {
         // TODO: Probably we could move that logic here.
         myCopies.add(new NestedCopyInfo(file, null, WorkingCopyFormat.UNKNOWN, NestedCopyType.external, null));
       }
-      else if (status.getURL() != null && !status.is(StatusType.STATUS_UNVERSIONED) && status.isSwitched()) {
+      else if (status.getUrl() != null && !status.is(StatusType.STATUS_UNVERSIONED) && status.isSwitched()) {
         // this one called when there is switched directory under nested working copy
         // TODO: some other cases?
-        myCopies.add(new NestedCopyInfo(file, status.getURL(), myVcs.getWorkingCopyFormat(path.getIOFile()), NestedCopyType.switched,
-                                        status.getRepositoryRootURL()));
+        myCopies.add(new NestedCopyInfo(file, status.getUrl(), myVcs.getWorkingCopyFormat(path.getIOFile()), NestedCopyType.switched,
+                                        status.getRepositoryRootUrl()));
       }
     }
   }
 
+  @Override
   public void processIgnored(final VirtualFile vFile) {
   }
 
+  @Override
   public void processUnversioned(final VirtualFile vFile) {
   }
 
   @Override
   public void processCopyRoot(@NotNull VirtualFile file,
-                              @Nullable SVNURL url,
+                              @Nullable Url url,
                               @NotNull WorkingCopyFormat format,
-                              @Nullable SVNURL rootURL) {
+                              @Nullable Url rootURL) {
     myCopies.add(new NestedCopyInfo(file, url, format, NestedCopyType.inner, rootURL));
   }
 
   @Override
-  public void bewareRoot(@NotNull VirtualFile vf, SVNURL url) {
+  public void bewareRoot(@NotNull VirtualFile vf, Url url) {
     final File ioFile = VfsUtilCore.virtualToIoFile(vf);
-    final RootUrlInfo info = myMapping.getWcRootForFilePath(ioFile);
+    final RootUrlInfo info = myMapping.getWcRootForFilePath(getFilePath(vf));
 
-    if (info != null && FileUtil.filesEqual(ioFile, info.getIoFile()) && ! info.getAbsoluteUrlAsUrl().equals(url)) {
+    if (info != null && FileUtil.filesEqual(ioFile, info.getIoFile()) && !info.getUrl().equals(url)) {
       myVcs.invokeRefreshSvnRoots();
     }
   }

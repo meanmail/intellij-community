@@ -19,6 +19,7 @@ package com.intellij.ide.util.treeView.smartTree;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.structureView.StructureViewTreeElement;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import org.jetbrains.annotations.NotNull;
 
@@ -27,7 +28,7 @@ import java.util.Collection;
 
 public class TreeElementWrapper extends CachingChildrenTreeNode<TreeElement> {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.util.treeView.smartTree.TreeElementWrapper");
-  public TreeElementWrapper(Project project, TreeElement value, TreeModel treeModel) {
+  public TreeElementWrapper(Project project, @NotNull TreeElement value, @NotNull TreeModel treeModel) {
     super(project, value, treeModel);
   }
 
@@ -36,7 +37,7 @@ public class TreeElementWrapper extends CachingChildrenTreeNode<TreeElement> {
   }
 
   @Override
-  public void update(PresentationData presentation) {
+  public void update(@NotNull PresentationData presentation) {
     if (((StructureViewTreeElement)getValue()).getValue() != null) {
       presentation.updateFrom(getValue().getPresentation());
     }
@@ -54,10 +55,11 @@ public class TreeElementWrapper extends CachingChildrenTreeNode<TreeElement> {
       addSubElement(createChildNode(child));
     }
     if (myTreeModel instanceof ProvidingTreeModel) {
-      final Collection<NodeProvider> providers = ((ProvidingTreeModel)myTreeModel).getNodeProviders();
+      Collection<NodeProvider> originalProviders = ((ProvidingTreeModel)myTreeModel).getNodeProviders();
+      Collection<NodeProvider> providers = DumbService.getInstance(myProject).filterByDumbAwareness(originalProviders);
       for (NodeProvider provider : providers) {
         if (((ProvidingTreeModel)myTreeModel).isEnabled(provider)) {
-          final Collection<TreeElement> nodes = provider.provideNodes(value);
+          Collection<TreeElement> nodes = provider.provideNodes(value);
           for (TreeElement node : nodes) {
             if (node == null) {
               LOG.error(provider + " returned null node: " + nodes);

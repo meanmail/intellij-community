@@ -24,11 +24,10 @@ import java.util.List;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 13.08.13
  */
 public abstract class InjectedReferenceVisitor implements PsiLanguageInjectionHost.InjectedPsiVisitor {
   @Override
   public void visit(@NotNull PsiFile injectedPsi, @NotNull List<PsiLanguageInjectionHost.Shred> places) {}
 
-  public abstract void visitInjectedReference(@NotNull ReferenceInjector injector, @NotNull List<PsiLanguageInjectionHost.Shred> places);
+  public abstract void visitInjectedReference(@NotNull ReferenceInjector injector, @NotNull List<? extends PsiLanguageInjectionHost.Shred> places);
 }

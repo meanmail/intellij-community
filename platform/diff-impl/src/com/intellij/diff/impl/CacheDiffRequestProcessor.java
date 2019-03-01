@@ -22,7 +22,6 @@ import com.intellij.diff.util.DiffTaskQueue;
 import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.diff.util.DiffUserDataKeysEx.ScrollToPolicy;
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -93,6 +92,7 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
   public void updateRequest(final boolean force, boolean useCache, @Nullable final ScrollToPolicy scrollToChangePolicy) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     if (isDisposed()) return;
+    myQueue.abort();
 
     final T requestProvider = getCurrentRequestProvider();
     if (requestProvider == null) {
@@ -114,11 +114,13 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
           applyRequest(request, force, scrollToChangePolicy);
         };
       },
-      () -> {
-        applyRequest(new LoadingDiffRequest(getRequestName(requestProvider)), force, scrollToChangePolicy);
-      },
-      ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS
+      () -> applyRequest(new LoadingDiffRequest(getRequestName(requestProvider)), force, scrollToChangePolicy),
+      getFastLoadingTimeMillis()
     );
+  }
+
+  protected int getFastLoadingTimeMillis() {
+    return ProgressWindow.DEFAULT_PROGRESS_DIALOG_POSTPONE_TIME_MILLIS;
   }
 
   @Nullable
@@ -134,7 +136,7 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
     }
     catch (ProcessCanceledException e) {
       OperationCanceledDiffRequest request = new OperationCanceledDiffRequest(name);
-      request.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, Collections.<AnAction>singletonList(new ReloadRequestAction(provider)));
+      request.putUserData(DiffUserDataKeys.CONTEXT_ACTIONS, Collections.singletonList(new ReloadRequestAction(provider)));
       return request;
     }
     catch (DiffRequestProducerException e) {
@@ -154,6 +156,10 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
     myRequestCache.clear();
   }
 
+  protected void dropCaches() {
+    myRequestCache.clear();
+  }
+
   //
   // Actions
   //
@@ -167,7 +173,7 @@ public abstract class CacheDiffRequestProcessor<T> extends DiffRequestProcessor 
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myRequestCache.remove(myProducer);
       updateRequest(true);
     }

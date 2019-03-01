@@ -16,6 +16,7 @@
 package com.siyeh.ig.maturity;
 
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -33,7 +34,7 @@ import java.util.Set;
  */
 public class UseOfObsoleteDateTimeApiInspection extends BaseInspection {
 
-  private static final Set<String> dateTimeNames = new HashSet<>(
+  static final Set<String> dateTimeNames = new HashSet<>(
     Arrays.asList("java.util.Date", "java.util.Calendar", "java.util.GregorianCalendar", "java.util.TimeZone", "java.util.SimpleTimeZone"));
 
   @Nls
@@ -59,51 +60,39 @@ public class UseOfObsoleteDateTimeApiInspection extends BaseInspection {
     private Boolean newDateTimeApiPresent = null;
 
     @Override
-    public void visitTypeElement(PsiTypeElement typeElement) {
-      if (!isNewDateTimeApiPresent(typeElement)) {
+    public void visitReferenceElement(PsiJavaCodeReferenceElement referenceElement) {
+      if (!isNewDateTimeApiPresent(referenceElement)) {
         return;
       }
-      super.visitTypeElement(typeElement);
-      final PsiType type = typeElement.getType();
-      if (!isObsoleteDateTimeType(type)) {
+      if (PsiTreeUtil.getParentOfType(referenceElement, PsiImportStatementBase.class) != null) {
         return;
       }
-      final PsiElement parent = typeElement.getParent();
-      if (parent instanceof PsiMethod) {
-        final PsiMethod method = (PsiMethod)parent;
-        if (LibraryUtil.isOverrideOfLibraryMethod(method)) {
-          return;
-        }
-      }
-      else if (parent instanceof PsiParameter) {
-        final PsiParameter parameter = (PsiParameter)parent;
-        if (LibraryUtil.isOverrideOfLibraryMethodParameter(parameter)) {
-          return;
-        }
-      }
-      registerError(typeElement);
-    }
+      super.visitReferenceElement(referenceElement);
+      final PsiElement target = referenceElement.resolve();
+      if (!(target instanceof PsiClass)) return;
 
-    @Override
-    public void visitClass(PsiClass aClass) {
-      if (!isNewDateTimeApiPresent(aClass)) {
+      final PsiClass targetClass = (PsiClass)target;
+      if (!dateTimeNames.contains(targetClass.getQualifiedName())) {
         return;
       }
-      super.visitClass(aClass);
-      final PsiReferenceList extendsList = aClass.getExtendsList();
-      if (extendsList == null) {
-        return;
-      }
-      for (PsiJavaCodeReferenceElement referenceElement : extendsList.getReferenceElements()) {
-        final PsiElement target = referenceElement.resolve();
-        if (!(target instanceof PsiClass)) {
-          return;
+
+      PsiTypeElement typeElement = PsiTreeUtil.getTopmostParentOfType(referenceElement, PsiTypeElement.class);
+      if (typeElement != null) {
+        final PsiElement parent = typeElement.getParent();
+        if (parent instanceof PsiMethod) {
+          final PsiMethod method = (PsiMethod)parent;
+          if (LibraryUtil.isOverrideOfLibraryMethod(method)) {
+            return;
+          }
         }
-        final PsiClass extendsClass = (PsiClass)target;
-        if (isObsoleteDateTimeClass(extendsClass)) {
-          registerError(referenceElement);
+        else if (parent instanceof PsiParameter) {
+          final PsiParameter parameter = (PsiParameter)parent;
+          if (LibraryUtil.isOverrideOfLibraryMethodParameter(parameter)) {
+            return;
+          }
         }
       }
+      registerError(referenceElement);
     }
 
     private boolean isNewDateTimeApiPresent(PsiElement context) {
@@ -113,24 +102,5 @@ public class UseOfObsoleteDateTimeApiInspection extends BaseInspection {
       return newDateTimeApiPresent != Boolean.FALSE;
     }
 
-    private static boolean isObsoleteDateTimeType(PsiType type) {
-      if (type == null) {
-        return false;
-      }
-      final PsiType deepComponentType = type.getDeepComponentType();
-      if (!(deepComponentType instanceof PsiClassType)) {
-        return false;
-      }
-      final PsiClassType classType = (PsiClassType)deepComponentType;
-      final PsiClass aClass = classType.resolve();
-      return isObsoleteDateTimeClass(aClass);
-    }
-
-    private static boolean isObsoleteDateTimeClass(PsiClass aClass) {
-      if (aClass == null) {
-        return false;
-      }
-      return dateTimeNames.contains(aClass.getQualifiedName());
-    }
   }
 }

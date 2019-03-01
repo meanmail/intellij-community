@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs.impl.table;
 
 import com.intellij.ui.tabs.TabInfo;
@@ -113,7 +99,7 @@ public class TableLayout extends TabLayout {
   }
                                            
   public boolean isLastRow(TabInfo info) {
-    if (info == null) return false;
+    if (info == null || myLastTableLayout == null) return false;
     List<TableRow> rows = myLastTableLayout.table;
     if (rows.size() > 0) {
       for (TabInfo tabInfo : rows.get(rows.size() - 1).myColumns) {
@@ -171,13 +157,24 @@ public class TableLayout extends TabLayout {
     if (myTabs.getSelectedInfo() != null) {
       final JBTabsImpl.Toolbar selectedToolbar = myTabs.myInfo2Toolbar.get(myTabs.getSelectedInfo());
 
-      int xAddin = 0;
+      final int componentY = eachY + (myTabs.isEditorTabs() ? 0 : 2) - myTabs.getLayoutInsets().top;
       if (!myTabs.myHorizontalSide && selectedToolbar != null && !selectedToolbar.isEmpty()) {
-        xAddin = selectedToolbar.getPreferredSize().width + 1;
-        myTabs.layout(selectedToolbar, insets.left + 1, eachY + 1, selectedToolbar.getPreferredSize().width, myTabs.getHeight() - eachY - insets.bottom - 2);
+        final int toolbarWidth = selectedToolbar.getPreferredSize().width;
+        final int vSeparatorWidth = toolbarWidth > 0 ? 1 : 0;
+        if (myTabs.isSideComponentBefore()) {
+          Rectangle compRect = myTabs.layoutComp(toolbarWidth + vSeparatorWidth, componentY, myTabs.getSelectedInfo().getComponent(), 0, 0);
+          myTabs.layout(selectedToolbar, compRect.x - toolbarWidth - vSeparatorWidth, compRect.y, toolbarWidth, compRect.height);
+        }
+        else {
+          final int width = myTabs.getWidth() - toolbarWidth - vSeparatorWidth;
+          Rectangle compRect = myTabs.layoutComp(new Rectangle(0, componentY, width, myTabs.getHeight()),
+                                                 myTabs.getSelectedInfo().getComponent(), 0, 0);
+          myTabs.layout(selectedToolbar, compRect.x + compRect.width + vSeparatorWidth, compRect.y, toolbarWidth, compRect.height);
+        }
       }
-
-      myTabs.layoutComp(xAddin, eachY + (myTabs.isEditorTabs() ? 0 : 2) - myTabs.getLayoutInsets().top, myTabs.getSelectedInfo().getComponent(), 0, 0);
+      else {
+        myTabs.layoutComp(0, componentY, myTabs.getSelectedInfo().getComponent(), 0, 0);
+      }
     }
 
     myLastTableLayout = data;

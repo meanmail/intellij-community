@@ -16,6 +16,7 @@
 package com.intellij.execution;
 
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.util.lang.ClassPath;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.BufferedOutputStream;
@@ -23,11 +24,14 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
+import java.util.Random;
 import java.util.jar.Attributes;
 import java.util.jar.JarOutputStream;
 import java.util.jar.Manifest;
 
 public class CommandLineWrapperUtil {
+  public static final String CLASSPATH_JAR_FILE_NAME_PREFIX = ClassPath.CLASSPATH_JAR_FILE_NAME_PREFIX;
+
   @NotNull
   public static File createClasspathJarFile(Manifest manifest, List<String> pathList) throws IOException {
     return createClasspathJarFile(manifest, pathList, false);
@@ -47,7 +51,7 @@ public class CommandLineWrapperUtil {
     }
     manifest.getMainAttributes().put(Attributes.Name.CLASS_PATH, classPath.toString());
 
-    File jarFile = FileUtil.createTempFile("classpath", ".jar", true);
+    File jarFile = FileUtil.createTempFile(CLASSPATH_JAR_FILE_NAME_PREFIX + Math.abs(new Random().nextInt()), ".jar", true);
     new JarOutputStream(new BufferedOutputStream(new FileOutputStream(jarFile)), manifest).close();
     return jarFile;
   }

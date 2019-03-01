@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,17 +17,17 @@ package com.intellij.psi.tree;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayFactory;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Interface for token types returned from lexical analysis and for types
@@ -41,24 +41,22 @@ public class IElementType {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.tree.IElementType");
 
   public static final IElementType[] EMPTY_ARRAY = new IElementType[0];
+  public static final ArrayFactory<IElementType> ARRAY_FACTORY = count -> count == 0 ? EMPTY_ARRAY : new IElementType[count];
 
   /**
    * Default enumeration predicate which matches all token types.
    *
    * @see #enumerate(Predicate)
    */
-  public static final Predicate TRUE = new Predicate() {
-    @Override
-    public boolean matches(@NotNull IElementType type) {
-      return true;
-    }
-  };
+  public static final Predicate TRUE = type -> true;
 
   public static final short FIRST_TOKEN_INDEX = 1;
   private static final short MAX_INDEXED_TYPES = 15000;
 
   private static short size; // guarded by lock
-  private static volatile IElementType[] ourRegistry; // writes are guarded by lock
+  @NotNull
+  private static volatile IElementType[] ourRegistry = EMPTY_ARRAY; // writes are guarded by lock
+  @SuppressWarnings("RedundantStringConstructorCall")
   private static final Object lock = new String("registry lock");
 
   static {
@@ -68,6 +66,7 @@ public class IElementType {
     push(init);
   }
 
+  @NotNull
   static IElementType[] push(@NotNull IElementType[] types) {
     synchronized (lock) {
       IElementType[] oldRegistry = ourRegistry;
@@ -78,8 +77,10 @@ public class IElementType {
   }
 
   private final short myIndex;
-  @NotNull private final String myDebugName;
-  @NotNull private final Language myLanguage;
+  @NotNull
+  private final String myDebugName;
+  @NotNull
+  private final Language myLanguage;
 
   /**
    * Creates and registers a new element type for the specified language.
@@ -87,32 +88,32 @@ public class IElementType {
    * @param debugName the name of the element type, used for debugging purposes.
    * @param language  the language with which the element type is associated.
    */
-  public IElementType(@NotNull @NonNls String debugName, @Nullable Language language) {
+  public IElementType(@NotNull String debugName, @Nullable Language language) {
     this(debugName, language, true);
   }
 
-  private static final ArrayFactory<IElementType> FACTORY = new ArrayFactory<IElementType>() {
-    @NotNull
-    @Override
-    public IElementType[] create(int count) {
-      return new IElementType[count];
-    }
-  };
 
   /**
    * Allows to construct element types for some temporary purposes without registering them.
    * This is not default behavior and not recommended. A lot of other functionality (e.g. {@link TokenSet}) won't work with such element types.
    * Please use {@link #IElementType(String, Language)} unless you know what you're doing.
    */
-  protected IElementType(@NotNull @NonNls String debugName, @Nullable Language language, boolean register) {
+  @SuppressWarnings("AssignmentToStaticFieldFromInstanceMethod")
+  protected IElementType(@NotNull String debugName, @Nullable Language language, boolean register) {
     myDebugName = debugName;
     myLanguage = language == null ? Language.ANY : language;
     if (register) {
       synchronized (lock) {
         myIndex = size++;
-        LOG.assertTrue(myIndex < MAX_INDEXED_TYPES, "Too many element types registered. Out of (short) range.");
+        if (myIndex >= MAX_INDEXED_TYPES) {
+          Map<Language, List<IElementType>> byLang = Stream.of(ourRegistry).filter(i->i!=null).collect(Collectors.groupingBy(ie -> ie.myLanguage));
+          Map.Entry<Language, List<IElementType>> max = byLang.entrySet().stream().max(Comparator.comparingInt(e -> e.getValue().size())).get();
+          List<IElementType> types = max.getValue();
+          LOG.error("Too many element types registered. Out of (short) range. Most of element types (" + types.size() + ")" +
+                    " were registered for '" + max.getKey() + "': " + StringUtil.first(StringUtil.join(types, ", "), 300, true));
+        }
         IElementType[] newRegistry =
-          myIndex >= ourRegistry.length ? ArrayUtil.realloc(ourRegistry, ourRegistry.length * 3 / 2 + 1, FACTORY) : ourRegistry;
+          myIndex >= ourRegistry.length ? ArrayUtil.realloc(ourRegistry, ourRegistry.length * 3 / 2 + 1, ARRAY_FACTORY) : ourRegistry;
         newRegistry[myIndex] = this;
         ourRegistry = newRegistry;
       }
@@ -147,6 +148,7 @@ public class IElementType {
     return myIndex >= 0 ? myIndex : super.hashCode();
   }
 
+  @Override
   public String toString() {
     return myDebugName;
   }
@@ -193,6 +195,7 @@ public class IElementType {
    *
    * @see IElementType#enumerate(Predicate)
    */
+  @FunctionalInterface
   public interface Predicate {
     boolean matches(@NotNull IElementType type);
   }
@@ -212,18 +215,12 @@ public class IElementType {
    */
   @NotNull
   public static IElementType[] enumerate(@NotNull Predicate p) {
-    List<IElementType> matches = new ArrayList<IElementType>();
+    List<IElementType> matches = new ArrayList<>();
     for (IElementType value : ourRegistry) {
       if (value != null && p.matches(value)) {
         matches.add(value);
       }
     }
-    return matches.toArray(new IElementType[matches.size()]);
-  }
-
-  public short getRegisteredIndex() {
-    short myElementTypeIndex = getIndex();
-    assert myElementTypeIndex > 0 : "Element type must be registered: " + this;
-    return myElementTypeIndex;
+    return matches.toArray(new IElementType[0]);
   }
 }

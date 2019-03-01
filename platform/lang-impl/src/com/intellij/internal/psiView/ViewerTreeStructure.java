@@ -24,7 +24,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
-import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
@@ -52,13 +51,15 @@ public class ViewerTreeStructure extends AbstractTreeStructure {
     return myRootPsiElement;
   }
 
+  @NotNull
   @Override
   public Object getRootElement() {
     return myRootElement;
   }
 
+  @NotNull
   @Override
-  public Object[] getChildElements(final Object element) {
+  public Object[] getChildElements(@NotNull final Object element) {
     if (myRootElement == element) {
       if (myRootPsiElement == null) {
         return ArrayUtil.EMPTY_OBJECT_ARRAY;
@@ -92,12 +93,7 @@ public class ViewerTreeStructure extends AbstractTreeStructure {
           }
           final PsiElement psi = root.getPsi();
           if (psi instanceof PsiLanguageInjectionHost) {
-            InjectedLanguageUtil.enumerate(psi, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
-              @Override
-              public void visit(@NotNull PsiFile injectedPsi, @NotNull List<PsiLanguageInjectionHost.Shred> places) {
-                list.add(new Inject(psi, injectedPsi));
-              }
-            });
+            InjectedLanguageManager.getInstance(myProject).enumerate(psi, (injectedPsi, places) -> list.add(new Inject(psi, injectedPsi)));
           }
         }
         result = ArrayUtil.toObjectArray(list);
@@ -124,7 +120,7 @@ public class ViewerTreeStructure extends AbstractTreeStructure {
   }
 
   @Override
-  public Object getParentElement(Object element) {
+  public Object getParentElement(@NotNull Object element) {
     if (element == myRootElement) {
       return null;
     }
@@ -150,7 +146,7 @@ public class ViewerTreeStructure extends AbstractTreeStructure {
 
   @Override
   @NotNull
-  public NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+  public NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
     if (element == myRootElement) {
       return new NodeDescriptor(myProject, null) {
         @Override

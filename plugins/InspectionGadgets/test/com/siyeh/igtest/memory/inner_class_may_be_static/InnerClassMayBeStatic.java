@@ -71,7 +71,7 @@ class SomeBeanUnitTest {
   }
 }
 class Outer {
-  class <warning descr="Inner class 'A' may be 'static'">A</warning> { // may be static
+  class A { // may be static
     B b;
   }
   class B extends  A {} // may not be static
@@ -152,5 +152,29 @@ class Test2 {
     public Inner(T test) {
       this.test = test;
     }
+  }
+}
+
+class ImplicitConstructorReference {
+  class A {
+    C x = B::new;
+  }
+
+  interface C {
+    B m();
+  }
+
+  class <warning descr="Inner class 'B' may be 'static'">B</warning> {}
+}
+class Scratch
+{
+  public static void main(String[] args)
+  {
+    class Inner
+    {
+      class Nested // can't be static
+      {}
+    }
+
   }
 }

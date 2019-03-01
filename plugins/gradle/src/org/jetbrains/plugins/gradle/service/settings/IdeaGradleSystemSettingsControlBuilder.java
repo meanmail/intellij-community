@@ -40,7 +40,6 @@ import java.io.File;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/21/2015
  */
 public class IdeaGradleSystemSettingsControlBuilder implements GradleSystemSettingsControlBuilder {
 
@@ -186,12 +185,9 @@ public class IdeaGradleSystemSettingsControlBuilder implements GradleSystemSetti
 
     myServiceDirectoryLabel = new JBLabel(GradleBundle.message("gradle.settings.text.service.dir.path"));
     myServiceDirectoryPathField = new TextFieldWithBrowseButton();
-    myServiceDirectoryPathField.addBrowseFolderListener("",
-                                                        GradleBundle.message("gradle.settings.title.service.dir.path"),
-                                                        null,
+    myServiceDirectoryPathField.addBrowseFolderListener("", GradleBundle.message("gradle.settings.title.service.dir.path"), null,
                                                         new FileChooserDescriptor(false, true, false, false, false, false),
-                                                        TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT,
-                                                        false);
+                                                        TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT);
     myServiceDirectoryPathField.getTextField().getDocument().addDocumentListener(new DocumentListener() {
       @Override
       public void insertUpdate(DocumentEvent e) {

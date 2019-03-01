@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rebase;
 
 import com.intellij.dvcs.DvcsUtil;
@@ -24,6 +10,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.vcs.VcsNotifier;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.VirtualFile;
 import git4idea.GitUtil;
@@ -42,6 +29,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,10 +41,10 @@ public class GitRebaser {
 
   @NotNull private final Project myProject;
   @NotNull private final Git myGit;
-  @NotNull private GitVcs myVcs;
-  @NotNull private ProgressIndicator myProgressIndicator;
+  @NotNull private final GitVcs myVcs;
+  @NotNull private final ProgressIndicator myProgressIndicator;
 
-  @NotNull private List<GitRebaseUtils.CommitInfo> mySkippedCommits;
+  @NotNull private final List<GitRebaseUtils.CommitInfo> mySkippedCommits;
 
   public GitRebaser(@NotNull Project project, @NotNull Git git, @NotNull ProgressIndicator progressIndicator) {
     myProject = project;
@@ -85,24 +73,20 @@ public class GitRebaser {
     rebaseHandler.addLineListener(localChangesDetector);
     rebaseHandler.addLineListener(GitStandardProgressAnalyzer.createListener(myProgressIndicator));
 
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(myProject);
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, "Rebase")) {
       String oldText = myProgressIndicator.getText();
       myProgressIndicator.setText("Rebasing...");
       GitCommandResult result = myGit.runCommand(rebaseHandler);
       myProgressIndicator.setText(oldText);
       return result.success() ?
              GitUpdateResult.SUCCESS :
-             handleRebaseFailure(rebaseHandler, root, rebaseConflictDetector, untrackedFilesDetector, localChangesDetector);
+             handleRebaseFailure(rebaseHandler, root, result, rebaseConflictDetector, untrackedFilesDetector, localChangesDetector);
     }
     catch (ProcessCanceledException pce) {
       if (onCancel != null) {
         onCancel.run();
       }
       return GitUpdateResult.CANCEL;
-    }
-    finally {
-      DvcsUtil.workingTreeChangeFinished(myProject, token);
     }
   }
 
@@ -129,16 +113,12 @@ public class GitRebaser {
    * @return true if rebase successfully finished.
    */
   public boolean continueRebase(@NotNull Collection<VirtualFile> rebasingRoots) {
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(myProject);
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, "Rebase")) {
       boolean success = true;
       for (VirtualFile root : rebasingRoots) {
         success &= continueRebase(root);
       }
       return success;
-    }
-    finally {
-      DvcsUtil.workingTreeChangeFinished(myProject, token);
     }
   }
 
@@ -162,8 +142,8 @@ public class GitRebaser {
   protected void makeContinueRebaseInteractiveEditor(VirtualFile root, GitLineHandler rh) {
     GitRebaseEditorService rebaseEditorService = GitRebaseEditorService.getInstance();
     // TODO If interactive rebase with commit rewording was invoked, this should take the reworded message
-    GitRebaser.TrivialEditor editor = new GitRebaser.TrivialEditor(rebaseEditorService, myProject, root, rh);
-    Integer rebaseEditorNo = editor.getHandlerNo();
+    GitRebaser.TrivialEditor editor = new GitRebaser.TrivialEditor(rebaseEditorService, myProject, root);
+    UUID rebaseEditorNo = editor.getHandlerNo();
     rebaseEditorService.configureHandler(rh, rebaseEditorNo);
   }
 
@@ -187,7 +167,7 @@ public class GitRebaser {
    * NB: If there are merges in the unpushed commits being reordered, a conflict would happen. The calling code should probably
    * prohibit reordering merge commits.
    */
-  public boolean reoderCommitsIfNeeded(@NotNull final VirtualFile root, @NotNull String parentCommit, @NotNull List<String> olderCommits) throws VcsException {
+  public boolean reoderCommitsIfNeeded(@NotNull final VirtualFile root, @NotNull String parentCommit, @NotNull List<String> olderCommits) {
     List<String> allCommits = new ArrayList<>(); //TODO
     if (olderCommits.isEmpty() || olderCommits.size() == allCommits.size()) {
       LOG.info("Nothing to reorder. olderCommits: " + olderCommits + " allCommits: " + allCommits);
@@ -196,7 +176,7 @@ public class GitRebaser {
 
     final GitLineHandler h = new GitLineHandler(myProject, root, GitCommand.REBASE);
     h.setStdoutSuppressed(false);
-    Integer rebaseEditorNo = null;
+    UUID rebaseEditorNo = null;
     GitRebaseEditorService rebaseEditorService = GitRebaseEditorService.getInstance();
     try {
       h.addParameters("-i", "-m", "-v");
@@ -205,7 +185,7 @@ public class GitRebaser {
       final GitRebaseProblemDetector rebaseConflictDetector = new GitRebaseProblemDetector();
       h.addLineListener(rebaseConflictDetector);
 
-      final PushRebaseEditor pushRebaseEditor = new PushRebaseEditor(rebaseEditorService, root, olderCommits, false, h);
+      final PushRebaseEditor pushRebaseEditor = new PushRebaseEditor(rebaseEditorService, root, olderCommits, false);
       rebaseEditorNo = pushRebaseEditor.getHandlerNo();
       rebaseEditorService.configureHandler(h, rebaseEditorNo);
 
@@ -292,14 +272,14 @@ public class GitRebaser {
   }
 
   private void stageEverything(@NotNull VirtualFile root) throws VcsException {
-    GitSimpleHandler handler = new GitSimpleHandler(myProject, root, GitCommand.ADD);
+    GitLineHandler handler = new GitLineHandler(myProject, root, GitCommand.ADD);
     handler.setSilent(false);
     handler.addParameters("--update");
-    handler.run();
+    myGit.runCommand(handler).throwOnError();
   }
 
-  private static GitConflictResolver.Params makeParamsForRebaseConflict() {
-    return new GitConflictResolver.Params().
+  private GitConflictResolver.Params makeParamsForRebaseConflict() {
+    return new GitConflictResolver.Params(myProject).
       setReverse(true).
       setErrorNotificationTitle("Can't continue rebase").
       setMergeDescription("Merge conflicts detected. Resolve them before continuing rebase.").
@@ -310,13 +290,12 @@ public class GitRebaser {
   public static class TrivialEditor extends GitInteractiveRebaseEditorHandler{
     public TrivialEditor(@NotNull GitRebaseEditorService service,
                          @NotNull Project project,
-                         @NotNull VirtualFile root,
-                         @NotNull GitHandler handler) {
-      super(service, project, root, handler);
+                         @NotNull VirtualFile root) {
+      super(service, project, root);
     }
 
     @Override
-    public int editCommits(String path) {
+    public int editCommits(@NotNull String path) {
       return 0;
     }
   }
@@ -324,6 +303,7 @@ public class GitRebaser {
   @NotNull
   public GitUpdateResult handleRebaseFailure(@NotNull GitLineHandler handler,
                                              @NotNull VirtualFile root,
+                                             @NotNull GitCommandResult result,
                                              @NotNull GitRebaseProblemDetector rebaseConflictDetector,
                                              @NotNull GitMessageWithFilesDetector untrackedWouldBeOverwrittenDetector,
                                              @NotNull GitLocalChangesWouldBeOverwrittenDetector localChangesDetector) {
@@ -344,7 +324,7 @@ public class GitRebaser {
     }
     else {
       LOG.info("handleRebaseFailure error " + handler.errors());
-      GitUIUtil.notifyImportantError(myProject, "Rebase error", GitUIUtil.stringifyErrors(handler.errors()));
+      VcsNotifier.getInstance(myProject).notifyError("Rebase error", result.getErrorOutputAsHtmlString());
       return GitUpdateResult.ERROR;
     }
   }
@@ -354,13 +334,13 @@ public class GitRebaser {
     @NotNull private final VirtualFile myRoot;
 
     public ConflictResolver(@NotNull Project project, @NotNull Git git, @NotNull VirtualFile root, @NotNull GitRebaser rebaser) {
-      super(project, git, Collections.singleton(root), makeParams());
+      super(project, git, Collections.singleton(root), makeParams(project));
       myRebaser = rebaser;
       myRoot = root;
     }
 
-    private static Params makeParams() {
-      Params params = new Params();
+    private static Params makeParams(Project project) {
+      Params params = new Params(project);
       params.setReverse(true);
       params.setMergeDescription("Merge conflicts detected. Resolve them before continuing rebase.");
       params.setErrorNotificationTitle("Can't continue rebase");
@@ -368,11 +348,11 @@ public class GitRebaser {
       return params;
     }
 
-    @Override protected boolean proceedIfNothingToMerge() throws VcsException {
+    @Override protected boolean proceedIfNothingToMerge() {
       return myRebaser.continueRebase(myRoot);
     }
 
-    @Override protected boolean proceedAfterAllMerged() throws VcsException {
+    @Override protected boolean proceedAfterAllMerged() {
       return myRebaser.continueRebase(myRoot);
     }
   }
@@ -387,24 +367,24 @@ public class GitRebaser {
 
     /**
      * The constructor from fields that is expected to be
-     * accessed only from {@link git4idea.rebase.GitRebaseEditorService}.
+     * accessed only from {@link GitRebaseEditorService}.
      *
      * @param rebaseEditorService
      * @param root      the git repository root
      * @param commits   the reordered commits
      * @param hasMerges if true, the vcs root has merges
      */
-    public PushRebaseEditor(GitRebaseEditorService rebaseEditorService,
+    PushRebaseEditor(GitRebaseEditorService rebaseEditorService,
                             final VirtualFile root,
                             List<String> commits,
-                            boolean hasMerges,
-                            GitHandler h) {
-      super(rebaseEditorService, myProject, root, h);
+                            boolean hasMerges) {
+      super(rebaseEditorService, myProject, root);
       myCommits = commits;
       myHasMerges = hasMerges;
     }
 
-    public int editCommits(String path) {
+    @Override
+    public int editCommits(@NotNull String path) {
       if (!myRebaseEditorShown) {
         myRebaseEditorShown = true;
         if (myHasMerges) {
@@ -421,8 +401,7 @@ public class GitRebaser {
             String commit = s.spaceToken();
             pickLines.put(commit, "pick " + commit + " " + s.line());
           }
-          PrintWriter w = new PrintWriter(new OutputStreamWriter(new FileOutputStream(path), CharsetToolkit.UTF8));
-          try {
+          try (PrintWriter w = new PrintWriter(new OutputStreamWriter(new FileOutputStream(path), StandardCharsets.UTF_8))) {
             for (String commit : myCommits) {
               String key = pickLines.headMap(commit + "\u0000").lastKey();
               if (key == null || !commit.startsWith(key)) {
@@ -430,9 +409,6 @@ public class GitRebaser {
               }
               w.print(pickLines.get(key) + "\n");
             }
-          }
-          finally {
-            w.close();
           }
           return 0;
         }

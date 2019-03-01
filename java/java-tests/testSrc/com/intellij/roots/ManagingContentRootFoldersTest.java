@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,11 +46,19 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    if (myModel != null && myModel.isWritable()) {
-      myModel.dispose();
+    try {
+      if (myModel != null && myModel.isWritable()) {
+        myModel.dispose();
+      }
     }
-    myModel = null;
-    super.tearDown();
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      myModel = null;
+      entry = null;
+      super.tearDown();
+    }
   }
 
   private void initContentRoot() {
@@ -71,7 +79,7 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
     }
   }
 
-  public void testCreationOfSourceFolderWithFile() throws IOException {
+  public void testCreationOfSourceFolderWithFile() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
 
@@ -89,7 +97,7 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
   }
 
 
-  public void testCreationOfSourceFolderWithUrl() throws IOException {
+  public void testCreationOfSourceFolderWithUrl() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
     delete(dir);
@@ -103,7 +111,7 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
     assertEquals(url, f.getUrl());
   }
 
-  public void testCreationOfSourceFolderWithUrlWhenFileExists() throws IOException {
+  public void testCreationOfSourceFolderWithUrlWhenFileExists() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
 
@@ -112,7 +120,7 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
     assertEquals(url, f.getUrl());
   }
 
-  public void testCreationOfExcludedFolderWithFile() throws IOException {
+  public void testCreationOfExcludedFolderWithFile() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
 
@@ -130,11 +138,11 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
   }
 
   @NotNull
-  private VirtualFile createSrc() throws IOException {
+  private VirtualFile createSrc() {
     return createChildDirectory(root, "src");
   }
 
-  public void testCreationOfExcludedFolderWithUrl() throws IOException {
+  public void testCreationOfExcludedFolderWithUrl() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
     delete(dir);
@@ -148,7 +156,7 @@ public class ManagingContentRootFoldersTest extends IdeaTestCase {
     assertEquals(url, f.getUrl());
   }
 
-  public void testCreationOfExcludedFolderWithUrlWhenFileExists() throws IOException {
+  public void testCreationOfExcludedFolderWithUrlWhenFileExists() {
     VirtualFile dir = createSrc();
     String url = dir.getUrl();
 

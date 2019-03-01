@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,27 +15,52 @@
  */
 package com.siyeh.ig.performance;
 
-import com.intellij.psi.*;
+import com.intellij.codeInspection.CommonQuickFixBundle;
+import com.intellij.psi.CommonClassNames;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiLocalVariable;
+import com.intellij.psi.PsiType;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.TypeUtils;
+import com.siyeh.ig.InspectionGadgetsFix;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+
+import static com.intellij.util.ObjectUtils.tryCast;
 
 public class SetReplaceableByEnumSetInspection extends BaseInspection {
 
   @Override
   @NotNull
   public String getDisplayName() {
-    return InspectionGadgetsBundle.message(
-      "set.replaceable.by.enum.set.display.name");
+    return InspectionGadgetsBundle.message("set.replaceable.by.enum.set.display.name");
   }
 
   @Override
   @NotNull
   protected String buildErrorString(Object... infos) {
-    return InspectionGadgetsBundle.message(
-      "set.replaceable.by.enum.set.problem.descriptor");
+    return InspectionGadgetsBundle.message("set.replaceable.by.enum.set.problem.descriptor");
+  }
+
+  @Nullable
+  @Override
+  protected InspectionGadgetsFix buildFix(Object... infos) {
+    if (infos.length != 1) return null;
+    PsiLocalVariable localVariable = tryCast(infos[0], PsiLocalVariable.class);
+    if (localVariable == null) return null;
+    PsiType[] parameters = CollectionReplaceableByEnumCollectionVisitor.extractParameterType(localVariable, 1);
+    if (parameters == null) return null;
+    PsiType enumParameter = parameters[0];
+    PsiClass probablyEnum = PsiUtil.resolveClassInClassTypeOnly(enumParameter);
+    if (probablyEnum == null || !probablyEnum.isEnum()) return null;
+    String text = "java.util.EnumSet.noneOf(" + enumParameter.getCanonicalText() + ".class)";
+    return new ReplaceExpressionWithTextFix(text, CommonQuickFixBundle.message("fix.replace.with.x", "EnumSet"));
   }
 
   @Override
@@ -43,46 +68,31 @@ public class SetReplaceableByEnumSetInspection extends BaseInspection {
     return new SetReplaceableByEnumSetVisitor();
   }
 
-  private static class SetReplaceableByEnumSetVisitor
-    extends BaseInspectionVisitor {
+  private static class SetReplaceableByEnumSetVisitor extends CollectionReplaceableByEnumCollectionVisitor {
 
+    @NotNull
     @Override
-    public void visitNewExpression(
-      @NotNull PsiNewExpression expression) {
-      super.visitNewExpression(expression);
-      final PsiType type = expression.getType();
-      if (!(type instanceof PsiClassType)) {
-        return;
-      }
-      final PsiClassType classType = (PsiClassType)type;
-      if (!classType.hasParameters()) {
-        return;
-      }
-      final PsiType[] typeArguments = classType.getParameters();
-      if (typeArguments.length != 1) {
-        return;
-      }
-      final PsiType argumentType = typeArguments[0];
-      if (!(argumentType instanceof PsiClassType)) {
-        return;
-      }
-      if (!TypeUtils.expressionHasTypeOrSubtype(expression,
-                                                CommonClassNames.JAVA_UTIL_SET)) {
-        return;
-      }
-      if (TypeUtils.expressionHasTypeOrSubtype(expression,
-                                               "java.util.EnumSet")) {
-        return;
-      }
-      final PsiClassType argumentClassType = (PsiClassType)argumentType;
-      final PsiClass argumentClass = argumentClassType.resolve();
-      if (argumentClass == null) {
-        return;
-      }
-      if (!argumentClass.isEnum()) {
-        return;
-      }
-      registerNewExpressionError(expression);
+    protected List<String> getUnreplaceableCollectionNames() {
+      return Arrays.asList("java.util.concurrent.CopyOnWriteArraySet", "java.util.concurrent.ConcurrentSkipListSet",
+                           "java.util.LinkedHashSet");
+    }
+
+    @NotNull
+    @Override
+    protected List<String> getReplaceableCollectionNames() {
+      return Collections.singletonList(CommonClassNames.JAVA_UTIL_HASH_SET);
+    }
+
+    @NotNull
+    @Override
+    protected String getReplacementCollectionName() {
+      return "java.util.EnumSet";
+    }
+
+    @NotNull
+    @Override
+    protected String getBaseCollectionName() {
+      return CommonClassNames.JAVA_UTIL_SET;
     }
   }
 }

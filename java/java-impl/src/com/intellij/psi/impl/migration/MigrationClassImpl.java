@@ -49,6 +49,7 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
     myName = PsiNameHelper.getShortClassName(myQualifiedName);
   }
 
+  @Override
   public String toString() {
     return "MigrationClass:" + myQualifiedName;
   }
@@ -127,6 +128,7 @@ public class MigrationClassImpl extends LightElement implements PsiClass{
       .findClass(CommonClassNames.JAVA_LANG_OBJECT, GlobalSearchScope.allScope(myManager.getProject()));
   }
 
+  @NotNull
   @Override
   public PsiClass[] getInterfaces() {
     return PsiClass.EMPTY_ARRAY;

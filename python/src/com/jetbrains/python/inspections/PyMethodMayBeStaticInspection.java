@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
 
 
   private static class Visitor extends PyInspectionVisitor {
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -78,10 +78,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
       if (!attributes.isEmpty()) return;
       if (isTestElement(node)) return;
 
-      final PyStatementList statementList = node.getStatementList();
-      final PyStatement[] statements = statementList.getStatements();
-
-      if (statements.length == 1 && statements[0] instanceof PyPassStatement) return;
+      if (PyUtil.isEmptyFunction(node)) return;
 
       final PyParameter[] parameters = node.getParameterList().getParameters();
 
@@ -115,8 +112,10 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
 
         @Override
         public void visitPyReferenceExpression(PyReferenceExpression node) {
-          super.visitPyReferenceExpression(node);
-          if (selfName.equals(node.getName())) {
+          if (node.isQualified()) {
+            super.visitPyReferenceExpression(node);
+          }
+          else if (selfName.equals(node.getName())) {
             mayBeStatic[0] = false;
           }
         }
@@ -124,7 +123,7 @@ public class PyMethodMayBeStaticInspection extends PyInspection {
         @Override
         public void visitPyCallExpression(PyCallExpression node) {
           super.visitPyCallExpression(node);
-          if (LanguageLevel.forElement(node).isAtLeast(LanguageLevel.PYTHON30) && node.isCalleeText(PyNames.SUPER)) {
+          if (!LanguageLevel.forElement(node).isPython2() && node.isCalleeText(PyNames.SUPER)) {
             mayBeStatic[0] = false;
           }
         }

@@ -23,7 +23,6 @@ import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystem
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.Order;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
@@ -38,12 +37,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
 import java.awt.event.InputEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 10/15/2014
  */
 public abstract class ExternalSystemNode<T> extends SimpleNode implements Comparable<ExternalSystemNode> {
 
@@ -98,6 +96,7 @@ public abstract class ExternalSystemNode<T> extends SimpleNode implements Compar
     myParent = parent;
   }
 
+  @Override
   public boolean isAutoExpandNode() {
     SimpleNode parent = getParent();
     return parent != null && parent.getChildCount() == 1;
@@ -115,6 +114,12 @@ public abstract class ExternalSystemNode<T> extends SimpleNode implements Compar
   @Override
   public NodeDescriptor getParentDescriptor() {
     return myParent;
+  }
+
+  @Override
+  public String getName() {
+    String displayName = getExternalProjectsView().getDisplayName(myDataNode);
+    return displayName == null ? super.getName() : displayName;
   }
 
   protected ExternalProjectsView getExternalProjectsView() {
@@ -189,6 +194,7 @@ public abstract class ExternalSystemNode<T> extends SimpleNode implements Compar
     return ExternalProjectsStructure.DisplayKind.NEVER;
   }
 
+  @Override
   @NotNull
   public final ExternalSystemNode[] getChildren() {
     if (myChildren == null) {
@@ -212,7 +218,7 @@ public abstract class ExternalSystemNode<T> extends SimpleNode implements Compar
     for (ExternalSystemNode each : myChildrenList) {
       if (each.isVisible()) visibleNodes.add(each);
     }
-    return visibleNodes.toArray(new ExternalSystemNode[visibleNodes.size()]);
+    return visibleNodes.toArray(new ExternalSystemNode[0]);
   }
 
   public void cleanUpCache() {
@@ -283,7 +289,7 @@ public abstract class ExternalSystemNode<T> extends SimpleNode implements Compar
 
     sort(myChildrenList);
     final List<ExternalSystemNode<?>> visibleNodes = ContainerUtil.filter(myChildrenList, node -> node.isVisible());
-    myChildren = visibleNodes.toArray(new ExternalSystemNode[visibleNodes.size()]);
+    myChildren = visibleNodes.toArray(new ExternalSystemNode[0]);
     myExternalProjectsView.updateUpTo(this);
   }
 

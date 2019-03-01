@@ -15,8 +15,6 @@
  */
 package com.intellij.ui;
 
-import com.intellij.util.ui.UIUtil;
-
 import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.*;
@@ -40,12 +38,24 @@ public class TableCellState {
       myForeground = table.getForeground();
       myBackground = table.getBackground();
     }
+
     if (hasFocus) {
-      myCellBorder = UIUtil.getTableFocusCellHighlightBorder();
-      if (table.isCellEditable(row, column)) {
-        myForeground = UIUtil.getTableFocusCellForeground();
-        myBackground = UIUtil.getTableFocusCellBackground();
+      Border border = null;
+      if (isSelected) {
+        border = UIManager.getBorder("Table.focusSelectedCellHighlightBorder");
       }
+      if (border == null) {
+        border = UIManager.getBorder("Table.focusCellHighlightBorder");
+      }
+
+      myCellBorder = border;
+
+      //if (table.isCellEditable(row, column)) {
+      //  myForeground = UIUtil.getTableFocusCellForeground();
+      //  myBackground = UIUtil.getTableFocusCellBackground();
+      //}
+    } else {
+      myCellBorder = UIManager.getBorder("Table.cellNoFocusBorder");
     }
   }
 

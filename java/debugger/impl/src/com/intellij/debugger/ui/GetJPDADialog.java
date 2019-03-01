@@ -16,8 +16,6 @@
 
 /*
  * @author: Eugene Zhuravlev
- * Date: Oct 16, 2002
- * Time: 5:31:46 PM
  */
 package com.intellij.debugger.ui;
 
@@ -43,11 +41,13 @@ public class GetJPDADialog extends DialogWrapper {
     init();
   }
 
+  @Override
   @NotNull
   protected Action[] createActions() {
     return new Action[]{getOKAction()};
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     final JPanel _panel1 = new JPanel(new BorderLayout());
 

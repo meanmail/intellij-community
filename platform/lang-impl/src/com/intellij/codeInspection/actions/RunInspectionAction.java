@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.actions;
 
 import com.intellij.CommonBundle;
@@ -20,6 +6,7 @@ import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.AnalysisScopeBundle;
 import com.intellij.analysis.AnalysisUIOptions;
 import com.intellij.analysis.BaseAnalysisActionDialog;
+import com.intellij.analysis.dialog.ModelScopeItem;
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.InspectionProfile;
@@ -34,13 +21,15 @@ import com.intellij.ide.util.gotoByName.ChooseByNameFilter;
 import com.intellij.ide.util.gotoByName.ChooseByNamePopup;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.actionSystem.DataProvider;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
@@ -49,30 +38,37 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.SideBorder;
 import com.intellij.ui.TitledSeparator;
-import com.intellij.util.ui.JBDimension;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public class RunInspectionAction extends GotoActionBase {
+public class RunInspectionAction extends GotoActionBase implements DataProvider {
   private static final Logger LOGGER = Logger.getInstance(RunInspectionAction.class);
+  private final String myPredefinedText;
 
+  @SuppressWarnings("unused")
   public RunInspectionAction() {
+    this(null);
+  }
+
+  public RunInspectionAction(String predefinedText) {
+    myPredefinedText = predefinedText;
     getTemplatePresentation().setText(IdeBundle.message("goto.inspection.action.text"));
   }
 
   @Override
-  protected void gotoActionPerformed(final AnActionEvent e) {
+  protected void gotoActionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) return;
 
@@ -95,9 +91,15 @@ public class RunInspectionAction extends GotoActionBase {
       @Override
       public void elementChosen(ChooseByNamePopup popup, final Object element) {
         ApplicationManager.getApplication().invokeLater(
-          () -> runInspection(project, ((InspectionToolWrapper)element).getShortName(), virtualFile, psiElement, psiFile));
+          () -> runInspection(project, (((InspectionElement)element)).getToolWrapper().getShortName(), virtualFile, psiElement, psiFile));
       }
     }, false);
+  }
+
+  @Nullable
+  @Override
+  public Object getData(@NotNull String dataId) {
+    return PlatformDataKeys.PREDEFINED_TEXT.is(dataId) ? myPredefinedText : null;
   }
 
   public static void runInspection(final @NotNull Project project,
@@ -126,7 +128,7 @@ public class RunInspectionAction extends GotoActionBase {
         }
       }
       if (analysisScope == null && virtualFile != null) {
-        analysisScope = new AnalysisScope(project, Arrays.asList(virtualFile));
+        analysisScope = new AnalysisScope(project, Collections.singletonList(virtualFile));
       }
       if (analysisScope == null) {
         analysisScope = new AnalysisScope(project);
@@ -138,11 +140,11 @@ public class RunInspectionAction extends GotoActionBase {
     fileFilterPanel.init(options);
 
     final AnalysisScope initialAnalysisScope = analysisScope;
-    final BaseAnalysisActionDialog dialog = new BaseAnalysisActionDialog(
-      "Run '" + toolWrapper.getDisplayName() + "'",
-      AnalysisScopeBundle.message("analysis.scope.title", InspectionsBundle.message("inspection.action.noun")),
-      project, analysisScope, module != null ? module.getName() : null,
-      true, options, psiElement) {
+    List<ModelScopeItem> items = BaseAnalysisActionDialog.standardItems(project, analysisScope, module, psiElement);
+    final BaseAnalysisActionDialog dialog = new BaseAnalysisActionDialog("Run '" + toolWrapper.getDisplayName() + "'",
+                                                                         AnalysisScopeBundle.message("analysis.scope.title", InspectionsBundle
+                                                                           .message("inspection.action.noun")), project,
+                                                                         items, options, true) {
 
       private InspectionToolWrapper myUpdatedSettingsToolWrapper;
 
@@ -152,17 +154,19 @@ public class RunInspectionAction extends GotoActionBase {
         final JPanel fileFilter = fileFilterPanel.getPanel();
         if (toolWrapper.getTool().createOptionsPanel() != null) {
           JPanel additionPanel = new JPanel();
-          additionPanel.setLayout(new BoxLayout(additionPanel, BoxLayout.Y_AXIS));
-          additionPanel.add(fileFilter);
+          additionPanel.setLayout(new GridBagLayout());
+          additionPanel.add(fileFilter, new GridBagConstraints(0, 0, 1, 1, 0, 0, GridBagConstraints.NORTH, GridBagConstraints.BOTH, JBUI.emptyInsets(), 0, 0));
           myUpdatedSettingsToolWrapper = copyToolWithSettings(toolWrapper);//new InheritOptionsForToolPanel(toolWrapper.getShortName(), project);
-          additionPanel.add(new TitledSeparator(IdeBundle.message("goto.inspection.action.choose.inherit.settings.from")));
+          additionPanel.add(new TitledSeparator(IdeBundle.message("goto.inspection.action.choose.inherit.settings.from")), new GridBagConstraints(0, 1, 1, 1, 0, 0, GridBagConstraints.NORTH, GridBagConstraints.BOTH, JBUI.emptyInsets(), 0, 0));
           JComponent optionsPanel = myUpdatedSettingsToolWrapper.getTool().createOptionsPanel();
           LOGGER.assertTrue(optionsPanel != null);
+          GridBagConstraints constraints =
+            new GridBagConstraints(0, 2, 1, 1, 1, 1, GridBagConstraints.CENTER, GridBagConstraints.BOTH, JBUI.emptyInsets(), 0, 0);
           if (UIUtil.hasScrollPane(optionsPanel)) {
-            additionPanel.add(optionsPanel);
+            additionPanel.add(optionsPanel, constraints);
           }
           else {
-            additionPanel.add(ScrollPaneFactory.createScrollPane(optionsPanel, SideBorder.NONE));
+            additionPanel.add(ScrollPaneFactory.createScrollPane(optionsPanel, SideBorder.NONE), constraints);
           }
           return additionPanel;
         } else {
@@ -172,11 +176,8 @@ public class RunInspectionAction extends GotoActionBase {
 
       @NotNull
       @Override
-      public AnalysisScope getScope(@NotNull AnalysisUIOptions uiOptions,
-                                    @NotNull AnalysisScope defaultScope,
-                                    @NotNull Project project,
-                                    Module module) {
-        final AnalysisScope scope = super.getScope(uiOptions, defaultScope, project, module);
+      public AnalysisScope getScope(@NotNull AnalysisScope defaultScope) {
+        final AnalysisScope scope = super.getScope(defaultScope);
         final GlobalSearchScope filterScope = fileFilterPanel.getSearchScope();
         if (filterScope == null) {
           return scope;
@@ -186,7 +187,7 @@ public class RunInspectionAction extends GotoActionBase {
       }
 
       private AnalysisScope getScope() {
-        return getScope(options, initialAnalysisScope, project, module);
+        return getScope(initialAnalysisScope);
       }
 
       private InspectionToolWrapper getToolWrapper() {
@@ -205,7 +206,9 @@ public class RunInspectionAction extends GotoActionBase {
           }
           @Override
           public void actionPerformed(ActionEvent e) {
-            RunInspectionIntention.rerunInspection(getToolWrapper(), managerEx, getScope(), null);
+            AnalysisScope scope = getScope();
+            InspectionToolWrapper wrapper = getToolWrapper();
+            DumbService.getInstance(project).smartInvokeLater(() -> RunInspectionIntention.rerunInspection(wrapper, managerEx, scope, null));
             close(DialogWrapper.OK_EXIT_CODE);
           }
         });
@@ -215,7 +218,7 @@ public class RunInspectionAction extends GotoActionBase {
             public void actionPerformed(ActionEvent e) {
               InspectionToolWrapper wrapper = getToolWrapper();
               InspectionProfileImpl cleanupToolProfile = RunInspectionIntention.createProfile(wrapper, managerEx, null);
-              managerEx.createNewGlobalContext(false)
+              managerEx.createNewGlobalContext()
                 .codeCleanup(getScope(), cleanupToolProfile, "Cleanup by " + wrapper.getDisplayName(), null, false);
               close(DialogWrapper.OK_EXIT_CODE);
             }
@@ -225,7 +228,7 @@ public class RunInspectionAction extends GotoActionBase {
         if (SystemInfo.isMac) {
           Collections.reverse(actions);
         }
-        return actions.toArray(new Action[actions.size()]);
+        return actions.toArray(new Action[0]);
       }
     };
 
@@ -236,12 +239,7 @@ public class RunInspectionAction extends GotoActionBase {
     final Element options = new Element("copy");
     tool.getTool().writeSettings(options);
     final InspectionToolWrapper copiedTool = tool.createCopy();
-    try {
-      copiedTool.getTool().readSettings(options);
-    }
-    catch (InvalidDataException e) {
-      throw new RuntimeException(e);
-    }
+    copiedTool.getTool().readSettings(options);
     return copiedTool;
   }
 }

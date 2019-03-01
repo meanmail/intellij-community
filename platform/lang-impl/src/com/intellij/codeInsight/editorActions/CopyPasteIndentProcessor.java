@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
@@ -22,7 +9,6 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.actions.EditorActionUtil;
 import com.intellij.openapi.editor.impl.DocumentImpl;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
@@ -31,7 +17,6 @@ import com.intellij.openapi.util.text.CharFilter;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.datatransfer.DataFlavor;
@@ -58,7 +43,7 @@ public class CopyPasteIndentProcessor extends CopyPastePostProcessor<IndentTrans
   }
 
   private static boolean acceptFileType(FileType fileType) {
-    for(PreserveIndentOnPasteBean bean: Extensions.getExtensions(PreserveIndentOnPasteBean.EP_NAME)) {
+    for(PreserveIndentOnPasteBean bean: PreserveIndentOnPasteBean.EP_NAME.getExtensionList()) {
       if (fileType.getName().equals(bean.fileType)) {
         return true;
       }
@@ -79,10 +64,7 @@ public class CopyPasteIndentProcessor extends CopyPastePostProcessor<IndentTrans
         }
       }
     }
-    catch (UnsupportedFlavorException e) {
-      // do nothing
-    }
-    catch (IOException e) {
+    catch (UnsupportedFlavorException | IOException e) {
       // do nothing
     }
     return Collections.singletonList(indentData);
@@ -111,7 +93,7 @@ public class CopyPasteIndentProcessor extends CopyPastePostProcessor<IndentTrans
       @Override
       public void run() {
         final boolean useTabs =
-          CodeStyleSettingsManager.getSettings(project).useTabCharacter(psiFile.getFileType());
+          CodeStyle.getSettings(psiFile).useTabCharacter(psiFile.getFileType());
         CharFilter NOT_INDENT_FILTER = new CharFilter() {
           @Override
           public boolean accept(char ch) {
@@ -159,7 +141,7 @@ public class CopyPasteIndentProcessor extends CopyPastePostProcessor<IndentTrans
         int indent = toIndent - fromIndent;
         if (useTabs)       // indent is counted in tab units
           indent *=
-            CodeStyleSettingsManager.getSettings(project).getTabSize(psiFile.getFileType());
+            CodeStyle.getSettings(psiFile).getTabSize(psiFile.getFileType());
         // don't indent single-line text
         if (!StringUtil.startsWithWhitespace(pastedText) && !StringUtil.endsWithLineBreak(pastedText) &&
              !(StringUtil.splitByLines(pastedText).length > 1))

@@ -18,7 +18,6 @@ package com.jetbrains.python;
 import com.intellij.codeInsight.generation.surroundWith.SurroundWithHandler;
 import com.intellij.lang.folding.CustomFoldingSurroundDescriptor;
 import com.intellij.lang.surroundWith.Surrounder;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.fixtures.PyTestCase;
@@ -30,69 +29,72 @@ import com.jetbrains.python.refactoring.surround.surrounders.statements.PyWithWh
  * @author yole
  */
 public class PySurroundWithTest extends PyTestCase {
-  public void testSurroundWithIf() throws Exception {
+  public void testSurroundWithIf() {
     doTest(new PyWithIfSurrounder());
   }
 
-  public void testSurroundWithWhile() throws Exception {
+  public void testSurroundWithWhile() {
     doTest(new PyWithWhileSurrounder());
   }
 
-  public void testSurroundWithTryExcept() throws Exception {
+  public void testSurroundWithTryExcept() {
     doTest(new PyWithTryExceptSurrounder());
   }
 
   // PY-11357
-  public void testCustomFoldingRegionFirstMethod() throws Exception {
+  public void testCustomFoldingRegionFirstMethod() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
   // PY-11357
-  public void testCustomFoldingRegionLastMethod() throws Exception {
+  public void testCustomFoldingRegionLastMethod() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
   // PY-14261
-  public void testCustomFoldingRegionPreservesIndentation() throws Exception {
+  public void testCustomFoldingRegionPreservesIndentation() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
-  public void testCustomFoldingRegionSingleCharacter() throws Exception {
+  public void testCustomFoldingRegionSingleCharacter() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
-  public void testCustomFoldingRegionSingleStatementInFile() throws Exception {
+  public void testCustomFoldingRegionSingleStatementInFile() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
-  public void testCustomFoldingRegionIllegalSelection() throws Exception {
+  public void testCustomFoldingRegionIllegalSelection() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
-  public void testCustomFoldingRegionSeveralMethods() throws Exception {
+  public void testCustomFoldingRegionSeveralMethods() {
     doTestSurroundWithCustomFoldingRegion();
   }
 
-  private void doTestSurroundWithCustomFoldingRegion() throws Exception {
-    final Surrounder surrounder = ContainerUtil.find(CustomFoldingSurroundDescriptor.SURROUNDERS, new Condition<Surrounder>() {
-      @Override
-      public boolean value(Surrounder surrounder) {
-        return surrounder.getTemplateDescription().contains("<editor-fold");
-      }
-    });
+  private void doTestSurroundWithCustomFoldingRegion() {
+    final Surrounder surrounder = ContainerUtil.find(CustomFoldingSurroundDescriptor.SURROUNDERS,
+                                                     (Condition<Surrounder>)surrounder1 -> surrounder1.getTemplateDescription().contains("<editor-fold"));
     assertNotNull(surrounder);
     doTest(surrounder);
   }
 
-  private void doTest(final Surrounder surrounder) throws Exception {
+  public void testSurroundCommentAtStart() {
+    doTest(new PyWithIfSurrounder());
+  }
+
+  public void testSurroundCommentAtEnd() {
+    doTest(new PyWithIfSurrounder());
+  }
+
+  public void testSurroundNewline() {
+    doTest(new PyWithIfSurrounder());
+  }
+
+  private void doTest(final Surrounder surrounder) {
     String baseName = "/surround/" + getTestName(false);
     myFixture.configureByFile(baseName + ".py");
-    new WriteCommandAction.Simple(myFixture.getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        SurroundWithHandler.invoke(myFixture.getProject(), myFixture.getEditor(), myFixture.getFile(), surrounder);
-      }
-    }.execute();
+    SurroundWithHandler.invoke(myFixture.getProject(), myFixture.getEditor(), myFixture.getFile(), surrounder);
     myFixture.checkResultByFile(baseName + "_after.py", true);
   }
 }

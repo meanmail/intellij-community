@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.runners;
 
-import com.intellij.execution.DefaultExecutionResult;
 import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.ExecutionResult;
 import com.intellij.execution.Executor;
@@ -23,14 +8,13 @@ import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.execution.configurations.RunProfile;
 import com.intellij.execution.impl.ConsoleViewImpl;
 import com.intellij.execution.ui.*;
-import com.intellij.execution.ui.actions.CloseAction;
 import com.intellij.execution.ui.layout.PlaceInGrid;
 import com.intellij.icons.AllIcons;
-import com.intellij.ide.actions.ContextHelpAction;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.content.Content;
 import com.intellij.ui.content.tabs.PinToolwindowTabAction;
 import com.intellij.util.SmartList;
@@ -103,14 +87,13 @@ public class RunContentBuilder extends RunTab {
 
   @NotNull
   private static String getRunnerType(@Nullable ExecutionConsole console) {
-    String runnerType = JAVA_RUNNER;
     if (console instanceof ExecutionConsoleEx) {
       String id = ((ExecutionConsoleEx)console).getExecutionConsoleId();
       if (id != null) {
         return JAVA_RUNNER + '.' + id;
       }
     }
-    return runnerType;
+    return JAVA_RUNNER;
   }
 
   public static void buildConsoleUiDefault(RunnerLayoutUi ui, final ExecutionConsole console) {
@@ -146,10 +129,6 @@ public class RunContentBuilder extends RunTab {
 
 
     actionGroup.add(ActionManager.getInstance().getAction(IdeActions.ACTION_STOP_PROGRAM));
-    if (myExecutionResult instanceof DefaultExecutionResult) {
-      actionGroup.addAll(((DefaultExecutionResult)myExecutionResult).getAdditionalStopActions());
-    }
-
     actionGroup.addAll(myExecutionResult.getActions());
 
     for (AnAction anAction : myRunnerActions) {
@@ -165,9 +144,6 @@ public class RunContentBuilder extends RunTab {
     actionGroup.add(myUi.getOptions().getLayoutActions());
     actionGroup.addSeparator();
     actionGroup.add(PinToolwindowTabAction.getPinAction());
-    actionGroup.add(new CloseAction(myEnvironment.getExecutor(), contentDescriptor, myProject));
-    final String helpId = contentDescriptor.getHelpId();
-    actionGroup.add(new ContextHelpAction(helpId != null ? helpId : myEnvironment.getExecutor().getHelpId()));
     return actionGroup;
   }
 
@@ -203,7 +179,7 @@ public class RunContentBuilder extends RunTab {
     }
 
     @Override
-    public void contentAdded(Collection<ConsoleViewContentType> types) {
+    public void contentAdded(@NotNull Collection<ConsoleViewContentType> types) {
       if (myProject.isDisposed() || myUi.isDisposed())
         return;
       for (ConsoleViewContentType type : types) {
@@ -215,5 +191,9 @@ public class RunContentBuilder extends RunTab {
         }
       }
     }
+  }
+
+  public GlobalSearchScope getSearchScope() {
+    return mySearchScope;
   }
 }

@@ -16,7 +16,6 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.psi.*;
-import com.intellij.psi.search.searches.SuperMethodsSearch;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -50,7 +49,9 @@ public class CovariantEqualsInspection extends BaseInspection {
 
     @Override
     public void visitMethod(@NotNull PsiMethod method) {
-      // note: no call to super
+      if (method.hasModifierProperty(PsiModifier.STATIC)) {
+        return;
+      }
       final String name = method.getName();
       if (!HardcodedMethodConstants.EQUALS.equals(name)) {
         return;
@@ -60,6 +61,7 @@ public class CovariantEqualsInspection extends BaseInspection {
         return;
       }
       final PsiParameter[] parameters = parameterList.getParameters();
+      if (parameters.length != 1) return;
       final PsiType argType = parameters[0].getType();
       if (TypeUtils.isJavaLangObject(argType)) {
         return;
@@ -74,7 +76,7 @@ public class CovariantEqualsInspection extends BaseInspection {
           return;
         }
       }
-      if (SuperMethodsSearch.search(method, null, true, false).findFirst() != null) {
+      if (MethodUtils.hasSuper(method)) {
         return;
       }
       registerMethodError(method);

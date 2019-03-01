@@ -1,25 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.run
 
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.util.SystemInfo
-import com.intellij.openapi.util.io.FileUtil
 import com.intellij.util.EnvironmentUtil
-import com.intellij.util.LineSeparator
+import com.intellij.util.containers.ContainerUtil
+import com.jetbrains.python.packaging.PyCondaPackageService
+import com.jetbrains.python.sdk.PythonSdkType
 import java.io.File
 
 /**
@@ -30,62 +17,110 @@ import java.io.File
 class PyVirtualEnvReader(val virtualEnvSdkPath: String) : EnvironmentUtil.ShellEnvReader() {
   private val LOG = Logger.getInstance("#com.jetbrains.python.run.PyVirtualEnvReader")
 
-  val activate = findActivateScript(virtualEnvSdkPath, shell)
+  companion object {
+    private val virtualEnvVars = listOf("PATH", "PS1", "VIRTUAL_ENV", "PYTHONHOME", "PROMPT", "_OLD_VIRTUAL_PROMPT",
+                                        "_OLD_VIRTUAL_PYTHONHOME", "_OLD_VIRTUAL_PATH", "CONDA_SHLVL", "CONDA_PROMPT_MODIFIER",
+                                        "CONDA_PREFIX", "CONDA_DEFAULT_ENV")
 
-  override fun readShellEnv(): MutableMap<String, String> {
-    if (SystemInfo.isMac) {
-      return super.readShellEnv()
+    /**
+     * Filter envs that are setup by the activate script, adding other variables from the different shell can break the actual shell.
+     */
+    fun filterVirtualEnvVars(env: Map<String, String>): Map<String, String> {
+      return env.filterKeys { k -> virtualEnvVars.any { it.equals(k, true) } }
     }
-    else if (SystemInfo.isWindows) {
-      if (activate != null) {
-        return readVirtualEnvOnWindows(activate)
+  }
+
+  // in case of Conda we need to pass an argument to an activate script that tells which exactly environment to activate
+  val activate: Pair<String, String?>? = findActivateScript(virtualEnvSdkPath, shell)
+
+  override fun getShell(): String? {
+    if (File("/bin/bash").exists()) {
+      return "/bin/bash"
+    }
+    else
+      if (File("/bin/sh").exists()) {
+        return "/bin/sh"
       }
       else {
-        LOG.error("Can't find activate script for $virtualEnvSdkPath")
-        return mutableMapOf()
+        return super.getShell()
       }
-    }
-    else {
-      // TODO: Support shell env loading on Linux
-      return mutableMapOf()
-    }
   }
 
-  private fun readVirtualEnvOnWindows(activate: String): MutableMap<String, String> {
-    val activateFile = FileUtil.createTempFile("pycharm-virualenv-activate.", ".bat", false)
-    val envFile = FileUtil.createTempFile("pycharm-virualenv-envs.", ".tmp", false)
+  fun readPythonEnv(): MutableMap<String, String> {
     try {
-      FileUtil.copy(File(activate), activateFile);
-      FileUtil.appendToFile(activateFile, "\n\nset")
-      val command = listOf<String>(activateFile.path, ">", envFile.absolutePath)
-
-      return runProcessAndReadEnvs(command, envFile, LineSeparator.CRLF.separatorString)
+      if (SystemInfo.isUnix) {
+        // pass shell environment for correct virtualenv environment setup (virtualenv expects to be executed from the terminal)
+        return super.readShellEnv(EnvironmentUtil.getEnvironmentMap())
+      }
+      else {
+        if (activate != null) {
+          return readBatEnv(File(activate.first), ContainerUtil.createMaybeSingletonList(activate.second))
+        }
+        else {
+          LOG.error("Can't find activate script for $virtualEnvSdkPath")
+        }
+      }
+    } catch (e: Exception) {
+      LOG.warn("Couldn't read shell environment: ${e.message}")
     }
-    finally {
-      FileUtil.delete(activateFile)
-      FileUtil.delete(envFile)
-    }
 
+    return mutableMapOf()
   }
 
-  override fun getShellProcessCommand(): MutableList<String>? {
+  override fun getShellProcessCommand(): MutableList<String> {
     val shellPath = shell
 
     if (shellPath == null || !File(shellPath).canExecute()) {
       throw Exception("shell:" + shellPath)
     }
 
-    return if (activate != null) mutableListOf(shellPath, "--rcfile", activate, "-i")
+    return if (activate != null) {
+      val activateArg = if (activate.second != null) "'${activate.first}' '${activate.second}'" else "'${activate.first}'"
+      mutableListOf(shellPath, "-c", ". $activateArg")
+    }
     else super.getShellProcessCommand()
   }
 
 }
 
-fun findActivateScript(path: String?, shellPath: String?): String? {
-  val shellName = if (shellPath != null) File(shellPath).name else null
-  val activate = if (SystemInfo.isWindows) File(File(path).parentFile, "activate.bat")
-  else if (shellName == "fish" || shellName == "csh") File(File(path).parentFile, "activate." + shellName)
-  else File(File(path).parentFile, "activate")
+fun findActivateScript(sdkPath: String?, shellPath: String?): Pair<String, String?>? {
+  if (PythonSdkType.isVirtualEnv(sdkPath)) {
+    val shellName = if (shellPath != null) File(shellPath).name else null
+    val activate = findActivateInPath(sdkPath!!, shellName)
 
-  return if (activate.exists()) activate.absolutePath else null
+    return if (activate != null && activate.exists()) {
+        Pair(activate.absolutePath, null)
+    } else null
+  } else if (PythonSdkType.isConda(sdkPath)) {
+    val condaExecutable = PyCondaPackageService.getCondaExecutable(sdkPath!!)
+
+    if (condaExecutable != null) {
+      val activate = findActivateInPath(File(condaExecutable).path, null)
+
+      if (activate != null && activate.exists()) {
+        return Pair(activate.path, condaEnvFolder(sdkPath))
+      }
+    }
+  }
+
+  return null
+}
+
+private fun findActivateInPath(path: String, shellName: String?): File? {
+  return if (SystemInfo.isWindows) findActivateOnWindows(path)
+  else if (shellName == "fish" || shellName == "csh") File(File(path).parentFile, "activate.$shellName")
+  else File(File(path).parentFile, "activate")
+}
+
+private fun condaEnvFolder(path: String?) = if (SystemInfo.isWindows) File(path).parent else File(path).parentFile.parent
+
+private fun findActivateOnWindows(path: String?): File? {
+  for (location in arrayListOf("activate.bat", "Scripts/activate.bat")) {
+    val file = File(File(path).parentFile, location)
+    if (file.exists()) {
+      return file
+    }
+  }
+
+  return null
 }

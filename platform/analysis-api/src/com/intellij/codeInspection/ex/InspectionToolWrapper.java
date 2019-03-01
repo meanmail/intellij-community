@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -20,6 +6,7 @@ import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.GlobalInspectionContext;
 import com.intellij.codeInspection.InspectionEP;
 import com.intellij.codeInspection.InspectionProfileEntry;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
@@ -34,9 +21,10 @@ import java.net.URL;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 9/28/11
  */
 public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E extends InspectionEP> {
+  public static final InspectionToolWrapper[] EMPTY_ARRAY = new InspectionToolWrapper[0];
+
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInspection.ex.InspectionToolWrapper");
 
   protected T myTool;
@@ -57,7 +45,7 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
   }
 
   /** Copy ctor */
-  protected InspectionToolWrapper(@NotNull InspectionToolWrapper<T, E> other) {
+  protected InspectionToolWrapper(@NotNull InspectionToolWrapper<T, ? extends E> other) {
     myEP = other.myEP;
     // we need to create a copy for buffering
     if (other.myTool == null) {
@@ -82,7 +70,7 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
       //noinspection unchecked
       myTool = tool = (T)myEP.instantiateTool();
       if (!tool.getShortName().equals(myEP.getShortName())) {
-        LOG.error("Short name not matched for " + tool.getClass() + ": getShortName() = " + tool.getShortName() + "; ep.shortName = " + myEP.getShortName());
+        LOG.error(new PluginException("Short name not matched for " + tool.getClass() + ": getShortName() = #" + tool.getShortName() + "; ep.shortName = #" + myEP.getShortName(), myEP.getPluginId()));
       }
     }
     return tool;
@@ -182,23 +170,23 @@ public abstract class InspectionToolWrapper<T extends InspectionProfileEntry, E 
     return getTool().loadDescription();
   }
 
-  protected URL getDescriptionUrl() {
+  private URL getDescriptionUrl() {
     Application app = ApplicationManager.getApplication();
     if (myEP == null || app.isUnitTestMode() || app.isHeadlessEnvironment()) {
       return superGetDescriptionUrl();
     }
     String fileName = getDescriptionFileName();
-    return myEP.getLoaderForClass().getResource("/inspectionDescriptions/" + fileName);
+    return myEP.getLoaderForClass().getResource("inspectionDescriptions/" + fileName);
   }
 
   @Nullable
-  protected URL superGetDescriptionUrl() {
+  private URL superGetDescriptionUrl() {
     final String fileName = getDescriptionFileName();
-    return ResourceUtil.getResource(getDescriptionContextClass(), "/inspectionDescriptions", fileName);
+    return ResourceUtil.getResource(getDescriptionContextClass(), "inspectionDescriptions", fileName);
   }
 
   @NotNull
-  public String getDescriptionFileName() {
+  private String getDescriptionFileName() {
     return getShortName() + ".html";
   }
 

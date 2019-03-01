@@ -27,6 +27,7 @@ import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.model.MavenArchetype;
+import org.jetbrains.idea.maven.model.MavenConstants;
 import org.jetbrains.idea.maven.model.MavenId;
 import org.jetbrains.idea.maven.navigator.SelectMavenProjectDialog;
 import org.jetbrains.idea.maven.project.MavenProject;
@@ -93,6 +94,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   private void initComponents() {
 
     mySelectAggregator.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myAggregator = doSelectProject(myAggregator);
         updateComponents();
@@ -100,6 +102,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     });
 
     mySelectParent.addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myParent = doSelectProject(myParent);
         updateComponents();
@@ -107,6 +110,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     });
 
     ActionListener updatingListener = new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         updateComponents();
       }
@@ -180,6 +184,7 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
     props.setValue(key, value);
   }
 
+  @Override
   public JComponent getComponent() {
     return myMainPanel;
   }
@@ -204,7 +209,8 @@ public class MavenModuleWizardStep extends ModuleWizardStep {
   public MavenProject findPotentialParentProject(Project project) {
     if (!MavenProjectsManager.getInstance(project).isMavenizedProject()) return null;
 
-    VirtualFile parentPom = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myContext.getProjectFileDirectory(), "pom.xml"));
+    VirtualFile parentPom = LocalFileSystem.getInstance().refreshAndFindFileByIoFile(new File(myContext.getProjectFileDirectory(),
+                                                                                              MavenConstants.POM_XML));
     if (parentPom == null) return null;
 
     return MavenProjectsManager.getInstance(project).findProject(parentPom);

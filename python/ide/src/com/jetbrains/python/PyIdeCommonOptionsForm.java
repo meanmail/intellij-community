@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
+import com.google.common.collect.Lists;
 import com.intellij.application.options.ModulesComboBox;
 import com.intellij.execution.configuration.EnvironmentVariablesComponent;
 import com.intellij.execution.util.PathMappingsComponent;
@@ -25,7 +12,6 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkModel;
-import com.intellij.openapi.projectRoots.impl.SdkListCellRenderer;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.ui.ComboBox;
@@ -42,8 +28,10 @@ import com.jetbrains.python.configuration.PyConfigurableInterpreterList;
 import com.jetbrains.python.configuration.PyConfigureInterpretersLinkPanel;
 import com.jetbrains.python.run.AbstractPyCommonOptionsForm;
 import com.jetbrains.python.run.PyCommonOptionsFormData;
+import com.jetbrains.python.sdk.PySdkListCellRenderer;
 import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonSdkType;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -52,6 +40,7 @@ import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * @author yole
@@ -76,7 +65,9 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
   private final Project myProject;
   private List<Sdk> myPythonSdks;
   private boolean myInterpreterRemote;
-  private final HideableDecorator myDecorator;
+
+  private final List<Consumer<Boolean>> myRemoteInterpreterModeListeners = Lists.newArrayList();
+
 
   public PyIdeCommonOptionsForm(PyCommonOptionsFormData data) {
     myProject = data.getProject();
@@ -116,16 +107,16 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
     }
 
     addInterpreterComboBoxActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent event) {
-        updateRemoteInterpreterMode();
-      }
-    }
+                                           @Override
+                                           public void actionPerformed(ActionEvent event) {
+                                             updateRemoteInterpreterMode();
+                                           }
+                                         }
     );
 
     updateRemoteInterpreterMode();
 
-    myDecorator = new HideableDecorator(myHideablePanel, "Environment", false) {
+    final HideableDecorator decorator = new HideableDecorator(myHideablePanel, "Environment", false) {
       @Override
       protected void on() {
         super.on();
@@ -137,12 +128,18 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
         super.off();
         storeState();
       }
+
       private void storeState() {
         PropertiesComponent.getInstance().setValue(EXPAND_PROPERTY_KEY, String.valueOf(isExpanded()), "true");
       }
     };
-    myDecorator.setOn(PropertiesComponent.getInstance().getBoolean(EXPAND_PROPERTY_KEY, true));
-    myDecorator.setContentComponent(myMainPanel);
+    decorator.setOn(PropertiesComponent.getInstance().getBoolean(EXPAND_PROPERTY_KEY, true));
+    decorator.setContentComponent(myMainPanel);
+
+
+    addInterpreterModeListener((b) ->
+                                 myPathMappingsComponent.setVisible(b)
+    );
   }
 
   @Override
@@ -170,18 +167,22 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
     myPythonInterpreterJBLabel.setAnchor(anchor);
   }
 
+  @Override
   public String getInterpreterOptions() {
     return myInterpreterOptionsTextField.getText().trim();
   }
 
+  @Override
   public void setInterpreterOptions(String interpreterOptions) {
     myInterpreterOptionsTextField.setText(interpreterOptions);
   }
 
+  @Override
   public String getWorkingDirectory() {
     return FileUtil.toSystemIndependentName(myWorkingDirectoryTextField.getText().trim());
   }
 
+  @Override
   public void setWorkingDirectory(String workingDirectory) {
     myWorkingDirectoryTextField.setText(workingDirectory == null ? "" : FileUtil.toSystemDependentName(workingDirectory));
   }
@@ -219,8 +220,9 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
 
   private void updateDefaultInterpreter(Module module) {
     final Sdk sdk = module == null ? null : ModuleRootManager.getInstance(module).getSdk();
-    String projectSdkName = sdk == null ? "none" : sdk.getName();
-    myInterpreterComboBox.setRenderer(new SdkListCellRenderer("Project Default (" + projectSdkName + ")"));
+    myInterpreterComboBox.setRenderer(
+      sdk == null ? new PySdkListCellRenderer(null) : new PySdkListCellRenderer(null, "Project Default (" + sdk.getName() + ")", sdk)
+    );
   }
 
   public void updateSdkList(boolean preserveSelection, PyConfigurableInterpreterList myInterpreterList) {
@@ -243,18 +245,22 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
     myInterpreterComboBox.setSelectedItem(useModuleSdk ? null : PythonSdkType.findSdkByPath(myPythonSdks, mySelectedSdkHome));
   }
 
+  @Override
   public boolean isPassParentEnvs() {
     return myEnvsComponent.isPassParentEnvs();
   }
 
+  @Override
   public void setPassParentEnvs(boolean passParentEnvs) {
     myEnvsComponent.setPassParentEnvs(passParentEnvs);
   }
 
+  @Override
   public Map<String, String> getEnvs() {
     return myEnvsComponent.getEnvs();
   }
 
+  @Override
   public void setEnvs(Map<String, String> envs) {
     myEnvsComponent.setEnvs(envs);
   }
@@ -301,11 +307,13 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
 
   private void setRemoteInterpreterMode(boolean isInterpreterRemote) {
     myInterpreterRemote = isInterpreterRemote;
-    myPathMappingsComponent.setVisible(isInterpreterRemote);
   }
 
   private void updateRemoteInterpreterMode() {
     setRemoteInterpreterMode(PySdkUtil.isRemote(getSdkSelected()));
+    for (Consumer<Boolean> f : myRemoteInterpreterModeListeners) {
+      f.accept(myInterpreterRemote);
+    }
   }
 
   @Nullable
@@ -333,9 +341,9 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
 
   private static class MyListener implements SdkModel.Listener {
     private final PyIdeCommonOptionsForm myForm;
-    private PyConfigurableInterpreterList myInterpreterList;
+    private final PyConfigurableInterpreterList myInterpreterList;
 
-    public MyListener(PyIdeCommonOptionsForm form, PyConfigurableInterpreterList interpreterList) {
+    MyListener(PyIdeCommonOptionsForm form, PyConfigurableInterpreterList interpreterList) {
       myForm = form;
       myInterpreterList = interpreterList;
     }
@@ -346,28 +354,29 @@ public class PyIdeCommonOptionsForm implements AbstractPyCommonOptionsForm {
     }
 
     @Override
-    public void sdkAdded(Sdk sdk) {
+    public void sdkAdded(@NotNull Sdk sdk) {
       update();
     }
 
     @Override
-    public void beforeSdkRemove(Sdk sdk) {
+    public void beforeSdkRemove(@NotNull Sdk sdk) {
       update();
     }
 
     @Override
-    public void sdkChanged(Sdk sdk, String previousName) {
+    public void sdkChanged(@NotNull Sdk sdk, String previousName) {
       update();
-    }
-
-    @Override
-    public void sdkHomeSelected(Sdk sdk, String newSdkHome) {
     }
   }
 
   @Override
   public String getModuleName() {
     Module module = getModule();
-    return module != null? module.getName() : null;
+    return module != null ? module.getName() : null;
+  }
+
+  @Override
+  public void addInterpreterModeListener(Consumer<Boolean> listener) {
+    myRemoteInterpreterModeListeners.add(listener);
   }
 }

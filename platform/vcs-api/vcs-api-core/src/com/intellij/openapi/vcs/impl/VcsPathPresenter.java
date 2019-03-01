@@ -15,17 +15,18 @@
  */
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
 public abstract class VcsPathPresenter {
   public static VcsPathPresenter getInstance(Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetService(project, VcsPathPresenter.class);
+    return ServiceManager.getService(project, VcsPathPresenter.class);
   }
 
   /**
@@ -36,7 +37,9 @@ public abstract class VcsPathPresenter {
    * @param file the file for which the path is requested.
    * @return the relative path.
    */
+  @NotNull
   public abstract String getPresentableRelativePathFor(VirtualFile file);
 
+  @NotNull
   public abstract String getPresentableRelativePath(ContentRevision fromRevision, ContentRevision toRevision);
 }

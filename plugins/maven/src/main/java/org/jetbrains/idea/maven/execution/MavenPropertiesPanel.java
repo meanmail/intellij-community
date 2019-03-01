@@ -30,7 +30,7 @@ import java.util.Map;
 * @author Sergey Evdokimov
 */
 public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String>> {
-  private Map<String, String> myAvailableProperties;
+  private final Map<String, String> myAvailableProperties;
 
   public MavenPropertiesPanel(Map<String, String> availableProperties) {
     super(new MyPropertiesTableModel(), new ArrayList<>(), null);
@@ -38,14 +38,17 @@ public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String
     myAvailableProperties = availableProperties;
   }
 
+  @Override
   protected Pair<String, String> addItem() {
     return doAddOrEdit(null);
   }
 
+  @Override
   protected boolean removeItem(Pair<String, String> o) {
     return true;
   }
 
+  @Override
   protected Pair<String, String> editItem(@NotNull Pair<String, String> o) {
     return doAddOrEdit(o);
   }
@@ -76,14 +79,17 @@ public class MavenPropertiesPanel extends AddEditRemovePanel<Pair<String, String
   }
 
   private static class MyPropertiesTableModel extends AddEditRemovePanel.TableModel<Pair<String, String>> {
+    @Override
     public int getColumnCount() {
       return 2;
     }
 
+    @Override
     public String getColumnName(int c) {
       return c == 0 ? "Name" : "Value";
     }
 
+    @Override
     public Object getField(Pair<String, String> o, int c) {
       return c == 0 ? o.getFirst() : o.getSecond();
     }

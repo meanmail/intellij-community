@@ -1,35 +1,33 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.concurrency
 
-import com.intellij.util.containers.ContainerUtil
-import com.intellij.util.lang.CompoundRuntimeException
+import com.intellij.concurrency.JobScheduler
+import com.intellij.testFramework.assertConcurrent
+import com.intellij.testFramework.assertConcurrentPromises
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.Test
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.Executors
+import java.util.*
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.fail
 
 class AsyncPromiseTest {
   @Test
   fun done() {
     doHandlerTest(false)
+  }
+
+  @Test
+  fun cancel() {
+    val promise = AsyncPromise<Boolean>()
+    assertThat(promise.isCancelled).isFalse()
+    assertThat(promise.cancel(true)).isTrue()
+    assertThat(promise.isCancelled).isTrue()
+    assertThat(promise.cancel(true)).isFalse()
+    assertThat(promise.isCancelled).isTrue()
+    assertThat(promise.blockingGet(1)).isNull()
   }
 
   @Test
@@ -41,24 +39,36 @@ class AsyncPromiseTest {
   fun state() {
     val promise = AsyncPromise<String>()
     val count = AtomicInteger()
+    val log = StringBuffer()
 
-    val r = {
-      promise.done { count.incrementAndGet() }
+    class Incrementer(val descr:String) : ()->Promise<String> {
+      override fun toString(): String {
+        return descr
+      }
+
+      override fun invoke(): Promise<String> {
+        return promise.onSuccess { count.incrementAndGet(); log.append("\n" + this + " " + System.identityHashCode(this)) }
+      }
     }
 
-    val s = {
+    val setResultHandler: () -> Promise<String> = {
       promise.setResult("test")
+      promise
     }
 
     val numThreads = 30
-    assertConcurrent(*Array(numThreads, {
-      if (it and 1 === 0) r else s
-    }))
+    val array = Array(numThreads) {
+      if ((it and 1) == 0) Incrementer("handler $it") else setResultHandler
+    }
+    assertConcurrentPromises(*array)
 
+    if (count.get() != (numThreads / 2)) {
+      fail("count: "+count +" "+ log.toString()+"\n---Array:\n"+ Arrays.toString(array))
+    }
     assertThat(count.get()).isEqualTo(numThreads / 2)
     assertThat(promise.get()).isEqualTo("test")
 
-    r()
+    Incrementer("extra").invoke()
     assertThat(count.get()).isEqualTo((numThreads / 2) + 1)
   }
 
@@ -66,39 +76,52 @@ class AsyncPromiseTest {
   fun blockingGet() {
     val promise = AsyncPromise<String>()
     assertConcurrent(
-        { assertThat(promise.blockingGet(100)).isEqualTo("test") },
-        {
-          Thread.sleep(80)
-          promise.setResult("test")
-        })
+      { assertThat(promise.blockingGet(1000)).isEqualTo("test") },
+      {
+        Thread.sleep(100)
+        promise.setResult("test")
+      })
+  }
+
+  @Test
+  fun `get from Future`() {
+    val promise = AsyncPromise<String>()
+    assertConcurrent(
+      { assertThat(promise.get(1000, TimeUnit.MILLISECONDS)).isEqualTo("test") },
+      {
+        Thread.sleep(100)
+        promise.setResult("test")
+      })
+  }
+
+  @Test
+  fun `ignore errors`() {
+    val a = resolvedPromise("foo")
+    val b = rejectedPromise<String>()
+    assertThat(listOf(a, b).collectResults(ignoreErrors = true).blockingGet(100, TimeUnit.MILLISECONDS)).containsExactly("foo")
   }
 
   @Test
   fun blockingGet2() {
     val promise = AsyncPromise<String>()
-    assertConcurrent(
-        { assertThatThrownBy { promise.blockingGet(100) }.isInstanceOf(TimeoutException::class.java) },
-        {
-          Thread.sleep(200)
-          promise.setResult("test")
-        })
+    assertThatThrownBy { promise.blockingGet(10) }.isInstanceOf(TimeoutException::class.java)
   }
 
-  fun doHandlerTest(reject: Boolean) {
+  private fun doHandlerTest(reject: Boolean) {
     val promise = AsyncPromise<String>()
     val count = AtomicInteger()
 
     val r = {
       if (reject) {
-        promise.rejected { count.incrementAndGet() }
+        promise.onError { count.incrementAndGet() }
       }
       else {
-        promise.done { count.incrementAndGet() }
+        promise.onSuccess { count.incrementAndGet() }
       }
     }
 
     val numThreads = 30
-    assertConcurrent(*Array(numThreads, { r }))
+    assertConcurrent(*Array(numThreads) { r })
 
     if (reject) {
       promise.setError("test")
@@ -111,44 +134,80 @@ class AsyncPromiseTest {
     if (!reject) {
       assertThat(promise.get()).isEqualTo("test")
     }
+    assertThat(promise.isDone).isTrue()
+    assertThat(promise.isCancelled).isFalse()
 
     r()
     assertThat(count.get()).isEqualTo(numThreads + 1)
   }
-}
 
-fun assertConcurrent(vararg runnables: () -> Any?, maxTimeoutSeconds: Int = 5) {
-  val numThreads = runnables.size
-  val exceptions = ContainerUtil.createLockFreeCopyOnWriteList<Throwable>()
-  val threadPool = Executors.newFixedThreadPool(numThreads)
-  try {
-    val allExecutorThreadsReady = CountDownLatch(numThreads)
-    val afterInitBlocker = CountDownLatch(1)
-    val allDone = CountDownLatch(numThreads)
-    for (submittedTestRunnable in runnables) {
-      threadPool.submit {
-        allExecutorThreadsReady.countDown()
-        try {
-          afterInitBlocker.await()
-          submittedTestRunnable()
-        }
-        catch (e: Throwable) {
-          exceptions.add(e)
-        }
-        finally {
-          allDone.countDown()
-        }
-      }
+  @Test
+  fun `collectResults must return array with the same order`() {
+    val promise0 = AsyncPromise<String>()
+    val promise1 = AsyncPromise<String>()
+    val f0 = JobScheduler.getScheduler().schedule({ promise0.setResult("0") }, 1, TimeUnit.SECONDS)
+    val f1 = JobScheduler.getScheduler().schedule({ promise1.setResult("1") }, 1, TimeUnit.MILLISECONDS)
+    val list = listOf(promise0, promise1)
+    val results = list.collectResults()
+    val l = results.blockingGet(1, TimeUnit.MINUTES)
+    assertThat(l).containsExactly("0", "1")
+    f0.get()
+    f1.get()
+  }
+
+  @Test
+  fun `collectResults must return array with the same order - ignore errors`() {
+    val promiseList = listOf<AsyncPromise<String>>(AsyncPromise(), AsyncPromise(), AsyncPromise())
+    val toExecute = listOf(
+      JobScheduler.getScheduler().schedule({ promiseList[0].setResult("0") }, 5, TimeUnit.MILLISECONDS),
+      JobScheduler.getScheduler().schedule({ promiseList[1].setError("boo") }, 1, TimeUnit.MILLISECONDS),
+      JobScheduler.getScheduler().schedule({ promiseList[2].setResult("1") }, 2, TimeUnit.MILLISECONDS)
+    )
+    val results = promiseList.collectResults(ignoreErrors = true)
+    val l = results.blockingGet(15, TimeUnit.SECONDS)
+    assertThat(l).containsExactly("0", "1")
+    toExecute.forEach { it.get() }
+  }
+
+  @Test
+  fun `do not swallow exceptions`() {
+    val promise = AsyncPromise<String>()
+    val error = Error("boo")
+    assertThatThrownBy {
+      promise.setError(error)
     }
+      .isInstanceOf(AssertionError::class.java)
+      .hasCause(error)
+  }
 
-    // wait until all threads are ready
-    assertThat(allExecutorThreadsReady.await((runnables.size * 10).toLong(), TimeUnit.MILLISECONDS)).isTrue()
-    // start all test runners
-    afterInitBlocker.countDown()
-    assertThat(allDone.await(maxTimeoutSeconds.toLong(), TimeUnit.SECONDS)).isTrue()
+  @Test
+  fun `do not swallow exceptions - do not log CancellationException`() {
+    val promise = AsyncPromise<String>()
+    promise.cancel()
+    assertThat(promise.state).isEqualTo(Promise.State.REJECTED)
   }
-  finally {
-    threadPool.shutdownNow()
+
+  // this case quite tested by other tests, but better to have special test
+  @Test
+  fun `do not swallow exceptions - error handler added`() {
+    val promise = AsyncPromise<String>()
+    val error = Error("boo")
+    promise.onError {
+      // ignore
+    }
+    promise.setError(error)
   }
-  CompoundRuntimeException.throwIfNotEmpty(exceptions)
+
+  // this case quite tested by other tests, but better to have special test
+  @Test
+  fun `do not swallow exceptions - error handler added to nested`() {
+    val promise = AsyncPromise<String>()
+    val error = Error("boo")
+    promise
+      .onSuccess { }
+      .onError {
+        // ignore
+      }
+    promise.setError(error)
+  }
 }

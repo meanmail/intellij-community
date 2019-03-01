@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,9 +16,10 @@
 package com.intellij.psi.impl.source;
 
 import com.intellij.ide.highlighter.JavaFileType;
+import com.intellij.lang.java.JavaParserDefinition;
 import com.intellij.openapi.fileTypes.FileType;
-import com.intellij.psi.*;
-import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
+import com.intellij.psi.FileViewProvider;
+import com.intellij.psi.PsiJavaModule;
 import com.intellij.psi.impl.java.stubs.PsiJavaFileStub;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
@@ -26,7 +27,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class PsiJavaFileImpl extends PsiJavaFileBaseImpl {
   public PsiJavaFileImpl(FileViewProvider file) {
-    super(JavaStubElementTypes.JAVA_FILE, JavaStubElementTypes.JAVA_FILE, file);
+    super(JavaParserDefinition.JAVA_FILE, JavaParserDefinition.JAVA_FILE, file);
   }
 
   @NotNull
@@ -39,15 +40,7 @@ public class PsiJavaFileImpl extends PsiJavaFileBaseImpl {
   @Override
   public PsiJavaModule getModuleDeclaration() {
     PsiJavaFileStub stub = (PsiJavaFileStub)getGreenStub();
-    if (stub != null) {
-      return stub.getModule();
-    }
-
-    PsiElement element = getFirstChild();
-    if (element instanceof PsiWhiteSpace || element instanceof PsiComment) {
-      element = PsiTreeUtil.skipSiblingsForward(element, PsiWhiteSpace.class, PsiComment.class);
-    }
-    return element instanceof PsiJavaModule ? (PsiJavaModule)element : null;
+    return stub != null ? stub.getModule() : PsiTreeUtil.getChildOfType(this, PsiJavaModule.class);
   }
 
   @Override

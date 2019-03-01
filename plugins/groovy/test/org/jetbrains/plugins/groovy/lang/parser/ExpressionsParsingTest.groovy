@@ -1,20 +1,5 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.parser
-
 /**
  * @author peter
  */
@@ -49,6 +34,8 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
   void testarithmetic$mul2() throws Throwable { doTest() }
 
   void testarithmetic$mul3() throws Throwable { doTest() }
+
+  void testarithmetic$mul4() throws Throwable { doTest() }
 
   void testarithmetic$post1() throws Throwable { doTest() }
 
@@ -94,6 +81,24 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testconditional$elvis2() throws Throwable { doTest() }
 
+  void testconditional$elvisNlBeforeOperator() { doTest() }
+
+  void testconditional$ternaryQuestionOnly() { doTest() }
+
+  void testconditional$ternaryWithoutElse() { doTest() }
+
+  void testconditional$ternaryWithoutThen() { doTest() }
+
+  void testconditional$ternaryWithoutThenElse() { doTest() }
+
+  void testconditional$ternaryNLBeforeColon() { doTest() }
+
+  void testconditional$ternaryNLBeforeElse() { doTest() }
+
+  void testconditional$ternaryNLBeforeQuestion() { doTest() }
+
+  void testconditional$ternaryNLBeforeThen() { doTest() }
+
   void testerrors$err_final() throws Throwable { doTest() }
 
   void testgstring$daniel_sun() throws Throwable { doTest() }
@@ -122,6 +127,32 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testgstring$str8() throws Throwable { doTest() }
 
+  void testgstring$str9() throws Throwable { doTest() }
+
+  void teststring$singleQuoted() { doTest() }
+
+  void teststring$tripleSingleQuoted$ok() { doTest() }
+
+  void teststring$tripleSingleQuoted$err0() { doTest() }
+
+  void teststring$tripleSingleQuoted$err1() { doTest() }
+
+  void teststring$tripleSingleQuoted$err2() { doTest() }
+
+  void teststring$tripleSingleQuoted$err3() { doTest() }
+
+  void teststring$tripleSingleQuoted$err4() { doTest() }
+
+  void teststring$tripleSingleQuoted$err5() { doTest() }
+
+  void teststring$tripleSingleQuoted$unfinished0() { doTest() }
+
+  void teststring$tripleSingleQuoted$unfinished1() { doTest() }
+
+  void teststring$tripleSingleQuoted$unfinished2() { doTest() }
+
+  void teststring$tripleSingleQuoted$unfinished3() { doTest() }
+
   void testgstring$str_error1() throws Throwable { doTest() }
 
   void testgstring$str_error2() throws Throwable { doTest() }
@@ -144,19 +175,82 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testgstring$triple$triple3() throws Throwable { doTest() }
 
+  void testgstring$triple$triple4() throws Throwable { doTest() }
+
   void testgstring$triple$quote_and_slash() throws Throwable { doTest() }
 
   void testgstring$ugly_lexer() throws Throwable { doTest() }
 
   void testgstring$this() { doTest() }
 
+  void testgstring$newline() { doTest() }
+
   void testmapLiteral() throws Throwable { doTest() }
+
+  void testmapKeys() { doTest() }
+
+  void testnamedArgumentKeys() { doTest() }
+
+  void testexpressionlabelWithoutExpression() { doTest() }
 
   void testnew$arr_decl() throws Throwable { doTest() }
 
   void testnew$emptyTypeArgs() { doTest() }
+
+  void testnew$noArgumentList() { doTest() }
+
+  void testnew$emptyArrayInitializer() { doTest() }
+
+  void testnew$arrayInitializer() { doTest() }
+
+  void testnew$arrayInitializerTrailingComma() { doTest() }
+
+  void testnew$nestedArrayInitializer() { doTest() }
+
+  void testnew$noInitializer() { doTest() }
+
+  void testnew$noClosingBrace() { doTest() }
+
+  void testnew$closureAfterArrayDeclaration() { doTest() }
+
+  void testnew$closureAfterArrayInitializer() { doTest() }
+
 //  public void testnew$new1() throws Throwable { doTest(); }
   void testanonymous$anonymous() throws Throwable { doTest() }
+
+  void testanonymous$anonymous1() throws Throwable { doTest() }
+
+  void testanonymous$anonymous2() throws Throwable { doTest() }
+
+  void testanonymous$anonymous3() throws Throwable { doTest() }
+
+  void testanonymous$anonymous4() throws Throwable { doTest() }
+
+  void testanonymous$anonymous5() throws Throwable { doTest() }
+
+  void testanonymous$anonymous6() throws Throwable { doTest() }
+
+  void testanonymous$anonymous7() throws Throwable { doTest() }
+
+  void testanonymous$anonymous8() throws Throwable { doTest() }
+
+  void testanonymous$anonymous9() throws Throwable { doTest() }
+
+  void testanonymous$anonymous10() throws Throwable { doTest() }
+
+  void testanonymous$anonymous11() throws Throwable { doTest() }
+
+  void testanonymous$anonymous12() throws Throwable { doTest() }
+
+  void testanonymous$anonymous13() throws Throwable { doTest() }
+
+  void testanonymous$anonymous14() throws Throwable { doTest() }
+
+  void testanonymous$anonymous15() throws Throwable { doTest() }
+
+  void testanonymous$anonymous16() throws Throwable { doTest() }
+
+  void testanonymous$anonymous17() throws Throwable { doTest() }
 
   void testnumbers() throws Throwable { doTest() }
 
@@ -173,6 +267,10 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
   void testparenthed$paren5() throws Throwable { doTest() }
 
   void testparenthed$paren6() throws Throwable { doTest() }
+
+  void testparenthed$capitalNamedArgument() { doTest() }
+
+  void testparenthed$capitalListArgument() { doTest() }
 
   void testpath$method$ass4() throws Throwable { doTest() }
 
@@ -220,15 +318,17 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testpath$method$method9() throws Throwable { doTest() }
 
+  void testpath$method$method14() { doTest() }
+
   void testpath$path1() throws Throwable { doTest() }
 
   void testpath$path13() throws Throwable { doTest() }
 
   void testpath$path14() throws Throwable { doTest() }
 
-  void testpath$path2() throws Throwable { doTest() }
+  void testpath$path15() throws Throwable { doTest() }
 
-  void testpath$path3() throws Throwable { doTest() }
+  void testpath$path2() throws Throwable { doTest() }
 
   void testpath$path4() throws Throwable { doTest() }
 
@@ -241,8 +341,6 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
   void testpath$path8() throws Throwable { doTest() }
 
   void testpath$path9() throws Throwable { doTest() }
-
-  void testpath$path10() throws Throwable { doTest() }
 
   void testpath$regexp() { doTest() }
 
@@ -266,7 +364,17 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testreferences$ref9() throws Throwable { doTest() }
 
+  void testreferences$ref10() { doTest() }
+
+  void testreferences$ref11() { doTest() }
+
+  void testreferences$ref12() { doTest() }
+
+  void testreferences$keywords() { doTest() }
+
   void testreferences$emptyTypeArgs() { doTest() }
+
+  void testreferences$dots() { doTest() }
 
   void testregex$chen() throws Throwable { doTest() }
 
@@ -332,6 +440,8 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testregex$regex_begin2() throws Throwable { doTest() }
 
+  void testregex$slashyEq() { doTest() }
+
   void testregex$multiLineSlashy() throws Throwable { doTest() }
 
   void testregex$dollarSlashy() throws Throwable { doTest() }
@@ -351,6 +461,10 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
   void testregex$dollarSlashy8() throws Throwable { doTest() }
 
   void testregex$dollarSlashy9() throws Throwable { doTest() }
+
+  void testregex$dollarSlashy10() { doTest() }
+
+  void testregex$dollarSlashy11() { doTest() }
 
   void testregex$dollarSlashyCode() throws Throwable { doTest() }
 
@@ -376,6 +490,20 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testregex$dollarSlashyUltimate() { doTest() }
 
+  void testregex$afterNewLine() { doTest() }
+
+  void testregex$afterDollarSlashyString() { doTest() }
+
+  void testregex$afterDoubleQuotedString() { doTest() }
+
+  void testregex$afterSingleQuotedString() { doTest() }
+
+  void testregex$afterSlashyString() { doTest() }
+
+  void testregex$afterTripleSingleQuotedString() { doTest() }
+
+  void testregex$afterTripleDoubleQuotedString() { doTest() }
+
   void testrelational$eq1() throws Throwable { doTest() }
 
   void testrelational$inst0() throws Throwable { doTest() }
@@ -385,6 +513,16 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
   void testrelational$inst2() throws Throwable { doTest() }
 
   void testrelational$rel1() throws Throwable { doTest() }
+
+  void testrelational$newlineAfterOperator() { doTest() }
+
+  void testrelational$noRValue() { doTest() }
+
+  void testrelational$exclamationAfterExpression() { doTest() }
+
+  void testrelational$inNegated() { doTest() }
+
+  void testrelational$instanceOfNegated() { doTest() }
 
   void testspecial$grvy1173() throws Throwable { doTest() }
 
@@ -428,6 +566,22 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testtypecast$elvis() throws Throwable { doTest() }
 
+  void testtypecast$equality() { doTest() }
+
+  void testtypecast$parenthesized() { doTest() }
+
+  void testtypecast$noExpression() { doTest() }
+
+  void testtypecast$parenthesizedOperand() { doTest() }
+
+  void testtypecast$parenthesizedQualifier() { doTest() }
+
+  void testtypecast$parenthesizedOperandError() { doTest() }
+
+  void testtypecast$nested() { doTest() }
+
+  void testtypecast$vsMethodCall() { doTest() }
+
   void testtypecast$conditional() throws Throwable { doTest() }
 
   void testAtHang() throws Throwable { doTest() }
@@ -438,28 +592,7 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testNoArrowClosure2() throws Throwable { doTest() }
 
-  void testPropertyAccessError() throws Throwable {
-    checkParsingByText "a[b{}}", """Groovy script
-  Property by index
-    Reference expression
-      PsiElement(identifier)('a')
-    Arguments
-      PsiElement([)('[')
-      Method call
-        Reference expression
-          PsiElement(identifier)('b')
-        Arguments
-          <empty list>
-        Closable block
-          PsiElement({)('{')
-          Parameter list
-            <empty list>
-          PsiElement(})('}')
-      PsiErrorElement:',' or ']' expected
-        <empty list>
-  PsiErrorElement:Unexpected symbol
-    PsiElement(})('}')"""
-  }
+  void testPropertyAccessError() throws Throwable { doTest() }
 
   void testthis$qualifiedThis() throws Throwable { doTest() }
 
@@ -469,16 +602,15 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testsuper$super() throws Throwable { doTest() }
 
-  void testTripleEqual() throws Exception {
-    checkParsingByText "2===3", """Groovy script
-  Relational expression
-    Literal
-      PsiElement(Integer)('2')
-    PsiElement(==)('===')
-    Literal
-      PsiElement(Integer)('3')
-"""
-  }
+  void testbinary$identity() { doTest() }
+
+  void testbinary$elvisAssign() { doTest() }
+
+  void testbinary$elvisAssignNewLine() { doTest() }
+
+  void testbinary$elvisAssignWithoutRValue() { doTest() }
+
+  void testbinary$assignmentError() { doTest() }
 
   void testcommandExpr$closureArg() { doTest() }
 
@@ -510,6 +642,8 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testcommandExpr$indexAccess3() { doTest() }
 
+  void testcommandExpr$indexAccess4() { doTest() }
+
   void testcommandExpr$closureArg2() { doTest() }
 
   void testcommandExpr$closureArg3() { doTest() }
@@ -534,7 +668,23 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testcommandExpr$literalInvoked() { doTest() }
 
+  void testcommandExpr$literalInvokedWithUnfinishedLiteral() { doTest() }
+
+  void testcommandExpr$slashyInvoked() { doTest() }
+
+  void testcommandExpr$safeIndex() { doTest() }
+
+  void testcommandExpr$safeIndexEmpty() { doTest() }
+
+  void testcommandExpr$safeIndexEmptyMap() { doTest() }
+
+  void testcommandExpr$safeIndexLBrack() { doTest() }
+
+  void testcommandExpr$safeIndexMap() { doTest() }
+
   void testDiamond() { doTest() }
+
+  void testDiamondErrors() { doTest() }
 
   void testpath$stringMethodCall1() { doTest() }
 
@@ -542,310 +692,189 @@ class ExpressionsParsingTest extends GroovyParsingTestCase {
 
   void testpath$stringMethodCall3() { doTest() }
 
-  void testSpacesInStringAfterSlash() {
-    checkParsingByText '''
-print 'abc \\ \ncde' ''', '''
-Groovy script
-  PsiElement(new line)(\'\\n\')
-  Call expression
-    Reference expression
-      PsiElement(identifier)(\'print\')
-    PsiWhiteSpace(\' \')
-    Command arguments
-      Literal
-        PsiElement(string)(\'\'abc \\ \\ncde\'\')
-  PsiWhiteSpace(\' \')'''
-  }
+  void testSpacesInStringAfterSlash() { doTest() }
 
-  void testDiamondInPathRefElement() {
-    checkParsingByText 'Map<String, String> map = new java.util.concurrent.ConcurrentHashMap<>()', '''
-Groovy script
-  Variable definitions
-    Modifiers
-      <empty list>
-    Type element
-      Reference element
-        PsiElement(identifier)('Map')
-        Type arguments
-          PsiElement(<)('<')
-          Type element
-            Reference element
-              PsiElement(identifier)('String')
-          PsiElement(,)(',')
-          PsiWhiteSpace(' ')
-          Type element
-            Reference element
-              PsiElement(identifier)('String')
-          PsiElement(>)('>')
-    PsiWhiteSpace(' ')
-    Variable
-      PsiElement(identifier)('map')
-      PsiWhiteSpace(' ')
-      PsiElement(=)('=')
-      PsiWhiteSpace(' ')
-      NEW expression
-        PsiElement(new)('new')
-        PsiWhiteSpace(' ')
-        Reference element
-          Reference element
-            Reference element
-              Reference element
-                PsiElement(identifier)('java')
-              PsiElement(.)('.')
-              PsiElement(identifier)('util')
-            PsiElement(.)('.')
-            PsiElement(identifier)('concurrent')
-          PsiElement(.)('.')
-          PsiElement(identifier)('ConcurrentHashMap')
-          Type arguments
-            PsiElement(<)('<')
-            PsiElement(>)('>')
-        Arguments
-          PsiElement(()('(')
-          PsiElement())(')')
-'''
-  }
+  void testDiamondInPathRefElement() { doTest() }
 
-  void testNewMethodName() {
-    checkParsingByText 'def a = qualifer.new X()', '''
-Groovy script
-  Variable definitions
-    Modifiers
-      PsiElement(def)('def')
-    PsiWhiteSpace(' ')
-    Variable
-      PsiElement(identifier)('a')
-      PsiWhiteSpace(' ')
-      PsiElement(=)('=')
-      PsiWhiteSpace(' ')
-      Call expression
-        Reference expression
-          Reference expression
-            PsiElement(identifier)('qualifer')
-          PsiElement(.)('.')
-          PsiElement(new)('new')
-        PsiWhiteSpace(' ')
-        Command arguments
-          Method call
-            Reference expression
-              PsiElement(identifier)('X')
-            Arguments
-              PsiElement(()('(')
-              PsiElement())(')')'''
-  }
+  void testNewMethodName() { doTest() }
 
-  void testRefElementsWithKeywords() {
-    checkParsingByText('''\
-def a = new def.as.Foo()
-def b = new foo.as.in.Foo()
-''', '''\
-Groovy script
-  Variable definitions
-    Modifiers
-      PsiElement(def)('def')
-    PsiWhiteSpace(' ')
-    Variable
-      PsiElement(identifier)('a')
-      PsiWhiteSpace(' ')
-      PsiElement(=)('=')
-      PsiWhiteSpace(' ')
-      NEW expression
-        PsiElement(new)('new')
-        PsiWhiteSpace(' ')
-        Reference element
-          Reference element
-            Reference element
-              PsiElement(def)('def')
-            PsiElement(.)('.')
-            PsiElement(as)('as')
-          PsiElement(.)('.')
-          PsiElement(identifier)('Foo')
-        Arguments
-          PsiElement(()('(')
-          PsiElement())(')')
-  PsiElement(new line)('\\n')
-  Variable definitions
-    Modifiers
-      PsiElement(def)('def')
-    PsiWhiteSpace(' ')
-    Variable
-      PsiElement(identifier)('b')
-      PsiWhiteSpace(' ')
-      PsiElement(=)('=')
-      PsiWhiteSpace(' ')
-      NEW expression
-        PsiElement(new)('new')
-        PsiWhiteSpace(' ')
-        Reference element
-          Reference element
-            Reference element
-              Reference element
-                PsiElement(identifier)('foo')
-              PsiElement(.)('.')
-              PsiElement(as)('as')
-            PsiElement(.)('.')
-            PsiElement(in)('in')
-          PsiElement(.)('.')
-          PsiElement(identifier)('Foo')
-        Arguments
-          PsiElement(()('(')
-          PsiElement())(')')
-  PsiElement(new line)('\\n')
-''')
-  }
+  void testRefElementsWithKeywords() { doTest() }
 
-  void "test finish argument list on keyword occurrence"() {
-    checkParsingByText '''switch (obj) {
-      case 1: return bar([param)
-      case 3: return bar([param]
-      case 2:
-        param = param.bar((foo):[bar:goo])
-        return param.foo
-    }
-''', '''\
-Groovy script
-  Switch statement
-    PsiElement(switch)('switch')
-    PsiWhiteSpace(' ')
-    PsiElement(()('(')
-    Reference expression
-      PsiElement(identifier)('obj')
-    PsiElement())(')')
-    PsiWhiteSpace(' ')
-    PsiElement({)('{')
-    PsiWhiteSpace('\\n      ')
-    Case section
-      Case label
-        PsiElement(case)('case')
-        PsiWhiteSpace(' ')
-        Literal
-          PsiElement(Integer)('1')
-        PsiElement(:)(':')
-      PsiWhiteSpace(' ')
-      RETURN statement
-        PsiElement(return)('return')
-        PsiWhiteSpace(' ')
-        Method call
-          Reference expression
-            PsiElement(identifier)('bar')
-          Arguments
-            PsiElement(()('(')
-            Generalized list
-              PsiElement([)('[')
-              Reference expression
-                PsiElement(identifier)('param')
-              PsiErrorElement:',' or ']' expected
-                <empty list>
-              PsiElement())(')')
-              PsiErrorElement:',' or ']' expected
-                <empty list>
-    PsiWhiteSpace('\\n      ')
-    Case section
-      Case label
-        PsiElement(case)('case')
-        PsiWhiteSpace(' ')
-        Literal
-          PsiElement(Integer)('3')
-        PsiElement(:)(':')
-      PsiWhiteSpace(' ')
-      RETURN statement
-        PsiElement(return)('return')
-        PsiWhiteSpace(' ')
-        Method call
-          Reference expression
-            PsiElement(identifier)('bar')
-          Arguments
-            PsiElement(()('(')
-            Generalized list
-              PsiElement([)('[')
-              Reference expression
-                PsiElement(identifier)('param')
-              PsiElement(])(']')
-            PsiErrorElement:',' or ')' expected
-              <empty list>
-    PsiWhiteSpace('\\n      ')
-    Case section
-      Case label
-        PsiElement(case)('case')
-        PsiWhiteSpace(' ')
-        Literal
-          PsiElement(Integer)('2')
-        PsiElement(:)(':')
-      PsiWhiteSpace('\\n        ')
-      Assignment expression
-        Reference expression
-          PsiElement(identifier)('param')
-        PsiWhiteSpace(' ')
-        PsiElement(=)('=')
-        PsiWhiteSpace(' ')
-        Method call
-          Reference expression
-            Reference expression
-              PsiElement(identifier)('param')
-            PsiElement(.)('.')
-            PsiElement(identifier)('bar')
-          Arguments
-            PsiElement(()('(')
-            Named argument
-              Argument label
-                Parenthesized expression
-                  PsiElement(()('(')
-                  Reference expression
-                    PsiElement(identifier)('foo')
-                  PsiElement())(')')
-              PsiElement(:)(':')
-              Generalized list
-                PsiElement([)('[')
-                Named argument
-                  Argument label
-                    PsiElement(identifier)('bar')
-                  PsiElement(:)(':')
-                  Reference expression
-                    PsiElement(identifier)('goo')
-                PsiElement(])(']')
-            PsiElement())(')')
-      PsiErrorElement:';', '}' or new line expected
-        <empty list>
-      PsiWhiteSpace('\\n        ')
-      RETURN statement
-        PsiElement(return)('return')
-        PsiWhiteSpace(' ')
-        Reference expression
-          Reference expression
-            PsiElement(identifier)('param')
-          PsiElement(.)('.')
-          PsiElement(identifier)('foo')
-    PsiWhiteSpace('\\n    ')
-    PsiElement(})('}')
-  PsiElement(new line)('\\n')'''
-  }
+  void "test finish argument list on keyword occurrence"() { doTest("finishArgumentListOnKeywordOccurrence.test") }
 
-  void testConditionalExpressionWithLineFeed() {
-    checkParsingByText('''\
-print true ? abc
-:cde
-''', '''\
-Groovy script
-  Call expression
-    Reference expression
-      PsiElement(identifier)('print')
-    PsiWhiteSpace(' ')
-    Command arguments
-      Conditional expression
-        Literal
-          PsiElement(true)('true')
-        PsiWhiteSpace(' ')
-        PsiElement(?)('?')
-        PsiWhiteSpace(' ')
-        Reference expression
-          PsiElement(identifier)('abc')
-        PsiElement(new line)('\\n')
-        PsiElement(:)(':')
-        Reference expression
-          PsiElement(identifier)('cde')
-  PsiElement(new line)('\\n')
-''')
-  }
+  void testConditionalExpressionWithLineFeed() { doTest() }
 
   void testspecial$mapHang() { doTest() }
+
+  void testindexpropertyWithUnfinishedInvokedExpression() { doTest() }
+
+  void testindex$safeIndex() { doTest() }
+
+  void testindex$safeIndexEmpty() { doTest() }
+
+  void testindex$safeIndexEmptyMap() { doTest() }
+
+  void testindex$safeIndexLBrack() { doTest() }
+
+  void testindex$safeIndexMap() { doTest() }
+
+  void testindex$safeIndexNoRBrack() { doTest() }
+
+  void testindex$safeIndexVsTernary() { doTest() }
+
+  void testindex$safeIndexVsTernary2() { doTest() }
+
+  void testindex$safeIndexVsTernary3() { doTest() }
+
+  void testindex$safeIndexVsTernary4() { doTest() }
+
+  void testindex$safeIndexVsTernary5() { doTest() }
+
+  void testindex$safeIndexNewLineAfterQ() { doTest() }
+
+  void testindex$safeIndexNewLineBeforeQ() { doTest() }
+
+  void testnl$binary() { doTest() }
+
+  void testnl$cast() { doTest() }
+
+  void testnl$index() { doTest() }
+
+  void testnl$postfixDec() { doTest() }
+
+  void testnl$postfixInc() { doTest() }
+
+  void testnl$unary() { doTest() }
+
+  void testlambda$parenthesizedAdd() { doTest() }
+
+  void testlambda$standalone1() { doTest() }
+
+  void testlambda$standalone2() { doTest() }
+
+  void testlambda$standalone3() { doTest() }
+
+  void testlambda$standalone4() { doTest() }
+
+  void testlambda$standalone5() { doTest() }
+
+  void testlambda$standalone6() { doTest() }
+
+  void testlambda$standalone7() { doTest() }
+
+  void testlambda$standalone8() { doTest() }
+
+  void testlambda$standalone9() { doTest() }
+
+  void testlambda$standalone10() { doTest() }
+
+  void testlambda$standalone11() { doTest() }
+
+  void testlambda$standalone12() { doTest() }
+
+  void testlambda$closureLike() { doTest() }
+
+  void testlambda$nestedLambda() { doTest() }
+
+  void testlambda$nestedLambda2() { doTest() }
+
+  void testlambda$nestedLambda3() { doTest() }
+
+  void testlambda$nestedLambda4() { doTest() }
+
+  void testlambda$nestedLambda5() { doTest() }
+
+  void testlambda$nestedLambda6() { doTest() }
+
+  void testlambda$assign1() { doTest() }
+
+  void testlambda$assign2() { doTest() }
+
+  void testlambda$assign3() { doTest() }
+
+  void testlambda$assign4() { doTest() }
+
+  void testlambda$assign5() { doTest() }
+
+  void testlambda$assign6() { doTest() }
+
+  void testlambda$assign7() { doTest() }
+
+  void testlambda$assign8() { doTest() }
+
+  void testlambda$methodCall1() { doTest() }
+
+  void testlambda$methodCall2() { doTest() }
+
+  void testlambda$methodCall3() { doTest() }
+
+  void testlambda$methodCall4() { doTest() }
+
+  void testlambda$methodCall5() { doTest() }
+
+  void testlambda$methodCall6() { doTest() }
+
+  void testlambda$methodCall7() { doTest() }
+
+  void testlambda$methodCall8() { doTest() }
+
+  void testlambda$methodCall9() { doTest() }
+
+  void testlambda$methodCall10() { doTest() }
+
+  void testlambda$methodCall11() { doTest() }
+
+  void testlambda$methodCall12() { doTest() }
+
+  void testlambda$methodCall13() { doTest() }
+
+  void testlambda$methodCall14() { doTest() }
+
+  void testlambda$methodCall15() { doTest() }
+
+  void testlambda$methodCall16() { doTest() }
+
+  void testlambda$methodCall17() { doTest() }
+
+  void testlambda$command1() { doTest() }
+
+  void testlambda$command2() { doTest() }
+
+  void testlambda$command3() { doTest() }
+
+  void testlambda$command4() { doTest() }
+
+  void testlambda$command5() { doTest() }
+
+  void testlambda$command6() { doTest() }
+
+  void testlambda$command7() { doTest() }
+
+  void testlambda$command8() { doTest() }
+
+  void testlambda$command9() { doTest() }
+
+  void testlambda$command10() { doTest() }
+
+  void testlambda$command11() { doTest() }
+
+  void testlambda$command12() { doTest() }
+
+  void testlambda$commandInLambda() { doTest() }
+
+  void testlambda$implicitReturn1() { doTest() }
+
+  void testlambda$implicitReturn2() { doTest() }
+
+  void testlambda$implicitReturn3() { doTest() }
+
+  void testlambda$implicitReturn4() { doTest() }
+
+  void testlambda$return1() { doTest() }
+
+  void testlambda$return2() { doTest() }
+
+  void testlambda$return3() { doTest() }
+
+  void testlambda$return4() { doTest() }
 }

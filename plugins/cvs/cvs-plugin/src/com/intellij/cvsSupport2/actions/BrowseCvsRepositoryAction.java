@@ -19,7 +19,6 @@ import com.intellij.CvsBundle;
 import com.intellij.cvsSupport2.actions.cvsContext.CvsContext;
 import com.intellij.cvsSupport2.config.CvsRootConfiguration;
 import com.intellij.cvsSupport2.config.ui.SelectCvsConfigurationDialog;
-import com.intellij.cvsSupport2.connections.CvsEnvironment;
 import com.intellij.cvsSupport2.cvsBrowser.ui.BrowserPanel;
 import com.intellij.cvsSupport2.cvshandlers.CvsHandler;
 import com.intellij.cvsSupport2.cvshandlers.FileSetToBeUpdated;
@@ -35,6 +34,7 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.actions.VcsContext;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Collections;
 
@@ -50,7 +50,7 @@ public class BrowseCvsRepositoryAction extends AbstractAction implements DumbAwa
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     final boolean projectExists = e.getData(CommonDataKeys.PROJECT) != null;
     presentation.setVisible(projectExists);
@@ -95,7 +95,7 @@ public class BrowseCvsRepositoryAction extends AbstractAction implements DumbAwa
 
   private class MyCvsHandler extends CvsHandler {
 
-    public MyCvsHandler() {
+    MyCvsHandler() {
       super(TITLE, FileSetToBeUpdated.EMPTY);
     }
 
@@ -117,7 +117,7 @@ public class BrowseCvsRepositoryAction extends AbstractAction implements DumbAwa
 
   private boolean loginImpl(final Project project, final Consumer<VcsException> exceptionConsumer) {
     final LoginPerformer performer =
-      new LoginPerformer(project, Collections.<CvsEnvironment>singletonList(mySelectedConfiguration), exceptionConsumer);
+      new LoginPerformer(project, Collections.singletonList(mySelectedConfiguration), exceptionConsumer);
     try {
       return performer.loginAll(false);
     } catch (Exception e) {

@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
-import com.intellij.ide.actions.ResizeToolWindowAction;
-import com.intellij.ide.actions.ToggleToolbarAction;
+import com.intellij.icons.AllIcons;
+import com.intellij.ide.DataManager;
+import com.intellij.ide.actions.*;
 import com.intellij.idea.ActionsBundle;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
@@ -41,8 +28,11 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.border.Border;
+import javax.swing.event.AncestorEvent;
+import javax.swing.event.AncestorListener;
 import java.awt.*;
 import java.awt.event.*;
 import java.util.Map;
@@ -61,28 +51,26 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
   /*
    * Actions
    */
-  private final TogglePinnedModeAction myToggleAutoHideModeAction;
-  private final ToggleDockModeAction myToggleDockModeAction;
-  private final ToggleFloatingModeAction myToggleFloatingModeAction;
-  private final ToggleWindowedModeAction myToggleWindowedModeAction;
-  private final ToggleSideModeAction myToggleSideModeAction;
   private final ToggleContentUiTypeAction myToggleContentUiTypeAction;
-  private final RemoveStripeButtonAction myHideStripeButtonAction;
+  private final RemoveStripeButtonAction myRemoveFromSideBarAction;
 
   private ActionGroup myAdditionalGearActions;
   /**
    * Catches all event from tool window and modifies decorator's appearance.
    */
-  @NonNls private static final String HIDE_ACTIVE_WINDOW_ACTION_ID = "HideActiveWindow";
-  @NonNls public static final String TOGGLE_PINNED_MODE_ACTION_ID = "TogglePinnedMode";
-  @NonNls public static final String TOGGLE_DOCK_MODE_ACTION_ID = "ToggleDockMode";
-  @NonNls public static final String TOGGLE_FLOATING_MODE_ACTION_ID = "ToggleFloatingMode";
-  @NonNls public static final String TOGGLE_WINDOWED_MODE_ACTION_ID = "ToggleWindowedMode";
-  @NonNls public static final String TOGGLE_SIDE_MODE_ACTION_ID = "ToggleSideMode";
+  @NonNls static final String HIDE_ACTIVE_WINDOW_ACTION_ID = "HideActiveWindow";
+
+  //See ToolWindowViewModeAction and ToolWindowMoveAction
+  @NonNls @Deprecated public static final String TOGGLE_PINNED_MODE_ACTION_ID = "TogglePinnedMode";
+  @NonNls @Deprecated public static final String TOGGLE_DOCK_MODE_ACTION_ID = "ToggleDockMode";
+  @NonNls @Deprecated public static final String TOGGLE_FLOATING_MODE_ACTION_ID = "ToggleFloatingMode";
+  @NonNls @Deprecated public static final String TOGGLE_WINDOWED_MODE_ACTION_ID = "ToggleWindowedMode";
+  @NonNls @Deprecated public static final String TOGGLE_SIDE_MODE_ACTION_ID = "ToggleSideMode";
+
   @NonNls private static final String TOGGLE_CONTENT_UI_TYPE_ACTION_ID = "ToggleContentUiTypeMode";
 
   private ToolWindowHeader myHeader;
-  private ActionGroup myToggleToolbarGroup;
+  private final ActionGroup myToggleToolbarGroup;
 
   InternalDecorator(final Project project, @NotNull WindowInfoImpl info, final ToolWindowImpl toolWindow, boolean dumbAware) {
     super(new BorderLayout());
@@ -91,21 +79,17 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     myToolWindow.setDecorator(this);
     myDivider = new MyDivider();
 
-    myToggleFloatingModeAction = new ToggleFloatingModeAction();
-    myToggleWindowedModeAction = new ToggleWindowedModeAction();
-    myToggleSideModeAction = new ToggleSideModeAction();
-    myToggleDockModeAction = new ToggleDockModeAction();
-    myToggleAutoHideModeAction = new TogglePinnedModeAction();
     myToggleContentUiTypeAction = new ToggleContentUiTypeAction();
-    myHideStripeButtonAction = new RemoveStripeButtonAction();
+    myRemoveFromSideBarAction = new RemoveStripeButtonAction();
     myToggleToolbarGroup = ToggleToolbarAction.createToggleToolbarGroup(myProject, myToolWindow);
+    if (!ToolWindowId.PREVIEW.equals(info.getId())) {
+      ((DefaultActionGroup)myToggleToolbarGroup).addAction(myToggleContentUiTypeAction);
+    }
 
     setFocusable(false);
     setFocusTraversalPolicy(new LayoutFocusTraversalPolicy());
 
-    myHeader = new ToolWindowHeader(toolWindow, info, () -> {
-      return /*createGearPopupGroup()*/createPopupGroup(true);
-    }) {
+    myHeader = new ToolWindowHeader(toolWindow, () -> createPopupGroup(true)) {
       @Override
       protected boolean isActive() {
         return myToolWindow.isActive();
@@ -115,21 +99,16 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
       protected void hideToolWindow() {
         fireHidden();
       }
-
-      @Override
-      protected void toolWindowTypeChanged(@NotNull ToolWindowType type) {
-        fireTypeChanged(type);
-      }
-
-      @Override
-      protected void sideHidden() {
-        fireHiddenSide();
-      }
     };
 
     init(dumbAware);
 
     apply(info);
+  }
+
+  @Override
+  public String toString() {
+    return myToolWindow.getId();
   }
 
   public boolean isFocused() {
@@ -192,7 +171,7 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.TOOL_WINDOW.is(dataId)) {
       return myToolWindow;
     }
@@ -213,14 +192,6 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     Disposer.dispose(myHeader);
     myHeader = null;
     myProject = null;
-  }
-
-  private void fireAnchorChanged(@NotNull ToolWindowAnchor anchor) {
-    myDispatcher.getMulticaster().anchorChanged(this, anchor);
-  }
-
-  private void fireAutoHideChanged(boolean autoHide) {
-    myDispatcher.getMulticaster().autoHideChanged(this, autoHide);
   }
 
   /**
@@ -244,16 +215,8 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     myDispatcher.getMulticaster().activated(this);
   }
 
-  private void fireTypeChanged(@NotNull ToolWindowType type) {
-    myDispatcher.getMulticaster().typeChanged(this, type);
-  }
-
   final void fireResized() {
     myDispatcher.getMulticaster().resized(this);
-  }
-
-  private void fireSideStatusChanged(boolean isSide) {
-    myDispatcher.getMulticaster().sideStatusChanged(this, isSide);
   }
 
   private void fireContentUiTypeChanges(@NotNull ToolWindowContentUiType type) {
@@ -268,6 +231,7 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     enableEvents(AWTEvent.COMPONENT_EVENT_MASK);
 
     final JPanel contentPane = new JPanel(new BorderLayout());
+    installFocusTraversalPolicy(contentPane, new LayoutFocusTraversalPolicy());
     contentPane.add(myHeader, BorderLayout.NORTH);
 
     JPanel innerPanel = new JPanel(new BorderLayout());
@@ -285,17 +249,43 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
       setBackground(new JBColor(Gray._200, Gray._90));
     }
 
-    // Add listeners
-    registerKeyboardAction(new ActionListener() {
+    AncestorListener ancestorListener = new AncestorListener() {
+
+      private static final String FOCUS_EDITOR_ACTION_KEY = "FOCUS_EDITOR_ACTION_KEY";
+
       @Override
-      public void actionPerformed(final ActionEvent e) {
-        ToolWindowManager.getInstance(myProject).activateEditorComponent();
+      public void ancestorAdded(AncestorEvent event) {
+        registerEscapeAction();
       }
-    }, KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT);
+
+      @Override
+      public void ancestorMoved(AncestorEvent event) {}
+
+      private void registerEscapeAction() {
+
+        getInputMap(WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke(
+          KeyEvent.VK_ESCAPE, 0),FOCUS_EDITOR_ACTION_KEY);
+        getActionMap().put(FOCUS_EDITOR_ACTION_KEY, new AbstractAction() {
+          @Override
+          public void actionPerformed(ActionEvent e) {
+            ToolWindowManager.getInstance(myProject).activateEditorComponent();
+          }
+        });
+      }
+
+      @Override
+      public void ancestorRemoved(AncestorEvent event) {}
+    };
+    addAncestorListener(ancestorListener);
+    Disposer.register(myProject, () -> removeAncestorListener(ancestorListener));
   }
 
-  public void setTitleActions(AnAction[] actions) {
+  public void setTitleActions(@NotNull AnAction[] actions) {
     myHeader.setAdditionalTitleActions(actions);
+  }
+
+  void setTabActions(@NotNull AnAction[] actions) {
+    myHeader.setTabActions(actions);
   }
 
   private class InnerPanelBorder implements Border {
@@ -308,14 +298,8 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
 
     @Override
     public void paintBorder(final Component c, final Graphics g, final int x, final int y, final int width, final int height) {
-      if (UIUtil.isUnderDarcula()) {
-        g.setColor(Gray._40);
-        doPaintBorder(c, g, x, y, width, height);
-      }
-      else {
-        g.setColor(SystemInfo.isMac && UIUtil.isUnderIntelliJLaF() ? Gray.xC9 : Gray._155);
-        doPaintBorder(c, g, x, y, width, height);
-      }
+      g.setColor(JBColor.border());
+      doPaintBorder(c, g, x, y, width, height);
     }
 
     private void doPaintBorder(Component c, Graphics g, int x, int y, int width, int height) {
@@ -348,26 +332,36 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
       ToolWindowManager toolWindowManager =  ToolWindowManager.getInstance(myProject);
       if (!(toolWindowManager instanceof ToolWindowManagerImpl)
           || !((ToolWindowManagerImpl)toolWindowManager).isToolWindowRegistered(myInfo.getId())
-          || myWindow.getType() == ToolWindowType.FLOATING) {
+          || myWindow.getType() == ToolWindowType.FLOATING
+          || myWindow.getType() == ToolWindowType.WINDOWED) {
         return new Insets(0, 0, 0, 0);
       }
       ToolWindowAnchor anchor = myWindow.getAnchor();
       Component component = myWindow.getComponent();
       Container parent = component.getParent();
+      boolean isSplitter = false;
+      boolean isFirstInSplitter = false;
+      boolean isVerticalSplitter = false;
       while(parent != null) {
         if (parent instanceof Splitter) {
           Splitter splitter = (Splitter)parent;
-          boolean isFirst = splitter.getFirstComponent() == component;
-          boolean isVertical = splitter.isVertical();
-          return new Insets(0,
-                            anchor == ToolWindowAnchor.RIGHT || (!isVertical && !isFirst) ? 1 : 0,
-                            (isVertical && isFirst) ? 1 : 0,
-                            anchor == ToolWindowAnchor.LEFT || (!isVertical && isFirst) ? 1 : 0);
+          isSplitter = true;
+          isFirstInSplitter = splitter.getFirstComponent() == component;
+          isVerticalSplitter = splitter.isVertical();
+          break;
         }
         component = parent;
         parent = component.getParent();
       }
-      return new Insets(0, anchor == ToolWindowAnchor.RIGHT ? 1 : 0, anchor == ToolWindowAnchor.TOP ? 1 : 0, anchor == ToolWindowAnchor.LEFT ? 1 : 0);
+
+      int top =
+        isSplitter && (anchor == ToolWindowAnchor.RIGHT || anchor == ToolWindowAnchor.LEFT) && myInfo.isSplit() && isVerticalSplitter
+        ? -1
+        : 0;
+      int left = anchor == ToolWindowAnchor.RIGHT && (!isSplitter || isVerticalSplitter || isFirstInSplitter) ? 1 : 0;
+      int bottom = 0;
+      int right = anchor == ToolWindowAnchor.LEFT && (!isSplitter || isVerticalSplitter || !isFirstInSplitter) ? 1 : 0;
+      return new Insets(top, left, bottom, right);
     }
 
     @Override
@@ -377,87 +371,95 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
   }
 
 
-  public final ActionGroup createPopupGroup() {
+  @NotNull
+  final ActionGroup createPopupGroup() {
     return createPopupGroup(false);
   }
 
-  public final ActionGroup createPopupGroup(boolean skipHideAction) {
-    final DefaultActionGroup group = createGearPopupGroup();
-    if (!ToolWindowId.PREVIEW.equals(myInfo.getId())) {
-      group.add(myToggleContentUiTypeAction);
+  @NotNull
+  private ActionGroup createPopupGroup(boolean skipHideAction) {
+    final DefaultActionGroup group = new GearActionGroup();
+    if (myInfo == null) {
+      return group;
     }
 
-    final DefaultActionGroup moveGroup = new DefaultActionGroup(UIBundle.message("tool.window.move.to.action.group.name"), true);
-    final ToolWindowAnchor anchor = myInfo.getAnchor();
-    if (anchor != ToolWindowAnchor.TOP) {
-      final AnAction topAction = new ChangeAnchorAction(UIBundle.message("tool.window.move.to.top.action.name"), ToolWindowAnchor.TOP);
-      moveGroup.add(topAction);
+    if (!skipHideAction) {
+      group.addSeparator();
+      group.add(new HideAction());
     }
-    if (anchor != ToolWindowAnchor.LEFT) {
-      final AnAction leftAction = new ChangeAnchorAction(UIBundle.message("tool.window.move.to.left.action.name"), ToolWindowAnchor.LEFT);
-      moveGroup.add(leftAction);
-    }
-    if (anchor != ToolWindowAnchor.BOTTOM) {
-      final AnAction bottomAction =
-        new ChangeAnchorAction(UIBundle.message("tool.window.move.to.bottom.action.name"), ToolWindowAnchor.BOTTOM);
-      moveGroup.add(bottomAction);
-    }
-    if (anchor != ToolWindowAnchor.RIGHT) {
-      final AnAction rightAction =
-        new ChangeAnchorAction(UIBundle.message("tool.window.move.to.right.action.name"), ToolWindowAnchor.RIGHT);
-      moveGroup.add(rightAction);
-    }
-    group.add(moveGroup);
 
-    DefaultActionGroup resize = new DefaultActionGroup(ActionsBundle.groupText("ResizeToolWindowGroup"), true);
+    group.addSeparator();
+    group.add(new ContextHelpAction() {
+      @Nullable
+      @Override
+      protected String getHelpId(DataContext dataContext) {
+        Content content = myToolWindow.getContentManager().getSelectedContent();
+        if (content != null) {
+          String helpId = content.getHelpId();
+          if (helpId != null) {
+            return helpId;
+          }
+        }
+
+        String id = myToolWindow.getHelpId();
+        if (id != null) {
+          return id;
+        }
+
+        DataContext context = content != null ? DataManager.getInstance().getDataContext(content.getComponent()) : dataContext;
+        return super.getHelpId(context);
+      }
+
+      @Override
+      public void update(@NotNull AnActionEvent e) {
+        super.update(e);
+        e.getPresentation().setEnabledAndVisible(getHelpId(e.getDataContext()) != null);
+      }
+    });
+    return group;
+  }
+
+  @NotNull
+  private DefaultActionGroup createResizeActionGroup() {
+    DefaultActionGroup resize = new DefaultActionGroup(ActionsBundle.groupText("ResizeToolWindowGroup"), true) {
+      @Override
+      public boolean isDumbAware() {
+        return true;
+      }
+    };
     resize.add(new ResizeToolWindowAction.Left(myToolWindow, this));
     resize.add(new ResizeToolWindowAction.Right(myToolWindow, this));
     resize.add(new ResizeToolWindowAction.Up(myToolWindow, this));
     resize.add(new ResizeToolWindowAction.Down(myToolWindow, this));
     resize.add(ActionManager.getInstance().getAction("MaximizeToolWindow"));
-
-    group.add(resize);
-    if (!skipHideAction) {
-      group.addSeparator();
-      group.add(new HideAction());
-    }
-    return group;
+    return resize;
   }
 
-  private DefaultActionGroup createGearPopupGroup() {
-    final DefaultActionGroup group = new DefaultActionGroup();
+  private class GearActionGroup extends DefaultActionGroup {
+    GearActionGroup() {
+      getTemplatePresentation().setIcon(AllIcons.General.GearPlain);
+      getTemplatePresentation().setText("Show Options Menu");
+      if (myInfo == null) return;
 
-    if (myAdditionalGearActions != null) {
-      addSorted(group, myAdditionalGearActions);
-      group.addSeparator();
-    }
-    group.addAction(myToggleToolbarGroup).setAsSecondary(true);
-    if (myInfo.isDocked()) {
-      group.add(myToggleAutoHideModeAction);
-      group.add(myToggleDockModeAction);
-      group.add(myToggleFloatingModeAction);
-      group.add(myToggleWindowedModeAction);
-      group.add(myToggleSideModeAction);
-    }
-    else if (myInfo.isFloating()) {
-      group.add(myToggleAutoHideModeAction);
-      group.add(myToggleFloatingModeAction);
-      group.add(myToggleWindowedModeAction);
-    }
-    else if (myInfo.isWindowed()) {
-      group.add(myToggleFloatingModeAction);
-      group.add(myToggleWindowedModeAction);
-    }
-    else if (myInfo.isSliding()) {
-      if (!ToolWindowId.PREVIEW.equals(myInfo.getId())) {
-        group.add(myToggleDockModeAction);
+      if (myAdditionalGearActions != null) {
+        if (myAdditionalGearActions.isPopup() && !StringUtil.isEmpty(myAdditionalGearActions.getTemplatePresentation().getText())) {
+          add(myAdditionalGearActions);
+        } else {
+          addSorted(this, myAdditionalGearActions);
+        }
+        addSeparator();
       }
-      group.add(myToggleFloatingModeAction);
-      group.add(myToggleWindowedModeAction);
-      group.add(myToggleSideModeAction);
+
+      addAction(myToggleToolbarGroup).setAsSecondary(true);
+      addSeparator();
+
+      add(new ToolWindowViewModeAction.Group());
+      add(new ToolWindowMoveAction.Group());
+      add(createResizeActionGroup());
+      addSeparator();
+
+      add(myRemoveFromSideBarAction);
     }
-    group.add(myHideStripeButtonAction);
-    return group;
   }
 
   private static void addSorted(DefaultActionGroup main, ActionGroup group) {
@@ -515,136 +517,18 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     }
   }
 
-  private final class ChangeAnchorAction extends AnAction implements DumbAware {
-    @NotNull private final ToolWindowAnchor myAnchor;
-
-    public ChangeAnchorAction(@NotNull String title, @NotNull ToolWindowAnchor anchor) {
-      super(title);
-      myAnchor = anchor;
-    }
-
-    @Override
-    public final void actionPerformed(@NotNull final AnActionEvent e) {
-      fireAnchorChanged(myAnchor);
-    }
+  void removeStripeButton() {
+    fireVisibleOnPanelChanged(false);
+    fireHidden();
   }
 
-  private final class TogglePinnedModeAction extends ToggleAction implements DumbAware {
-    public TogglePinnedModeAction() {
-      copyFrom(ActionManager.getInstance().getAction(TOGGLE_PINNED_MODE_ACTION_ID));
-    }
-
-    @Override
-    public final boolean isSelected(final AnActionEvent event) {
-      return !myInfo.isAutoHide();
-    }
-
-    @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
-      fireAutoHideChanged(!myInfo.isAutoHide());
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      super.update(e);
-      e.getPresentation().setVisible(myInfo.getType() != ToolWindowType.FLOATING && myInfo.getType() != ToolWindowType.WINDOWED);
-    }
-  }
-
-  private final class ToggleDockModeAction extends ToggleAction implements DumbAware {
-    public ToggleDockModeAction() {
-      copyFrom(ActionManager.getInstance().getAction(TOGGLE_DOCK_MODE_ACTION_ID));
-    }
-
-    @Override
-    public final boolean isSelected(final AnActionEvent event) {
-      return myInfo.isDocked();
-    }
-
-    @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
-      if (myInfo.isDocked()) {
-        fireTypeChanged(ToolWindowType.SLIDING);
-      }
-      else if (myInfo.isSliding()) {
-        fireTypeChanged(ToolWindowType.DOCKED);
-      }
-    }
-  }
-
-  private final class ToggleFloatingModeAction extends ToggleAction implements DumbAware {
-    public ToggleFloatingModeAction() {
-      copyFrom(ActionManager.getInstance().getAction(TOGGLE_FLOATING_MODE_ACTION_ID));
-    }
-
-    @Override
-    public final boolean isSelected(final AnActionEvent event) {
-      return myInfo.isFloating();
-    }
-
-    @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
-      if (myInfo.isFloating()) {
-        fireTypeChanged(myInfo.getInternalType());
-      }
-      else {
-        fireTypeChanged(ToolWindowType.FLOATING);
-      }
-    }
-  }
-
-  private final class ToggleWindowedModeAction extends ToggleAction implements DumbAware {
-    public ToggleWindowedModeAction() {
-      copyFrom(ActionManager.getInstance().getAction(TOGGLE_WINDOWED_MODE_ACTION_ID));
-    }
-
-    @Override
-    public final boolean isSelected(final AnActionEvent event) {
-      return myInfo.isWindowed();
-    }
-
-    @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
-      if (myInfo.isWindowed()) {
-        fireTypeChanged(myInfo.getInternalType());
-      }
-      else {
-        fireTypeChanged(ToolWindowType.WINDOWED);
-      }
-    }
-
-    @Override
-    public void update(@NotNull AnActionEvent e) {
-      super.update(e);
-      if (SystemInfo.isMac) {
-        e.getPresentation().setEnabledAndVisible(false);
-      }
-    }
-  }
-
-  private final class ToggleSideModeAction extends ToggleAction implements DumbAware {
-    public ToggleSideModeAction() {
-      copyFrom(ActionManager.getInstance().getAction(TOGGLE_SIDE_MODE_ACTION_ID));
-    }
-
-    @Override
-    public final boolean isSelected(final AnActionEvent event) {
-      return myInfo.isSplit();
-    }
-
-    @Override
-    public final void setSelected(final AnActionEvent event, final boolean flag) {
-      fireSideStatusChanged(flag);
-    }
-
-    @Override
-    public void update(@NotNull final AnActionEvent e) {
-      super.update(e);
-    }
+  void showStripeButton() {
+    fireVisibleOnPanelChanged(true);
+    fireActivated();
   }
 
   private final class RemoveStripeButtonAction extends AnAction implements DumbAware {
-    public RemoveStripeButtonAction() {
+    RemoveStripeButtonAction() {
       Presentation presentation = getTemplatePresentation();
       presentation.setText(ActionsBundle.message("action.RemoveStripeButton.text"));
       presentation.setDescription(ActionsBundle.message("action.RemoveStripeButton.description"));
@@ -656,18 +540,15 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
-      fireVisibleOnPanelChanged(false);
-      if (getToolWindow().isActive()) {
-        fireHidden();
-      }
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      removeStripeButton();
     }
   }
 
   private final class HideAction extends AnAction implements DumbAware {
-    @NonNls public static final String HIDE_ACTIVE_WINDOW_ACTION_ID = InternalDecorator.HIDE_ACTIVE_WINDOW_ACTION_ID;
+    @NonNls static final String HIDE_ACTIVE_WINDOW_ACTION_ID = InternalDecorator.HIDE_ACTIVE_WINDOW_ACTION_ID;
 
-    public HideAction() {
+    HideAction() {
       copyFrom(ActionManager.getInstance().getAction(HIDE_ACTIVE_WINDOW_ACTION_ID));
       getTemplatePresentation().setText(UIBundle.message("tool.window.hide.action.name"));
     }
@@ -700,12 +581,12 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myInfo.getContentUiType() == ToolWindowContentUiType.COMBO;
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       fireContentUiTypeChanges(state ? ToolWindowContentUiType.COMBO : ToolWindowContentUiType.TABBED);
     }
   }
@@ -821,5 +702,45 @@ public final class InternalDecorator extends JPanel implements Queryable, DataPr
 
   public void setAdditionalGearActions(@Nullable ActionGroup additionalGearActions) {
     myAdditionalGearActions = additionalGearActions;
+  }
+
+  @Override
+  public AccessibleContext getAccessibleContext() {
+    if (accessibleContext == null) {
+      accessibleContext = new AccessibleInternalDecorator();
+    }
+    return accessibleContext;
+  }
+
+  protected class AccessibleInternalDecorator extends AccessibleJPanel {
+    @Override
+    public String getAccessibleName() {
+      String name = super.getAccessibleName();
+      if (name == null) {
+        String title = StringUtil.defaultIfEmpty(myToolWindow.getTitle(), myToolWindow.getStripeTitle());
+        title = StringUtil.defaultIfEmpty(title, myToolWindow.getId());
+        name = StringUtil.notNullize(title) + " Tool Window";
+      }
+      return name;
+    }
+  }
+
+  /**
+   * Installs a focus traversal policy for the tool window.
+   * If the policy cannot handle a keystroke, it delegates the handling to
+   * the nearest ancestors focus traversal policy. For instance,
+   * this policy does not handle KeyEvent.VK_ESCAPE, so it can delegate the handling
+   * to a ThreeComponentSplitter instance.
+   */
+  static void installFocusTraversalPolicy(@NotNull Container container, @NotNull FocusTraversalPolicy policy) {
+    container.setFocusCycleRoot(true);
+    container.setFocusTraversalPolicyProvider(true);
+    container.setFocusTraversalPolicy(policy);
+    installDefaultFocusTraversalKeys(container, KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS);
+    installDefaultFocusTraversalKeys(container, KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS);
+  }
+
+  private static void installDefaultFocusTraversalKeys(@NotNull Container container, int id) {
+    container.setFocusTraversalKeys(id, KeyboardFocusManager.getCurrentKeyboardFocusManager().getDefaultFocusTraversalKeys(id));
   }
 }

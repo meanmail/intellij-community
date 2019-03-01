@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.tree.render;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -24,7 +10,6 @@ import com.intellij.debugger.engine.evaluation.EvaluateExceptionUtil;
 import com.intellij.debugger.engine.evaluation.EvaluationContext;
 import com.intellij.debugger.engine.evaluation.TextWithImports;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
-import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeExpression;
 import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
@@ -45,11 +30,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: lex
- * Date: Sep 17, 2003
- * Time: 2:04:00 PM
- */
 public class ExpressionChildrenRenderer extends TypeRenderer implements ChildrenRenderer {
   public static final @NonNls String UNIQUE_ID = "ExpressionChildrenRenderer";
   private static final Key<Value> EXPRESSION_VALUE = new Key<>("EXPRESSION_VALUE");
@@ -58,10 +38,14 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
   private CachedEvaluator myChildrenExpandable = createCachedEvaluator();
   private CachedEvaluator myChildrenExpression = createCachedEvaluator();
 
+  private NodeRenderer myPredictedRenderer;
+
+  @Override
   public String getUniqueId() {
     return UNIQUE_ID;
   }
 
+  @Override
   public ExpressionChildrenRenderer clone() {
     ExpressionChildrenRenderer clone = (ExpressionChildrenRenderer)super.clone();
     clone.myChildrenExpandable = createCachedEvaluator();
@@ -71,6 +55,7 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     return clone;
   }
 
+  @Override
   public void buildChildren(final Value value, final ChildrenBuilder builder, final EvaluationContext evaluationContext) {
     final NodeManager nodeManager = builder.getNodeManager();
 
@@ -99,16 +84,18 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     descriptor.putUserData(LAST_CHILDREN_RENDERER, renderer);
   }
 
+  public static Value getLastChildrenValue(NodeDescriptor descriptor) {
+    return descriptor.getUserData(EXPRESSION_VALUE);
+  }
+
   private Value evaluateChildren(EvaluationContext context, NodeDescriptor descriptor) throws EvaluateException {
-    final ExpressionEvaluator evaluator = myChildrenExpression.getEvaluator(context.getProject());
-
-    Value value = evaluator.evaluate(context);
-    DebuggerUtilsEx.keep(value, context);
-
+    ExpressionEvaluator evaluator = myChildrenExpression.getEvaluator(context.getProject());
+    Value value = context.computeAndKeep(() -> evaluator.evaluate(context));
     descriptor.putUserData(EXPRESSION_VALUE, value);
     return value;
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     super.readExternal(element);
     DefaultJDOMExternalizer.readExternal(this, element);
@@ -124,6 +111,7 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     }
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     super.writeExternal(element);
     DefaultJDOMExternalizer.writeExternal(this, element);
@@ -131,8 +119,9 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     DebuggerUtils.getInstance().writeTextWithImports(element, "CHILDREN_EXPRESSION", getChildrenExpression());
   }
 
+  @Override
   public PsiExpression getChildValueExpression(DebuggerTreeNode node, DebuggerContext context) throws EvaluateException {
-    Value expressionValue = node.getParent().getDescriptor().getUserData(EXPRESSION_VALUE);
+    Value expressionValue = getLastChildrenValue(node.getParent().getDescriptor());
     if (expressionValue == null) {
       throw EvaluateExceptionUtil.createEvaluateException(DebuggerBundle.message("error.unable.to.evaluate.expression"));
     }
@@ -158,6 +147,7 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     return renderer;
   }
 
+  @Override
   public boolean isExpandable(Value value, final EvaluationContext context, NodeDescriptor parentDescriptor) {
     final EvaluationContext evaluationContext = context.createEvaluationContext(value);
 
@@ -199,10 +189,18 @@ public class ExpressionChildrenRenderer extends TypeRenderer implements Children
     myChildrenExpandable.setReferenceExpression(childrenExpandable);
   }
 
+  @Override
   public void setClassName(String name) {
     super.setClassName(name);
     myChildrenExpression.clear();
     myChildrenExpandable.clear();
   }
 
+  public NodeRenderer getPredictedRenderer() {
+    return myPredictedRenderer;
+  }
+
+  public void setPredictedRenderer(NodeRenderer predictedRenderer) {
+    myPredictedRenderer = predictedRenderer;
+  }
 }

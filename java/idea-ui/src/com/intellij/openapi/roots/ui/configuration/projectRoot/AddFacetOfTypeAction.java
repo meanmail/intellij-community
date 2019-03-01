@@ -52,7 +52,7 @@ class AddFacetOfTypeAction extends DumbAwareAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final FacetType type = myFacetType;
     if (type == null) return;
 
@@ -135,7 +135,7 @@ class AddFacetOfTypeAction extends DumbAwareAction {
         result.add(new AddFacetOfTypeAction(type, context));
       }
     }
-    return result.toArray(new AnAction[result.size()]);
+    return result.toArray(AnAction.EMPTY_ARRAY);
   }
 
   private static boolean hasSuitableModules(StructureConfigurableContext context, FacetType type) {

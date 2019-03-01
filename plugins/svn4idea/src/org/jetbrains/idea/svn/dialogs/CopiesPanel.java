@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.dialogs;
 
+import com.intellij.configurationStore.StoreUtil;
 import com.intellij.ide.DataManager;
 import com.intellij.notification.*;
-import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
@@ -27,7 +13,7 @@ import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.vcs.ObjectsConvertor;
+import com.intellij.openapi.vcs.AbstractVcsHelper;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -40,27 +26,25 @@ import com.intellij.ui.components.labels.LinkLabel;
 import com.intellij.ui.components.labels.LinkListener;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.Convertor;
-import com.intellij.util.io.EqualityPolicy;
+import com.intellij.util.containers.hash.EqualityPolicy;
 import com.intellij.util.messages.MessageBusConnection;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.*;
 import org.jetbrains.idea.svn.actions.CleanupWorker;
 import org.jetbrains.idea.svn.api.ClientFactory;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.branchConfig.BranchConfigurationDialog;
 import org.jetbrains.idea.svn.branchConfig.SelectBranchPopup;
 import org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationNew;
 import org.jetbrains.idea.svn.checkout.SvnCheckoutProvider;
+import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.integrate.MergeContext;
 import org.jetbrains.idea.svn.integrate.QuickMerge;
 import org.jetbrains.idea.svn.integrate.QuickMergeInteractionImpl;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.internal.util.SVNPathUtil;
-import org.tmatesoft.svn.core.wc.SVNRevision;
 
 import javax.swing.*;
 import javax.swing.border.Border;
@@ -72,10 +56,13 @@ import java.awt.event.FocusEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.io.File;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.intellij.notification.NotificationDisplayType.STICKY_BALLOON;
+import static com.intellij.openapi.util.text.StringUtil.notNullize;
+import static com.intellij.util.containers.ContainerUtil.map;
+import static java.util.Collections.singletonList;
 
 public class CopiesPanel {
 
@@ -84,14 +71,14 @@ public class CopiesPanel {
   private static final NotificationGroup NOTIFICATION_GROUP = new NotificationGroup("Svn Roots Detection Errors", STICKY_BALLOON, true);
 
   private final Project myProject;
-  private MessageBusConnection myConnection;
-  private SvnVcs myVcs;
-  private JPanel myPanel;
-  private JComponent myHolder;
+  private final MessageBusConnection myConnection;
+  private final SvnVcs myVcs;
+  private final JPanel myPanel;
+  private final JComponent myHolder;
   private LinkLabel myRefreshLabel;
   // updated only on AWT
   private List<OverrideEqualsWrapper<WCInfo>> myCurrentInfoList;
-  private int myTextHeight;
+  private final int myTextHeight;
 
   private final static String CHANGE_FORMAT = "CHANGE_FORMAT";
   private final static String CLEANUP = "CLEANUP";
@@ -99,70 +86,47 @@ public class CopiesPanel {
   private final static String CONFIGURE_BRANCHES = "CONFIGURE_BRANCHES";
   private final static String MERGE_FROM = "MERGE_FROM";
 
-  public CopiesPanel(final Project project) {
+  public CopiesPanel(@NotNull Project project) {
     myProject = project;
     myConnection = myProject.getMessageBus().connect(myProject);
     myVcs = SvnVcs.getInstance(myProject);
     myCurrentInfoList = null;
 
-    final Runnable focus = new Runnable() {
-      @Override
-      public void run() {
-        IdeFocusManager.getInstance(myProject).requestFocus(myRefreshLabel, true);
-      }
-    };
-    final Runnable refreshView = new Runnable() {
-      @Override
-      public void run() {
-        final List<WCInfo> infoList = myVcs.getWcInfosWithErrors();
-        final boolean hasErrors = !myVcs.getSvnFileUrlMapping().getErrorRoots().isEmpty();
-        final List<WorkingCopyFormat> supportedFormats = getSupportedFormats();
-        Runnable runnable = new Runnable() {
-          @Override
-          public void run() {
-            if (myCurrentInfoList != null) {
-              final List<OverrideEqualsWrapper<WCInfo>> newList =
-                ObjectsConvertor.convert(infoList, new Convertor<WCInfo, OverrideEqualsWrapper<WCInfo>>() {
-                  @Override
-                  public OverrideEqualsWrapper<WCInfo> convert(WCInfo o) {
-                    return new OverrideEqualsWrapper<>(InfoEqualityPolicy.getInstance(), o);
-                  }
-                }, ObjectsConvertor.NOT_NULL);
+    final Runnable focus = () -> IdeFocusManager.getInstance(myProject).requestFocus(myRefreshLabel, true);
+    final Runnable refreshView = () -> {
+      final List<WCInfo> infoList = myVcs.getWcInfosWithErrors();
+      final boolean hasErrors = !myVcs.getSvnFileUrlMapping().getErrorRoots().isEmpty();
+      final List<WorkingCopyFormat> supportedFormats = getSupportedFormats();
+      Runnable runnable = () -> {
+        if (myCurrentInfoList != null) {
+          List<OverrideEqualsWrapper<WCInfo>> newList =
+            map(infoList, info -> new OverrideEqualsWrapper<>(InfoEqualityPolicy.getInstance(), info));
 
-              if (Comparing.haveEqualElements(newList, myCurrentInfoList)) {
-                myRefreshLabel.setEnabled(true);
-                return;
-              }
-              myCurrentInfoList = newList;
-            }
-            Collections.sort(infoList, WCComparator.getInstance());
-            updateList(infoList, supportedFormats);
+          if (Comparing.haveEqualElements(newList, myCurrentInfoList)) {
             myRefreshLabel.setEnabled(true);
-            showErrorNotification(hasErrors);
-            SwingUtilities.invokeLater(focus);
+            return;
           }
-        };
-        ApplicationManager.getApplication().invokeLater(runnable, ModalityState.NON_MODAL);
-      }
-    };
-    final Consumer<Boolean> refreshOnPooled = new Consumer<Boolean>() {
-      @Override
-      public void consume(Boolean somethingNew) {
-        if (Boolean.TRUE.equals(somethingNew)) {
-          if (ApplicationManager.getApplication().isUnitTestMode()) {
-            refreshView.run();
-          }
-          else {
-            ApplicationManager.getApplication().executeOnPooledThread(refreshView);
-          }
-        } else {
-          ApplicationManager.getApplication().invokeLater(new Runnable() {
-            @Override
-            public void run() {
-              myRefreshLabel.setEnabled(true);
-            }
-          }, ModalityState.NON_MODAL);
+          myCurrentInfoList = newList;
         }
+        Collections.sort(infoList, WCComparator.getInstance());
+        updateList(infoList, supportedFormats);
+        myRefreshLabel.setEnabled(true);
+        showErrorNotification(hasErrors);
+        SwingUtilities.invokeLater(focus);
+      };
+      ApplicationManager.getApplication().invokeLater(runnable, ModalityState.NON_MODAL);
+    };
+    final Consumer<Boolean> refreshOnPooled = somethingNew -> {
+      if (Boolean.TRUE.equals(somethingNew)) {
+        if (ApplicationManager.getApplication().isUnitTestMode()) {
+          refreshView.run();
+        }
+        else {
+          ApplicationManager.getApplication().executeOnPooledThread(refreshView);
+        }
+      }
+      else {
+        ApplicationManager.getApplication().invokeLater(() -> myRefreshLabel.setEnabled(true), ModalityState.NON_MODAL);
       }
     };
     myConnection.subscribe(SvnVcs.ROOTS_RELOADED, refreshOnPooled);
@@ -174,13 +138,10 @@ public class CopiesPanel {
     final JPanel panel = new JPanel(new BorderLayout());
     panel.add(myPanel, BorderLayout.NORTH);
     holderPanel.add(panel, BorderLayout.WEST);
-    myRefreshLabel = new MyLinkLabel(myTextHeight, "Refresh", new LinkListener() {
-      @Override
-      public void linkSelected(LinkLabel aSource, Object aLinkData) {
-        if (myRefreshLabel.isEnabled()) {
-          myVcs.invokeRefreshSvnRoots();
-          myRefreshLabel.setEnabled(false);
-        }
+    myRefreshLabel = new MyLinkLabel(myTextHeight, "Refresh", (aSource, aLinkData) -> {
+      if (myRefreshLabel.isEnabled()) {
+        myVcs.invokeRefreshSvnRoots();
+        myRefreshLabel.setEnabled(false);
       }
     });
     final JScrollPane pane = ScrollPaneFactory.createScrollPane(holderPanel);
@@ -233,7 +194,7 @@ public class CopiesPanel {
                                     Messages.getWarningIcon());
               if (result == Messages.OK) {
                 // update of view will be triggered by roots changed event
-                SvnCheckoutProvider.checkout(myVcs.getProject(), new File(wcInfo.getPath()), wcInfo.getRootUrl(), SVNRevision.HEAD,
+                SvnCheckoutProvider.checkout(myVcs.getProject(), new File(wcInfo.getPath()), wcInfo.getUrl(), Revision.HEAD,
                                              Depth.INFINITY, false, null, wcInfo.getFormat());
               }
             } else if (CHANGE_FORMAT.equals(e.getDescription())) {
@@ -243,7 +204,7 @@ public class CopiesPanel {
               mergeFrom(wcInfo, root, editorPane);
             } else if (CLEANUP.equals(e.getDescription())) {
               if (! checkRoot(root, wcInfo.getPath(), " invoke Cleanup")) return;
-              new CleanupWorker(new VirtualFile[] {root}, myVcs.getProject(), "action.Subversion.cleanup.progress.title").execute();
+              new CleanupWorker(myVcs, singletonList(root)).execute();
             }
           }
         }
@@ -333,11 +294,9 @@ public class CopiesPanel {
   private List<WorkingCopyFormat> getSupportedFormats() {
     List<WorkingCopyFormat> result = ContainerUtil.newArrayList();
     ClientFactory factory = myVcs.getFactory();
-    ClientFactory otherFactory = myVcs.getOtherFactory(factory);
 
     try {
       result.addAll(factory.createUpgradeClient().getSupportedFormats());
-      result.addAll(SvnFormatWorker.getOtherFactoryFormats(otherFactory));
     }
     catch (VcsException e) {
       LOG.info(e);
@@ -360,25 +319,24 @@ public class CopiesPanel {
   }
 
   private void mergeFrom(@NotNull final WCInfo wcInfo, @NotNull final VirtualFile root, @Nullable final Component mergeLabel) {
-    SelectBranchPopup.showForBranchRoot(myProject, root, new SelectBranchPopup.BranchSelectedCallback() {
-      @Override
-      public void branchSelected(Project project,
-                                 @NotNull SvnBranchConfigurationNew configuration,
-                                 @NotNull String branchUrl,
-                                 long revision) {
-        String workingCopyUrlInSelectedBranch = getCorrespondingUrlInOtherBranch(configuration, wcInfo.getUrl(), branchUrl);
-        MergeContext mergeContext = new MergeContext(myVcs, workingCopyUrlInSelectedBranch, wcInfo, SVNPathUtil.tail(branchUrl), root);
+    SelectBranchPopup.showForBranchRoot(myProject, root, (project, configuration, branchUrl, revision) -> {
+      try {
+        Url workingCopyUrlInSelectedBranch = getCorrespondingUrlInOtherBranch(configuration, wcInfo.getUrl(), branchUrl);
+        MergeContext mergeContext = new MergeContext(myVcs, workingCopyUrlInSelectedBranch, wcInfo, branchUrl.getTail(), root);
 
-        new QuickMerge(mergeContext).execute(new QuickMergeInteractionImpl(myProject));
+        new QuickMerge(mergeContext, new QuickMergeInteractionImpl(mergeContext)).execute();
+      }
+      catch (SvnBindException e) {
+        AbstractVcsHelper.getInstance(myProject).showError(e, "Merge from " + branchUrl.getTail());
       }
     }, "Select branch", mergeLabel);
   }
 
   @NotNull
-  private static String getCorrespondingUrlInOtherBranch(@NotNull SvnBranchConfigurationNew configuration,
-                                                         @NotNull SVNURL url,
-                                                         @NotNull String otherBranchUrl) {
-    return SVNPathUtil.append(otherBranchUrl, configuration.getRelativeUrl(url.toDecodedString()));
+  private static Url getCorrespondingUrlInOtherBranch(@NotNull SvnBranchConfigurationNew configuration,
+                                                      @NotNull Url url,
+                                                      @NotNull Url otherBranchUrl) throws SvnBindException {
+    return otherBranchUrl.appendPath(notNullize(configuration.getRelativeUrl(url)), false);
   }
 
   @SuppressWarnings("MethodMayBeStatic")
@@ -418,7 +376,7 @@ public class CopiesPanel {
     }
     final WorkingCopyFormat newFormat = dialog.getUpgradeMode();
     if (!wcInfo.getFormat().equals(newFormat)) {
-      ApplicationManager.getApplication().saveAll();
+      StoreUtil.saveDocumentsAndProjectSettings(myProject);
       final Task.Backgroundable task = new SvnFormatWorker(myProject, newFormat, wcInfo) {
         @Override
         public void onSuccess() {
@@ -452,15 +410,11 @@ public class CopiesPanel {
   }
 
   private static void registerHelp(@NotNull JComponent component) {
-    DataManager.registerDataProvider(component, new DataProvider() {
-      @Nullable
-      @Override
-      public Object getData(@NonNls String dataId) {
-        if (PlatformDataKeys.HELP_ID.is(dataId)) {
-          return "reference.vcs.svn.working.copies.information";
-        }
-        return null;
+    DataManager.registerDataProvider(component, dataId -> {
+      if (PlatformDataKeys.HELP_ID.is(dataId)) {
+        return "reference.vcs.svn.working.copies.information";
       }
+      return null;
     });
   }
 
@@ -469,10 +423,10 @@ public class CopiesPanel {
   }
 
   public static class OverrideEqualsWrapper<T> {
-    private final EqualityPolicy<T> myPolicy;
+    private final EqualityPolicy<? super T> myPolicy;
     private final T myT;
 
-    public OverrideEqualsWrapper(EqualityPolicy<T> policy, T t) {
+    public OverrideEqualsWrapper(EqualityPolicy<? super T> policy, T t) {
       myPolicy = policy;
       myT = t;
     }
@@ -562,7 +516,7 @@ public class CopiesPanel {
   private static class MyLinkLabel extends LinkLabel {
     private final int myHeight;
 
-    public MyLinkLabel(final int height, final String text, final LinkListener linkListener) {
+    MyLinkLabel(final int height, final String text, final LinkListener linkListener) {
       super(text, null, linkListener);
       myHeight = height;
     }

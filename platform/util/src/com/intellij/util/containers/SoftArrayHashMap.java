@@ -25,13 +25,13 @@ import java.util.Map;
  * @author peter
  */
 public class SoftArrayHashMap<T,V> implements Cloneable {
-  private SoftHashMap<T, SoftArrayHashMap<T,V>> myContinuationMap;
-  private SoftHashMap<T,V> myValuesMap;
+  private Map<T, SoftArrayHashMap<T,V>> myContinuationMap;
+  private Map<T,V> myValuesMap;
   private V myEmptyValue;
   private final TObjectHashingStrategy<T> myStrategy;
 
   public SoftArrayHashMap() {
-    this(ContainerUtil.<T>canonicalStrategy());
+    this(ContainerUtil.canonicalStrategy());
   }
 
   public SoftArrayHashMap(@NotNull TObjectHashingStrategy<T> strategy) {
@@ -78,16 +78,16 @@ public class SoftArrayHashMap<T,V> implements Cloneable {
     final T key = array[index];
     if (index == array.length - 1) {
       if (myValuesMap == null) {
-        myValuesMap = new SoftHashMap<T, V>(myStrategy);
+        myValuesMap = ContainerUtil.createSoftMap(myStrategy);
       }
       myValuesMap.put(key, value);
     } else {
       if (myContinuationMap == null) {
-        myContinuationMap = new SoftHashMap<T, SoftArrayHashMap<T, V>>(myStrategy);
+        myContinuationMap = ContainerUtil.createSoftMap(myStrategy);
       }
       SoftArrayHashMap<T, V> softArrayHashMap = myContinuationMap.get(key);
       if (softArrayHashMap == null) {
-        myContinuationMap.put(key, softArrayHashMap = new SoftArrayHashMap<T, V>(myStrategy));
+        myContinuationMap.put(key, softArrayHashMap = new SoftArrayHashMap<>(myStrategy));
       }
       softArrayHashMap.put(array, index + 1, value);
     }
@@ -113,15 +113,15 @@ public class SoftArrayHashMap<T,V> implements Cloneable {
 
   @Override
   public final SoftArrayHashMap<T,V> clone() {
-    final SoftArrayHashMap<T, V> copy = new SoftArrayHashMap<T, V>(myStrategy);
+    final SoftArrayHashMap<T, V> copy = new SoftArrayHashMap<>(myStrategy);
     copy.myContinuationMap = copyMap(myContinuationMap);
     copy.myValuesMap = copyMap(myValuesMap);
     copy.myEmptyValue = myEmptyValue;
     return copy;
   }
 
-  private <X> SoftHashMap<T, X> copyMap(final SoftHashMap<T, X> map) {
-    final SoftHashMap<T, X> copy = new SoftHashMap<T, X>();
+  private <X> Map<T, X> copyMap(final Map<T, X> map) {
+    final Map<T, X> copy = ContainerUtil.createSoftMap();
     for (final Map.Entry<T, X> entry : map.entrySet()) {
       copy.put(entry.getKey(), entry.getValue());
     }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.git4idea.ssh;
 
 import com.intellij.openapi.util.io.FileUtilRt;
@@ -20,6 +6,7 @@ import com.intellij.util.ArrayUtilRt;
 import com.trilead.ssh2.*;
 import com.trilead.ssh2.crypto.PEMDecoder;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.git4idea.GitExternalApp;
 
@@ -117,7 +104,7 @@ public class SSHMain implements GitExternalApp {
    * @param command  a command
    * @throws IOException if config file could not be loaded
    */
-  private SSHMain(String host, String username, Integer port, String command) throws IOException {
+  private SSHMain(@NotNull String host, @Nullable String username, @Nullable Integer port, @NotNull String command) throws IOException {
     SSHConfig config = SSHConfig.load();
     myHost = config.lookup(username, host, port);
     myHandlerNo = System.getenv(GitSSHHandler.SSH_HANDLER_ENV);
@@ -137,6 +124,8 @@ public class SSHMain implements GitExternalApp {
       app.start();
       System.exit(app.myExitCode);
     }
+    catch (CancelException ignore) {
+    }
     catch (Throwable t) {
       t.printStackTrace();
       System.exit(1);
@@ -154,11 +143,11 @@ public class SSHMain implements GitExternalApp {
     try {
       configureKnownHosts(c);
 
-      boolean useHttpProxy = Boolean.valueOf(System.getenv(GitSSHHandler.SSH_USE_PROXY_ENV));
+      boolean useHttpProxy = Boolean.parseBoolean(System.getenv(GitSSHHandler.SSH_USE_PROXY_ENV));
       if (useHttpProxy) {
         String proxyHost = System.getenv(GitSSHHandler.SSH_PROXY_HOST_ENV);
-        Integer proxyPort = Integer.valueOf(System.getenv(GitSSHHandler.SSH_PROXY_PORT_ENV));
-        boolean proxyAuthentication = Boolean.valueOf(System.getenv(GitSSHHandler.SSH_PROXY_AUTHENTICATION_ENV));
+        int proxyPort = Integer.parseInt(System.getenv(GitSSHHandler.SSH_PROXY_PORT_ENV));
+        boolean proxyAuthentication = Boolean.parseBoolean(System.getenv(GitSSHHandler.SSH_PROXY_AUTHENTICATION_ENV));
         String proxyUser = null;
         String proxyPassword = null;
         if (proxyAuthentication) {
@@ -210,7 +199,7 @@ public class SSHMain implements GitExternalApp {
     //log("authenticating... " + this);
     String lastSuccessfulMethod = myXmlRpcClient.getLastSuccessful(myHandlerNo, getUserHostString());
     //log("SSH: authentication methods: " + methods + " last successful method: " + lastSuccessfulMethod);
-    if (lastSuccessfulMethod != null && lastSuccessfulMethod.length() > 0 && methods.remove(lastSuccessfulMethod)) {
+    if (lastSuccessfulMethod != null && !lastSuccessfulMethod.isEmpty() && methods.remove(lastSuccessfulMethod)) {
       methods.addFirst(lastSuccessfulMethod);
     }
     for (String method : methods) {
@@ -279,7 +268,7 @@ public class SSHMain implements GitExternalApp {
         for (int i = 0; i < myHost.getNumberOfPasswordPrompts(); i++) {
           String password = myXmlRpcClient.askPassword(myHandlerNo, getUserHostString(), i != 0, myLastError);
           if (password == null) {
-            break;
+            throw new CancelException();
           }
           else {
             if (c.authenticateWithPassword(myHost.getUser(), password)) {
@@ -325,9 +314,8 @@ public class SSHMain implements GitExternalApp {
           int i;
           for (i = 0; i < myHost.getNumberOfPasswordPrompts(); i++) {
             passphrase = myXmlRpcClient.askPassphrase(myHandlerNo, getUserHostString(), keyPath, i != 0, myLastError);
-            if (passphrase == null) {
-              // if no passphrase was entered, just return false and try something other
-              return false;
+            if (passphrase == null) { // user pressed cancel in the dialog
+              throw new CancelException();
             }
             else {
               try {
@@ -365,6 +353,9 @@ public class SSHMain implements GitExternalApp {
         }
       }
       return false;
+    }
+    catch (CancelException rethrow) {
+      throw rethrow;
     }
     catch (Exception e) {
       myErrorCause = e;
@@ -409,42 +400,40 @@ public class SSHMain implements GitExternalApp {
    * @param releaseSemaphore if true the semaphore will be released
    */
   private void forward(@NonNls final String name, final OutputStream out, final InputStream in, final boolean releaseSemaphore) {
-    final Runnable action = new Runnable() {
-      public void run() {
-        byte[] buffer = new byte[BUFFER_SIZE];
-        int rc;
+    final Runnable action = () -> {
+      byte[] buffer = new byte[BUFFER_SIZE];
+      int rc;
+      try {
         try {
           try {
-            try {
-              while ((rc = in.read(buffer)) != -1) {
-                out.write(buffer, 0, rc);
-              }
-            }
-            finally {
-              out.close();
+            while ((rc = in.read(buffer)) != -1) {
+              out.write(buffer, 0, rc);
             }
           }
           finally {
-            in.close();
-          }
-        }
-        catch (IOException e) {
-          System.err.println(SSHMainBundle.message("sshmain.forwarding.failed", name, e.getMessage()));
-          e.printStackTrace();
-          myExitCode = 1;
-          if (releaseSemaphore) {
-            // in the case of error, release semaphore, so that application could exit
-            myForwardCompleted.release(1);
+            out.close();
           }
         }
         finally {
-          if (releaseSemaphore) {
-            myForwardCompleted.release(1);
-          }
+          in.close();
+        }
+      }
+      catch (IOException e) {
+        System.err.println(SSHMainBundle.message("sshmain.forwarding.failed", name, e.getMessage()));
+        e.printStackTrace();
+        myExitCode = 1;
+        if (releaseSemaphore) {
+          // in the case of error, release semaphore, so that application could exit
+          myForwardCompleted.release(1);
+        }
+      }
+      finally {
+        if (releaseSemaphore) {
+          myForwardCompleted.release(1);
         }
       }
     };
-    @SuppressWarnings({"HardCodedStringLiteral"}) final Thread t = new Thread(action, "Forwarding " + name);
+    final Thread t = new Thread(action, "Forwarding " + name);
     t.setDaemon(true);
     t.start();
   }
@@ -473,18 +462,14 @@ public class SSHMain implements GitExternalApp {
    * @throws IOException if loading configuration file failed
    */
   private static SSHMain parseArguments(String[] args) throws IOException {
-    if (args.length != 2 && args.length != 4) {
+    if (args.length < 2) {
       System.err.println(SSHMainBundle.message("sshmain.invalid.amount.of.arguments", Arrays.asList(args)));
       System.exit(1);
     }
-    int i = 0;
-    Integer port = null;
-    //noinspection HardCodedStringLiteral
-    if ("-p".equals(args[i])) {
-      i++;
-      port = Integer.parseInt(args[i++]);
-    }
-    String host = args[i++];
+    String command = args[args.length - 1];
+    String host = args[args.length - 2];
+    List<String> parameters = Arrays.asList(args).subList(0, args.length - 2);
+
     String user;
     int atIndex = host.lastIndexOf('@');
     if (atIndex == -1) {
@@ -494,10 +479,24 @@ public class SSHMain implements GitExternalApp {
       user = host.substring(0, atIndex);
       host = host.substring(atIndex + 1);
     }
-    String command = args[i];
+
+    Integer port = null;
+    for (Iterator<String> it = parameters.iterator(); it.hasNext();) {
+      String parameter = it.next();
+      if ("-p".equals(parameter)) {
+        if (it.hasNext()) {
+          port = Integer.valueOf(it.next());
+        }
+        else {
+          System.err.println("No value specified for argument -p: " + Arrays.toString(args));
+        }
+      }
+    }
+
     return new SSHMain(host, user, port, command);
   }
 
+  private static class CancelException extends RuntimeException {}
 
   /**
    * Interactive callback support. The callback invokes Idea XML RPC server.
@@ -515,13 +514,14 @@ public class SSHMain implements GitExternalApp {
     /**
      * {@inheritDoc}
      */
+    @Override
     @SuppressWarnings({"UseOfObsoleteCollectionType"})
     @Nullable
     public String[] replyToChallenge(final String name,
                                      final String instruction,
                                      final int numPrompts,
                                      final String[] prompt,
-                                     final boolean[] echo) throws Exception {
+                                     final boolean[] echo) {
       if (numPrompts == 0) {
         return ArrayUtilRt.EMPTY_STRING_ARRAY;
       }
@@ -553,7 +553,8 @@ public class SSHMain implements GitExternalApp {
     /**
      * {@inheritDoc}
      */
-    public boolean verifyServerHostKey(String hostname, int port, String serverHostKeyAlgorithm, byte[] serverHostKey) throws Exception {
+    @Override
+    public boolean verifyServerHostKey(String hostname, int port, String serverHostKeyAlgorithm, byte[] serverHostKey) {
       try {
         String s = System.getenv(GitSSHHandler.SSH_IGNORE_KNOWN_HOSTS_ENV);
         if (s != null && Boolean.parseBoolean(s)) {

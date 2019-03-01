@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -32,6 +32,7 @@ import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.ui.GridBag;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -47,7 +48,6 @@ import java.util.Set;
  * Not thread-safe.
  *
  * @author Denis Zhdanov
- * @since 8/8/12 10:06 AM
  */
 public class ArrangementAtomMatchConditionComponent implements ArrangementUiComponent {
 
@@ -81,22 +81,22 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
 
   @NotNull private final Set<ArrangementSettingsToken> myAvailableTokens = ContainerUtilRt.newHashSet();
 
-  @NotNull private final BorderStrategy                myBorderStrategy;
-  @NotNull private final String                        myText;
-  @NotNull private final ArrangementColorsProvider     myColorsProvider;
-  @NotNull private final RoundedLineBorder             myBorder;
+  @NotNull private final BorderStrategy myBorderStrategy;
+  @NotNull private final String myText;
+  @NotNull private final ArrangementColorsProvider myColorsProvider;
+  @NotNull private final RoundedLineBorder myBorder;
   @NotNull private final ArrangementAtomMatchCondition myCondition;
-  @NotNull private final ArrangementAnimationPanel     myAnimationPanel;
+  @NotNull private final ArrangementAnimationPanel myAnimationPanel;
 
-  @Nullable private final ActionButton                                     myCloseButton;
-  @Nullable private final Rectangle                                        myCloseButtonBounds;
-  @Nullable private final Consumer<ArrangementAtomMatchConditionComponent> myCloseCallback;
+  @Nullable private final ActionButton myCloseButton;
+  @Nullable private final Rectangle myCloseButtonBounds;
+  @Nullable private final Consumer<? super ArrangementAtomMatchConditionComponent> myCloseCallback;
 
   @NotNull private Color myBackgroundColor;
 
   @Nullable private final Dimension myTextControlSize;
-  @Nullable private       Rectangle myScreenBounds;
-  @Nullable private       Listener  myListener;
+  @Nullable private Rectangle myScreenBounds;
+  @Nullable private Listener myListener;
 
   private boolean myInverted = false;
   private boolean myEnabled = true;
@@ -110,7 +110,7 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
   public ArrangementAtomMatchConditionComponent(@NotNull ArrangementStandardSettingsManager manager,
                                                 @NotNull ArrangementColorsProvider colorsProvider,
                                                 @NotNull ArrangementAtomMatchCondition condition,
-                                                @Nullable Consumer<ArrangementAtomMatchConditionComponent> closeCallback)
+                                                @Nullable Consumer<? super ArrangementAtomMatchConditionComponent> closeCallback)
   {
     myColorsProvider = colorsProvider;
     myCondition = condition;
@@ -145,7 +145,6 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
 
     final ArrangementRemoveConditionAction action = new ArrangementRemoveConditionAction();
     Icon buttonIcon = action.getTemplatePresentation().getIcon();
-    Dimension buttonSize = new Dimension(buttonIcon.getIconWidth(), buttonIcon.getIconHeight());
     if (closeCallback == null) {
       myCloseButton = null;
       myCloseButtonBounds = null;
@@ -155,10 +154,10 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
         action,
         action.getTemplatePresentation().clone(),
         ArrangementConstants.MATCHING_RULES_CONTROL_PLACE,
-        buttonSize)
+        JBUI.emptySize())
       {
         @Override
-        protected Icon getIcon() {
+        public Icon getIcon() {
           return myCloseButtonHovered ? action.getTemplatePresentation().getHoveredIcon() : action.getTemplatePresentation().getIcon();
         }
       };
@@ -175,7 +174,7 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     GridBagConstraints constraints = new GridBag().anchor(GridBagConstraints.WEST).weightx(1)
       .insets(0, 0, 0, myCloseButton == null ? ArrangementConstants.BORDER_ARC_SIZE : 0);
     insetsPanel.add(myTextControl, constraints);
-    insetsPanel.setBorder(IdeBorderFactory.createEmptyBorder(0, ArrangementConstants.HORIZONTAL_PADDING, 0, 0));
+    insetsPanel.setBorder(JBUI.Borders.emptyLeft(ArrangementConstants.HORIZONTAL_PADDING));
     insetsPanel.setOpaque(false);
 
     JPanel roundBorderPanel = new JPanel(new GridBagLayout()) {
@@ -419,7 +418,6 @@ public class ArrangementAtomMatchConditionComponent implements ArrangementUiComp
     return -1;
   }
 
-  @SuppressWarnings("NullableProblems")
   @Override
   public void setListener(@NotNull Listener listener) {
     myListener = listener;

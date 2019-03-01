@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,6 @@ import com.sun.jdi.*;
 /**
  * @author lex
  */
-@SuppressWarnings("ThrowableResultOfMethodCallIgnored")
 public class EvaluateExceptionUtil {
   public static final EvaluateException INCONSISTEND_DEBUG_INFO = createEvaluateException(DebuggerBundle.message("evaluation.error.inconsistent.debug.info"));
   public static final EvaluateException BOOLEAN_EXPECTED = createEvaluateException(DebuggerBundle.message("evaluation.error.boolean.value.expected.in.condition"));
@@ -44,8 +43,14 @@ public class EvaluateExceptionUtil {
   }
 
   public static EvaluateException createEvaluateException(String msg, Throwable th) {
-    final String message = msg != null? msg + ": " + reason(th) : reason(th);
-    return new EvaluateException(message, th instanceof EvaluateException ? th.getCause() : th);
+    String message = msg != null ? msg + ": " + reason(th) : reason(th);
+    if (th instanceof EvaluateException) {
+      th = th.getCause();
+    }
+    if (th instanceof AbsentInformationException) {
+      return new AbsentInformationEvaluateException(message, th);
+    }
+    return new EvaluateException(message, th);
   }
 
   public static EvaluateException createEvaluateException(String reason) {

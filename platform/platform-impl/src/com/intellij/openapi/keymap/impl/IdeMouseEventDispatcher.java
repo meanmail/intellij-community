@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -31,22 +17,21 @@ import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.openapi.wm.impl.FocusManagerImpl;
 import com.intellij.openapi.wm.impl.IdeGlassPaneImpl;
+import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.ReflectionUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.ui.UIUtil;
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseWheelEvent;
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
-import static com.intellij.ui.components.JBScrollPane.isScrollEvent;
+import static com.intellij.Patches.JDK_BUG_ID_8147994;
 import static java.awt.event.MouseEvent.*;
 
 /**
@@ -113,32 +98,27 @@ public final class IdeMouseEventDispatcher {
     }
 
     // search in main keymap
-    if (KeymapManagerImpl.ourKeymapManagerInitialized) {
-      final KeymapManager keymapManager = KeymapManager.getInstance();
-      if (keymapManager != null) {
-        final Keymap keymap = keymapManager.getActiveKeymap();
-        final String[] actionIds = keymap.getActionIds(mouseShortcut);
+    KeymapManager keymapManager = KeymapManagerImpl.ourKeymapManagerInitialized ? KeymapManager.getInstance() : null;
+    if (keymapManager != null) {
+      Keymap keymap = keymapManager.getActiveKeymap();
+      ActionManager actionManager = ActionManager.getInstance();
+      for (String actionId : keymap.getActionIds(mouseShortcut)) {
+        AnAction action = actionManager.getAction(actionId);
+        if (action == null || isModalContext && !action.isEnabledInModalContext()) {
+          continue;
+        }
 
-        ActionManager actionManager = ActionManager.getInstance();
-        for (String actionId : actionIds) {
-          AnAction action = actionManager.getAction(actionId);
-
-          if (action == null) continue;
-
-          if (isModalContext && !action.isEnabledInModalContext()) continue;
-
-          if (!myActions.contains(action)) {
-            myActions.add(action);
-          }
+        if (!myActions.contains(action)) {
+          myActions.add(action);
         }
       }
     }
   }
 
   /**
-   * @return <code>true</code> if and only if the passed event is already dispatched by the
-   *         <code>IdeMouseEventDispatcher</code> and there is no need for any other processing of the event.
-   *         If the method returns <code>false</code> then it means that the event should be delivered
+   * @return {@code true} if and only if the passed event is already dispatched by the
+   *         {@code IdeMouseEventDispatcher} and there is no need for any other processing of the event.
+   *         If the method returns {@code false} then it means that the event should be delivered
    *         to normal event dispatching.
    */
   public boolean dispatchMouseEvent(MouseEvent e) {
@@ -245,6 +225,10 @@ public final class IdeMouseEventDispatcher {
       return false; // forward mouse processing to the special shortcut panel
     }
 
+    if (doVerticalDiagramScrolling(c, e)) {
+      return true;
+    }
+
     if (isHorizontalScrolling(c, e)) {
       boolean done = doHorizontalScrolling(c, (MouseWheelEvent)e);
       if (done) return true;
@@ -261,23 +245,23 @@ public final class IdeMouseEventDispatcher {
     fillActionsList(c, shortcut, IdeKeyEventDispatcher.isModalContext(c));
     ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
     if (actionManager != null) {
-      AnAction[] actions = myActions.toArray(new AnAction[myActions.size()]);
+      AnAction[] actions = myActions.toArray(AnAction.EMPTY_ARRAY);
       for (AnAction action : actions) {
         DataContext dataContext = DataManager.getInstance().getDataContext(c);
         Presentation presentation = myPresentationFactory.getPresentation(action);
         AnActionEvent actionEvent = new AnActionEvent(e, dataContext, ActionPlaces.MAIN_MENU, presentation,
                                                       ActionManager.getInstance(),
                                                       modifiers);
-        action.beforeActionPerformedUpdate(actionEvent);
-
-        if (presentation.isEnabled()) {
+        if (ActionUtil.lastUpdateAndCheckDumb(action, actionEvent, false)) {
           actionManager.fireBeforeActionPerformed(action, dataContext, actionEvent);
           final Component context = PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext);
 
           if (context != null && !context.isShowing()) continue;
 
-          action.actionPerformed(actionEvent);
+          ActionUtil.performActionDumbAware(action, actionEvent);
+          actionManager.fireAfterActionPerformed(action, dataContext, actionEvent);
           e.consume();
+          break;
         }
       }
     }
@@ -310,28 +294,65 @@ public final class IdeMouseEventDispatcher {
         FeatureUsageTracker.getInstance().triggerFeatureUsed("ui.horizontal.scrolling");
         myLastHorScrolledComponentHash = scrollBar.hashCode();
       }
-      scrollBar.setValue(scrollBar.getValue() + getScrollAmount(c, me, scrollBar));
+      scrollBar.setValue(scrollBar.getValue() + getScrollAmount(me, scrollBar));
       return true;
     }
     return false;
+  }
+
+  private static boolean doVerticalDiagramScrolling(@Nullable Component component, @NotNull MouseEvent event) {
+    if (component != null && event instanceof MouseWheelEvent && isDiagramViewComponent(component.getParent())) {
+      MouseWheelEvent mwe = (MouseWheelEvent)event;
+      if (!mwe.isShiftDown() && mwe.getScrollType() == MouseWheelEvent.WHEEL_UNIT_SCROLL && JBScrollPane.isScrollEvent(mwe)) {
+        JScrollBar scrollBar = findVerticalScrollBar(component);
+        if (scrollBar != null) {
+          scrollBar.setValue(scrollBar.getValue() + getScrollAmount(mwe, scrollBar));
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  @Nullable
+  private static JScrollBar findVerticalScrollBar(@Nullable Component component) {
+    if (component == null) {
+      return null;
+    }
+    if (component instanceof JScrollPane) {
+      JScrollBar scrollBar = ((JScrollPane)component).getVerticalScrollBar();
+      return scrollBar != null && scrollBar.isVisible() ? scrollBar : null;
+    }
+    if (isDiagramViewComponent(component)) {
+      JComponent view = (JComponent)component;
+      for (int i = 0; i < view.getComponentCount(); i++) {
+        if (view.getComponent(i) instanceof JScrollBar) {
+          JScrollBar scrollBar = (JScrollBar)view.getComponent(i);
+          if (scrollBar.getOrientation() == Adjustable.VERTICAL) {
+            return scrollBar.isVisible() ? scrollBar : null;
+          }
+        }
+      }
+    }
+    return findVerticalScrollBar(component.getParent());
   }
 
   public void resetHorScrollingTracker() {
     myLastHorScrolledComponentHash = 0;
   }
 
-  private static int getScrollAmount(Component c, MouseWheelEvent me, JScrollBar scrollBar) {
+  private static int getScrollAmount(MouseWheelEvent me, JScrollBar scrollBar) {
     return me.getUnitsToScroll() * scrollBar.getUnitIncrement();
   }
 
   private static boolean isHorizontalScrolling(Component c, MouseEvent e) {
     if ( c != null
          && e instanceof MouseWheelEvent
-         && isDiagramViewComponent(c.getParent())) {
+         && (JDK_BUG_ID_8147994 || isDiagramViewComponent(c.getParent()))) {
       final MouseWheelEvent mwe = (MouseWheelEvent)e;
       return mwe.isShiftDown()
              && mwe.getScrollType() == MouseWheelEvent.WHEEL_UNIT_SCROLL
-             && isScrollEvent(mwe)
+             && JBScrollPane.isScrollEvent(mwe)
              && findHorizontalScrollBar(c) != null;
     }
     return false;
@@ -359,11 +380,12 @@ public final class IdeMouseEventDispatcher {
     return findHorizontalScrollBar(c.getParent());
   }
 
-  private static boolean isDiagramViewComponent(Component c) {
-    return c != null && "y.view.Graph2DView".equals(c.getClass().getName());
+  private static boolean isDiagramViewComponent(@Nullable Component component) {
+    // in production yfiles classes is obfuscated
+    return UIUtil.isClientPropertyTrue(component, "Diagram-View-Component-Key");
   }
 
-  public void blockNextEvents(final MouseEvent e, IdeEventQueue.BlockMode blockMode) {
+  public void blockNextEvents(@NotNull MouseEvent e, @NotNull IdeEventQueue.BlockMode blockMode) {
     final JRootPane root = findRoot(e);
     if (root == null) return;
 
@@ -396,5 +418,38 @@ public final class IdeMouseEventDispatcher {
       currentEventId = id;
       blockMode = mode;
     }
+  }
+
+  public static void requestFocusInNonFocusedWindow(@NotNull MouseEvent event) {
+    if (event.getID() == MOUSE_PRESSED) {
+      // request focus by mouse pressed before focus settles down
+      requestFocusInNonFocusedWindow(event.getComponent());
+    }
+  }
+
+  private static void requestFocusInNonFocusedWindow(@Nullable Component component) {
+    Window window = UIUtil.getWindow(component);
+    if (window != null && !UIUtil.isFocusAncestor(window)) {
+      Component focusable = UIUtil.isFocusable(component) ? component : findDefaultFocusableComponent(component);
+      if (focusable != null) focusable.requestFocus();
+    }
+  }
+
+  @Nullable
+  private static Component findDefaultFocusableComponent(@Nullable Component component) {
+    Container provider = findFocusTraversalPolicyProvider(component);
+    return provider == null ? null : provider.getFocusTraversalPolicy().getDefaultComponent(provider);
+  }
+
+  @Nullable
+  private static Container findFocusTraversalPolicyProvider(@Nullable Component component) {
+    Container container = component == null || component instanceof Container ? (Container)component : component.getParent();
+    while (container != null) {
+      // ensure that container is focus cycle root and provides focus traversal policy
+      // it means that Container.getFocusTraversalPolicy() returns non-null object
+      if (container.isFocusCycleRoot() && container.isFocusTraversalPolicyProvider()) return container;
+      container = container.getParent();
+    }
+    return null;
   }
 }

@@ -16,10 +16,10 @@
 package com.intellij.application
 
 import com.intellij.ide.IdeEventQueue
-import com.intellij.openapi.Disposable
 import com.intellij.openapi.application.*
 import com.intellij.openapi.application.impl.LaterInvocator
 import com.intellij.openapi.progress.ProgressManager
+import com.intellij.openapi.progress.util.ProgressIndicatorBase
 import com.intellij.openapi.progress.util.ProgressWindow
 import com.intellij.openapi.roots.ex.ProjectRootManagerEx
 import com.intellij.openapi.util.Disposer
@@ -47,21 +47,23 @@ class TransactionTest extends LightPlatformTestCase {
 
   @Override
   protected void invokeTestRunnable(@NotNull Runnable runnable) throws Exception {
+    if (app) {
+      guard.assertWriteActionAllowed()
+    }
+
     SwingUtilities.invokeLater(runnable)
     UIUtil.dispatchAllInvocationEvents()
   }
 
   @Override
   protected void setUp() throws Exception {
-    assert LaterInvocator.currentModalityState == ModalityState.NON_MODAL
     super.setUp()
-    TransactionGuardImpl.testingTransactions = true
+    assert LaterInvocator.currentModalityState == ModalityState.NON_MODAL
   }
 
   @Override
   protected void tearDown() throws Exception {
     UIUtil.dispatchAllInvocationEvents()
-    TransactionGuardImpl.testingTransactions = false
     log.clear()
     LaterInvocator.leaveAllModals()
     super.tearDown()
@@ -357,6 +359,34 @@ class TransactionTest extends LightPlatformTestCase {
     }
     UIUtil.dispatchAllInvocationEvents()
     assert log == ['1', '2']
+  }
+
+  void "test nested background progresses"() {
+    TransactionGuard.submitTransaction testRootDisposable, {
+      log << '1'
+      def id = guard.contextTransaction
+      assert id
+      ProgressManager.instance.runProcessWithProgressSynchronously({
+        assert id == guard.contextTransaction
+        ProgressManager.instance.runProcess({
+          assert !ApplicationManager.application.dispatchThread
+          assert id == guard.contextTransaction
+          log << '2'
+        }, new ProgressIndicatorBase())
+      }, 'title', true, project)
+    }
+    UIUtil.dispatchAllInvocationEvents()
+    assert log == ['1', '2']
+  }
+
+  void "test submitTransactionLater vs app invokeLater ordering in the same modality state"() {
+    TransactionGuard.submitTransaction testRootDisposable, {
+      log << '1'
+      guard.submitTransactionLater testRootDisposable, { log << '2' }
+      app.invokeLater { log << '3' }
+    }
+    UIUtil.dispatchAllInvocationEvents()
+    assert log == ['1', '2', '3']
   }
 
 }

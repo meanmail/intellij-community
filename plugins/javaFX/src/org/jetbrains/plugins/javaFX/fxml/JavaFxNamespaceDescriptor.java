@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml;
 
 import com.intellij.codeInsight.daemon.Validator;
@@ -10,7 +11,6 @@ import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
 import org.jetbrains.annotations.NotNull;
@@ -20,10 +20,6 @@ import org.jetbrains.plugins.javaFX.fxml.descriptors.JavaFxRootTagDescriptor;
 
 import java.util.ArrayList;
 
-/**
-* User: anna
-* Date: 1/9/13
-*/
 public class JavaFxNamespaceDescriptor implements XmlNSDescriptor, Validator<XmlDocument> {
   private XmlFile myFile;
 
@@ -55,17 +51,19 @@ public class JavaFxNamespaceDescriptor implements XmlNSDescriptor, Validator<Xml
           result.add(new JavaFxClassTagDescriptor(psiClass.getName(), psiClass));
           return true;
         });
-        return result.toArray(new XmlElementDescriptor[result.size()]);
+        return result.toArray(XmlElementDescriptor.EMPTY_ARRAY);
       }
     }
     return XmlElementDescriptor.EMPTY_ARRAY;
   }
 
+  @Override
   @Nullable
   public XmlFile getDescriptorFile() {
      return myFile;
    }
 
+  @Override
   public PsiElement getDeclaration() {
      return myFile;
    }
@@ -84,11 +82,6 @@ public class JavaFxNamespaceDescriptor implements XmlNSDescriptor, Validator<Xml
   public void init(PsiElement element) {
     XmlDocument document = (XmlDocument) element;
     myFile = ((XmlFile)document.getContainingFile());
-  }
-
-  @Override
-  public Object[] getDependences() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.quickfix;
 
 import com.intellij.codeInspection.LocalQuickFix;
@@ -25,12 +11,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: Alexey.Ivanov
- * Date: 20.02.2010
- * Time: 15:49:35
- */
 public class ConvertDictCompQuickFix implements LocalQuickFix {
   @NotNull
   @Override
@@ -38,6 +18,7 @@ public class ConvertDictCompQuickFix implements LocalQuickFix {
     return PyBundle.message("INTN.convert.dict.comp.to");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return PyBundle.message("INTN.Family.convert.dict.comp.expression");
@@ -57,20 +38,20 @@ public class ConvertDictCompQuickFix implements LocalQuickFix {
       final PyElementGenerator elementGenerator = PyElementGenerator.getInstance(project);
       assert keyValueExpression.getValue() != null;
 
-      final List<ComprehensionComponent> components = expression.getComponents();
+      final List<PyComprehensionComponent> components = expression.getComponents();
       final StringBuilder replacement = new StringBuilder("dict([(" + keyValueExpression.getKey().getText() + ", " +
                                                             keyValueExpression.getValue().getText() + ")");
       int slashNum = 1;
-      for (ComprehensionComponent component : components) {
-        if (component instanceof ComprhForComponent) {
+      for (PyComprehensionComponent component : components) {
+        if (component instanceof PyComprehensionForComponent) {
           replacement.append("for ");
-          replacement.append(((ComprhForComponent)component).getIteratorVariable().getText());
+          replacement.append(((PyComprehensionForComponent)component).getIteratorVariable().getText());
           replacement.append(" in ");
-          replacement.append(((ComprhForComponent)component).getIteratedList().getText());
+          replacement.append(((PyComprehensionForComponent)component).getIteratedList().getText());
           replacement.append(" ");
         }
-        if (component instanceof ComprhIfComponent) {
-          final PyExpression test = ((ComprhIfComponent)component).getTest();
+        if (component instanceof PyComprehensionIfComponent) {
+          final PyExpression test = ((PyComprehensionIfComponent)component).getTest();
           if (test != null) {
             replacement.append("if ");
             replacement.append(test.getText());

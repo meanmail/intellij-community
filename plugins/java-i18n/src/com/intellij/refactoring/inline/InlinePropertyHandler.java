@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ReferencesSearch;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.listeners.RefactoringEventListener;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.RefactoringMessageDialog;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FilteringIterator;
 
@@ -47,14 +47,16 @@ public class InlinePropertyHandler extends JavaInlineActionHandler {
   public static final String REFACTORING_NAME = PropertiesBundle.message("inline.property.refactoring");
   public static final String REFACTORING_ID = "refactoring.inline.property";
 
+  @Override
   public boolean canInlineElement(PsiElement element) {
-    if (element instanceof PsiJavaToken && ((PsiJavaToken)element).getTokenType() == JavaTokenType.STRING_LITERAL) {
+    if (PsiUtil.isJavaToken(element, JavaTokenType.STRING_LITERAL)) {
       PsiReference[] references = element.getParent().getReferences();
       return ContainerUtil.find(references, FilteringIterator.instanceOf(PropertyReference.class)) != null;
     }
     return element instanceof IProperty;
   }
 
+  @Override
   public void inlineElement(final Project project, Editor editor, PsiElement psiElement) {
     if (!(psiElement instanceof IProperty)) return;
 
@@ -62,15 +64,15 @@ public class InlinePropertyHandler extends JavaInlineActionHandler {
     final String propertyValue = property.getValue();
     if (propertyValue == null) return;
 
-    final List<PsiElement> occurrences = Collections.synchronizedList(ContainerUtil.<PsiElement>newArrayList());
-    final Collection<PsiFile> containingFiles = Collections.synchronizedSet(new HashSet<PsiFile>());
+    final List<PsiElement> occurrences = Collections.synchronizedList(ContainerUtil.newArrayList());
+    final Collection<PsiFile> containingFiles = Collections.synchronizedSet(new HashSet<>());
     containingFiles.add(psiElement.getContainingFile());
     boolean result = ReferencesSearch.search(psiElement).forEach(
       psiReference -> {
         PsiElement element = psiReference.getElement();
         PsiElement parent = element.getParent();
         if (parent instanceof PsiExpressionList && parent.getParent() instanceof PsiMethodCallExpression) {
-          if (((PsiExpressionList)parent).getExpressions().length == 1) {
+          if (((PsiExpressionList)parent).getExpressionCount() == 1) {
             occurrences.add(parent.getParent());
             containingFiles.add(element.getContainingFile());
             return true;
@@ -102,17 +104,14 @@ public class InlinePropertyHandler extends JavaInlineActionHandler {
     final RefactoringEventData data = new RefactoringEventData();
     data.addElement(psiElement.copy());
 
-    new WriteCommandAction.Simple(project, REFACTORING_NAME, containingFiles.toArray(new PsiFile[containingFiles.size()])) {
-      @Override
-      protected void run() throws Throwable {
-        project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringStarted(REFACTORING_ID, data);
-        PsiLiteral stringLiteral = (PsiLiteral)JavaPsiFacade.getInstance(getProject()).getElementFactory().
-          createExpressionFromText("\"" + StringUtil.escapeStringCharacters(propertyValue) + "\"", null);
-        for (PsiElement occurrence : occurrences) {
-          occurrence.replace(stringLiteral.copy());
-        }
-        project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringDone(REFACTORING_ID, null);
+    WriteCommandAction.writeCommandAction(project, containingFiles.toArray(PsiFile.EMPTY_ARRAY)).withName(REFACTORING_NAME).run(() -> {
+      project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringStarted(REFACTORING_ID, data);
+      PsiLiteral stringLiteral = (PsiLiteral)JavaPsiFacade.getInstance(project).getElementFactory().
+        createExpressionFromText("\"" + StringUtil.escapeStringCharacters(propertyValue) + "\"", null);
+      for (PsiElement occurrence : occurrences) {
+        occurrence.replace(stringLiteral.copy());
       }
-    }.execute();
+      project.getMessageBus().syncPublisher(RefactoringEventListener.REFACTORING_EVENT_TOPIC).refactoringDone(REFACTORING_ID, null);
+    });
   }
 }

@@ -66,11 +66,11 @@ public class StaticSuiteInspection extends BaseInspection {
         return;
       }
       if (!InheritanceUtil.isInheritor(aClass,
-                                       "junit.framework.TestCase")) {
+                                       JUnitCommonClassNames.JUNIT_FRAMEWORK_TEST_CASE)) {
         return;
       }
       final PsiParameterList parameterList = method.getParameterList();
-      if (parameterList.getParametersCount() != 0) {
+      if (!parameterList.isEmpty()) {
         return;
       }
       if (method.hasModifierProperty(PsiModifier.STATIC)) {

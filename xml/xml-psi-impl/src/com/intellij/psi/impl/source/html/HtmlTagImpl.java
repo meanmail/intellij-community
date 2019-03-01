@@ -65,11 +65,11 @@ public class HtmlTagImpl extends XmlTagImpl implements HtmlTag {
       }
     }
 
-    return result == null ? EMPTY : result.toArray(new XmlTag[result.size()]);
+    return result == null ? EMPTY : result.toArray(XmlTag.EMPTY);
   }
 
   @Override
-  protected boolean isCaseSensitive() {
+  public boolean isCaseSensitive() {
     return false;
   }
 
@@ -114,6 +114,7 @@ public class HtmlTagImpl extends XmlTagImpl implements HtmlTag {
     return value;
   }
 
+  @Override
   public String toString() {
     return "HtmlTag:" + getName();
   }

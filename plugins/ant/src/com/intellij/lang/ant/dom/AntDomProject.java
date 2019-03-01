@@ -35,7 +35,6 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.xml.*;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -47,9 +46,7 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 6, 2010
  */
-@SuppressWarnings({"AbstractClassNeverImplemented"})
 @DefinesXml
 public abstract class AntDomProject extends AntDomNamedElement implements PropertiesProvider {
   private static final Logger LOG = Logger.getInstance("#com.intellij.lang.ant.dom.AntDomProject");
@@ -164,7 +161,7 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
   }
 
   public AntInstallation getAntInstallation() {
-    final AntConfigurationBase configuration = AntConfigurationBase.getInstance(getXmlTag().getProject());
+    final AntConfigurationBase configuration = AntConfigurationBase.getInstance(getManager().getProject());
     AntInstallation antInstallation = null;
     if (configuration != null) {
       antInstallation = configuration.getProjectDefaultAnt();
@@ -193,16 +190,19 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
     return ProjectRootManager.getInstance(tag.getProject()).getProjectSdk();
   }
 
+  @Override
   @NotNull
   public Iterator<String> getNamesIterator() {
     return getProperties().keySet().iterator();
   }
 
+  @Override
   @Nullable
   public String getPropertyValue(String propertyName) {
     return getProperties().get(propertyName);
   }
 
+  @Override
   @Nullable
   public PsiElement getNavigationElement(String propertyName) {
     final DomTarget target = DomTarget.getTarget(this);
@@ -285,7 +285,7 @@ public abstract class AntDomProject extends AntDomNamedElement implements Proper
     final Sdk jdkToRunWith = getTargetJdk();
     final String version = jdkToRunWith != null? jdkToRunWith.getVersionString() : null;
     appendProperty(destination, "ant.java.version", version != null? version : SystemInfo.JAVA_VERSION);
-    
+
     final VirtualFile containingFile = getXmlTag().getContainingFile().getOriginalFile().getVirtualFile();
     if (containingFile != null) {
       final String antFilePath = containingFile.getPath();

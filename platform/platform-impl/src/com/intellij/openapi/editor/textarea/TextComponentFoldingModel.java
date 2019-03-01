@@ -22,18 +22,12 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Denis Zhdanov
- * @since 11/2/11 6:13 PM
  */
 public class TextComponentFoldingModel implements FoldingModel {
 
   @Override
   public FoldRegion addFoldRegion(int startOffset, int endOffset, @NotNull String placeholderText) {
     return null;
-  }
-
-  @Override
-  public boolean addFoldRegion(@NotNull FoldRegion region) {
-    return false;
   }
 
   @Override

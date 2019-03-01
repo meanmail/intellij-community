@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.notification;
 
 import com.intellij.execution.filters.HyperlinkInfo;
+import com.intellij.ide.DataManager;
 import com.intellij.notification.impl.NotificationsConfigurationImpl;
 import com.intellij.notification.impl.NotificationsManagerImpl;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.components.AbstractProjectComponent;
+import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.impl.DocumentImpl;
@@ -31,7 +19,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.ui.popup.Balloon;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.ShutDownTracker;
+import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.Trinity;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.*;
 import com.intellij.ui.BalloonLayoutData;
@@ -49,6 +40,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.event.HyperlinkEvent;
+import java.awt.*;
+import java.util.List;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
@@ -64,7 +57,7 @@ public class EventLog {
   private static final String A_CLOSING = "</a>";
   private static final Pattern TAG_PATTERN = Pattern.compile("<[^>]*>");
   private static final Pattern A_PATTERN = Pattern.compile("<a ([^>]* )?href=[\"\']([^>]*)[\"\'][^>]*>");
-  private static final Set<String> NEW_LINES = ContainerUtil.newHashSet("<br>", "</br>", "<br/>", "<p>", "</p>", "<p/>");
+  private static final Set<String> NEW_LINES = ContainerUtil.newHashSet("<br>", "</br>", "<br/>", "<p>", "</p>", "<p/>", "<pre>", "</pre>");
   private static final String DEFAULT_CATEGORY = "";
 
   private final LogModel myModel = new LogModel(null, ApplicationManager.getApplication());
@@ -154,7 +147,7 @@ public class EventLog {
     hasHtml |= parseHtmlContent(addIndents(content, indent), notification, logDoc, showMore, links, lineSeparators);
 
     List<AnAction> actions = notification.getActions();
-    if (NotificationsManagerImpl.newEnabled() && !actions.isEmpty()) {
+    if (!actions.isEmpty()) {
       String text = "<p>" + StringUtil.join(actions, new Function<AnAction, String>() {
         private int index;
 
@@ -166,7 +159,9 @@ public class EventLog {
       Notification n = new Notification("", "", ".", NotificationType.INFORMATION, new NotificationListener() {
         @Override
         public void hyperlinkUpdate(@NotNull Notification n, @NotNull HyperlinkEvent event) {
-          Notification.fire(notification, notification.getActions().get(Integer.parseInt(event.getDescription())));
+          Object source = event.getSource();
+          DataContext context = source instanceof Component ? DataManager.getInstance().getDataContext((Component)source) : null;
+          Notification.fire(notification, notification.getActions().get(Integer.parseInt(event.getDescription())), context);
         }
       });
       if (title.length() > 0 || content.length() > 0) {
@@ -206,7 +201,7 @@ public class EventLog {
     return StringUtil.replace(text, "\n", "\n" + indent);
   }
 
-  private static boolean isLongLine(@NotNull List<AnAction> actions) {
+  private static boolean isLongLine(@NotNull List<? extends AnAction> actions) {
     int size = actions.size();
     if (size > 3) {
       return true;
@@ -263,7 +258,7 @@ public class EventLog {
 
   private static String getStatusText(DocumentImpl logDoc,
                                       AtomicBoolean showMore,
-                                      List<RangeMarker> lineSeparators,
+                                      List<? extends RangeMarker> lineSeparators,
                                       String indent,
                                       boolean hasHtml) {
     DocumentImpl statusDoc = new DocumentImpl(logDoc.getImmutableCharSequence(),true);
@@ -304,7 +299,7 @@ public class EventLog {
           String linkText = content.substring(tagMatcher.end(), linkEnd).replaceAll(TAG_PATTERN.pattern(), "");
           int linkStart = document.getTextLength();
           appendText(document, linkText);
-          links.put(document.createRangeMarker(new TextRange(linkStart, document.getTextLength())),
+          links.put(document.createRangeMarker(linkStart, document.getTextLength()),
                     new NotificationHyperlinkInfo(notification, href));
           content = content.substring(linkEnd + A_CLOSING.length());
           continue;
@@ -358,7 +353,7 @@ public class EventLog {
     return ArrayUtil.indexOf(tags, tag) != -1;
   }
 
-  private static void insertNewLineSubstitutors(Document document, AtomicBoolean showMore, List<RangeMarker> lineSeparators) {
+  private static void insertNewLineSubstitutors(Document document, AtomicBoolean showMore, List<? extends RangeMarker> lineSeparators) {
     for (RangeMarker marker : lineSeparators) {
       if (!marker.isValid()) {
         showMore.set(true);
@@ -389,7 +384,7 @@ public class EventLog {
     }
   }
 
-  private static void removeJavaNewLines(Document document, List<RangeMarker> lineSeparators, String indent, boolean hasHtml) {
+  private static void removeJavaNewLines(Document document, List<? super RangeMarker> lineSeparators, String indent, boolean hasHtml) {
     CharSequence text = document.getCharsSequence();
     int i = 0;
     while (true) {
@@ -411,7 +406,7 @@ public class EventLog {
     text = StringUtil.replace(text, "&raquo;", ">>");
     text = StringUtil.replace(text, "&laquo;", "<<");
     text = StringUtil.replace(text, "&hellip;", "...");
-    document.insertString(document.getTextLength(), StringUtil.unescapeXml(text));
+    document.insertString(document.getTextLength(), StringUtil.unescapeXmlEntities(text));
   }
 
   public static class LogEntry {
@@ -459,15 +454,15 @@ public class EventLog {
     }, true);
   }
 
-  public static class ProjectTracker extends AbstractProjectComponent {
+  public static class ProjectTracker implements ProjectComponent {
     private final Map<String, EventLogConsole> myCategoryMap = ContainerUtil.newConcurrentMap();
     private final List<Notification> myInitial = ContainerUtil.createLockFreeCopyOnWriteList();
     private final LogModel myProjectModel;
+    @NotNull private final Project myProject;
 
     public ProjectTracker(@NotNull final Project project) {
-      super(project);
-
       myProjectModel = new LogModel(project, project);
+      myProject = project;
 
       for (Notification notification : getApplicationComponent().myModel.takeNotifications()) {
         printNotification(notification);
@@ -488,10 +483,6 @@ public class EventLog {
         doPrintNotification(notification, ObjectUtils.assertNotNull(getConsole(notification)));
       }
       myInitial.clear();
-    }
-
-    @Override
-    public void projectOpened() {
     }
 
     @Override
@@ -516,12 +507,9 @@ public class EventLog {
     }
 
     private void doPrintNotification(@NotNull final Notification notification, @NotNull final EventLogConsole console) {
-      StartupManager.getInstance(myProject).runWhenProjectIsInitialized(new DumbAwareRunnable() {
-        @Override
-        public void run() {
-          if (!ShutDownTracker.isShutdownHookRunning() && !myProject.isDisposed()) {
-            ApplicationManager.getApplication().runReadAction(() -> console.doPrintNotification(notification));
-          }
+      StartupManager.getInstance(myProject).runWhenProjectIsInitialized((DumbAwareRunnable)() -> {
+        if (!ShutDownTracker.isShutdownHookRunning() && !myProject.isDisposed()) {
+          ApplicationManager.getApplication().runReadAction(() -> console.doPrintNotification(notification));
         }
       });
     }
@@ -591,7 +579,7 @@ public class EventLog {
     private final Notification myNotification;
     private final String myHref;
 
-    public NotificationHyperlinkInfo(Notification notification, String href) {
+    NotificationHyperlinkInfo(Notification notification, String href) {
       myNotification = notification;
       myHref = href;
     }
@@ -611,7 +599,7 @@ public class EventLog {
     private final Notification myNotification;
     private RangeHighlighter myRangeHighlighter;
 
-    public ShowBalloon(Notification notification) {
+    ShowBalloon(Notification notification) {
       myNotification = notification;
     }
 
@@ -635,15 +623,8 @@ public class EventLog {
       if (target != null) {
         IdeFrame frame = WindowManager.getInstance().getIdeFrame(project);
         assert frame != null;
-        Ref<Object> layoutDataRef = null;
-        if (NotificationsManagerImpl.newEnabled()) {
-          BalloonLayoutData layoutData = new BalloonLayoutData();
-          layoutData.groupId = "";
-          layoutData.showFullContent = true;
-          layoutData.showSettingButton = false;
-          layoutDataRef = new Ref<>(layoutData);
-        }
-        Balloon balloon = NotificationsManagerImpl.createBalloon(frame, myNotification, true, true, layoutDataRef, project);
+        Balloon balloon =
+          NotificationsManagerImpl.createBalloon(frame, myNotification, true, true, BalloonLayoutData.fullContent(), project);
         balloon.show(target, Balloon.Position.above);
       }
     }

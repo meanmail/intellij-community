@@ -15,8 +15,8 @@
  */
 package org.jetbrains.idea.maven.importing;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.externalSystem.ExternalSystemModulePropertyManager;
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
@@ -33,7 +33,6 @@ import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.pom.java.LanguageLevel;
-import com.intellij.util.Processor;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -113,7 +112,11 @@ public class MavenRootModelAdapter {
       }
       if (e instanceof ModuleOrderEntry) {
         Module m = ((ModuleOrderEntry)e).getModule();
-        if (m != null && !MavenProjectsManager.getInstance(myRootModel.getProject()).isMavenizedModule(m)) continue;
+        if (m != null &&
+            !MavenProjectsManager.getInstance(myRootModel.getProject()).isMavenizedModule(m) &&
+            ExternalSystemModulePropertyManager.getInstance(m).getExternalSystemId() == null) {
+          continue;
+        }
       }
 
       if (!jdkProcessed) {
@@ -150,8 +153,12 @@ public class MavenRootModelAdapter {
     addSourceFolder(path, rootType, false, rootType.createDefaultProperties());
   }
 
+  public void addGeneratedJavaSourceFolder(String path, JavaSourceRootType rootType, boolean ifNotEmpty) {
+    addSourceFolder(path, rootType, ifNotEmpty, JpsJavaExtensionService.getInstance().createSourceRootProperties("", true));
+  }
+
   public void addGeneratedJavaSourceFolder(String path, JavaSourceRootType rootType) {
-    addSourceFolder(path, rootType, true, JpsJavaExtensionService.getInstance().createSourceRootProperties("", true));
+    addGeneratedJavaSourceFolder(path, rootType, true);
   }
 
   private  <P extends JpsElement> void addSourceFolder(@NotNull String path, final @NotNull JpsModuleSourceRootType<P> rootType, boolean ifNotEmpty,
@@ -281,13 +288,7 @@ public class MavenRootModelAdapter {
       e = myRootModel.addModuleOrderEntry(m);
     }
     else {
-      AccessToken accessToken = ReadAction.start();
-      try {
-        e = myRootModel.addInvalidModuleEntry(moduleName);
-      }
-      finally {
-        accessToken.finish();
-      }
+      e = ReadAction.compute(() -> myRootModel.addInvalidModuleEntry(moduleName));
     }
 
     e.setScope(scope);
@@ -328,7 +329,7 @@ public class MavenRootModelAdapter {
     }
   }
 
-  public void addLibraryDependency(MavenArtifact artifact,
+  public LibraryOrderEntry addLibraryDependency(MavenArtifact artifact,
                                    DependencyScope scope,
                                    IdeModifiableModelsProvider provider,
                                    MavenProject project) {
@@ -338,7 +339,7 @@ public class MavenRootModelAdapter {
 
     Library library = provider.getLibraryByName(libraryName);
     if (library == null) {
-      library = provider.createLibrary(libraryName);
+      library = provider.createLibrary(libraryName, getMavenExternalSource());
     }
     Library.ModifiableModel libraryModel = provider.getModifiableLibraryModel(library);
 
@@ -352,6 +353,8 @@ public class MavenRootModelAdapter {
     if (myOrderEntriesBeforeJdk.contains(libraryName)) {
       moveLastOrderEntryBeforeJdk();
     }
+
+    return e;
   }
 
   private void moveLastOrderEntryBeforeJdk() {
@@ -455,6 +458,10 @@ public class MavenRootModelAdapter {
 
   public static boolean isMavenLibrary(@Nullable Library library) {
     return library != null && MavenArtifact.isMavenLibrary(library.getName());
+  }
+
+  public static ProjectModelExternalSource getMavenExternalSource() {
+    return ExternalProjectSystemRegistry.getInstance().getSourceById(ExternalProjectSystemRegistry.MAVEN_EXTERNAL_SOURCE_ID);
   }
 
   @Nullable

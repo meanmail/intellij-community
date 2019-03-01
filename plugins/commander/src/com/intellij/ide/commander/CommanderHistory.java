@@ -23,7 +23,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Oct 14, 2004
  */
 public class CommanderHistory {
   public static final int HISTORY_LIMIT = 2*30; // elements are saved in pairs
@@ -117,7 +116,7 @@ public class CommanderHistory {
     private final boolean myElementExpanded;
     private final boolean myIsLeftPanel;
 
-    public HistoryState(PsiElement element, boolean isElementExpanded, boolean isLeftPanel) {
+    HistoryState(PsiElement element, boolean isElementExpanded, boolean isLeftPanel) {
       myElement = element;
       myElementExpanded = isElementExpanded;
       myIsLeftPanel = isLeftPanel;

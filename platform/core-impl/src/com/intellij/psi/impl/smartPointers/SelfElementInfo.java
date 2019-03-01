@@ -16,7 +16,7 @@
 package com.intellij.psi.impl.smartPointers;
 
 import com.intellij.lang.Language;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.event.DocumentEvent;
 import com.intellij.openapi.editor.impl.FrozenDocument;
@@ -26,44 +26,68 @@ import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiDocumentManagerBase;
-import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
-* User: cdr
-*/
 public class SelfElementInfo extends SmartPointerElementInfo {
   private static final FileDocumentManager ourFileDocManager = FileDocumentManager.getInstance();
-  protected volatile AnchorTypeInfo myType;
-  protected final SmartPointerManagerImpl myManager;
+  private volatile Identikit myIdentikit;
   private final VirtualFile myFile;
   private final boolean myForInjected;
   private int myStartOffset;
   private int myEndOffset;
 
-  SelfElementInfo(@NotNull Project project,
-                  @Nullable ProperTextRange range,
-                  @NotNull AnchorTypeInfo info,
+  SelfElementInfo(@Nullable ProperTextRange range,
+                  @NotNull Identikit identikit,
                   @NotNull PsiFile containingFile,
                   boolean forInjected) {
     myForInjected = forInjected;
-    myType = info;
+    myIdentikit = identikit;
 
-    myManager = (SmartPointerManagerImpl)SmartPointerManager.getInstance(project);
     myFile = containingFile.getViewProvider().getVirtualFile();
     setRange(range);
   }
 
+  void switchToAnchor(@NotNull PsiElement element) {
+    switchTo(element, findAnchor(element));
+  }
+
+  private Pair<Identikit.ByAnchor, PsiElement> findAnchor(@NotNull PsiElement element) {
+    return Identikit.withAnchor(element, myIdentikit.getFileLanguage());
+  }
+
+  private void switchTo(@NotNull PsiElement element, @Nullable Pair<Identikit.ByAnchor, PsiElement> pair) {
+    if (pair != null) {
+      assert pair.first.hashCode() == myIdentikit.hashCode();
+      myIdentikit = pair.first;
+      setRange(pair.second.getTextRange());
+    }
+    else {
+      setRange(element.getTextRange());
+    }
+  }
+
+  boolean updateRangeToPsi(@NotNull Segment pointerRange, PsiElement cachedElement) {
+    Pair<Identikit.ByAnchor, PsiElement> pair = findAnchor(cachedElement);
+    TextRange range = (pair != null ? pair.second : cachedElement).getTextRange();
+    if (range != null && range.intersects(pointerRange)) {
+      switchTo(cachedElement, pair);
+      return true;
+    }
+    return false;
+  }
+
+
   void setRange(@Nullable Segment range) {
-    if (range != null) {
-      myStartOffset = range.getStartOffset();
-      myEndOffset = range.getEndOffset();
-    } else {
+    if (range == null) {
       myStartOffset = -1;
       myEndOffset = -1;
+    }
+    else {
+      myStartOffset = range.getStartOffset();
+      myEndOffset = range.getEndOffset();
     }
   }
 
@@ -79,30 +103,34 @@ public class SelfElementInfo extends SmartPointerElementInfo {
     return myEndOffset;
   }
 
-  boolean isForInjected() {
-    return myForInjected;
+  boolean isGreedy() {
+    return myForInjected || myIdentikit.isForPsiFile();
   }
 
   @Override
-  public Document getDocumentToSynchronize() {
+  Document getDocumentToSynchronize() {
     return ourFileDocManager.getCachedDocument(getVirtualFile());
   }
 
   @Override
-  public PsiElement restoreElement() {
-    Segment segment = getPsiRange();
+  PsiElement restoreElement(@NotNull SmartPointerManagerImpl manager) {
+    Segment segment = getPsiRange(manager);
     if (segment == null) return null;
 
-    PsiFile file = restoreFile();
+    PsiFile file = restoreFile(manager);
     if (file == null || !file.isValid()) return null;
 
-    return findElementInside(file, segment.getStartOffset(), segment.getEndOffset(), myType);
+    return myIdentikit.findPsiElement(file, segment.getStartOffset(), segment.getEndOffset());
   }
 
   @Nullable
   @Override
-  public TextRange getPsiRange() {
+  TextRange getPsiRange(@NotNull SmartPointerManagerImpl manager) {
     return calcPsiRange();
+  }
+
+  boolean isForInjected() {
+    return myForInjected;
   }
 
   @Nullable
@@ -111,101 +139,44 @@ public class SelfElementInfo extends SmartPointerElementInfo {
   }
 
   @Override
-  public PsiFile restoreFile() {
-    return restoreFileFromVirtual(getVirtualFile(), getProject(), myType.getFileLanguage());
-  }
-
-  public static PsiElement findElementInside(@NotNull PsiFile file,
-                                      int syncStartOffset,
-                                      int syncEndOffset,
-                                      @NotNull AnchorTypeInfo type) {
-    PsiElement anchor = file.getViewProvider().findElementAt(syncStartOffset, type.getFileLanguage());
-    if (anchor == null && syncStartOffset == file.getTextLength()) {
-      PsiElement lastChild = file.getViewProvider().getPsi(type.getFileLanguage()).getLastChild();
-      if (lastChild != null) {
-        anchor = PsiTreeUtil.getDeepestLast(lastChild);
-      }
-    }
-    if (anchor == null) return null;
-
-    PsiElement result = findParent(syncStartOffset, syncEndOffset, type, anchor);
-    if (syncEndOffset == syncStartOffset) {
-      while (result == null && anchor.getTextRange().getStartOffset() == syncEndOffset) {
-        anchor = PsiTreeUtil.prevLeaf(anchor, false);
-        if (anchor == null) break;
-
-        result = findParent(syncStartOffset, syncEndOffset, type, anchor);
-      }
-    }
-    return result;
-  }
-
-  @Nullable
-  private static PsiElement findParent(int syncStartOffset, int syncEndOffset, @NotNull AnchorTypeInfo type, PsiElement anchor) {
-    TextRange range = anchor.getTextRange();
-
-    if (range.getStartOffset() != syncStartOffset) return null;
-    while (range.getEndOffset() < syncEndOffset) {
-      anchor = anchor.getParent();
-      if (anchor == null || anchor.getTextRange() == null) {
-        return null;
-      }
-      range = anchor.getTextRange();
-    }
-
-    while (range.getEndOffset() == syncEndOffset) {
-      if (type.isAcceptable(anchor)) {
-        return anchor;
-      }
-      anchor = anchor.getParent();
-      if (anchor == null || anchor.getTextRange() == null) break;
-      range = anchor.getTextRange();
-    }
-
-    return null;
+  PsiFile restoreFile(@NotNull SmartPointerManagerImpl manager) {
+    return restoreFileFromVirtual(getVirtualFile(), manager.getProject(), myIdentikit.getFileLanguage());
   }
 
   @Override
-  public void cleanup() {
+  void cleanup() {
     setRange(null);
   }
 
   @Nullable
-  public static PsiFile restoreFileFromVirtual(@NotNull final VirtualFile virtualFile, @NotNull final Project project, @Nullable final Language language) {
-    return ApplicationManager.getApplication().runReadAction(new NullableComputable<PsiFile>() {
-      @Override
-      public PsiFile compute() {
-        if (project.isDisposed()) return null;
-        VirtualFile child = restoreVFile(virtualFile);
-        if (child == null || !child.isValid()) return null;
-        PsiFile file = PsiManager.getInstance(project).findFile(child);
-        if (file != null && language != null) {
-          return file.getViewProvider().getPsi(language);
-        }
-
-        return file;
+  public static PsiFile restoreFileFromVirtual(@NotNull VirtualFile virtualFile, @NotNull Project project, @NotNull Language language) {
+    return ReadAction.compute(() -> {
+      if (project.isDisposed()) return null;
+      VirtualFile child = restoreVFile(virtualFile);
+      if (child == null || !child.isValid()) return null;
+      PsiFile file = PsiManager.getInstance(project).findFile(child);
+      if (file != null) {
+        return file.getViewProvider().getPsi(language == Language.ANY ? file.getViewProvider().getBaseLanguage() : language);
       }
+
+      return null;
     });
   }
 
   @Nullable
-  public static PsiDirectory restoreDirectoryFromVirtual(final VirtualFile virtualFile, @NotNull final Project project) {
-    if (virtualFile == null) return null;
-
-    return ApplicationManager.getApplication().runReadAction(new Computable<PsiDirectory>() {
-      @Override
-      public PsiDirectory compute() {
-        VirtualFile child = restoreVFile(virtualFile);
-        if (child == null || !child.isValid()) return null;
-        PsiDirectory file = PsiManager.getInstance(project).findDirectory(child);
-        if (file == null || !file.isValid()) return null;
-        return file;
-      }
+  public static PsiDirectory restoreDirectoryFromVirtual(@NotNull VirtualFile virtualFile, @NotNull final Project project) {
+    return ReadAction.compute(() -> {
+      if (project.isDisposed()) return null;
+      VirtualFile child = restoreVFile(virtualFile);
+      if (child == null || !child.isValid()) return null;
+      PsiDirectory file = PsiManager.getInstance(project).findDirectory(child);
+      if (file == null || !file.isValid()) return null;
+      return file;
     });
   }
 
   @Nullable
-  private static VirtualFile restoreVFile(VirtualFile virtualFile) {
+  private static VirtualFile restoreVFile(@NotNull VirtualFile virtualFile) {
     VirtualFile child;
     if (virtualFile.isValid()) {
       child = virtualFile;
@@ -220,57 +191,45 @@ public class SelfElementInfo extends SmartPointerElementInfo {
   }
 
   @Override
-  public int elementHashCode() {
-    return getVirtualFile().hashCode();
+  int elementHashCode() {
+    return getVirtualFile().hashCode() + myIdentikit.hashCode() * 31;
   }
 
   @Override
-  public boolean pointsToTheSameElementAs(@NotNull final SmartPointerElementInfo other) {
+  boolean pointsToTheSameElementAs(@NotNull SmartPointerElementInfo other, @NotNull SmartPointerManagerImpl manager) {
     if (other instanceof SelfElementInfo) {
       final SelfElementInfo otherInfo = (SelfElementInfo)other;
-      if (!getVirtualFile().equals(other.getVirtualFile()) || myType != otherInfo.myType) return false;
+      if (!getVirtualFile().equals(other.getVirtualFile()) || myIdentikit != otherInfo.myIdentikit) return false;
 
-      return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-        @Override
-        public Boolean compute() {
-          Segment range1 = getPsiRange();
-          Segment range2 = otherInfo.getPsiRange();
-          return range1 != null && range2 != null
-                 && range1.getStartOffset() == range2.getStartOffset()
-                 && range1.getEndOffset() == range2.getEndOffset();
-        }
+      return ReadAction.compute(() -> {
+        Segment range1 = getPsiRange(manager);
+        Segment range2 = otherInfo.getPsiRange(manager);
+        return range1 != null && range2 != null
+               && range1.getStartOffset() == range2.getStartOffset()
+               && range1.getEndOffset() == range2.getEndOffset();
       });
     }
-    return areRestoredElementsEqual(other);
-  }
-
-  protected boolean areRestoredElementsEqual(@NotNull final SmartPointerElementInfo other) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        return Comparing.equal(restoreElement(), other.restoreElement());
-      }
-    });
+    return false;
   }
 
   @Override
   @NotNull
-  public final VirtualFile getVirtualFile() {
+  final VirtualFile getVirtualFile() {
     return myFile;
   }
 
   @Override
   @Nullable
-  public Segment getRange() {
+  Segment getRange(@NotNull SmartPointerManagerImpl manager) {
     if (hasRange()) {
       Document document = getDocumentToSynchronize();
       if (document != null) {
-        PsiDocumentManagerBase documentManager = myManager.getPsiDocumentManager();
+        PsiDocumentManagerBase documentManager = manager.getPsiDocumentManager();
         List<DocumentEvent> events = documentManager.getEventsSinceCommit(document);
         if (!events.isEmpty()) {
-          MarkerCache markerCache = myManager.getMarkerCache(getVirtualFile());
-          if (markerCache != null) {
-            return markerCache.getUpdatedRange(this, (FrozenDocument)documentManager.getLastCommittedDocument(document), events);
+          SmartPointerTracker tracker = manager.getTracker(getVirtualFile());
+          if (tracker != null) {
+            return tracker.getUpdatedRange(this, (FrozenDocument)documentManager.getLastCommittedDocument(document), events);
           }
         }
       }
@@ -278,14 +237,22 @@ public class SelfElementInfo extends SmartPointerElementInfo {
     return calcPsiRange();
   }
 
-  @NotNull
-  @Override
-  public final Project getProject() {
-    return myManager.getProject();
-  }
-
   @Override
   public String toString() {
-    return "psi:range=" + calcPsiRange() + ",type=" + myType;
+    return "psi:range=" + calcPsiRange() + ",type=" + myIdentikit;
+  }
+
+  public static Segment calcActualRangeAfterDocumentEvents(@NotNull PsiFile containingFile, @NotNull Document document, @NotNull Segment segment, boolean isSegmentGreedy) {
+    Project project = containingFile.getProject();
+    PsiDocumentManagerBase documentManager = (PsiDocumentManagerBase)PsiDocumentManager.getInstance(project);
+    List<DocumentEvent> events = documentManager.getEventsSinceCommit(document);
+    if (!events.isEmpty()) {
+      SmartPointerManagerImpl pointerManager = (SmartPointerManagerImpl)SmartPointerManager.getInstance(project);
+      SmartPointerTracker tracker = pointerManager.getTracker(containingFile.getViewProvider().getVirtualFile());
+      if (tracker != null) {
+        return tracker.getUpdatedRange(containingFile, segment, isSegmentGreedy, (FrozenDocument)documentManager.getLastCommittedDocument(document), events);
+      }
+    }
+    return null;
   }
 }

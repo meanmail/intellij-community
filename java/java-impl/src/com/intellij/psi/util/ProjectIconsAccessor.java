@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.util;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -24,9 +10,14 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.FileReference;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.SLRUMap;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UElement;
+import org.jetbrains.uast.ULiteralExpression;
+import org.jetbrains.uast.UastContextKt;
+import org.jetbrains.uast.visitor.AbstractUastVisitor;
 
 import javax.swing.*;
 import java.io.File;
@@ -37,8 +28,6 @@ import java.util.Locale;
 
 /**
  * Resolve small icons located in project for use in UI (e.g. gutter preview icon, lookups).
- *
- * @since 15
  */
 public class ProjectIconsAccessor {
 
@@ -49,7 +38,7 @@ public class ProjectIconsAccessor {
   private static final int ICON_MAX_HEIGHT = 16;
   private static final int ICON_MAX_SIZE = 2 * 1024 * 1024; // 2Kb
 
-  private static final List<String> ICON_EXTENSIONS = ContainerUtil.immutableList("png", "ico", "bmp", "gif", "jpg");
+  private static final List<String> ICON_EXTENSIONS = ContainerUtil.immutableList("png", "ico", "bmp", "gif", "jpg", "svg");
 
   private final Project myProject;
 
@@ -64,23 +53,23 @@ public class ProjectIconsAccessor {
   }
 
   @Nullable
-  public VirtualFile resolveIconFile(PsiType type, @Nullable PsiExpression initializer) {
-    if (initializer == null || !initializer.isValid() || !isIconClassType(type)) {
-      return null;
-    }
-
+  public VirtualFile resolveIconFile(PsiElement initializer) {
     final List<FileReference> refs = new ArrayList<>();
-    initializer.accept(new JavaRecursiveElementWalkingVisitor() {
+    UElement initializerElement = UastContextKt.toUElement(initializer);
+    if (initializerElement == null) return null;
+    initializerElement.accept(new AbstractUastVisitor() {
       @Override
-      public void visitElement(PsiElement element) {
-        if (element instanceof PsiLiteralExpression) {
-          for (PsiReference ref : element.getReferences()) {
+      public boolean visitLiteralExpression(@NotNull ULiteralExpression node) {
+        PsiElement psi = node.getPsi();
+        if (psi != null) {
+          for (PsiReference ref : psi.getReferences()) {
             if (ref instanceof FileReference) {
               refs.add((FileReference)ref);
             }
           }
         }
-        super.visitElement(element);
+        super.visitLiteralExpression(node);
+        return true;
       }
     });
 
@@ -132,7 +121,7 @@ public class ProjectIconsAccessor {
         }
       }
     }
-    return iconInfo == null ? null : iconInfo.getSecond();
+    return Pair.getSecond(iconInfo);
   }
 
   public static boolean isIconClassType(PsiType type) {
@@ -144,14 +133,16 @@ public class ProjectIconsAccessor {
   }
 
   private static boolean hasProperSize(Icon icon) {
-    return icon.getIconHeight() <= ICON_MAX_HEIGHT &&
-           icon.getIconWidth() <= ICON_MAX_WEIGHT;
+    return icon.getIconHeight() <= JBUI.scale(ICON_MAX_HEIGHT) &&
+           icon.getIconWidth() <= JBUI.scale(ICON_MAX_WEIGHT);
   }
 
-  private static boolean isIdeaProject(Project project) {
+  private static boolean isIdeaProject(@Nullable Project project) {
     if (project == null) return false;
     VirtualFile baseDir = project.getBaseDir();
-    return baseDir != null && (baseDir.findChild("idea.iml") != null || baseDir.findChild("community-main.iml") != null);
+    //has copy in devkit plugin: org.jetbrains.idea.devkit.util.PsiUtil.isIntelliJBasedDir
+    return baseDir != null && (baseDir.findChild("idea.iml") != null || baseDir.findChild("community-main.iml") != null
+           || baseDir.findChild("intellij.idea.community.main.iml") != null || baseDir.findChild("intellij.idea.ultimate.main.iml") != null);
   }
 
   private static Icon createOrFindBetterIcon(VirtualFile file, boolean useIconLoader) throws IOException {

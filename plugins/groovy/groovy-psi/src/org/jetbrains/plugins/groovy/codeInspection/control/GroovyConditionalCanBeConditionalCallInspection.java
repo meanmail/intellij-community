@@ -38,18 +38,6 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 public class GroovyConditionalCanBeConditionalCallInspection extends BaseInspection {
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression can be conditional call";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
   public String buildErrorString(Object... args) {
     return "Conditional expression can be call #loc";
   }
@@ -62,7 +50,7 @@ public class GroovyConditionalCanBeConditionalCallInspection extends BaseInspect
   private static class CollapseConditionalFix extends GroovyFix {
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return "Replace with conditional call";
     }
 

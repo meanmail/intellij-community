@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.intentions;
 
-import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
@@ -27,7 +12,6 @@ import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.NotNullFunction;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyTokenTypes;
-import com.jetbrains.python.PythonStringUtil;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.types.PyClassTypeImpl;
@@ -43,13 +27,15 @@ import java.util.List;
 /**
  * @author Alexey.Ivanov
  */
-public class PyStringConcatenationToFormatIntention extends BaseIntentionAction {
+public class PyStringConcatenationToFormatIntention extends PyBaseIntentionAction {
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return PyBundle.message("INTN.string.concatenation.to.format");
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     if (!(file instanceof PyFile)) {
       return false;
@@ -124,8 +110,10 @@ public class PyStringConcatenationToFormatIntention extends BaseIntentionAction 
     return res;
   }
 
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    PsiElement element = PsiTreeUtil.getTopmostParentOfType(file.findElementAt(editor.getCaretModel().getOffset()), PyBinaryExpression.class);
+  @Override
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+    PyBinaryExpression
+      element = PsiTreeUtil.getTopmostParentOfType(file.findElementAt(editor.getCaretModel().getOffset()), PyBinaryExpression.class);
 
     if (element == null) return;
     final LanguageLevel languageLevel = LanguageLevel.forElement(element);
@@ -141,14 +129,14 @@ public class PyStringConcatenationToFormatIntention extends BaseIntentionAction 
     boolean isUnicode = false;
     final PyClassTypeImpl unicodeType = PyBuiltinCache.getInstance(element).getObjectType("unicode");
 
-    for (PyExpression expression : getSimpleExpressions((PyBinaryExpression) element)) {
+    for (PyExpression expression : getSimpleExpressions(element)) {
       if (expression instanceof PyStringLiteralExpression) {
         final PyType type = context.getType(expression);
         if (type != null && type.equals(unicodeType)) {
           isUnicode = true;
         }
         if (!quotesDetected) {
-          quotes = PythonStringUtil.getQuotes(expression.getText());
+          quotes = PyStringLiteralUtil.getQuotes(expression.getText());
           quotesDetected = true;
         }
         String value = ((PyStringLiteralExpression)expression).getStringValue();

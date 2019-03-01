@@ -26,7 +26,7 @@ import com.intellij.ide.util.treeView.smartTree.Sorter;
 import com.intellij.lang.properties.editor.PropertiesGroupingStructureViewModel;
 import com.intellij.lang.properties.psi.Property;
 import com.intellij.lang.properties.psi.impl.PropertiesFileImpl;
-import com.intellij.psi.PsiFile;
+import com.intellij.openapi.editor.Editor;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -36,10 +36,11 @@ import java.util.Comparator;
  * @author max
  */
 public class PropertiesFileStructureViewModel extends TextEditorBasedStructureViewModel implements PropertiesGroupingStructureViewModel {
-  private final PropertiesFileImpl myPropertiesFile;
   private final GroupByWordPrefixes myByWordPrefixesGrouper;
+  private volatile boolean myGroupingState = true;
   @NonNls public static final String KIND_SORTER_ID = "KIND_SORTER";
   private static final Sorter KIND_SORTER = new Sorter() {
+    @Override
     @NotNull
     public Comparator getComparator() {
       return (o1, o2) -> {
@@ -49,57 +50,67 @@ public class PropertiesFileStructureViewModel extends TextEditorBasedStructureVi
       };
     }
 
+    @Override
     public boolean isVisible() {
       return true;
     }
 
+    @Override
     @NotNull
     public ActionPresentation getPresentation() {
       String name = IdeBundle.message("action.sort.by.type");
       return new ActionPresentationData(name, name, AllIcons.ObjectBrowser.SortByType);
     }
 
+    @Override
     @NotNull
     public String getName() {
       return KIND_SORTER_ID;
     }
   };
 
-  public PropertiesFileStructureViewModel(final PropertiesFileImpl root) {
-    super(root);
-    myPropertiesFile = root;
-    String separator = PropertiesSeparatorManager.getInstance(root.getProject()).getSeparator(root.getResourceBundle());
+  public PropertiesFileStructureViewModel(PropertiesFileImpl file, Editor editor) {
+    super(editor, file);
+    String separator = PropertiesSeparatorManager.getInstance(file.getProject()).getSeparator(file.getResourceBundle());
     myByWordPrefixesGrouper = new GroupByWordPrefixes(separator);
   }
 
+  @Override
   public void setSeparator(String separator) {
     myByWordPrefixesGrouper.setSeparator(separator);
-    PropertiesSeparatorManager.getInstance(myPropertiesFile.getProject()).setSeparator(myPropertiesFile.getResourceBundle(), separator);
+    PropertiesSeparatorManager separatorManager = PropertiesSeparatorManager.getInstance(getPsiFile().getProject());
+    separatorManager.setSeparator(((PropertiesFileImpl)getPsiFile()).getResourceBundle(), separator);
   }
 
+  @Override
   public String getSeparator() {
     return myByWordPrefixesGrouper.getSeparator();
   }
 
-  @NotNull
-  public StructureViewTreeElement getRoot() {
-    return new PropertiesFileStructureViewElement(myPropertiesFile);
+  @Override
+  public void setGroupingActive(boolean state) {
+    myGroupingState = state;
   }
 
+  @Override
+  @NotNull
+  public StructureViewTreeElement getRoot() {
+    return new PropertiesFileStructureViewElement((PropertiesFileImpl)getPsiFile(), () -> myGroupingState);
+  }
+
+  @Override
   @NotNull
   public Grouper[] getGroupers() {
     return new Grouper[]{myByWordPrefixesGrouper};
   }
 
+  @Override
   @NotNull
   public Sorter[] getSorters() {
     return new Sorter[] {Sorter.ALPHA_SORTER, KIND_SORTER};
   }
 
-  protected PsiFile getPsiFile() {
-    return myPropertiesFile;
-  }
-
+  @Override
   @NotNull
   protected Class[] getSuitableClasses() {
     return new Class[] {Property.class};

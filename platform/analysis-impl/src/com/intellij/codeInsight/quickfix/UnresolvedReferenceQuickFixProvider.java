@@ -1,38 +1,29 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.quickfix;
 
 import com.intellij.codeInsight.daemon.QuickFixActionRegistrar;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.psi.PsiReference;
 import com.intellij.util.ReflectionUtil;
 import org.jetbrains.annotations.NotNull;
 
+/**
+ * Register implementation of this class as 'com.intellij.codeInsight.unresolvedReferenceQuickFixProvider' extension to provide additional
+ * quick fixes for 'Unresolved reference' problems.
+ *
+ * @param <T> type of element you want register quick fixes for; for example, in Java language it may be {@link com.intellij.psi.PsiJavaCodeReferenceElement}
+ */
 public abstract class UnresolvedReferenceQuickFixProvider<T extends PsiReference> {
   public static <T extends PsiReference> void registerReferenceFixes(@NotNull T ref, @NotNull QuickFixActionRegistrar registrar) {
     final boolean dumb = DumbService.getInstance(ref.getElement().getProject()).isDumb();
-    UnresolvedReferenceQuickFixProvider[] fixProviders = Extensions.getExtensions(EXTENSION_NAME);
     Class<? extends PsiReference> referenceClass = ref.getClass();
-    for (UnresolvedReferenceQuickFixProvider each : fixProviders) {
+    for (UnresolvedReferenceQuickFixProvider each : EXTENSION_NAME.getExtensionList()) {
       if (dumb && !DumbService.isDumbAware(each)) {
         continue;
       }
       if (ReflectionUtil.isAssignable(each.getReferenceClass(), referenceClass)) {
+        //noinspection unchecked
         each.registerFixes(ref, registrar);
       }
     }

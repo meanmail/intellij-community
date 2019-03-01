@@ -1,47 +1,38 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.execution;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.*;
-import com.intellij.openapi.projectRoots.impl.JavaAwareProjectJdkTableImpl;
+import com.intellij.openapi.projectRoots.impl.SdkConfigurationUtil;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.util.EnvironmentUtil;
+import com.intellij.util.SystemProperties;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
+import java.util.Collection;
+import java.util.List;
+import java.util.stream.Stream;
+
+import static com.intellij.openapi.util.Pair.pair;
 
 public class ExternalSystemJdkUtil {
-
-  @NonNls public static final String USE_INTERNAL_JAVA = "#JAVA_INTERNAL";
-  @NonNls public static final String USE_PROJECT_JDK = "#USE_PROJECT_JDK";
-  @NonNls public static final String USE_JAVA_HOME = "#JAVA_HOME";
+  public static final String USE_INTERNAL_JAVA = "#JAVA_INTERNAL";
+  public static final String USE_PROJECT_JDK = "#USE_PROJECT_JDK";
+  public static final String USE_JAVA_HOME = "#JAVA_HOME";
 
   @Nullable
   public static Sdk getJdk(@Nullable Project project, @Nullable String jdkName) throws ExternalSystemJdkException {
     if (jdkName == null) return null;
 
     if (USE_INTERNAL_JAVA.equals(jdkName)) {
-      return JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk();
+      return getInternalJdk();
     }
 
     if (USE_PROJECT_JDK.equals(jdkName)) {
@@ -56,93 +47,137 @@ public class ExternalSystemJdkUtil {
         }
       }
 
-      if (project == null) {
-        Sdk recent = ProjectJdkTable.getInstance().findMostRecentSdkOfType(JavaSdk.getInstance());
-        if (recent != null) return recent;
-
-        return JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk();
+      if (project == null || project.isDefault()) {
+        SdkType javaSdk = getJavaSdk();
+        Sdk recent = javaSdk == null ? null : ProjectJdkTable.getInstance().findMostRecentSdkOfType(javaSdk);
+        return recent != null ? recent : getInternalJdk();
       }
 
       throw new ProjectJdkNotFoundException();
     }
 
     if (USE_JAVA_HOME.equals(jdkName)) {
-      final String javaHome = System.getenv("JAVA_HOME");
-      if (StringUtil.isEmptyOrSpaces(javaHome)) {
-        throw new UndefinedJavaHomeException();
-      }
+      String javaHome = EnvironmentUtil.getEnvironmentMap().get("JAVA_HOME");
+      if (StringUtil.isEmptyOrSpaces(javaHome)) throw new UndefinedJavaHomeException();
+      if (!isValidJdk(javaHome)) throw new InvalidJavaHomeException(javaHome);
 
-      if (JdkUtil.checkForJdk(new File(javaHome)) || JdkUtil.checkForJre(javaHome)) {
-        final Sdk jdk = JavaSdk.getInstance().createJdk("", javaHome);
-        if (jdk == null) {
-          throw new InvalidJavaHomeException(javaHome);
-        }
-        return jdk;
-      }
-      else {
-        throw new InvalidJavaHomeException(javaHome);
-      }
+      SimpleJavaSdkType sdkType = SimpleJavaSdkType.getInstance();
+      String sdkName = sdkType.suggestSdkName(null, javaHome);
+      return sdkType.createJdk(sdkName, javaHome);
     }
 
-    for (Sdk projectJdk : ProjectJdkTable.getInstance().getAllJdks()) {
-      if (projectJdk.getName().equals(jdkName)) {
-        if (projectJdk.getHomePath() != null &&
-            (JdkUtil.checkForJdk(new File(projectJdk.getHomePath())) || JdkUtil.checkForJre(projectJdk.getHomePath()))) {
-          return projectJdk;
-        }
-        else {
-          throw new InvalidSdkException(projectJdk.getHomePath());
-        }
-      }
+    Sdk projectJdk = ProjectJdkTable.getInstance().findJdk(jdkName);
+    if (projectJdk != null) {
+      String homePath = projectJdk.getHomePath();
+      if (!isValidJdk(homePath)) throw new InvalidSdkException(homePath);
+      return projectJdk;
     }
 
     return null;
   }
 
-  @Nullable
+  @NotNull
   public static Pair<String, Sdk> getAvailableJdk(@Nullable Project project) throws ExternalSystemJdkException {
+    SdkType javaSdkType = getJavaSdkType();
 
     if (project != null) {
-      Sdk res = ProjectRootManager.getInstance(project).getProjectSdk();
-      if (res != null) return Pair.create(USE_PROJECT_JDK, res);
-
-      Module[] modules = ModuleManager.getInstance(project).getModules();
-      for (Module module : modules) {
-        Sdk sdk = ModuleRootManager.getInstance(module).getSdk();
-        if (sdk != null && sdk.getSdkType() instanceof JavaSdkType) return Pair.create(USE_PROJECT_JDK, sdk);
+      Stream<Sdk> projectSdks = Stream.concat(
+        Stream.of(ProjectRootManager.getInstance(project).getProjectSdk()),
+        Stream.of(ModuleManager.getInstance(project).getModules()).map(module -> ModuleRootManager.getInstance(module).getSdk()));
+      Sdk projectSdk = projectSdks
+        .filter(sdk -> sdk != null && sdk.getSdkType() == javaSdkType && isValidJdk(sdk.getHomePath()))
+        .findFirst().orElse(null);
+      if (projectSdk != null) {
+        return pair(USE_PROJECT_JDK, projectSdk);
       }
     }
 
-    final String javaHome = System.getenv("JAVA_HOME");
-    if (!StringUtil.isEmptyOrSpaces(javaHome) && (JdkUtil.checkForJdk(new File(javaHome)) || JdkUtil.checkForJre(javaHome))) {
-      final Sdk sdk = JavaSdk.getInstance().createJdk("", javaHome);
-      if (sdk != null) {
-        return Pair.create(USE_JAVA_HOME, sdk);
+    List<Sdk> allJdks = ProjectJdkTable.getInstance().getSdksOfType(javaSdkType);
+    Sdk mostRecentSdk = allJdks.stream().filter(sdk -> isValidJdk(sdk.getHomePath())).max(javaSdkType.versionComparator()).orElse(null);
+    if (mostRecentSdk != null) {
+      return pair(mostRecentSdk.getName(), mostRecentSdk);
+    }
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
+      String javaHome = EnvironmentUtil.getEnvironmentMap().get("JAVA_HOME");
+      if (isValidJdk(javaHome)) {
+        SimpleJavaSdkType simpleJavaSdkType = SimpleJavaSdkType.getInstance();
+        String sdkName = simpleJavaSdkType.suggestSdkName(null, javaHome);
+        return pair(USE_JAVA_HOME, simpleJavaSdkType.createJdk(sdkName, javaHome));
       }
     }
 
-    for (Sdk projectJdk : ProjectJdkTable.getInstance().getAllJdks()) {
-      if (projectJdk.getHomePath() != null &&
-          (JdkUtil.checkForJdk(new File(projectJdk.getHomePath())) || JdkUtil.checkForJre(projectJdk.getHomePath()))) {
-        return Pair.create(projectJdk.getName(), projectJdk);
-      }
-    }
-
-    final Sdk internalJdk = JavaAwareProjectJdkTableImpl.getInstanceEx().getInternalJdk();
-    if (internalJdk != null) {
-      return Pair.create(USE_INTERNAL_JAVA, internalJdk);
-    }
-
-    return null;
+    return pair(USE_INTERNAL_JAVA, getInternalJdk());
   }
 
+  @NotNull
+  public static Collection<String> suggestJdkHomePaths() {
+    return getJavaSdkType().suggestHomePaths();
+  }
+
+  @NotNull
+  public static SdkType getJavaSdkType() {
+    // JavaSdk.getInstance() can be null for non-java IDE
+    SdkType javaSdk = getJavaSdk();
+    return javaSdk == null ? SimpleJavaSdkType.getInstance() : javaSdk;
+  }
+
+  /** @deprecated trivial (to be removed in IDEA 2019) */
+  @Deprecated
   public static boolean checkForJdk(@NotNull Project project, @Nullable String jdkName) {
     try {
       final Sdk sdk = getJdk(project, jdkName);
-      return sdk != null && sdk.getHomePath() != null && JdkUtil.checkForJdk(new File(sdk.getHomePath()));
+      return sdk != null && sdk.getHomePath() != null && JdkUtil.checkForJdk(sdk.getHomePath());
     }
-    catch (ExternalSystemJdkException ignore) {
-    }
+    catch (ExternalSystemJdkException ignore) { }
     return false;
+  }
+
+  public static boolean isValidJdk(@Nullable String homePath) {
+    return !StringUtil.isEmptyOrSpaces(homePath) && JdkUtil.checkForJdk(homePath) && JdkUtil.checkForJre(homePath);
+  }
+
+  @NotNull
+  public static Sdk addJdk(String homePath) {
+    Sdk jdk;
+    if (isJavaSdkPresent()) {
+      jdk = ExternalSystemJavaUtil.tryAddJdk(homePath);
+      if (jdk != null) {
+        return jdk;
+      }
+    }
+    SimpleJavaSdkType simpleJavaSdkType = SimpleJavaSdkType.getInstance();
+    jdk = simpleJavaSdkType.createJdk(simpleJavaSdkType.suggestSdkName(null, homePath), homePath);
+    SdkConfigurationUtil.addSdk(jdk);
+    return jdk;
+  }
+
+  @Nullable
+  private static SdkType getJavaSdk() {
+    if (isJavaSdkPresent()) {
+      return ExternalSystemJavaUtil.getJavaSdk();
+    }
+    return null;
+  }
+
+  @NotNull
+  private static Sdk getInternalJdk() {
+    if (isJavaSdkPresent()) {
+      Sdk internalJdk = ExternalSystemJavaUtil.getInternalJdk();
+      if (internalJdk != null) return internalJdk;
+    }
+    final String jdkHome = SystemProperties.getJavaHome();
+    SimpleJavaSdkType simpleJavaSdkType = SimpleJavaSdkType.getInstance();
+    return simpleJavaSdkType.createJdk(simpleJavaSdkType.suggestSdkName(null, jdkHome), jdkHome);
+  }
+
+  // todo [Vlad, IDEA-187832]: extract to `external-system-java` module
+  private static boolean isJavaSdkPresent() {
+    try {
+      Class.forName("com.intellij.openapi.projectRoots.impl.JavaSdkImpl");
+      return true;
+    }
+    catch (Throwable ignore) {
+      return false;
+    }
   }
 }

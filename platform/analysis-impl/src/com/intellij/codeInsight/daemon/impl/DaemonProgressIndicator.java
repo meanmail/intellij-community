@@ -22,6 +22,7 @@ import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.TraceableDisposable;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 /**
@@ -31,6 +32,7 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
   private static boolean debug;
   private final TraceableDisposable myTraceableDisposable = new TraceableDisposable(debug);
   private volatile boolean myDisposed;
+  private volatile Throwable myCancellationCause;
 
   @Override
   public synchronized void stop() {
@@ -49,12 +51,17 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
 
   @Override
   public final void cancel() {
+    if (isCanceled()) return;
+
     myTraceableDisposable.kill("Daemon Progress Canceled");
     super.cancel();
     Disposer.dispose(this);
   }
 
   public void cancel(@NotNull Throwable cause) {
+    if (isCanceled()) return;
+
+    myCancellationCause = cause;
     myTraceableDisposable.killExceptionally(cause);
     super.cancel();
     Disposer.dispose(this);
@@ -74,6 +81,13 @@ public class DaemonProgressIndicator extends AbstractProgressIndicatorBase imple
   @Override
   public final void checkCanceled() {
     super.checkCanceled();
+  }
+
+  @Nullable
+  @Override
+  protected Throwable getCancellationTrace() {
+    Throwable cause = myCancellationCause;
+    return cause != null ? cause : super.getCancellationTrace();
   }
 
   @Override

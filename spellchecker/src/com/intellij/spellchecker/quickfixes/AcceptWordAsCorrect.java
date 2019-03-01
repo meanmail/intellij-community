@@ -26,7 +26,12 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
-
+/**
+ * General quickfix that accepts word as correct
+ * (not undoable, no possibility to choose dictionary)
+ *
+ * @see SaveTo for undoable quickfix with dictionary chooser
+ */
 public class AcceptWordAsCorrect implements SpellCheckerQuickFix {
   private String myWord;
 
@@ -37,21 +42,30 @@ public class AcceptWordAsCorrect implements SpellCheckerQuickFix {
   public AcceptWordAsCorrect() {
   }
 
+  @Override
   @NotNull
   public String getName() {
     return myWord != null ? SpellCheckerBundle.message("add.0.to.dictionary", myWord) : SpellCheckerBundle.message("add.to.dictionary");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return SpellCheckerBundle.message("add.to.dictionary");
   }
 
+  @Override
   @NotNull
   public Anchor getPopupActionAnchor() {
     return Anchor.LAST;
   }
 
+  @Override
+  public boolean startInWriteAction() {
+    return false;
+  }
+
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     SpellCheckerManager spellCheckerManager = SpellCheckerManager.getInstance(project);
     if (myWord != null) {
@@ -61,6 +75,7 @@ public class AcceptWordAsCorrect implements SpellCheckerQuickFix {
     }
   }
 
+  @Override
   public Icon getIcon(int flags) {
     return SpellcheckerIcons.Spellcheck;
   }

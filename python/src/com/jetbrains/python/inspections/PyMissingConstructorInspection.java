@@ -55,7 +55,7 @@ public class PyMissingConstructorInspection extends PyInspection {
 
   private static class Visitor extends PyInspectionVisitor {
 
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -105,9 +105,7 @@ public class PyMissingConstructorInspection extends PyInspection {
 
       return cls.getAncestorClasses(context)
         .stream()
-        .filter(baseClass -> PyBroadExceptionInspection.equalsException(baseClass, context))
-        .findAny()
-        .isPresent();
+        .anyMatch(baseClass -> PyBroadExceptionInspection.equalsException(baseClass, context));
     }
 
     private static boolean hasConstructorCall(@NotNull PyClass cls, @NotNull PyFunction initMethod, @NotNull TypeEvalContext context) {
@@ -126,7 +124,7 @@ public class PyMissingConstructorInspection extends PyInspection {
 
       private boolean myHasConstructorCall = false;
 
-      public CallVisitor(@NotNull PyClass cls, @NotNull TypeEvalContext context) {
+      CallVisitor(@NotNull PyClass cls, @NotNull TypeEvalContext context) {
         myClass = cls;
         myContext = context;
       }
@@ -182,16 +180,14 @@ public class PyMissingConstructorInspection extends PyInspection {
         if (firstArg.equals(cls.getName()) ||
             firstArg.equals(CANONICAL_SELF + "." + __CLASS__) ||
             classQName != null && classQName.endsWith(firstArg) ||
-            firstArg.equals(__CLASS__) && LanguageLevel.forElement(cls).isAtLeast(LanguageLevel.PYTHON30)) {
+            firstArg.equals(__CLASS__) && !LanguageLevel.forElement(cls).isPython2()) {
           return true;
         }
 
         return cls.getAncestorClasses(context)
           .stream()
           .map(PyClass::getName)
-          .filter(firstArg::equals)
-          .findAny()
-          .isPresent();
+          .anyMatch(firstArg::equals);
       }
 
       private static boolean isSuperClassCall(@NotNull PyExpression calleeQualifier,
@@ -202,9 +198,7 @@ public class PyMissingConstructorInspection extends PyInspection {
         return callingClass != null &&
                cls.getAncestorClasses(context)
                  .stream()
-                 .filter(callingClass::equals)
-                 .findAny()
-                 .isPresent();
+                 .anyMatch(callingClass::equals);
       }
 
       @Nullable

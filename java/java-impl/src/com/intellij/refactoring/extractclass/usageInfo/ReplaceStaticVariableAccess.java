@@ -19,18 +19,16 @@ import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.psi.MutationUtils;
 import com.intellij.refactoring.util.FixableUsageInfo;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.ArrayUtilRt;
 import com.intellij.util.IncorrectOperationException;
 
 public class ReplaceStaticVariableAccess extends FixableUsageInfo {
   private final PsiReferenceExpression expression;
   private final String delegateClass;
   private final boolean myEnumConstant;
-  private static final Logger LOGGER = Logger.getInstance("#" + ReplaceStaticVariableAccess.class.getName());
+  private static final Logger LOGGER = Logger.getInstance(ReplaceStaticVariableAccess.class);
 
   public ReplaceStaticVariableAccess(PsiReferenceExpression expression, String delegateClass, boolean enumConstant) {
     super(expression);
@@ -39,6 +37,7 @@ public class ReplaceStaticVariableAccess extends FixableUsageInfo {
     myEnumConstant = enumConstant;
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
     if (myEnumConstant) {
       final PsiSwitchLabelStatement switchStatement = PsiTreeUtil.getParentOfType(expression, PsiSwitchLabelStatement.class);

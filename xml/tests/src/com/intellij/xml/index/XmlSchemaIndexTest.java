@@ -6,7 +6,6 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.indexing.FileBasedIndex;
 import com.intellij.util.io.DataExternalizer;
@@ -18,7 +17,7 @@ import java.util.*;
 /**
  * @author Dmitry Avdeev
  */
-@SuppressWarnings({"IOResourceOpenedButNotSafelyClosed", "ConstantConditions"})
+@SuppressWarnings({"ConstantConditions"})
 public class XmlSchemaIndexTest extends LightCodeInsightFixtureTestCase {
 
   private static final String NS = "http://java.jb.com/xml/ns/javaee";
@@ -107,7 +106,7 @@ public class XmlSchemaIndexTest extends LightCodeInsightFixtureTestCase {
     assertNull(resource);
   }
 
-  public void testGuessDTD() throws Exception {
+  public void testGuessDTD() {
     myFixture.copyDirectoryToProject("", "");
     final List<IndexedRelevantResource<String, XsdNamespaceBuilder>> files =
       XmlNamespaceIndex.getResourcesByNamespace("foo.dtd",
@@ -120,7 +119,7 @@ public class XmlSchemaIndexTest extends LightCodeInsightFixtureTestCase {
     assertTrue(XmlNamespaceIndex.guessDtd("foo://bar/2/foo.dtd", file).getVirtualFile().getPath().endsWith("/2/foo.dtd"));
   }
 
-  public void testGuessByLocation() throws Exception {
+  public void testGuessByLocation() {
     myFixture.copyDirectoryToProject("", "");
     String namespace = "http://www.liquibase.org/xml/ns/dbchangelog";
     List<IndexedRelevantResource<String, XsdNamespaceBuilder>> resources =

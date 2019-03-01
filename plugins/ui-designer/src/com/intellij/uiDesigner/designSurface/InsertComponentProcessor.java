@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.designSurface;
 
 import com.intellij.CommonBundle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.ide.palette.impl.PaletteToolWindowManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -27,7 +14,6 @@ import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiClass;
@@ -123,6 +109,7 @@ public final class InsertComponentProcessor extends EventProcessor {
     }
   }
 
+  @Override
   protected void processKeyEvent(final KeyEvent e) {
     if (e.getID() == KeyEvent.KEY_PRESSED) {
       if (e.getKeyCode() == KeyEvent.VK_ENTER) {
@@ -171,7 +158,6 @@ public final class InsertComponentProcessor extends EventProcessor {
 
   public static String getUniqueBinding(RadRootContainer root, final String baseName) {
     // Generate member name based on current code style
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i = 0; true; i++) {
       final String nameCandidate = baseName + (i + 1);
       final String binding = JavaCodeStyleManager.getInstance(root.getProject()).propertyNameToVariableName(
@@ -230,6 +216,7 @@ public final class InsertComponentProcessor extends EventProcessor {
     }
   }
 
+  @Override
   protected void processMouseEvent(final MouseEvent e) {
     if (e.getID() == MouseEvent.MOUSE_PRESSED) {
       final ComponentItem componentItem = getComponentToInsert();
@@ -494,7 +481,6 @@ public final class InsertComponentProcessor extends EventProcessor {
           );
         }
         catch (final Exception exc) {
-          //noinspection NonConstantStringShouldBeStringBuffer
           String errorDescription = Utils.validateJComponentClass(loader, item.getClassName(), true);
           if (errorDescription == null) {
             errorDescription = UIDesignerBundle.message("error.class.cannot.be.instantiated", item.getClassName());
@@ -519,12 +505,8 @@ public final class InsertComponentProcessor extends EventProcessor {
 
   @Nullable
   public static RadComponentFactory getRadComponentFactory(final Project project, final String className) {
-    ClassLoader loader = ApplicationManager.getApplication().runReadAction(new Computable<ClassLoader>() {
-      @Override
-      public ClassLoader compute() {
-        return LoaderFactory.getInstance(project).getProjectClassLoader();
-      }
-    });
+    ClassLoader loader =
+      ReadAction.compute(() -> LoaderFactory.getInstance(project).getProjectClassLoader());
     return getRadComponentFactory(className, loader);
   }
 
@@ -566,6 +548,7 @@ public final class InsertComponentProcessor extends EventProcessor {
     }
   }
 
+  @Override
   protected boolean cancelOperation() {
     myEditor.setDesignTimeInsets(2);
     myEditor.getActiveDecorationLayer().removeFeedback();

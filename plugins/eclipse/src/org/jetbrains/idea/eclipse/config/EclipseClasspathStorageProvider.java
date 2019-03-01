@@ -15,7 +15,6 @@
  */
 package org.jetbrains.idea.eclipse.config;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.components.PathMacroManager;
 import com.intellij.openapi.module.Module;
@@ -47,12 +46,14 @@ import java.io.IOException;
 public class EclipseClasspathStorageProvider implements ClasspathStorageProvider {
   public static final String DESCR = EclipseBundle.message("eclipse.classpath.storage.description");
 
+  @NotNull
   @Override
   @NonNls
   public String getID() {
     return JpsEclipseClasspathSerializer.CLASSPATH_STORAGE_ID;
   }
 
+  @NotNull
   @Override
   @Nls
   public String getDescription() {
@@ -60,7 +61,7 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
   }
 
   @Override
-  public void assertCompatible(final ModuleRootModel model) throws ConfigurationException {
+  public void assertCompatible(@NotNull final ModuleRootModel model) throws ConfigurationException {
     final String moduleName = model.getModule().getName();
     for (OrderEntry entry : model.getOrderEntries()) {
       if (entry instanceof LibraryOrderEntry) {
@@ -112,7 +113,7 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
   }
 
   @Override
-  public void modulePathChanged(Module module, String path) {
+  public void modulePathChanged(@NotNull Module module) {
     final EclipseModuleManagerImpl moduleManager = EclipseModuleManagerImpl.getInstance(module);
     if (moduleManager != null) {
       moduleManager.setDocumentSet(null);
@@ -145,13 +146,7 @@ public class EclipseClasspathStorageProvider implements ClasspathStorageProvider
       VirtualFile root = LocalFileSystem.getInstance().findFileByPath(ModuleUtilCore.getModuleDirPath(module));
       VirtualFile source = root == null ? null : root.findChild(oldName + EclipseXml.IDEA_SETTINGS_POSTFIX);
       if (source != null && source.isValid()) {
-        AccessToken token = WriteAction.start();
-        try {
-          source.rename(this, newName + EclipseXml.IDEA_SETTINGS_POSTFIX);
-        }
-        finally {
-          token.finish();
-        }
+        WriteAction.run(() -> source.rename(this, newName + EclipseXml.IDEA_SETTINGS_POSTFIX));
       }
 
       DotProjectFileHelper.saveDotProjectFile(module, fileSet.getParent(EclipseXml.PROJECT_FILE));

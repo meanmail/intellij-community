@@ -1,28 +1,21 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.codeInspection.ui;
 
-import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.daemon.HighlightDisplayKey;
 import com.intellij.codeInspection.CommonProblemDescriptor;
+import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ProblemDescriptionsProcessor;
 import com.intellij.codeInspection.QuickFix;
 import com.intellij.codeInspection.ex.*;
+import com.intellij.codeInspection.reference.RefElement;
 import com.intellij.codeInspection.reference.RefEntity;
-import com.intellij.codeInspection.reference.RefModule;
-import com.intellij.openapi.vcs.FileStatus;
+import com.intellij.codeInspection.ui.util.SynchronizedBidiMultiMap;
+import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.Disposable;
+import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
+import com.intellij.psi.PsiElement;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,6 +24,7 @@ import javax.swing.*;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public interface InspectionToolPresentation extends ProblemDescriptionsProcessor {
@@ -38,20 +32,18 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
   @NotNull
   InspectionToolWrapper getToolWrapper();
 
-  @NotNull
-  Map<RefEntity, CommonProblemDescriptor[]> getIgnoredElements();
+  default void patchToolNode(@NotNull InspectionTreeNode node,
+                             @NotNull InspectionRVContentProvider provider,
+                             boolean showStructure,
+                             boolean groupBySeverity) {
+
+  }
 
   @NotNull
-  InspectionNode createToolNode(@NotNull GlobalInspectionContextImpl globalInspectionContext,
-                                @NotNull InspectionNode node,
-                                @NotNull InspectionRVContentProvider provider,
-                                @NotNull InspectionTreeNode parentNode,
-                                final boolean showStructure,
-                                final boolean groupBySeverity);
-
-  @NotNull
-  default RefElementNode createRefNode(@Nullable RefEntity entity) {
-    return new RefElementNode(entity, this);
+  default RefElementNode createRefNode(@Nullable RefEntity entity,
+                                       @NotNull InspectionTreeModel model,
+                                       @NotNull InspectionTreeNode parent) {
+    return new RefElementNode(entity, this, parent);
   }
 
   void updateContent();
@@ -61,51 +53,71 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
   @NotNull
   Map<String, Set<RefEntity>> getContent();
 
-  void ignoreCurrentElement(RefEntity refEntity);
-  void amnesty(RefEntity refEntity);
-  void amnesty(RefEntity refEntity, CommonProblemDescriptor descriptor);
+  boolean isProblemResolved(@Nullable CommonProblemDescriptor descriptor);
+
+  boolean isProblemResolved(@Nullable RefEntity entity);
+
+  @NotNull
+  Collection<RefEntity> getResolvedElements();
+
+  @NotNull
+  CommonProblemDescriptor[] getResolvedProblems(@NotNull RefEntity entity);
+
+  void suppressProblem(@NotNull CommonProblemDescriptor descriptor);
+
+  void suppressProblem(@NotNull RefEntity entity);
+
+  boolean isSuppressed(RefEntity element);
+
+  boolean isSuppressed(CommonProblemDescriptor descriptor);
+
+  @NotNull
+  CommonProblemDescriptor[] getSuppressedProblems(@NotNull RefEntity entity);
+
   void cleanup();
-  void finalCleanup();
-  boolean isGraphNeeded();
-  boolean isElementIgnored(final RefEntity element);
-  @NotNull
-  FileStatus getElementStatus(final RefEntity element);
-  @NotNull
-  Set<RefEntity> getIgnoredRefElements();
   @Nullable
-  IntentionAction findQuickFixes(@NotNull CommonProblemDescriptor descriptor, final String hint);
+  QuickFix findQuickFixes(@NotNull CommonProblemDescriptor descriptor,
+                          RefEntity entity,
+                          String hint);
   @NotNull
   HTMLComposerImpl getComposer();
-  void exportResults(@NotNull final Element parentNode, @NotNull RefEntity refEntity, Predicate<CommonProblemDescriptor> isDescriptorExcluded);
+
   @NotNull
-  Set<RefModule> getModuleProblems();
-  @Nullable
-  QuickFixAction[] getQuickFixes(@NotNull final RefEntity[] refElements, @Nullable InspectionTree tree);
+  QuickFixAction[] getQuickFixes(@NotNull RefEntity... refElements);
   @NotNull
-  Map<RefEntity, CommonProblemDescriptor[]> getProblemElements();
+  SynchronizedBidiMultiMap<RefEntity, CommonProblemDescriptor> getProblemElements();
   @NotNull
   Collection<CommonProblemDescriptor> getProblemDescriptors();
-  @NotNull
-  FileStatus getProblemStatus(@NotNull CommonProblemDescriptor descriptor);
-  boolean isProblemResolved(RefEntity refEntity, CommonProblemDescriptor descriptor);
-  void ignoreCurrentElementProblem(RefEntity refEntity, CommonProblemDescriptor descriptor);
-  void addProblemElement(RefEntity refElement, boolean filterSuppressed, @NotNull CommonProblemDescriptor... descriptions);
-  void ignoreProblem(@NotNull CommonProblemDescriptor descriptor, @NotNull QuickFix fix);
+  void addProblemElement(@Nullable RefEntity refElement, boolean filterSuppressed, @NotNull CommonProblemDescriptor... descriptions);
 
   @NotNull
   GlobalInspectionContextImpl getContext();
-  void ignoreProblem(RefEntity refEntity, CommonProblemDescriptor problem, int idx);
-  @Nullable
-  QuickFixAction[] extractActiveFixes(@NotNull RefEntity[] refElements,
-                                      @NotNull Map<RefEntity, CommonProblemDescriptor[]> descriptorMap,
-                                      @Nullable CommonProblemDescriptor[] allowedDescriptors);
-  void exportResults(@NotNull final Element parentNode,
-                     @NotNull final Predicate<RefEntity> isEntityExcluded,
-                     @NotNull final Predicate<CommonProblemDescriptor> isProblemExcluded);
 
-  default JComponent getCustomPreviewPanel(RefEntity entity) {
+  void exportResults(@NotNull Consumer<Element> resultConsumer,
+                     @NotNull RefEntity refEntity,
+                     @NotNull Predicate<? super CommonProblemDescriptor> isDescriptorExcluded);
+
+  void exportResults(@NotNull Consumer<Element> resultConsumer,
+                     @NotNull Predicate<? super RefEntity> isEntityExcluded,
+                     @NotNull Predicate<? super CommonProblemDescriptor> isProblemExcluded);
+
+  /** Override the preview panel for the entity. */
+  @Nullable
+  default JComponent getCustomPreviewPanel(@NotNull RefEntity entity) {
     return null;
-  };
+  }
+
+  /** Override the preview panel for the problem descriptor. */
+  @Nullable
+  default JComponent getCustomPreviewPanel(@NotNull CommonProblemDescriptor descriptor, @NotNull Disposable parent) {
+    return null;
+  }
+
+  /** Additional actions applicable to the problem descriptor. May be (but not necessarily) related to the custom preview panel. */
+  @Nullable
+  default JComponent getCustomActionsPanel(@NotNull CommonProblemDescriptor descriptor, @NotNull Disposable parent) {
+    return null;
+  }
 
   /**
    * see {@link com.intellij.codeInspection.deadCode.DummyEntryPointsPresentation}
@@ -115,7 +127,38 @@ public interface InspectionToolPresentation extends ProblemDescriptionsProcessor
     return false;
   }
 
-  default int getProblemsCount(InspectionTree tree) {
-    return tree.getSelectedDescriptors().length;
+  default boolean showProblemCount() {
+    return true;
+  }
+
+  @Nullable
+  HighlightSeverity getSeverity(@NotNull RefElement element);
+
+  boolean isExcluded(@NotNull CommonProblemDescriptor descriptor);
+
+  boolean isExcluded(@NotNull RefEntity entity);
+
+  void amnesty(@NotNull RefEntity element);
+
+  void exclude(@NotNull RefEntity element);
+
+  void amnesty(@NotNull CommonProblemDescriptor descriptor);
+
+  void exclude(@NotNull CommonProblemDescriptor descriptor);
+
+  @NotNull
+  static HighlightSeverity getSeverity(@Nullable RefEntity entity,
+                                       @Nullable PsiElement psiElement,
+                                       @NotNull InspectionToolPresentation presentation) {
+    HighlightSeverity severity = null;
+    final InspectionProfile profile = InspectionProjectProfileManager.getInstance(presentation.getContext().getProject()).getCurrentProfile();
+    if (entity instanceof RefElement){
+      final RefElement refElement = (RefElement)entity;
+      severity = presentation.getSeverity(refElement);
+    }
+    if (severity == null) {
+      severity = profile.getErrorLevel(HighlightDisplayKey.find(presentation.getToolWrapper().getShortName()), psiElement).getSeverity();
+    }
+    return severity;
   }
 }

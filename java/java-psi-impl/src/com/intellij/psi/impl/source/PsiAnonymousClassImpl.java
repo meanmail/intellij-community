@@ -16,11 +16,13 @@
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.ASTNode;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.java.stubs.JavaStubElementTypes;
 import com.intellij.psi.impl.java.stubs.PsiClassStub;
 import com.intellij.psi.impl.source.tree.ChildRole;
 import com.intellij.psi.scope.PsiScopeProcessor;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.reference.SoftReference;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -74,31 +76,41 @@ public class PsiAnonymousClassImpl extends PsiClassImpl implements PsiAnonymousC
     PsiClassType type = SoftReference.dereference(myCachedBaseType);
     if (type != null) return type;
 
-    if (!isInQualifiedNew()) {
+    if (!isInQualifiedNew() && !isDiamond(stub)) {
       final String refText = stub.getBaseClassReferenceText();
       assert refText != null : stub;
-      final PsiElementFactory factory = JavaPsiFacade.getInstance(getProject()).getElementFactory();
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(getProject());
 
       final PsiElement context = calcBasesResolveContext(PsiNameHelper.getShortClassName(refText), getExtendsList());
       try {
         final PsiJavaCodeReferenceElement ref = factory.createReferenceFromText(refText, context);
-        ((PsiJavaCodeReferenceElementImpl)ref).setKindWhenDummy(PsiJavaCodeReferenceElementImpl.CLASS_NAME_KIND);
+        ((PsiJavaCodeReferenceElementImpl)ref).setKindWhenDummy(PsiJavaCodeReferenceElementImpl.Kind.CLASS_NAME_KIND);
         type = factory.createType(ref);
       }
       catch (IncorrectOperationException e) {
         type = PsiType.getJavaLangObject(getManager(), getResolveScope());
       }
 
-      myCachedBaseType = new SoftReference<PsiClassType>(type);
+      myCachedBaseType = new SoftReference<>(type);
       return type;
     }
     else {
       return getTypeByTree();
     }
   }
+  
+  private boolean isDiamond(@NotNull PsiClassStub stub) {
+    if (PsiUtil.isLanguageLevel9OrHigher(this)) {
+      final String referenceText = stub.getBaseClassReferenceText();
+      if (referenceText != null && referenceText.endsWith(">")) {
+        return StringUtil.trimEnd(referenceText, ">").trim().endsWith("<");
+      }
+    }
+    return false;
+  }
 
   private PsiClassType getTypeByTree() {
-    return JavaPsiFacade.getInstance(getProject()).getElementFactory().createType(getBaseClassReference());
+    return JavaPsiFacade.getElementFactory(getProject()).createType(getBaseClassReference());
   }
 
   @Override
@@ -171,6 +183,7 @@ public class PsiAnonymousClassImpl extends PsiClassImpl implements PsiAnonymousC
     }
   }
 
+  @Override
   public String toString() {
     return "PsiAnonymousClass";
   }

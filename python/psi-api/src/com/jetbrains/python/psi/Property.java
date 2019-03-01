@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.jetbrains.annotations.Nullable;
  * This is <i>not</i> a node of PSI tree.
  * <br/>
  * User: dcheryasov
- * Date: May 31, 2010 5:18:10 PM
  */
 public interface Property {
   String getName();
@@ -72,5 +71,5 @@ public interface Property {
    * Get the return type of the property getter.
    */
   @Nullable
-  PyType getType(@NotNull TypeEvalContext context);
+  PyType getType(@Nullable PyExpression receiver, @NotNull TypeEvalContext context);
 }

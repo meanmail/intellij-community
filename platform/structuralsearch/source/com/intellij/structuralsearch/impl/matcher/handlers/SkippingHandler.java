@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.dupLocator.equivalence.EquivalenceDescriptor;
@@ -21,6 +22,7 @@ public class SkippingHandler extends MatchingHandler implements DelegatingHandle
     myDelegate = delegate;
   }
 
+  @Override
   public boolean match(PsiElement patternNode, PsiElement matchedNode, final MatchContext matchContext) {
     if (patternNode == null || matchedNode == null || matchedNode.getClass() == patternNode.getClass()) {
       return myDelegate.match(patternNode, matchedNode, matchContext);
@@ -29,7 +31,7 @@ public class SkippingHandler extends MatchingHandler implements DelegatingHandle
     /*if (patternNode != null && matchedNode != null && patternNode.getClass() == matchedNode.getClass()) {
       //return myDelegate.match(patternNode, matchedNode, matchContext);
     }*/
-    PsiElement newPatternNode = skipNodeIfNeccessary(patternNode);
+    final PsiElement newPatternNode = skipNodeIfNeccessary(patternNode);
     matchedNode = skipNodeIfNeccessary(matchedNode);
 
     if (newPatternNode != patternNode) {
@@ -40,43 +42,25 @@ public class SkippingHandler extends MatchingHandler implements DelegatingHandle
   }
 
   @Override
-  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode) {
-    return myDelegate.canMatch(patternNode, matchedNode);
-  }
-
-  @Override
-  public boolean matchSequentially(final NodeIterator nodes, final NodeIterator nodes2, final MatchContext context) {
-    return myDelegate.matchSequentially(nodes, nodes2, context);
-  }
-
-  public boolean match(PsiElement patternNode,
-                       PsiElement matchedNode,
-                       final int start,
-                       final int end,
-                       final MatchContext context) {
-    if (patternNode == null || matchedNode == null || patternNode.getClass() == matchedNode.getClass()) {
-      return myDelegate.match(patternNode, matchedNode, start, end, context);
-    }
-
-    PsiElement newPatternNode = skipNodeIfNeccessary(patternNode);
-    matchedNode = skipNodeIfNeccessary(matchedNode);
-
+  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode, MatchContext context) {
+    final PsiElement newPatternNode = skipNodeIfNeccessary(patternNode);
     if (newPatternNode != patternNode) {
-      return context.getPattern().getHandler(newPatternNode).match(newPatternNode, matchedNode, start, end, context);
+      return context.getPattern().getHandler(newPatternNode).canMatch(newPatternNode, matchedNode, context);
     }
-
-    return myDelegate.match(patternNode, matchedNode, start, end, context);
-  }
-
-  protected boolean isMatchSequentiallySucceeded(final NodeIterator nodes2) {
-    return myDelegate.isMatchSequentiallySucceeded(nodes2);
+    return myDelegate.canMatch(patternNode, matchedNode, context);
   }
 
   @Override
-  public boolean shouldAdvanceTheMatchFor(PsiElement patternElement, PsiElement matchedElement) {
-    return true;
+  public boolean matchSequentially(final NodeIterator patternNodes, final NodeIterator matchNodes, final MatchContext context) {
+    return myDelegate.matchSequentially(patternNodes, matchNodes, context);
   }
 
+  @Override
+  protected boolean isMatchSequentiallySucceeded(final NodeIterator matchNodes) {
+    return myDelegate.isMatchSequentiallySucceeded(matchNodes);
+  }
+
+  @Override
   public MatchingHandler getDelegate() {
     return myDelegate;
   }

@@ -15,11 +15,8 @@
  */
 package com.intellij.util.xml.impl;
 
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.XmlElementFactory;
-import com.intellij.psi.impl.PsiModificationTrackerImpl;
 import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
@@ -40,7 +37,7 @@ public abstract class DomTestCase extends LightIdeaTestCase {
   protected CallRegistry<DomEvent> myCallRegistry;
   private final DomEventListener myListener = new DomEventListener() {
     @Override
-    public void eventOccured(DomEvent event) {
+    public void eventOccured(@NotNull DomEvent event) {
       myCallRegistry.putActual(event);
     }
   };
@@ -110,12 +107,7 @@ public abstract class DomTestCase extends LightIdeaTestCase {
   }
 
   protected static void incModCount() {
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        ((PsiModificationTrackerImpl)getPsiManager().getModificationTracker()).incCounter();
-      }
-    }.execute();
+    getPsiManager().dropPsiCaches();
   }
 
   @Nullable

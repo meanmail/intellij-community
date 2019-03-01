@@ -16,6 +16,7 @@
 package com.intellij.core;
 
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.UnloadedModuleDescription;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -24,6 +25,8 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScopeBuilder;
 import com.intellij.psi.search.ProjectScopeImpl;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.Collection;
 
 /**
  * @author yole
@@ -63,15 +66,16 @@ public class CoreProjectScopeBuilder extends ProjectScopeBuilder {
     return new ContentSearchScope(myProject, myFileIndexFacade);
   }
 
+  @NotNull
+  @Override
+  public GlobalSearchScope buildEverythingScope() {
+    return new EverythingGlobalScope(myProject);
+  }
+
   private class CoreLibrariesScope extends GlobalSearchScope {
     @Override
     public boolean contains(@NotNull VirtualFile file) {
       return myFileIndexFacade.isInLibraryClasses(file) || myFileIndexFacade.isInLibrarySource(file);
-    }
-
-    @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
     }
 
     @Override
@@ -100,11 +104,6 @@ public class CoreProjectScopeBuilder extends ProjectScopeBuilder {
     }
 
     @Override
-    public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-      return 0;
-    }
-
-    @Override
     public boolean isSearchInModuleContent(@NotNull Module aModule) {
       return true;
     }
@@ -112,6 +111,12 @@ public class CoreProjectScopeBuilder extends ProjectScopeBuilder {
     @Override
     public boolean isSearchInLibraries() {
       return false;
+    }
+
+    @NotNull
+    @Override
+    public Collection<UnloadedModuleDescription> getUnloadedModulesBelongingToScope() {
+      return myFileIndexFacade.getUnloadedModuleDescriptions();
     }
   }
 }

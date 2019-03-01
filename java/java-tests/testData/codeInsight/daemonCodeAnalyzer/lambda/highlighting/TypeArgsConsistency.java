@@ -12,7 +12,7 @@ class TypeArgsConsistency {
       I<Integer> i1 = (i, j) -> i + j;
       foo((i, j) -> i + j);
       I<Integer> i2 = bar((i, j) -> i + j);
-      I<Integer> i3 = bar(<error descr="no instance(s) of type variable(s)  exist so that String conforms to Integer
+      I<Integer> i3 = bar(<error descr="no instance(s) of type variable(s) exist so that String conforms to Integer
 inference variable X has incompatible bounds:
  equality constraints: Integer
 lower bounds: String">(i, j) -> "" + i + j</error>);
@@ -33,7 +33,7 @@ class TypeArgsConsistency1 {
         I<Integer> i1 = (i, j) -> i + j;
         foo((i, j) -> i + j);
         I<Integer> i2 =bar((i, j) -> i) ;
-        I<Integer> i3 = bar(<error descr="Bad return type in lambda expression: String cannot be converted to int">(i, j) -> "" + i + j</error>);
+        I<Integer> i3 = bar((i, j) -> <error descr="Bad return type in lambda expression: String cannot be converted to int">"" + i + j</error>);
     }
 }
 
@@ -46,7 +46,7 @@ class TypeArgsConsistency2 {
         I<Integer> i1 = bar(x -> x);
         I1<Integer> i2 = bar1(x -> 1);
         I2<String> aI2 = bar2(x -> "");
-        I2<Integer> aI28 = bar2( <error descr="no instance(s) of type variable(s)  exist so that String conforms to Integer
+        I2<Integer> aI28 = bar2( <error descr="no instance(s) of type variable(s) exist so that String conforms to Integer
 inference variable T has incompatible bounds:
  equality constraints: Integer
 lower bounds: String">x-> ""</error>);
@@ -57,7 +57,7 @@ lower bounds: String">x-> ""</error>);
 
     static <K> K fooo(){return null;}
     static int foooI(){return 0;}
-   
+
     interface I<X> {
         X foo(X x);
     }
@@ -72,12 +72,11 @@ lower bounds: String">x-> ""</error>);
 }
 
 class TypeArgsConsistency3 {
-    public static void main(String[] args) { 
+    public static void main(String[] args) {
         doIt1(1, x -> doIt1(x, y -> x * y));
         doIt1(1, x -> x);
         doIt1(1, x -> x * x);
     }
-    interface F1<ResultType, P1> { ResultType _(P1 p); }
-    static <T> T doIt1(T i, F1<T,T> f) { return f._(i);}
+    interface F1<ResultType, P1> { ResultType f(P1 p); }
+    static <T> T doIt1(T i, F1<T,T> f) { return f.f(i);}
 }
-

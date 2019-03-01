@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,28 +22,42 @@ import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Set;
+
+/**
+ * @deprecated Use {@link FoldingDescriptor} instead.
+ */
+@Deprecated
 public class NamedFoldingDescriptor extends FoldingDescriptor {
-  private final String myPlaceholderText;
-
+  /**
+   * @deprecated Use {@link FoldingDescriptor#FoldingDescriptor(PsiElement, int, int, FoldingGroup, String)} instead.
+   */
+  @Deprecated
   public NamedFoldingDescriptor(@NotNull PsiElement e, int start, int end, @Nullable FoldingGroup group, @NotNull String placeholderText) {
-    this(e.getNode(), new TextRange(start, end), group, placeholderText);
+    super(e, start, end, group, placeholderText);
   }
 
-  public NamedFoldingDescriptor(@NotNull ASTNode node, int start, int end, @Nullable FoldingGroup group, @NotNull String placeholderText) {
-    this(node, new TextRange(start, end), group, placeholderText);
-  }
-
+  /**
+   * @deprecated Use {@link FoldingDescriptor#FoldingDescriptor(ASTNode, TextRange, FoldingGroup, String)} instead.
+   */
+  @Deprecated
   public NamedFoldingDescriptor(@NotNull ASTNode node,
                          @NotNull final TextRange range,
                          @Nullable FoldingGroup group,
                          @NotNull String placeholderText) {
-    super(node, range, group);
-    myPlaceholderText = placeholderText;
+    super(node, range, group, placeholderText);
   }
 
-  @Override
-  @NotNull 
-  public String getPlaceholderText() {
-    return myPlaceholderText;
+  /**
+   * @deprecated Use {@link FoldingDescriptor#FoldingDescriptor(ASTNode, TextRange, FoldingGroup, String, Boolean, Set)} instead.
+   */
+  @Deprecated
+  public NamedFoldingDescriptor(@NotNull ASTNode node,
+                                @NotNull final TextRange range,
+                                @Nullable FoldingGroup group,
+                                @NotNull String placeholderText,
+                                @Nullable("null means unknown") Boolean collapsedByDefault,
+                                @NotNull Set<Object> dependencies) {
+    super(node, range, group, placeholderText, collapsedByDefault, dependencies);
   }
 }

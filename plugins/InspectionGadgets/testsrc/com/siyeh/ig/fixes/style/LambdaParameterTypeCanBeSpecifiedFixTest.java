@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.fixes.style;
 
+import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.IGQuickFixesTestCase;
 import com.siyeh.ig.style.LambdaParameterTypeCanBeSpecifiedInspection;
 
@@ -26,35 +27,43 @@ public class LambdaParameterTypeCanBeSpecifiedFixTest extends IGQuickFixesTestCa
   }
 
   public void testSimple() {
-    doTest("Expand lambda to (String o) -> {...}");
+    doTest(getHintName("(String o)"));
   }
 
   public void testFile() {
-    doTest("Expand lambda to (File o) -> {...}");
+    doTest(getHintName("(File o)"));
+  }
+
+  public void testFileOutOfFixRange() {
+    assertQuickfixNotAvailable(getHintName("(File o)"));
   }
 
   public void testTwoParams() {
-    doTest("Expand lambda to (String o1, String o2) -> {...}");
+    doTest(getHintName("(String o1, String o2)"));
   }
 
   public void testSimpleWildcard() {
-    doTest("Expand lambda to (Integer o) -> {...}");
+    doTest(getHintName("(Integer o)"));
   }
 
-  public void testAlreadyExist() throws Exception {
-    assertQuickfixNotAvailable("Expand lambda to (String o) -> {...}");
+  public void testAlreadyExist() {
+    assertQuickfixNotAvailable(getHintName("(String o)"));
   }
 
-  public void testCyclicInference() throws Exception {
-    assertQuickfixNotAvailable("Expand lambda to (Object x) -> {...}");
+  public void testCyclicInference() {
+    assertQuickfixNotAvailable(getHintName("(Object x)"));
   }
 
-  public void testNoParams() throws Exception {
-    assertQuickfixNotAvailable("Expand lambda to () -> {...}");
+  public void testNoParams() {
+    assertQuickfixNotAvailable(getHintName("()"));
   }
 
-  public void testCapturedWildcardParams() throws Exception {
-    assertQuickfixNotAvailable("Expand lambda to (capture of ?) -> {...}");
+  public void testCapturedWildcardParams() {
+    assertQuickfixNotAvailable(getHintName("(capture of ?)"));
+  }
+
+  private static String getHintName(String paramList) {
+    return InspectionGadgetsBundle.message("lambda.parameter.type.can.be.specified.quickfix", paramList);
   }
 
   @Override

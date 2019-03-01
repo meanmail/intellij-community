@@ -17,7 +17,6 @@ package git4idea.push;
 
 import com.intellij.dvcs.push.PushTarget;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitLocalBranch;
 import git4idea.GitRemoteBranch;
@@ -30,7 +29,6 @@ import git4idea.repo.GitRepository;
 import git4idea.validators.GitRefNameValidator;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
 import java.text.ParseException;
 import java.util.Collection;
@@ -38,6 +36,7 @@ import java.util.List;
 
 import static git4idea.GitBranch.REFS_REMOTES_PREFIX;
 import static git4idea.GitUtil.findRemoteBranch;
+import static git4idea.GitUtil.getDefaultOrFirstRemote;
 
 public class GitPushTarget implements PushTarget {
 
@@ -77,8 +76,7 @@ public class GitPushTarget implements PushTarget {
     return myIsNewBranchCreated;
   }
 
-  @TestOnly
-  boolean isSpecialRef() {
+  public boolean isSpecialRef() {
     return myPushingToSpecialRef;
   }
 
@@ -108,19 +106,18 @@ public class GitPushTarget implements PushTarget {
   }
 
   @Nullable
-  private static GitRemote findRemote(@NotNull Collection<GitRemote> remotes, @NotNull final String candidate) {
-    return ContainerUtil.find(remotes, new Condition<GitRemote>() {
-      @Override
-      public boolean value(GitRemote remote) {
-        return remote.getName().equals(candidate);
-      }
-    });
+  static GitRemote findRemote(@NotNull Collection<GitRemote> remotes, @NotNull final String candidate) {
+    return ContainerUtil.find(remotes, remote -> remote.getName().equals(candidate));
   }
 
   @Nullable
   public static GitPushTarget getFromPushSpec(@NotNull GitRepository repository, @NotNull GitLocalBranch sourceBranch) {
     final GitRemote remote = getRemoteToPush(repository, GitBranchUtil.getTrackInfoForBranch(repository, sourceBranch));
-    if (remote == null) return null;
+    return remote == null ? null : getFromPushSpec(repository, remote, sourceBranch);
+  }
+
+  @Nullable
+  static GitPushTarget getFromPushSpec(@NotNull GitRepository repository, @NotNull GitRemote remote, @NotNull GitLocalBranch sourceBranch) {
     List<String> specs = remote.getPushRefSpecs();
     if (specs.isEmpty()) return null;
 
@@ -145,7 +142,7 @@ public class GitPushTarget implements PushTarget {
     if (trackInfo != null) {
       return trackInfo.getRemote();
     }
-    return GitUtil.findOrigin(repository.getRemotes());
+    return getDefaultOrFirstRemote(repository.getRemotes());
   }
 
   @Override
@@ -166,5 +163,10 @@ public class GitPushTarget implements PushTarget {
     int result = myRemoteBranch.hashCode();
     result = 31 * result + (myIsNewBranchCreated ? 1 : 0);
     return result;
+  }
+
+  @Override
+  public String toString() {
+    return myRemoteBranch.getNameForLocalOperations();
   }
 }

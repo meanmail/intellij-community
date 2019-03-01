@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 04.08.2006
- * Time: 17:57:31
- */
 package com.intellij.execution.filters;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -31,8 +25,10 @@ import org.jetbrains.annotations.NotNull;
  * @author dyoma
  */
 public abstract class TextConsoleBuilderFactory {
+  @NotNull
   public abstract TextConsoleBuilder createBuilder(@NotNull Project project);
 
+  @NotNull
   public abstract TextConsoleBuilder createBuilder(@NotNull Project project, @NotNull GlobalSearchScope scope);
 
   public static TextConsoleBuilderFactory getInstance() {

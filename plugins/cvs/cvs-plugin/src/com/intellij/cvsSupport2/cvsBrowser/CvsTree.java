@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.VcsException;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.TreeUIHelper;
 import com.intellij.ui.treeStructure.Tree;
@@ -42,8 +43,8 @@ import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class CvsTree extends JPanel implements CvsTabbedWindow.DeactivateListener, ChildrenLoader<CvsElement> {
   private CvsElement[] myCurrentSelection = CvsElement.EMPTY_ARRAY;
@@ -103,7 +104,7 @@ public class CvsTree extends JPanel implements CvsTabbedWindow.DeactivateListene
         selection.add(cvsElement);
       }
     }
-    myCurrentSelection = selection.toArray(new CvsElement[selection.size()]);
+    myCurrentSelection = selection.toArray(CvsElement.EMPTY_ARRAY);
     mySelectionObservable.notifyObservers(SELECTION_CHANGED);
   }
 
@@ -150,7 +151,7 @@ public class CvsTree extends JPanel implements CvsTabbedWindow.DeactivateListene
     uiHelper.installTreeSpeedSearch(myTree);
     TreeUtil.installActions(myTree);
 
-    myTree.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
   }
 
   private static class AlwaysNotifiedObservable extends Observable{
@@ -210,7 +211,7 @@ public class CvsTree extends JPanel implements CvsTabbedWindow.DeactivateListene
     private int waitTime = 100;
     private TreePath mySelectionPath;
 
-    public MyGetContentCallback(CvsElement parentNode, ModalityState modalityState, Project project) {
+    MyGetContentCallback(CvsElement parentNode, ModalityState modalityState, Project project) {
       myParentNode = parentNode;
       myModalityState = modalityState;
       myProject = project;

@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.search;
 
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightMemberReference;
 import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
+import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiSearchScopeUtil;
 import com.intellij.psi.search.SearchRequestCollector;
 import com.intellij.psi.search.SearchScope;
@@ -48,7 +36,7 @@ class ConstructorReferencesSearchHelper {
    * 2. Exception avoidance. Project is needed outside of read action (to run it via DumbService in the first place),
    *    and so getProject would fail with an assertion that read action is required but not present.
    */
-  boolean processConstructorReferences(@NotNull final Processor<PsiReference> processor,
+  boolean processConstructorReferences(@NotNull final Processor<? super PsiReference> processor,
                                        @NotNull final PsiMethod constructor,
                                        @NotNull final PsiClass containingClass,
                                        @NotNull final SearchScope searchScope,
@@ -99,9 +87,13 @@ class ConstructorReferencesSearchHelper {
       return true;
     };
 
-    ReferencesSearch.searchOptimized(containingClass, searchScope, ignoreAccessScope, collector, true, processor1);
+    SearchScope restrictedScope = searchScope instanceof GlobalSearchScope
+                                  ? ((GlobalSearchScope)searchScope).intersectWith(new JavaFilesSearchScope(project))
+                                  : searchScope;
+
+    ReferencesSearch.searchOptimized(containingClass, restrictedScope, ignoreAccessScope, collector, true, processor1);
     if (isUnder18[0]) {
-      if (!process18MethodPointers(processor, constructor, project, containingClass, searchScope)) return false;
+      if (!process18MethodPointers(processor, constructor, project, containingClass, restrictedScope)) return false;
     }
 
     // search usages like "this(..)"
@@ -122,10 +114,10 @@ class ConstructorReferencesSearchHelper {
       return true;
     };
 
-    return ClassInheritorsSearch.search(containingClass, searchScope, false).forEach(processor2);
+    return ClassInheritorsSearch.search(containingClass, searchScope, false).allowParallelProcessing().forEach(processor2);
   }
 
-  private static boolean processEnumReferences(@NotNull final Processor<PsiReference> processor,
+  private static boolean processEnumReferences(@NotNull final Processor<? super PsiReference> processor,
                                                @NotNull final PsiMethod constructor,
                                                @NotNull final Project project,
                                                @NotNull final PsiClass aClass) {
@@ -144,7 +136,7 @@ class ConstructorReferencesSearchHelper {
     });
   }
 
-  private static boolean process18MethodPointers(@NotNull final Processor<PsiReference> processor,
+  private static boolean process18MethodPointers(@NotNull final Processor<? super PsiReference> processor,
                                                  @NotNull final PsiMethod constructor,
                                                  @NotNull final Project project,
                                                  @NotNull PsiClass aClass, SearchScope searchScope) {
@@ -174,7 +166,7 @@ class ConstructorReferencesSearchHelper {
                                      final boolean isStrictSignatureSearch,
                                      @NotNull String superOrThisKeyword,
                                      @NotNull String thisOrSuperKeyword,
-                                     @NotNull Processor<PsiReference> processor) {
+                                     @NotNull Processor<? super PsiReference> processor) {
     PsiMethod[] constructors = inheritor.getConstructors();
     if (constructors.length == 0 && constructorCanBeCalledImplicitly) {
       if (!processImplicitConstructorCall(inheritor, processor, constructor, project, inheritor)) return false;
@@ -220,7 +212,7 @@ class ConstructorReferencesSearchHelper {
   }
 
   private boolean processImplicitConstructorCall(@NotNull final PsiMember usage,
-                                                 @NotNull final Processor<PsiReference> processor,
+                                                 @NotNull final Processor<? super PsiReference> processor,
                                                  @NotNull final PsiMethod constructor,
                                                  @NotNull final Project project,
                                                  @NotNull final PsiClass containingClass) {
@@ -244,11 +236,13 @@ class ConstructorReferencesSearchHelper {
       return true;
     }
     return processor.process(new LightMemberReference(myManager, usage, PsiSubstitutor.EMPTY) {
+      @NotNull
       @Override
       public PsiElement getElement() {
         return usage;
       }
 
+      @NotNull
       @Override
       public TextRange getRangeInElement() {
         if (usage instanceof PsiNameIdentifierOwner) {
@@ -257,6 +251,9 @@ class ConstructorReferencesSearchHelper {
             final int startOffsetInParent = identifier.getStartOffsetInParent();
             if (startOffsetInParent >= 0) { // -1 for light elements generated e.g. by lombok
               return TextRange.from(startOffsetInParent, identifier.getTextLength());
+            }
+            else {
+              return new UnfairTextRange(-1, -1);
             }
           }
         }

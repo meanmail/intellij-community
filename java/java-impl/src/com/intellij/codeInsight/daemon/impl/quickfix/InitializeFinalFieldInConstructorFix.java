@@ -1,27 +1,16 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.generation.PsiMethodMember;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.ide.util.MemberChooser;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -31,15 +20,14 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 
 public class InitializeFinalFieldInConstructorFix implements IntentionAction {
+  private static final Logger LOG = Logger.getInstance(InitializeFinalFieldInConstructorFix.class);
   private final PsiField myField;
 
   public InitializeFinalFieldInConstructorFix(@NotNull PsiField field) {
@@ -70,7 +58,7 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
     }
 
     final PsiManager manager = myField.getManager();
-    return manager != null && manager.isInProject(myField);
+    return manager != null && BaseIntentionAction.canModify(myField);
   }
 
   @Override
@@ -96,22 +84,29 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
                                              @Nullable Editor editor) {
     if (constructors.isEmpty()) return;
 
-    final List<PsiExpression> rExpressions = new ArrayList<>(constructors.size());
     final LookupElement[] suggestedInitializers = AddVariableInitializerFix.suggestInitializer(field);
 
+    final List<PsiExpression> rExpressions = new ArrayList<>(constructors.size());
     for (PsiMethod constructor : constructors) {
       rExpressions.add(addFieldInitialization(constructor, suggestedInitializers, field, project));
     }
+    Document doc = Objects.requireNonNull(PsiDocumentManager.getInstance(project).getDocument(field.getContainingFile()));
+    PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(doc);
     AddVariableInitializerFix.runAssignmentTemplate(rExpressions, suggestedInitializers, editor);
   }
 
-  @Nullable
+  @NotNull
   private static PsiExpression addFieldInitialization(@NotNull PsiMethod constructor,
                                                       @NotNull LookupElement[] suggestedInitializers,
                                                       @NotNull PsiField field,
                                                       @NotNull Project project) {
     PsiCodeBlock methodBody = constructor.getBody();
-    if (methodBody == null) return null;
+    if (methodBody == null) {
+      //incomplete code
+      CreateFromUsageUtils.setupMethodBody(constructor);
+      methodBody = constructor.getBody();
+      LOG.assertTrue(methodBody != null);
+    }
 
     final String fieldName = field.getName();
     String stmtText = fieldName + " = " + suggestedInitializers[0].getPsiElement().getText() + ";";
@@ -120,12 +115,12 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
     }
 
     final PsiManager psiManager = PsiManager.getInstance(project);
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(psiManager.getProject());
     final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
 
     final PsiExpressionStatement addedStatement = (PsiExpressionStatement)methodBody.add(codeStyleManager
       .reformat(factory.createStatementFromText(stmtText, methodBody)));
-    return ((PsiAssignmentExpression)addedStatement.getExpression()).getRExpression();
+    return ObjectUtils.notNull(((PsiAssignmentExpression)addedStatement.getExpression()).getRExpression());
   }
 
   private static boolean methodContainsParameterWithName(@NotNull PsiMethod constructor, @NotNull String name) {
@@ -161,6 +156,7 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
     return Collections.emptyList();
   }
 
+  @NotNull
   private static PsiMethodMember[] toPsiMethodMemberArray(@NotNull PsiMethod[] methods) {
     final PsiMethodMember[] result = new PsiMethodMember[methods.length];
     for (int i = 0; i < methods.length; i++) {
@@ -169,6 +165,7 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
     return result;
   }
 
+  @NotNull
   private static PsiMethod[] toPsiMethodArray(@NotNull List<PsiMethodMember> methodMembers) {
     final PsiMethod[] result = new PsiMethod[methodMembers.size()];
     int i = 0;
@@ -183,6 +180,7 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
     ApplicationManager.getApplication().runWriteAction(() -> defaultConstructorFix.invoke(project, editor, file));
   }
 
+  @NotNull
   private static PsiMethod[] filterIfFieldAlreadyAssigned(@NotNull PsiField field, @NotNull PsiMethod[] ctors) {
     final List<PsiMethod> result = new ArrayList<>(Arrays.asList(ctors));
     for (PsiReference reference : ReferencesSearch.search(field, new LocalSearchScope(ctors))) {
@@ -191,7 +189,7 @@ public class InitializeFinalFieldInConstructorFix implements IntentionAction {
         result.remove(PsiTreeUtil.getParentOfType(element, PsiMethod.class));
       }
     }
-    return result.toArray(new PsiMethod[result.size()]);
+    return result.toArray(PsiMethod.EMPTY_ARRAY);
   }
 
   @Override

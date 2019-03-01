@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.utils.parameterInfo;
 
 import com.intellij.lang.parameterInfo.UpdateParameterInfoContext;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.UserDataHolderEx;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ArrayUtil;
@@ -47,18 +34,28 @@ public class MockUpdateParameterInfoContext implements UpdateParameterInfoContex
     myCompEnabled = items == null ? null : new boolean[items.length];
   }
 
+  @Override
   public void removeHint() {}
 
+  @Override
   public void setParameterOwner(PsiElement o) {
     myParameterOwner = o;
   }
 
+  @Override
   public PsiElement getParameterOwner() { return myParameterOwner; }
 
+  @Override
   public void setHighlightedParameter(Object parameter) {
     myHighlightedParameter = parameter;
   }
 
+  @Override
+  public Object getHighlightedParameter() {
+    return myHighlightedParameter;
+  }
+
+  @Override
   public void setCurrentParameter(int index) {
     myCurrentParameter = index;
   }
@@ -67,36 +64,69 @@ public class MockUpdateParameterInfoContext implements UpdateParameterInfoContex
     return myCurrentParameter;
   }
 
+  @Override
   public boolean isUIComponentEnabled(int index) {
     return myCompEnabled != null && myCompEnabled[index];
   }
 
+  @Override
   public void setUIComponentEnabled(int index, boolean b) {
     if (myCompEnabled != null) {
       myCompEnabled[index] = b;
     }
   }
 
+  @Override
   public int getParameterListStart() {
     return myEditor.getCaretModel().getOffset();
   }
 
+  @Override
   public Object[] getObjectsToView() {
     return myItems;
   }
 
+  @Override
+  public boolean isPreservedOnHintHidden() {
+    return false;
+  }
+
+  @Override
+  public void setPreservedOnHintHidden(boolean value) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isInnermostContext() {
+    return false;
+  }
+
+  @Override
+  public boolean isSingleParameterInfo() {
+    return false;
+  }
+
+  @Override
+  public UserDataHolderEx getCustomContext() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
   public Project getProject() {
     return myFile.getProject();
   }
 
+  @Override
   public PsiFile getFile() {
     return myFile;
   }
 
+  @Override
   public int getOffset() {
     return myEditor.getCaretModel().getOffset();
   }
 
+  @Override
   @NotNull
   public Editor getEditor() {
     return myEditor;

@@ -19,7 +19,6 @@
  */
 package org.jetbrains.java.generate.view;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -30,16 +29,14 @@ import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.UnnamedConfigurable;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.ex.MultiLineLabel;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.PsiType;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.util.LocalTimeCounter;
-import com.intellij.util.ui.JBUI;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.java.generate.element.ClassElement;
 import org.jetbrains.java.generate.element.FieldElement;
 import org.jetbrains.java.generate.element.GenerationHelper;
@@ -48,8 +45,8 @@ import org.jetbrains.java.generate.template.TemplatesManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 public class GenerateTemplateConfigurable implements UnnamedConfigurable{
     private final TemplateResource template;
@@ -75,12 +72,12 @@ public class GenerateTemplateConfigurable implements UnnamedConfigurable{
           map.put("class", TemplatesManager.createElementType(project, ClassElement.class));
           if (multipleFields) {
             map.put("fields", TemplatesManager.createFieldListElementType(project));
-          } 
+          }
           else {
             map.put("field", TemplatesManager.createElementType(project, FieldElement.class));
           }
           map.put("helper", TemplatesManager.createElementType(project, GenerationHelper.class));
-          map.put("settings", PsiType.NULL);
+          map.put("settings", TemplatesManager.createElementType(project, JavaCodeStyleSettings.class));
           map.putAll(contextMap);
           availableImplicits.addAll(map.keySet());
           file.getViewProvider().putUserData(TemplatesManager.TEMPLATE_IMPLICITS, map);
@@ -96,7 +93,8 @@ public class GenerateTemplateConfigurable implements UnnamedConfigurable{
     public void setHint(String hint) {
       myHint = hint;
     }
-  
+
+    @Override
     public JComponent createComponent() {
       final JComponent component = myEditor.getComponent();
       if (availableImplicits.isEmpty() && myHint == null) {
@@ -105,29 +103,29 @@ public class GenerateTemplateConfigurable implements UnnamedConfigurable{
       final JPanel panel = new JPanel(new BorderLayout());
       panel.add(component, BorderLayout.CENTER);
       JLabel label =
-        !availableImplicits.isEmpty() ? new MultiLineLabel("<html>Available implicit variables:\n" + StringUtil.join(availableImplicits, ", ") + (myHint != null ? "<br/>" + myHint : "") + "</html>") 
-                                      : new JLabel(myHint);
-      label.setPreferredSize(JBUI.size(250, 30));
+        new JLabel("<html>" +
+                   (!availableImplicits.isEmpty() ? "Available implicit variables:<br/>" + StringUtil.join(availableImplicits, ", ") + "<br/>": "") +
+                   (myHint != null ? myHint : "") + "</html>");
       panel.add(label, BorderLayout.SOUTH);
       return panel;
     }
 
+    @Override
     public boolean isModified() {
         return !Comparing.equal(myEditor.getDocument().getText(), template.getTemplate());
     }
 
+    @Override
     public void apply() throws ConfigurationException {
         template.setTemplate(myEditor.getDocument().getText());
     }
 
+    @Override
     public void reset() {
-        new WriteCommandAction(null) {
-            protected void run(@NotNull Result result) throws Throwable {
-                myEditor.getDocument().setText(template.getTemplate());
-            }
-        }.execute();
+      WriteCommandAction.writeCommandAction(null).run(() -> myEditor.getDocument().setText(template.getTemplate()));
     }
 
+    @Override
     public void disposeUIResources() {
         EditorFactory.getInstance().releaseEditor(myEditor);
     }

@@ -1,67 +1,75 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.reference;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.*;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.PsiFormatUtil;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.*;
 
 /**
  * @author max
- * Date: Oct 21, 2001
  */
 public class RefFieldImpl extends RefJavaElementImpl implements RefField {
   private static final int USED_FOR_READING_MASK = 0x10000;
   private static final int USED_FOR_WRITING_MASK = 0x20000;
   private static final int ASSIGNED_ONLY_IN_INITIALIZER_MASK = 0x40000;
 
-  RefFieldImpl(@NotNull RefClass ownerClass, PsiField field, RefManager manager) {
-    super(field, manager);
-
-    ((RefClassImpl)ownerClass).add(this);
-
-    if (ownerClass.isInterface()) {
-      setIsStatic(true);
-      setIsFinal(true);
+  RefFieldImpl(UField field, PsiElement psi, RefManager manager) {
+    super(field, psi, manager);
+    if (psi instanceof UElement) {
+      LOG.error(new Exception("psi should not be uast element: " + psi));
     }
-    if (field instanceof PsiEnumConstant) {
+
+    if (field instanceof UEnumConstant) {
       putUserData(ENUM_CONSTANT, true);
     }
   }
 
   @Override
+  protected void initialize() {
+    PsiElement psi = getPsiElement();
+    LOG.assertTrue(psi != null);
+    UField uElement = getUastElement();
+    LOG.assertTrue(uElement != null);
+    RefElement owner = RefMethodImpl.findParentRef(psi, uElement, myManager);
+    ((WritableRefEntity)owner).add(this);
+
+    if (owner instanceof RefClass && ((RefClass)owner).isInterface()) {
+      setIsStatic(true);
+      setIsFinal(true);
+    }
+  }
+
+  @Deprecated
+  @Override
   public PsiField getElement() {
-    return (PsiField)super.getElement();
+    return (PsiField)super.getPsiElement();
   }
 
   @Override
-  protected void markReferenced(RefElementImpl refFrom, PsiElement psiFrom, PsiElement psiWhat, boolean forWriting, boolean forReading, PsiReferenceExpression expressionFrom) {
+  public UField getUastElement() {
+    return UastContextKt.toUElement(getPsiElement(), UField.class);
+  }
+
+  @Override
+  protected void markReferenced(@NotNull RefElementImpl refFrom,
+                                boolean forWriting,
+                                boolean forReading,
+                                UExpression expressionFrom) {
     addInReference(refFrom);
 
     boolean referencedFromClassInitializer = false;
 
     if (forWriting && expressionFrom != null) {
-      PsiClassInitializer initializer = PsiTreeUtil.getParentOfType(expressionFrom, PsiClassInitializer.class);
-      if (initializer != null) {
-        if (initializer.getParent() instanceof PsiClass && psiFrom == initializer.getParent() && !expressionFrom.isQualified()) {
+      UClassInitializer initializer = UastUtils.getParentOfType(expressionFrom, UClassInitializer.class);
+      if (initializer != null && refFrom.getPsiElement() == UastUtils.getParentOfType(initializer, UClass.class).getSourcePsi()) {
+        UExpression qualifierExpression = expressionFrom instanceof UQualifiedReferenceExpression ? ((UQualifiedReferenceExpression)expressionFrom).getReceiver() : null;
+        if (qualifierExpression == null || qualifierExpression instanceof UThisExpression) {
           referencedFromClassInitializer = true;
         }
       }
@@ -74,7 +82,9 @@ public class RefFieldImpl extends RefJavaElementImpl implements RefField {
     if (forReading) {
       setUsedForReading(true);
     }
-    getRefManager().fireNodeMarkedReferenced(this, refFrom, referencedFromClassInitializer, forReading, forWriting);
+    
+    setForbidProtectedAccess(refFrom, expressionFrom);
+    getRefManager().fireNodeMarkedReferenced(this, refFrom, referencedFromClassInitializer, forReading, forWriting, expressionFrom == null ? null : expressionFrom.getSourcePsi());
   }
 
   @Override
@@ -112,44 +122,55 @@ public class RefFieldImpl extends RefJavaElementImpl implements RefField {
 
   @Override
   public void buildReferences() {
-    PsiField psiField = getElement();
-    if (psiField != null) {
+    UField uField = getUastElement();
+    if (uField != null) {
       final RefJavaUtil refUtil = RefJavaUtil.getInstance();
-      refUtil.addReferences(psiField, this, psiField.getInitializer());
-      refUtil.addReferences(psiField, this, psiField.getModifierList());
-      if (psiField instanceof PsiEnumConstant) {
-        refUtil.addReferences(psiField, this, psiField);
+      refUtil.addReferencesTo(uField, this, uField.getUastInitializer());
+      refUtil.addReferencesTo(uField, this, ((UAnnotated)uField).getAnnotations().toArray(UElementKt.EMPTY_ARRAY));
+      if (uField instanceof UEnumConstant) {
+        refUtil.addReferencesTo(uField, this, uField);
       }
 
-      if (psiField.getInitializer() != null || psiField instanceof PsiEnumConstant || RefUtil.isImplicitWrite(psiField)) {
-        if (!checkFlag(USED_FOR_WRITING_MASK)) {
-          setFlag(true, ASSIGNED_ONLY_IN_INITIALIZER_MASK);
-          setFlag(true, USED_FOR_WRITING_MASK);
-        }
+      if (uField.getUastInitializer() != null || uField instanceof UEnumConstant) {
+        setInitializerMasks();
       }
-      refUtil.addTypeReference(psiField, psiField.getType(), getRefManager(), this);
+      else if (RefUtil.isImplicitWrite(uField.getJavaPsi())) {
+        putUserData(IMPLICITLY_WRITTEN, true);
+        setInitializerMasks();
+      }
+
+      if (RefUtil.isImplicitRead(uField.getJavaPsi())) {
+        putUserData(IMPLICITLY_READ, true);
+      }
+
+      refUtil.addTypeReference((UElement)uField, uField.getType(), getRefManager(), this);
       getRefManager().fireBuildReferences(this);
+    }
+  }
+
+  private void setInitializerMasks() {
+    if (!checkFlag(USED_FOR_WRITING_MASK)) {
+      setFlag(true, ASSIGNED_ONLY_IN_INITIALIZER_MASK);
+      setFlag(true, USED_FOR_WRITING_MASK);
     }
   }
 
   @Override
   public RefClass getOwnerClass() {
-    return (RefClass) getOwner();
+    return ObjectUtils.tryCast(getOwner(), RefClass.class);
   }
 
   @Override
   public String getExternalName() {
-    return ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-      @Override
-      public String compute() {
-        PsiField psiField = getElement();
-        return psiField != null ? PsiFormatUtil.getExternalName(psiField) : null;
-      }
+    return ReadAction.compute(() -> {
+      UField uField = getUastElement();
+      if (uField == null) return null;
+      return PsiFormatUtil.getExternalName((PsiModifierListOwner)uField.getJavaPsi());
     });
   }
 
   @Nullable
-  public static RefField fieldFromExternalName(RefManager manager, String externalName) {
+  static RefField fieldFromExternalName(RefManager manager, String externalName) {
     return (RefField)manager.getReference(findPsiField(PsiManager.getInstance(manager.getProject()), externalName));
   }
 
@@ -158,9 +179,9 @@ public class RefFieldImpl extends RefJavaElementImpl implements RefField {
     int classNameDelimiter = externalName.lastIndexOf(' ');
     if (classNameDelimiter > 0 && classNameDelimiter < externalName.length() - 1) {
       final String className = externalName.substring(0, classNameDelimiter);
-      final String fieldName = externalName.substring(classNameDelimiter + 1);
       final PsiClass psiClass = ClassUtil.findPsiClass(manager, className);
       if (psiClass != null) {
+        final String fieldName = externalName.substring(classNameDelimiter + 1);
         return psiClass.findFieldByName(fieldName, false);
       }
     }
@@ -170,11 +191,6 @@ public class RefFieldImpl extends RefJavaElementImpl implements RefField {
   @Override
   public boolean isSuspicious() {
     if (isEntry()) return false;
-    if (super.isSuspicious()) return true;
-    return isUsedForReading() != isUsedForWriting();
-  }
-
-  @Override
-  protected void initialize() {
+    return super.isSuspicious() || isUsedForReading() != isUsedForWriting();
   }
 }

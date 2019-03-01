@@ -33,6 +33,7 @@ import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.testFramework.EdtTestUtil;
 import com.jetbrains.python.run.AbstractPythonRunConfigurationParams;
@@ -99,8 +100,18 @@ public class PyAbstractTestProcessRunner<CONF_T extends AbstractPythonRunConfigu
    */
   public void assertAllTestsPassed() {
     final String consoleText = getAllConsoleText();
-    Assert.assertEquals(consoleText, 0, myProxyManager.getProxy().getChildren(Filter.NOT_PASSED).size());
-    Assert.assertEquals(consoleText, 0, getFailedTestsCount());
+    Assert.assertEquals(getFormattedTestTree() + consoleText, 0, myProxyManager.getProxy().getChildren(Filter.NOT_PASSED).size());
+    Assert.assertEquals(getFormattedTestTree() + consoleText, 0, getFailedTestsCount());
+  }
+
+  /**
+   * Ensures all tests passed or skipped
+   */
+  public void assertNoFailures() {
+    final String consoleText = getAllConsoleText();
+    int notPassed = myProxyManager.getProxy().getChildren(Filter.NOT_PASSED).size();
+    int ignored = myProxyManager.getProxy().getChildren(Filter.IGNORED).size();
+    Assert.assertEquals(getFormattedTestTree() + consoleText, 0, notPassed - ignored);
   }
 
   /**
@@ -123,6 +134,42 @@ public class PyAbstractTestProcessRunner<CONF_T extends AbstractPythonRunConfigu
   @NotNull
   public SMRootTestProxy getTestProxy() {
     return myProxyManager.getProxy();
+  }
+
+  @NotNull
+  public final String getFormattedTestTree() {
+    return getFormattedTestTree(getTestProxy());
+  }
+
+  /**
+   * @return Test tree using poorman's graphics
+   */
+  @NotNull
+  public static String getFormattedTestTree(@NotNull final SMTestProxy proxy) {
+    final StringBuilder builder = new StringBuilder("Test tree:\n");
+    formatLevel(proxy, 0, builder);
+    return builder.toString();
+  }
+
+  private static void formatLevel(@NotNull final SMTestProxy test, final int level, @NotNull final StringBuilder builder) {
+    builder.append(StringUtil.repeat(".", level));
+    builder.append(test.getName());
+    if (test.wasTerminated()) {
+      builder.append("[T]");
+    }
+    else if (test.isPassed()) {
+      builder.append("(+)");
+    }
+    else if (test.isIgnored()) {
+      builder.append("(~)");
+    }
+    else {
+      builder.append("(-)");
+    }
+    builder.append('\n');
+    for (SMTestProxy child : test.getChildren()) {
+      formatLevel(child, level + 1, builder);
+    }
   }
 
 
@@ -161,6 +208,10 @@ public class PyAbstractTestProcessRunner<CONF_T extends AbstractPythonRunConfigu
     return myProxyManager.getPassedTestsCount();
   }
 
+  public int getIgnoredTestsCount() {
+    return myProxyManager.getIgnoredTestsCount();
+  }
+
   /**
    * @return number of all tests
    */
@@ -176,11 +227,8 @@ public class PyAbstractTestProcessRunner<CONF_T extends AbstractPythonRunConfigu
       return null;
     }
 
+    assert getFailedTestsCount() > 0 : String.format("No failed tests on iteration %d, not sure what to rerun", myCurrentRerunStep);
     final Logger logger = Logger.getInstance(PyAbstractTestProcessRunner.class);
-    if (getFailedTestsCount() == 0) {
-      logger
-        .warn(String.format("No failed tests on iteration %d, not sure what to rerun", myCurrentRerunStep));
-    }
     logger.info(String.format("Starting iteration %s", myCurrentRerunStep));
 
     myCurrentRerunStep++;

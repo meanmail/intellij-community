@@ -24,9 +24,7 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.intellij.psi.impl.PsiModificationTrackerImpl;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.util.FileContentUtil;
 import com.intellij.util.IncorrectOperationException;
@@ -43,16 +41,19 @@ import java.util.List;
  */
 public class UnInjectLanguageAction implements IntentionAction, LowPriorityAction {
 
+  @Override
   @NotNull
   public String getText() {
     return "Un-inject Language/Reference";
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return getText();
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     final int offset = editor.getCaretModel().getOffset();
     PsiElement element = InjectedLanguageUtil.findInjectedPsiNoCommit(file, offset);
@@ -62,6 +63,7 @@ public class UnInjectLanguageAction implements IntentionAction, LowPriorityActio
     return element.getUserData(LanguageInjectionSupport.INJECTOR_SUPPORT) != null;
   }
 
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
     ApplicationManager.getApplication().runReadAction(() -> invokeImpl(project, editor, file));
   }
@@ -76,7 +78,7 @@ public class UnInjectLanguageAction implements IntentionAction, LowPriorityActio
         PsiLanguageInjectionHost host = (PsiLanguageInjectionHost)reference.getElement();
         for (LanguageInjectionSupport support : InjectorUtils.getActiveInjectionSupports()) {
           if (support.isApplicableTo(host) && support.removeInjectionInPlace(host)) {
-            ((PsiModificationTrackerImpl)PsiManager.getInstance(project).getModificationTracker()).incCounter();
+            PsiManager.getInstance(project).dropPsiCaches();
             return;
           }
         }
@@ -85,7 +87,7 @@ public class UnInjectLanguageAction implements IntentionAction, LowPriorityActio
       LanguageInjectionSupport support = element.getUserData(LanguageInjectionSupport.INJECTOR_SUPPORT);
       if (support != null) {
         if (support.removeInjection(element)) {
-          ((PsiModificationTrackerImpl)PsiManager.getInstance(project).getModificationTracker()).incCounter();
+          PsiManager.getInstance(project).dropPsiCaches();
         }
       }
       return;
@@ -95,19 +97,12 @@ public class UnInjectLanguageAction implements IntentionAction, LowPriorityActio
     final LanguageInjectionSupport support = psiFile.getUserData(LanguageInjectionSupport.INJECTOR_SUPPORT);
     if (support == null) return;
     try {
-      if (psiFile.getUserData(LanguageInjectionSupport.TEMPORARY_INJECTED_LANGUAGE) != null) {
-        // temporary injection
-        TemporaryPlacesRegistry temporaryPlacesRegistry = TemporaryPlacesRegistry.getInstance(project);
-        for (PsiLanguageInjectionHost.Shred shred : InjectedLanguageUtil.getShreds(psiFile)) {
-          if (temporaryPlacesRegistry.removeHostWithUndo(project, shred.getHost())) break;
-        }
-      }
-      else if (!support.removeInjectionInPlace(host)) {
+      if (!support.removeInjectionInPlace(host)) {
         defaultFunctionalityWorked(host);
       }
     }
     finally {
-      FileContentUtil.reparseFiles(project, Collections.<VirtualFile>emptyList(), true);
+      FileContentUtil.reparseFiles(project, Collections.emptyList(), true);
     }
   }
 
@@ -125,6 +120,7 @@ public class UnInjectLanguageAction implements IntentionAction, LowPriorityActio
     return Configuration.getProjectInstance(host.getProject()).setHostInjectionEnabled(host, languages, false);
   }
 
+  @Override
   public boolean startInWriteAction() {
     return false;
   }

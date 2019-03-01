@@ -60,8 +60,9 @@ public class JavaParameterElementType extends JavaStubElementType<PsiParameterSt
     return new PsiParameterImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiParameterStub createStub(LighterAST tree, LighterASTNode node, StubElement parentStub) {
+  public PsiParameterStub createStub(@NotNull LighterAST tree, @NotNull LighterASTNode node, @NotNull StubElement parentStub) {
     TypeInfo typeInfo = TypeInfo.create(tree, node, parentStub);
     LighterASTNode id = LightTreeUtil.requiredChildOfType(tree, node, JavaTokenType.IDENTIFIER);
     String name = RecordUtil.intern(tree.getCharTable(), id);
@@ -78,11 +79,11 @@ public class JavaParameterElementType extends JavaStubElementType<PsiParameterSt
   @NotNull
   @Override
   public PsiParameterStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    StringRef name = dataStream.readName();
+    String name = dataStream.readNameString();
     if (name == null) throw new IOException("corrupted indices");
     TypeInfo type = TypeInfo.readTYPE(dataStream);
     byte flags = dataStream.readByte();
-    return new PsiParameterStubImpl(parentStub, name.toString(), type, flags);
+    return new PsiParameterStubImpl(parentStub, name, type, flags);
   }
 
   @Override

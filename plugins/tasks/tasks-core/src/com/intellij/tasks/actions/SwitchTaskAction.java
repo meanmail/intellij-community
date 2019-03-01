@@ -1,35 +1,27 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.actions;
 
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
+import com.intellij.openapi.project.DumbAware;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.playback.commands.ActionCommand;
 import com.intellij.openapi.ui.popup.*;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.tasks.ChangeListInfo;
 import com.intellij.tasks.LocalTask;
 import com.intellij.tasks.TaskManager;
+import com.intellij.tasks.config.TaskSettings;
 import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskManagerImpl;
 import com.intellij.tools.SimpleActionGroup;
@@ -50,10 +42,67 @@ import java.util.List;
 /**
  * @author Dmitry Avdeev
  */
-public class SwitchTaskAction extends BaseTaskAction {
+public class SwitchTaskAction extends ComboBoxAction implements DumbAware {
+  @NotNull
+  @Override
+  public JComponent createCustomComponent(@NotNull final Presentation presentation, @NotNull String place) {
+    return new ComboBoxButton(presentation) {
+      @Override
+      protected JBPopup createPopup(Runnable onDispose) {
+        return SwitchTaskAction.createPopup(DataManager.getInstance().getDataContext(this), onDispose, false);
+      }
+    };
+  }
+
+  @NotNull
+  @Override
+  protected DefaultActionGroup createPopupActionGroup(JComponent button) {
+    return new DefaultActionGroup();
+  }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
+    Presentation presentation = e.getPresentation();
+    Project project = e.getData(CommonDataKeys.PROJECT);
+    if (project == null || project.isDefault() || project.isDisposed()) {
+      presentation.setEnabled(false);
+      presentation.setText("");
+      presentation.setIcon(null);
+    }
+    else if (e.isFromActionToolbar()) {
+      TaskManager taskManager = TaskManager.getManager(project);
+      LocalTask activeTask = taskManager.getActiveTask();
+
+      if (isImplicit(activeTask) &&
+          taskManager.getAllRepositories().length == 0 &&
+          !TaskSettings.getInstance().ALWAYS_DISPLAY_COMBO) {
+        presentation.setEnabledAndVisible(false);
+      }
+      else {
+        String s = getText(activeTask);
+        presentation.setEnabledAndVisible(true);
+        presentation.setText(s, false);
+        presentation.setIcon(activeTask.getIcon());
+        presentation.setDescription(activeTask.getSummary());
+      }
+    }
+    else {
+      presentation.setEnabledAndVisible(true);
+      presentation.copyFrom(getTemplatePresentation());
+    }
+  }
+
+  private static boolean isImplicit(LocalTask activeTask) {
+    return activeTask.isDefault() && Comparing.equal(activeTask.getCreated(), activeTask.getUpdated());
+  }
+
+  private static String getText(LocalTask activeTask) {
+    String text = activeTask.getPresentableName();
+    return StringUtil.first(text, 50, true);
+  }
+
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     assert project != null;
@@ -61,13 +110,13 @@ public class SwitchTaskAction extends BaseTaskAction {
     popup.showCenteredInCurrentWindow(project);
   }
 
-  public static ListPopupImpl createPopup(final DataContext dataContext,
-                                          @Nullable final Runnable onDispose,
-                                          boolean withTitle) {
+  private static ListPopupImpl createPopup(@NotNull DataContext dataContext,
+                                           @Nullable Runnable onDispose,
+                                           boolean withTitle) {
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     final Ref<Boolean> shiftPressed = Ref.create(false);
     final Ref<JComponent> componentRef = Ref.create();
-    List<TaskListItem> items = project == null ? Collections.<TaskListItem>emptyList() :
+    List<TaskListItem> items = project == null ? Collections.emptyList() :
                                createPopupActionGroup(project, shiftPressed, PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext));
     final String title = withTitle ? "Switch to Task" : null;
     ListPopupStep<TaskListItem> step = new MultiSelectionListPopupStep<TaskListItem>(title, items) {
@@ -78,8 +127,9 @@ public class SwitchTaskAction extends BaseTaskAction {
           return FINAL_CHOICE;
         }
         ActionGroup group = createActionsStep(selectedValues, project, shiftPressed);
-        return JBPopupFactory.getInstance()
-          .createActionsStep(group, DataManager.getInstance().getDataContext(componentRef.get()), false, false, null, null, true);
+        DataContext dataContext = DataManager.getInstance().getDataContext(componentRef.get());
+        return JBPopupFactory.getInstance().createActionsStep(
+          group, dataContext, null, false, false, null, null, true, 0, false);
       }
 
       @Override
@@ -103,6 +153,11 @@ public class SwitchTaskAction extends BaseTaskAction {
       public boolean hasSubstep(List<TaskListItem> selectedValues) {
         return selectedValues.size() > 1 || selectedValues.get(0).getTask() != null;
       }
+
+      @Override
+      public boolean isSpeedSearchEnabled() {
+        return true;
+      }
     };
 
     final ListPopupImpl popup = (ListPopupImpl)JBPopupFactory.getInstance().createListPopup(step);
@@ -122,18 +177,21 @@ public class SwitchTaskAction extends BaseTaskAction {
     popup.setAdText("Press SHIFT to merge with current context");
 
     popup.registerAction("shiftPressed", KeyStroke.getKeyStroke("shift pressed SHIFT"), new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         shiftPressed.set(true);
         popup.setCaption("Merge with Current Context");
       }
     });
     popup.registerAction("shiftReleased", KeyStroke.getKeyStroke("released SHIFT"), new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         shiftPressed.set(false);
         popup.setCaption("Switch to Task");
       }
     });
     popup.registerAction("invoke", KeyStroke.getKeyStroke("shift ENTER"), new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         popup.handleSelect(true);
       }
@@ -146,21 +204,22 @@ public class SwitchTaskAction extends BaseTaskAction {
     final TaskManager manager = TaskManager.getManager(project);
     final LocalTask task = tasks.get(0).getTask();
     if (tasks.size() == 1 && task != null) {
-      group.add(new AnAction("&Switch to") {
-        public void actionPerformed(AnActionEvent e) {
+      group.add(new DumbAwareAction("&Switch to") {
+        @Override
+        public void actionPerformed(@NotNull AnActionEvent e) {
           manager.activateTask(task, !shiftPressed.get());
         }
       });
-      group.add(new AnAction("&Edit") {
+      group.add(new DumbAwareAction("&Edit") {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           EditTaskDialog.editTask((LocalTaskImpl)task, project);
         }
       });
     }
-    final AnAction remove = new AnAction("&Remove") {
+    final AnAction remove = new DumbAwareAction("&Remove") {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         for (TaskListItem item : tasks) {
           LocalTask itemTask = item.getTask();
           if (itemTask != null) {

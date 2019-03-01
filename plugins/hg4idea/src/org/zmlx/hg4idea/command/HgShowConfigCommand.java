@@ -39,7 +39,7 @@ public class HgShowConfigCommand {
     final HgCommandExecutor executor = new HgCommandExecutor(project);
     executor.setSilent(true);
     //force override debug option while initialize hg configs
-    HgCommandResult result = executor.executeInCurrentThread(repo, "showconfig", Arrays.asList("--config", "ui.debug=false"));
+    HgCommandResult result = executor.executeInCurrentThread(repo, "showconfig", Arrays.asList("--config", "ui.debug=false"), true);
 
     if (result == null) {
       return Collections.emptyMap();
@@ -55,7 +55,7 @@ public class HgShowConfigCommand {
 
         if (dotIndex > 0) {
           String sectionName = sectionAndName.substring(0, dotIndex);
-          String optionName = sectionAndName.substring(dotIndex + 1, sectionAndName.length());
+          String optionName = sectionAndName.substring(dotIndex + 1);
           if (configMap.containsKey(sectionName)) {
             configMap.get(sectionName).put(optionName, value);
           }

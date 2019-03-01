@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * Class ExceptionBreakpoint
@@ -21,17 +7,16 @@
 package com.intellij.debugger.ui.breakpoints;
 
 import com.intellij.debugger.DebuggerBundle;
-import com.intellij.debugger.DebuggerManagerEx;
 import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.evaluation.EvaluationContextImpl;
+import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.icons.AllIcons;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizerUtil;
 import com.intellij.openapi.util.Key;
@@ -48,7 +33,6 @@ import com.sun.jdi.ObjectReference;
 import com.sun.jdi.ReferenceType;
 import com.sun.jdi.event.ExceptionEvent;
 import com.sun.jdi.event.LocatableEvent;
-import com.sun.jdi.request.ExceptionRequest;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.java.debugger.breakpoints.properties.JavaExceptionBreakpointProperties;
@@ -65,6 +49,7 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
     super(project, xBreakpoint);
   }
 
+  @Override
   public Key<? extends ExceptionBreakpoint> getCategory() {
     return CATEGORY;
   }
@@ -88,46 +73,45 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
     return dotIndex >= 0? qualifiedName.substring(0, dotIndex) : "";
   }
 
+  @Override
   public String getClassName() {
     return getQualifiedName();
   }
 
+  @Override
   public String getPackageName() {
     return getProperties().myPackageName;
   }
 
+  @Override
   public PsiClass getPsiClass() {
-    return ApplicationManager.getApplication().runReadAction(
-      (Computable<PsiClass>)() -> getQualifiedName() != null ? DebuggerUtils.findClass(getQualifiedName(), myProject, GlobalSearchScope.allScope(myProject)) : null);
+    return ReadAction.compute(() -> getQualifiedName() != null ? DebuggerUtils.findClass(getQualifiedName(), myProject, GlobalSearchScope.allScope(myProject)) : null);
   }
 
+  @Override
   public String getDisplayName() {
     return DebuggerBundle.message("breakpoint.exception.breakpoint.display.name", getQualifiedName());
   }
 
+  @Override
   public Icon getIcon() {
-    if (!isEnabled()) {
-      final Breakpoint master = DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().findMasterBreakpoint(this);
-      return master == null? AllIcons.Debugger.Db_disabled_exception_breakpoint : AllIcons.Debugger.Db_dep_exception_breakpoint;
-    }
     return AllIcons.Debugger.Db_exception_breakpoint;
   }
 
+  @Override
   public void reload() {
   }
 
+  @Override
   public void createRequest(final DebugProcessImpl debugProcess) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     if (!shouldCreateRequest(debugProcess)) {
       return;
     }
 
-    SourcePosition classPosition = ApplicationManager.getApplication().runReadAction(new Computable<SourcePosition>() {
-      public SourcePosition compute() {
-        PsiClass psiClass = DebuggerUtils.findClass(getQualifiedName(), myProject, debugProcess.getSearchScope());
-
-        return psiClass != null ? SourcePosition.createFromElement(psiClass) : null;
-      }
+    SourcePosition classPosition = ReadAction.compute(() -> {
+      PsiClass psiClass = DebuggerUtils.findClass(getQualifiedName(), myProject, debugProcess.getSearchScope());
+      return psiClass != null ? SourcePosition.createFromElement(psiClass) : null;
     });
 
     if(classPosition == null) {
@@ -138,32 +122,39 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
     }
   }
 
+  @Override
   public void processClassPrepare(DebugProcess process, ReferenceType refType) {
     DebugProcessImpl debugProcess = (DebugProcessImpl)process;
-    if (!isEnabled()) {
-      return;
-    }
-    // trying to create a request
-    ExceptionRequest request = debugProcess.getRequestsManager().createExceptionRequest(this, refType, isNotifyCaught(),
-                                                                                        isNotifyUncaught());
-    debugProcess.getRequestsManager().enableRequest(request);
-    if (LOG.isDebugEnabled()) {
-      if (refType != null) {
-        LOG.debug("Created exception request for reference type " + refType.name());
-      }
-      else {
-        LOG.debug("Created exception request for reference type null");
+    if (shouldCreateRequest(debugProcess, true) && !debugProcess.getRequestsManager().checkReadOnly(this)) {
+      // trying to create a request
+      RequestManagerImpl manager = debugProcess.getRequestsManager();
+      manager.enableRequest(manager.createExceptionRequest(this, refType, isNotifyCaught(), isNotifyUncaught()));
+
+      if (LOG.isDebugEnabled()) {
+        if (refType != null) {
+          LOG.debug("Created exception request for reference type " + refType.name());
+        }
+        else {
+          LOG.debug("Created exception request for reference type null");
+        }
       }
     }
   }
 
+  @Override
+  protected String calculateEventClass(EvaluationContextImpl context, LocatableEvent event) throws EvaluateException {
+    return event.location().declaringType().name();
+  }
+
+  @Override
   protected ObjectReference getThisObject(SuspendContextImpl context, LocatableEvent event) throws EvaluateException {
     if(event instanceof ExceptionEvent) {
       return ((ExceptionEvent) event).exception();
     }
-    return super.getThisObject(context, event);    //To change body of overriden methods use Options | File Templates.
+    return super.getThisObject(context, event);
   }
 
+  @Override
   public String getEventMessage(LocatableEvent event) {
     String exceptionName = (getQualifiedName() != null)? getQualifiedName() : CommonClassNames.JAVA_LANG_THROWABLE;
     String threadName    = null;
@@ -176,34 +167,24 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
       catch (Exception ignore) {
       }
     }
-    final Location location = event.location();
-    final String locationQName = DebuggerUtilsEx.getLocationMethodQName(location);
-    String locationFileName;
+    Location location = event.location();
+    String locationQName = DebuggerUtilsEx.getLocationMethodQName(location);
+    String locationInfo;
     try {
-      locationFileName = location.sourceName();
+      String file = location.sourceName();
+      int line = DebuggerUtilsEx.getLineNumber(location, false);
+      locationInfo = DebuggerBundle.message("exception.breakpoint.console.message.location.info", file, line);
     }
     catch (AbsentInformationException e) {
-      locationFileName = "";
+      locationInfo = DebuggerBundle.message("exception.breakpoint.console.message.location.info.absent");
     }
-    final int locationLine = Math.max(0, location.lineNumber());
     if (threadName != null) {
-      return DebuggerBundle.message(
-        "exception.breakpoint.console.message.with.thread.info", 
-        exceptionName, 
-        threadName,
-        locationQName,
-        locationFileName,
-        locationLine
+      return DebuggerBundle.message("exception.breakpoint.console.message.with.thread.info",
+                                    exceptionName, threadName, locationQName, locationInfo
       );
     }
     else {
-      return DebuggerBundle.message(
-        "exception.breakpoint.console.message", 
-        exceptionName,
-        locationQName,
-        locationFileName,
-        locationLine
-      );
+      return DebuggerBundle.message("exception.breakpoint.console.message", exceptionName, locationQName, locationInfo);
     }
   }
 
@@ -220,6 +201,7 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
     return super.evaluateCondition(context, event);
   }
 
+  @Override
   public boolean isValid() {
     return true;
   }
@@ -234,6 +216,7 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
   //  }
   //}
 
+  @Override
   public PsiElement getEvaluationElement() {
     if (getClassName() == null) {
       return null;
@@ -241,6 +224,7 @@ public class ExceptionBreakpoint extends Breakpoint<JavaExceptionBreakpointPrope
     return JavaPsiFacade.getInstance(myProject).findClass(getClassName(), GlobalSearchScope.allScope(myProject));
   }
 
+  @Override
   public void readExternal(Element parentNode) throws InvalidDataException {
     super.readExternal(parentNode);
 

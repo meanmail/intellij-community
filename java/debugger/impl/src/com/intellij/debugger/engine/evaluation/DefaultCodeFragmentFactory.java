@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +31,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.concurrency.Semaphore;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -39,7 +40,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jun 7, 2005
  */
 public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
   private static final class SingletonHolder {
@@ -50,20 +50,30 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
     return SingletonHolder.ourInstance;
   }
 
+  @Override
   public JavaCodeFragment createPresentationCodeFragment(final TextWithImports item, final PsiElement context, final Project project) {
     return createCodeFragment(item, context, project);
   }
 
+  @Override
   public JavaCodeFragment createCodeFragment(TextWithImports item, PsiElement context, final Project project) {
     final JavaCodeFragmentFactory factory = JavaCodeFragmentFactory.getInstance(project);
     final String text = item.getText();
 
-    final JavaCodeFragment fragment;
+    JavaCodeFragment fragment = null;
     if (CodeFragmentKind.EXPRESSION == item.getKind()) {
-      final String expressionText = StringUtil.endsWithChar(text, ';')? text.substring(0, text.length() - 1) : text;
-      fragment = factory.createExpressionCodeFragment(expressionText, context, null, true);
+      try {
+        String expressionText = StringUtil.trimTrailing(text, ';');
+        if (!expressionText.isEmpty()) {
+          JavaPsiFacade.getElementFactory(project).createExpressionFromText(expressionText, context); // to test that expression is ok
+        }
+        fragment = factory.createExpressionCodeFragment(expressionText, context, null, true);
+      }
+      catch (IncorrectOperationException ignored) {
+      }
     }
-    else /*if (CodeFragmentKind.CODE_BLOCK == item.getKind())*/ {
+
+    if (fragment == null) {
       fragment = factory.createCodeBlockCodeFragment(text, context, true);
     }
 
@@ -79,10 +89,7 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
       }
 
       if (parameters.getInvocationCount() <= 1 && JavaCompletionUtil.mayHaveSideEffects(expression)) {
-        final CompletionService service = CompletionService.getCompletionService();
-        if (parameters.getInvocationCount() < 2) {
-          service.setAdvertisementText("Invoke completion once more to see runtime type variants");
-        }
+        CompletionService.getCompletionService().setAdvertisementText("Invoke completion once more to see runtime type variants");
         return null;
       }
 
@@ -113,10 +120,12 @@ public class DefaultCodeFragmentFactory extends CodeFragmentFactory {
     return fragment;
   }
 
+  @Override
   public boolean isContextAccepted(PsiElement contextElement) {
     return true; // default factory works everywhere debugger can stop
   }
 
+  @Override
   @NotNull
   public LanguageFileType getFileType() {
     return StdFileTypes.JAVA;

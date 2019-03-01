@@ -40,18 +40,20 @@ public class CommentLanguageInjector implements MultiHostInjector {
   };
 
 
-  /** @noinspection UnusedParameters*/
+  /** */
   public CommentLanguageInjector(Configuration configuration) {
     List<LanguageInjectionSupport> supports = new ArrayList<>(InjectorUtils.getActiveInjectionSupports());
     supports.add(myInjectorSupport);
-    mySupports = ArrayUtil.toObjectArray(supports, LanguageInjectionSupport.class);
+    mySupports = supports.toArray(new LanguageInjectionSupport[0]);
   }
 
+  @Override
   @NotNull
   public List<? extends Class<? extends PsiElement>> elementsToInjectIn() {
     return Collections.singletonList(PsiLanguageInjectionHost.class);
   }
 
+  @Override
   public void getLanguagesToInject(@NotNull final MultiHostRegistrar registrar, @NotNull final PsiElement context) {
     if (!(context instanceof PsiLanguageInjectionHost) || context instanceof PsiComment) return;
     if (!((PsiLanguageInjectionHost)context).isValidHost()) return;
@@ -63,6 +65,8 @@ public class CommentLanguageInjector implements MultiHostInjector {
       if (support == myInjectorSupport && applicableFound) continue;
       applicableFound = true;
 
+      if (!support.useDefaultCommentInjector())
+        continue;
       BaseInjection injection = support.findCommentInjection(host, null);
       if (injection == null) continue;
       if (!InjectorUtils.registerInjectionSimple(host, injection, support, registrar)) continue;

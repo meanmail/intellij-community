@@ -24,13 +24,13 @@ import com.intellij.diff.tools.util.DiffDataKeys;
 import com.intellij.diff.tools.util.base.HighlightPolicy;
 import com.intellij.diff.tools.util.base.TextDiffViewerUtil;
 import com.intellij.diff.tools.util.side.OnesideTextDiffViewer;
+import com.intellij.diff.tools.util.text.TextDiffProvider;
 import com.intellij.diff.util.DiffDrawUtil;
 import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.LineRange;
 import com.intellij.diff.util.TextDiffType;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.Separator;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.diff.DiffNavigationContext;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.LogicalPosition;
@@ -47,14 +47,16 @@ import java.util.List;
 import static com.intellij.diff.util.DiffUtil.getLineCount;
 
 public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
-  public static final Logger LOG = Logger.getInstance(SimpleOnesideDiffViewer.class);
-
   @NotNull private final MyInitialScrollHelper myInitialScrollHelper = new MyInitialScrollHelper();
+
+  @NotNull private final TextDiffProvider myTextDiffProvider;
 
   @NotNull private final List<RangeHighlighter> myHighlighters = new ArrayList<>();
 
   public SimpleOnesideDiffViewer(@NotNull DiffContext context, @NotNull DiffRequest request) {
     super(context, (ContentDiffRequest)request);
+
+    myTextDiffProvider = DiffUtil.createTextDiffProvider(getProject(), getRequest(), getTextSettings(), this::rediff, this);
   }
 
   @Override
@@ -70,10 +72,7 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
   @NotNull
   @Override
   protected List<AnAction> createToolbarActions() {
-    List<AnAction> group = new ArrayList<>();
-
-    group.add(new MyIgnorePolicySettingAction());
-    group.add(new MyHighlightPolicySettingAction());
+    List<AnAction> group = new ArrayList<>(myTextDiffProvider.getToolbarActions());
     group.add(new MyReadOnlyLockAction());
     group.add(myEditorSettingsAction);
 
@@ -86,13 +85,7 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
   @NotNull
   @Override
   protected List<AnAction> createPopupActions() {
-    List<AnAction> group = new ArrayList<>();
-
-    group.add(Separator.getInstance());
-    group.add(new MyIgnorePolicySettingAction().getPopupGroup());
-    group.add(Separator.getInstance());
-    group.add(new MyHighlightPolicySettingAction().getPopupGroup());
-
+    List<AnAction> group = new ArrayList<>(myTextDiffProvider.getPopupActions());
     group.add(Separator.getInstance());
     group.addAll(super.createPopupActions());
 
@@ -181,34 +174,8 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
   //
 
   private class MyReadOnlyLockAction extends TextDiffViewerUtil.EditorReadOnlyLockAction {
-    public MyReadOnlyLockAction() {
+    MyReadOnlyLockAction() {
       super(getContext(), getEditableEditors());
-    }
-  }
-
-  //
-  // Modification operations
-  //
-
-  private class MyHighlightPolicySettingAction extends TextDiffViewerUtil.HighlightPolicySettingAction {
-    public MyHighlightPolicySettingAction() {
-      super(getTextSettings());
-    }
-
-    @Override
-    protected void onSettingsChanged() {
-      rediff();
-    }
-  }
-
-  private class MyIgnorePolicySettingAction extends TextDiffViewerUtil.IgnorePolicySettingAction {
-    public MyIgnorePolicySettingAction() {
-      super(getTextSettings());
-    }
-
-    @Override
-    protected void onSettingsChanged() {
-      rediff();
     }
   }
 
@@ -218,7 +185,7 @@ public class SimpleOnesideDiffViewer extends OnesideTextDiffViewer {
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (DiffDataKeys.CURRENT_CHANGE_RANGE.is(dataId)) {
       int lineCount = getLineCount(getEditor().getDocument());
       return new LineRange(0, lineCount);

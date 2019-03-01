@@ -27,6 +27,7 @@ import java.util.List;
 public interface PyFile extends PyElement, PsiFile, PyDocStringOwner, ScopeOwner {
   List<PyStatement> getStatements();
 
+  @NotNull
   List<PyClass> getTopLevelClasses();
 
   @NotNull
@@ -35,13 +36,13 @@ public interface PyFile extends PyElement, PsiFile, PyDocStringOwner, ScopeOwner
   List<PyTargetExpression> getTopLevelAttributes();
 
   @Nullable
-  PyFunction findTopLevelFunction(String name);
+  PyFunction findTopLevelFunction(@NotNull String name);
 
   @Nullable
-  PyClass findTopLevelClass(String name);
+  PyClass findTopLevelClass(@NotNull String name);
 
   @Nullable
-  PyTargetExpression findTopLevelAttribute(String name);
+  PyTargetExpression findTopLevelAttribute(@NotNull String name);
 
   LanguageLevel getLanguageLevel();
 
@@ -70,6 +71,14 @@ public interface PyFile extends PyElement, PsiFile, PyDocStringOwner, ScopeOwner
    */
   @NotNull
   List<RatedResolveResult> multiResolveName(@NotNull String name);
+
+  /**
+   * Return the resolved elements.
+   *
+   * @param exported found element must be exported, i.e. visible from other modules.
+   */
+  @NotNull
+  List<RatedResolveResult> multiResolveName(@NotNull String name, boolean exported);
 
   /**
    * @deprecated Use {@link #multiResolveName(String)} instead.

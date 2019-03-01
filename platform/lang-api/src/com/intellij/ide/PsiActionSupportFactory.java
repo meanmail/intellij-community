@@ -19,6 +19,7 @@ package com.intellij.ide;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 
@@ -30,7 +31,8 @@ public abstract class PsiActionSupportFactory {
     return ServiceManager.getService(PsiActionSupportFactory.class);
   }
 
-  public static interface PsiElementSelector {
+  public interface PsiElementSelector {
+    @NotNull
     PsiElement[] getSelectedElements();
   }
 

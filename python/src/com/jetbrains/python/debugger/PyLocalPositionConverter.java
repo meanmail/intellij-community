@@ -1,25 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger;
 
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.LocalFileSystem;
@@ -70,8 +54,9 @@ public class PyLocalPositionConverter implements PyPositionConverter {
     }
   }
 
+  @Override
   @NotNull
-  final public PySourcePosition create(@NotNull final String filePath, final int line) {
+  public PySourcePosition create(@NotNull final String filePath, final int line) {
     File file = new File(filePath);
 
     if (file.exists()) {
@@ -82,8 +67,9 @@ public class PyLocalPositionConverter implements PyPositionConverter {
     }
   }
 
+  @Override
   @NotNull
-  public final PySourcePosition convertToPython(@NotNull final XSourcePosition position) {
+  public PySourcePosition convertToPython(@NotNull final XSourcePosition position) {
     return convertToPython(convertFilePath(position.getFile().getPath()), convertLocalLineToRemote(position.getFile(), position.getLine()));
   }
 
@@ -92,9 +78,9 @@ public class PyLocalPositionConverter implements PyPositionConverter {
     return new PyLocalSourcePosition(filePath, line);
   }
 
-  protected static int convertLocalLineToRemote(VirtualFile file, int line) {
-    AccessToken lock = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
+  protected static int convertLocalLineToRemote(VirtualFile file, int l) {
+    return ReadAction.compute(() -> {
+      int line = l;
       final Document document = FileDocumentManager.getInstance().getDocument(file);
       if (document != null) {
         while (PyDebugSupportUtils.isContinuationLine(document, line)) {
@@ -102,14 +88,12 @@ public class PyLocalPositionConverter implements PyPositionConverter {
         }
       }
       return line + 1;
-    }
-    finally {
-      lock.finish();
-    }
+    });
   }
 
+  @Override
   @Nullable
-  public XSourcePosition convertFromPython(@NotNull final PySourcePosition position) {
+  public XSourcePosition convertFromPython(@NotNull final PySourcePosition position, String frameName) {
     return createXSourcePosition(getVirtualFile(position.getFile()), position.getLine());
   }
 
@@ -179,7 +163,7 @@ public class PyLocalPositionConverter implements PyPositionConverter {
     }
   }
   @Nullable
-  protected static XSourcePosition createXSourcePosition(@Nullable VirtualFile vFile, int line) {
+  public static XSourcePosition createXSourcePosition(@Nullable VirtualFile vFile, int line) {
     if (vFile != null) {
       return XDebuggerUtil.getInstance().createPosition(vFile, convertRemoteLineToLocal(vFile, line));
     }
@@ -189,12 +173,8 @@ public class PyLocalPositionConverter implements PyPositionConverter {
   }
 
   private static int convertRemoteLineToLocal(final VirtualFile vFile, int line) {
-    final Document document = ApplicationManager.getApplication().runReadAction(new Computable<Document>() {
-      @Override
-      public Document compute() {
-        return FileDocumentManager.getInstance().getDocument(vFile);
-      }
-    });
+    final Document document =
+      ReadAction.compute(() -> FileDocumentManager.getInstance().getDocument(vFile));
 
     line--;
     if (document != null) {

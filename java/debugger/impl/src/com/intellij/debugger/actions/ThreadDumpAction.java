@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.debugger.actions;
 
@@ -36,6 +22,7 @@ import com.intellij.util.SmartList;
 import com.intellij.xdebugger.XDebugSession;
 import com.sun.jdi.*;
 import gnu.trove.TIntObjectHashMap;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -44,7 +31,8 @@ import java.util.Map;
 
 public class ThreadDumpAction extends AnAction implements AnAction.TransparentUpdate {
 
-  public void actionPerformed(AnActionEvent e) {
+  @Override
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) {
       return;
@@ -55,7 +43,8 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
     if(session != null && session.isAttached()) {
       final DebugProcessImpl process = context.getDebugProcess();
       process.getManagerThread().invoke(new DebuggerCommandImpl() {
-        protected void action() throws Exception {
+        @Override
+        protected void action() {
           final VirtualMachineProxyImpl vm = process.getVirtualMachineProxy();
           vm.suspend();
           try {
@@ -63,7 +52,7 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
             ApplicationManager.getApplication().invokeLater(() -> {
               XDebugSession xSession = session.getXDebugSession();
               if (xSession != null) {
-                DebuggerUtilsEx.addThreadDump(project, threads, xSession.getUI(), session);
+                DebuggerUtilsEx.addThreadDump(project, threads, xSession.getUI(), session.getSearchScope());
               }
             }, ModalityState.NON_MODAL);
           }
@@ -75,7 +64,7 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
     }
   }
 
-  static List<ThreadState> buildThreadStates(VirtualMachineProxyImpl vmProxy) {
+  public static List<ThreadState> buildThreadStates(VirtualMachineProxyImpl vmProxy) {
     final List<ThreadReference> threads = vmProxy.getVirtualMachine().allThreads();
     final List<ThreadState> result = new ArrayList<>();
     final Map<String, ThreadState> nameToThreadMap = new HashMap<>();
@@ -134,7 +123,7 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
       }
 
       buffer.append("\n  java.lang.Thread.State: ").append(threadState.getJavaThreadState());
-      
+
       try {
         if (vmProxy.canGetOwnedMonitorInfo() && vmProxy.canGetMonitorInfo()) {
           List<ObjectReference> list = threadReference.ownedMonitors();
@@ -169,13 +158,16 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
 
         final TIntObjectHashMap<List<ObjectReference>> lockedAt = new TIntObjectHashMap<>();
         if (vmProxy.canGetMonitorFrameInfo()) {
-          for (MonitorInfo info : threadReference.ownedMonitorsAndFrames()) {
-            final int stackDepth = info.stackDepth();
-            List<ObjectReference> monitors;
-            if ((monitors = lockedAt.get(stackDepth)) == null) {
-              lockedAt.put(stackDepth, monitors = new SmartList<>());
+          for (Object m : threadReference.ownedMonitorsAndFrames()) {
+            if (m instanceof MonitorInfo) { // see JRE-937
+              MonitorInfo info = (MonitorInfo)m;
+              final int stackDepth = info.stackDepth();
+              List<ObjectReference> monitors;
+              if ((monitors = lockedAt.get(stackDepth)) == null) {
+                lockedAt.put(stackDepth, monitors = new SmartList<>());
+              }
+              monitors.add(info.monitor());
             }
-            monitors.add(info.monitor());
           }
         }
 
@@ -207,7 +199,9 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
     for (String waiting : waitingMap.keySet()) {
       final ThreadState waitingThread = nameToThreadMap.get(waiting);
       final ThreadState awaitedThread = nameToThreadMap.get(waitingMap.get(waiting));
-      awaitedThread.addWaitingThread(waitingThread);
+      if (waitingThread != null && awaitedThread != null) { //zombie
+        awaitedThread.addWaitingThread(waitingThread);
+      }
     }
 
     // detect simple deadlocks
@@ -282,37 +276,10 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
   }
 
   public static String renderLocation(final Location location) {
-    String sourceName;
-    try {
-      sourceName = location.sourceName();
-    }
-    catch (Throwable e) {
-      sourceName = "Unknown Source";
-    }
-
-    final StringBuilder methodName = new StringBuilder();
-    try {
-      methodName.append(location.declaringType().name());
-    }
-    catch (Throwable e) {
-      methodName.append(e.getMessage());
-    }
-    methodName.append(".");
-    try {
-      methodName.append(location.method().name());
-    }
-    catch (Throwable e) {
-      methodName.append(e.getMessage());
-    }
-
-    int lineNumber;
-    try {
-      lineNumber = location.lineNumber();
-    }
-    catch (Throwable e) {
-      lineNumber = -1;
-    }
-    return DebuggerBundle.message("export.threads.stackframe.format", methodName.toString(), sourceName, lineNumber);
+    return DebuggerBundle.message("export.threads.stackframe.format",
+                                  DebuggerUtilsEx.getLocationMethodQName(location),
+                                  DebuggerUtilsEx.getSourceName(location, e -> "Unknown Source"),
+                                  DebuggerUtilsEx.getLineNumber(location, false));
   }
 
   private static String threadName(ThreadReference threadReference) {
@@ -320,7 +287,8 @@ public class ThreadDumpAction extends AnAction implements AnAction.TransparentUp
   }
 
 
-  public void update(AnActionEvent e){
+  @Override
+  public void update(@NotNull AnActionEvent e){
     Presentation presentation = e.getPresentation();
     Project project = e.getProject();
     if (project == null) {

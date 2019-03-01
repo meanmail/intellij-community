@@ -24,11 +24,13 @@
  */
 package org.jetbrains.lang.manifest.highlighting;
 
-import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.LocalInspectionTool;
+import com.intellij.codeInspection.LocalQuickFix;
+import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.profile.codeInspection.InspectionProfileManager;
-import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
+import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
@@ -37,7 +39,7 @@ import com.intellij.ui.DocumentAdapter;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.text.CaseInsensitiveStringHashingStrategy;
 import com.intellij.util.text.EditDistance;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
+import com.intellij.util.xmlb.annotations.XCollection;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.lang.manifest.ManifestBundle;
@@ -47,8 +49,8 @@ import org.jetbrains.lang.manifest.psi.Header;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Robert F. Beeger (robert@beeger.net)
@@ -58,7 +60,7 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
   private static final int MAX_DISTANCE = 4;
   private static final int TYPO_DISTANCE = 2;
 
-  @AbstractCollection(surroundWithTag = false, elementTag = "header")
+  @XCollection(elementName = "header")
   public final Set<String> CUSTOM_HEADERS = new THashSet<>(CaseInsensitiveStringHashingStrategy.INSTANCE);
 
   private final HeaderParserRepository myRepository;
@@ -96,12 +98,12 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
           }
           holder.registerProblem(
             header.getNameElement(), ManifestBundle.message("inspection.header.message"),
-            ProblemHighlightType.GENERIC_ERROR_OR_WARNING, fixes.toArray(new LocalQuickFix[fixes.size()])
+            ProblemHighlightType.GENERIC_ERROR_OR_WARNING, fixes.toArray(LocalQuickFix.EMPTY_ARRAY)
           );
         }
       }
 
-      private void addMatches(String headerName, Collection<String> headers, SortedSet<Suggestion> matches) {
+      private void addMatches(String headerName, Collection<String> headers, SortedSet<? super Suggestion> matches) {
         for (String candidate : headers) {
           int distance = EditDistance.optimalAlignment(headerName, candidate, false);
           if (distance <= MAX_DISTANCE) {
@@ -118,7 +120,7 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
   }
 
   private static class OptionsPanel extends JPanel {
-    public OptionsPanel(final Set<String> headers) {
+    OptionsPanel(final Set<? super String> headers) {
       super(new BorderLayout(5, 5));
 
       add(new JLabel(ManifestBundle.message("inspection.header.ui.label")), BorderLayout.NORTH);
@@ -131,7 +133,7 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
 
       area.getDocument().addDocumentListener(new DocumentAdapter() {
         @Override
-        protected void textChanged(DocumentEvent e) {
+        protected void textChanged(@NotNull DocumentEvent e) {
           headers.clear();
           for (String line : StringUtil.split(area.getText(), "\n")) {
             String header = line.trim();
@@ -166,9 +168,9 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
 
   private static class CustomHeaderQuickFix extends AbstractManifestQuickFix {
     private final String myHeaderName;
-    private final Collection<String> myHeaders;
+    private final Collection<? super String> myHeaders;
 
-    private CustomHeaderQuickFix(Header header, Collection<String> headers) {
+    private CustomHeaderQuickFix(Header header, Collection<? super String> headers) {
       super(header);
       myHeaderName = header.getName();
       myHeaders = headers;
@@ -184,8 +186,12 @@ public class MisspelledHeaderInspection extends LocalInspectionTool {
     public void invoke(@NotNull Project project, @NotNull PsiFile file, @NotNull PsiElement startElement, @NotNull PsiElement endElement) {
       myHeaders.add(myHeaderName);
 
-      InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
-      InspectionProfileManager.getInstance().fireProfileChanged(profile);
+      ProjectInspectionProfileManager.getInstance(project).fireProfileChanged();
+    }
+
+    @Override
+    public boolean startInWriteAction() {
+      return false;
     }
   }
 }

@@ -25,17 +25,7 @@ import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 13.11.2007
- */
 public class SecondUnsafeCallQuickFix implements LocalQuickFix {
-
-  @Override
-  @NotNull
-  public String getName() {
-    return GroovyInspectionBundle.message("second.unsafe.call");
-  }
 
   @Override
   @NotNull

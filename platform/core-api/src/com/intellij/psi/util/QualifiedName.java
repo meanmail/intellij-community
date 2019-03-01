@@ -18,7 +18,6 @@ package com.intellij.psi.util;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,10 +34,13 @@ public class QualifiedName implements Comparable<QualifiedName> {
   @NotNull private final List<String> myComponents;
 
   private QualifiedName(int count) {
-    myComponents = new ArrayList<String>(count);
+    myComponents = new ArrayList<>(count);
   }
 
   public static QualifiedName fromComponents(Collection<String> components) {
+    for (String component : components) {
+      assertNoDots(component);
+    }
     QualifiedName qName = new QualifiedName(components.size());
     qName.myComponents.addAll(components);
     return qName;
@@ -46,6 +48,9 @@ public class QualifiedName implements Comparable<QualifiedName> {
 
   @NotNull
   public static QualifiedName fromComponents(String... components) {
+    for (String component : components) {
+      assertNoDots(component);
+    }
     QualifiedName result = new QualifiedName(components.length);
     Collections.addAll(result.myComponents, components);
     return result;
@@ -152,8 +157,7 @@ public class QualifiedName implements Comparable<QualifiedName> {
     else {
       qName = new QualifiedName(size);
       for (int i = 0; i < size; i++) {
-        final StringRef name = dataStream.readName();
-        qName.myComponents.add(name == null ? null : name.getString());
+        qName.myComponents.add(dataStream.readNameString());
       }
     }
     return qName;
@@ -209,5 +213,11 @@ public class QualifiedName implements Comparable<QualifiedName> {
   @Override
   public int compareTo(@NotNull QualifiedName other) {
     return toString().compareTo(other.toString());
+  }
+
+  private static void assertNoDots(@NotNull String component) {
+    if (component.contains(".")) {
+      throw new IllegalArgumentException("Components of QualifiedName cannot contain dots inside them, but got: " + component);
+    }
   }
 }

@@ -15,12 +15,17 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.codeInsight.ExpressionUtil;
 import com.intellij.codeInsight.daemon.ImplicitUsageProvider;
 import com.intellij.psi.*;
 import com.intellij.psi.filters.ElementFilter;
 import com.intellij.psi.infos.CandidateInfo;
+import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
+import com.intellij.util.containers.ContainerUtil;
+import com.siyeh.ig.psiutils.VariableAccessUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,7 +46,7 @@ class CheckInitialized implements ElementFilter {
   }
 
   static boolean isInsideConstructorCall(@NotNull PsiElement position) {
-    return ExpressionUtils.isConstructorInvocation(PsiTreeUtil.getParentOfType(position, PsiMethodCallExpression.class)) &&
+    return JavaPsiConstructorUtil.isConstructorCall(PsiTreeUtil.getParentOfType(position, PsiMethodCallExpression.class)) &&
            !JavaKeywordCompletion.AFTER_DOT.accepts(position);
   }
 
@@ -56,6 +61,9 @@ class CheckInitialized implements ElementFilter {
   }
 
   static Set<PsiField> getNonInitializedFields(PsiElement element) {
+    PsiReferenceExpression ref = PsiTreeUtil.getNonStrictParentOfType(element, PsiReferenceExpression.class);
+    if (ref == null) return Collections.emptySet();
+
     final PsiStatement statement = PsiTreeUtil.getParentOfType(element, PsiStatement.class);
     //noinspection SSBasedInspection
     final PsiMethod method = PsiTreeUtil.getParentOfType(element, PsiMethod.class, true, PsiClass.class);
@@ -64,6 +72,10 @@ class CheckInitialized implements ElementFilter {
     }
 
     PsiElement parent = element.getParent();
+    if (parent instanceof PsiReferenceExpression && !ExpressionUtil.isEffectivelyUnqualified((PsiReferenceExpression)parent)) {
+      return Collections.emptySet();
+    }
+
     while (parent != statement) {
       PsiElement next = parent.getParent();
       if (next instanceof PsiAssignmentExpression && parent == ((PsiAssignmentExpression)next).getLExpression()) {
@@ -78,23 +90,33 @@ class CheckInitialized implements ElementFilter {
       parent = next;
     }
 
+    boolean allowNonFinalFields = !isInsideConstructorCall(element);
+
     final Set<PsiField> fields = new HashSet<>();
     final PsiClass containingClass = method.getContainingClass();
     assert containingClass != null;
-    for (PsiField field : containingClass.getFields()) {
-      if (!field.hasModifierProperty(PsiModifier.STATIC) && field.getInitializer() == null && !isInitializedImplicitly(field)) {
-        fields.add(field);
+    InheritanceUtil.processSupers(containingClass, true, eachClass -> {
+      for (PsiField field : eachClass.getFields()) {
+        if (!seemsInitialized(allowNonFinalFields, containingClass, field)) {
+          fields.add(field);
+        }
       }
-    }
+      return true;
+    });
 
     method.accept(new JavaRecursiveElementWalkingVisitor() {
       @Override
       public void visitAssignmentExpression(PsiAssignmentExpression expression) {
-        if (expression.getTextRange().getStartOffset() < statement.getTextRange().getStartOffset()) {
-          final PsiExpression lExpression = expression.getLExpression();
-          if (lExpression instanceof PsiReferenceExpression) {
-            //noinspection SuspiciousMethodCalls
-            fields.remove(((PsiReferenceExpression)lExpression).resolve());
+        PsiExpression lExpression = expression.getLExpression();
+        if (lExpression instanceof PsiReferenceExpression && ExpressionUtil.isEffectivelyUnqualified((PsiReferenceExpression)lExpression)) {
+          PsiElement target = ((PsiReferenceExpression)lExpression).resolve();
+          if (target instanceof PsiField) {
+            if (expression.getTextRange().getStartOffset() < statement.getTextRange().getStartOffset()) {
+              fields.remove(target);
+            }
+            else if (ref == PsiUtil.deparenthesizeExpression(expression.getRExpression())) {
+              fields.add((PsiField)target);
+            }
           }
         }
         super.visitAssignmentExpression(expression);
@@ -112,6 +134,24 @@ class CheckInitialized implements ElementFilter {
       }
     });
     return fields;
+  }
+
+  private static boolean seemsInitialized(boolean allowNonFinalFields, PsiClass placeClass, PsiField field) {
+    if (field.hasModifierProperty(PsiModifier.STATIC)) return true;
+    if (field.getContainingClass() == placeClass) {
+      if (isInitializedBeforeConstructor(field, placeClass) ||
+          isInitializedImplicitly(field)) {
+        return true;
+      }
+    }
+    return allowNonFinalFields && !field.hasModifierProperty(PsiModifier.FINAL);
+  }
+
+  private static boolean isInitializedBeforeConstructor(PsiField field, PsiClass containingClass) {
+    if (field.getInitializer() != null) return true;
+
+    return ContainerUtil.exists(containingClass.getInitializers(), i -> 
+      !i.hasModifierProperty(PsiModifier.STATIC) && VariableAccessUtils.variableIsAssigned(field, i, false));
   }
 
   @Override

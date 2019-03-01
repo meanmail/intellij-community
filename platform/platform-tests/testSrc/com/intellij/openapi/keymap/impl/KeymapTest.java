@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,15 +16,22 @@
 package com.intellij.openapi.keymap.impl;
 
 import com.intellij.openapi.actionSystem.KeyboardShortcut;
+import com.intellij.openapi.actionSystem.MouseShortcut;
+import com.intellij.openapi.keymap.Keymap;
 import com.intellij.openapi.keymap.ex.KeymapManagerEx;
-import com.intellij.testFramework.PlatformTestCase;
+import com.intellij.testFramework.LightPlatformTestCase;
 
 import javax.swing.*;
+import java.awt.event.InputEvent;
+import java.awt.event.MouseEvent;
 
-public class KeymapTest extends PlatformTestCase {
+import static org.assertj.core.api.Assertions.assertThat;
+
+public class KeymapTest extends LightPlatformTestCase {
   private static final String ACTION_1 = "ACTION_1";
   private static final String ACTION_2 = "ACTION_2";
   private static final String ACTION_NON_EXISTENT = "NON_EXISTENT";
+
   KeyboardShortcut shortcut1 = new KeyboardShortcut(KeyStroke.getKeyStroke('1'), null);
   KeyboardShortcut shortcut2 = new KeyboardShortcut(KeyStroke.getKeyStroke('2'), null);
   KeyboardShortcut shortcutA = new KeyboardShortcut(KeyStroke.getKeyStroke('a'), null);
@@ -45,12 +52,13 @@ public class KeymapTest extends PlatformTestCase {
     myParent.addShortcut(ACTION_2, shortcut2);
 
     myChild = myParent.deriveKeymap("Child");
-    assertSame(myParent, myChild.getParent());
+    myChild.setCanModify(false);
+    assertThat(myParent).isSameAs(myChild.getParent());
 
     myChild.addShortcut(ACTION_1, shortcutA);
   }
 
-  public void testParentAndChildShortcuts() throws Exception {
+  public void testParentAndChildShortcuts() {
     assertTrue(myParent.hasOwnActionId(ACTION_1));
     assertTrue(myParent.hasOwnActionId(ACTION_2));
     assertFalse(myParent.hasOwnActionId(ACTION_NON_EXISTENT));
@@ -78,7 +86,7 @@ public class KeymapTest extends PlatformTestCase {
     assertSameElements(myChild.getActionIds(shortcutB));
   }
 
-  public void testRemovingShortcutsFromParentAndChild() throws Exception {
+  public void testRemovingShortcutsFromParentAndChild() {
     myParent.removeShortcut(ACTION_1, shortcut1);
 
     assertFalse(myParent.hasOwnActionId(ACTION_1));
@@ -111,24 +119,101 @@ public class KeymapTest extends PlatformTestCase {
     assertTrue(myChild.hasOwnActionId(ACTION_2)); // since different from parent list
   }
 
-  public void testRemovingShortcutFromChildWhenInheritedDontChangeTheListIfShortcutIsAbsent() throws Exception {
+  public void testRemovingShortcutFromChildWhenInheritedDontChangeTheListIfShortcutIsAbsent() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
     myParent.addShortcut(ACTION_1, shortcut1);
 
-    assertTrue(myParent.hasOwnActionId(ACTION_1));
-    assertFalse(myChild.hasOwnActionId(ACTION_1));
-    assertSameElements(myChild.getShortcuts(ACTION_1), shortcut1);
+    assertThat(myParent.hasOwnActionId(ACTION_1)).isTrue();
+    assertThat(myChild.hasOwnActionId(ACTION_1)).isFalse();
+    assertThat(myChild.getShortcuts(ACTION_1)).containsExactly(shortcut1);
 
-    myChild.removeShortcut(ACTION_1, shortcutA); // should not have any effect
+    // should not have any effect
+    myChild.removeShortcut(ACTION_1, shortcutA);
 
-    assertTrue(myParent.hasOwnActionId(ACTION_1));
-    assertFalse(myChild.hasOwnActionId(ACTION_1));
-    assertSameElements(myChild.getShortcuts(ACTION_1), shortcut1);
+    assertThat(myParent.hasOwnActionId(ACTION_1)).isTrue();
+    assertThat(myChild.hasOwnActionId(ACTION_1)).isFalse();
+    assertThat(myChild.getShortcuts(ACTION_1)).containsExactly(shortcut1);
+
+    myParent.addShortcut(ACTION_2, shortcut2);
+    myParent.addShortcut(ACTION_2, shortcutA);
+    myParent.addShortcut(ACTION_2, shortcutB);
+
+    myChild.removeShortcut(ACTION_2, shortcutA);
+    assertThat(myChild.getShortcuts(ACTION_2)).containsExactly(shortcut2, shortcutB);
   }
 
-  public void testRemovingShortcutFromChildWhenInherited() throws Exception {
+  public void testRemovingShortcutFirst() {
+    myParent.clearOwnActionsIds();
+    myChild.clearOwnActionsIds();
+
+    myParent.addShortcut(ACTION_2, shortcut2);
+    myParent.addShortcut(ACTION_2, shortcutA);
+    myParent.addShortcut(ACTION_2, shortcutB);
+
+    myChild.removeShortcut(ACTION_2, shortcut2);
+    assertThat(myChild.getShortcuts(ACTION_2)).containsExactly(shortcutA, shortcutB);
+  }
+
+  public void testRemoveMouseShortcut() {
+    myParent.clearOwnActionsIds();
+    myChild.clearOwnActionsIds();
+
+    MouseShortcut mouseShortcut = new MouseShortcut(1, InputEvent.BUTTON2_MASK, 1);
+    myParent.addShortcut(ACTION_2, mouseShortcut);
+    assertThat(myChild.getActionIds(mouseShortcut)).containsExactly(ACTION_2);
+    myChild.removeShortcut(ACTION_2, mouseShortcut);
+    assertThat(myChild.getActionIds(mouseShortcut)).isEmpty();
+  }
+  
+  // decided to not change order and keep old behavior
+  //public void testChangeMouseShortcut() throws Exception {
+  //  myParent.clearOwnActionsIds();
+  //  myChild.clearOwnActionsIds();
+  //
+  //  ActionManager actionManager = ActionManager.getInstance();
+  //  actionManager.registerAction(ACTION_2, new EmptyAction());
+  //  actionManager.registerAction(ACTION_1, new EmptyAction());
+  //  try {
+  //    MouseShortcut mouseShortcut = new MouseShortcut(1, InputEvent.BUTTON2_MASK, 1);
+  //    myParent.addShortcut(ACTION_2, mouseShortcut);
+  //    assertThat(myChild.getActionIds(mouseShortcut)).containsExactly(ACTION_2);
+  //
+  //    Keymap grandChild = myChild.deriveKeymap("GrandChild");
+  //    myChild.addShortcut(ACTION_2, mouseShortcut);
+  //
+  //    grandChild.addShortcut(ACTION_1, mouseShortcut);
+  //    assertThat(grandChild.getActionIds(mouseShortcut)).containsExactly(ACTION_1, ACTION_2);
+  //  }
+  //  finally {
+  //    actionManager.unregisterAction(ACTION_2);
+  //    actionManager.unregisterAction(ACTION_1);
+  //  }
+  //}
+
+  public void testChangingMouseShortcutInGrandChild() {
+    MouseShortcut mouseShortcut = new MouseShortcut(MouseEvent.BUTTON1, 0, 1);
+    myParent.addShortcut(ACTION_2, mouseShortcut);
+    Keymap grandChild = myChild.deriveKeymap("GrandChild");
+    grandChild.removeShortcut(ACTION_2, mouseShortcut);
+    grandChild.addShortcut(ACTION_1, mouseShortcut);
+    assertThat(grandChild.getActionIds(mouseShortcut)).containsExactly(ACTION_1);
+  }
+
+  public void testRemovingShortcutLast() {
+    myParent.clearOwnActionsIds();
+    myChild.clearOwnActionsIds();
+
+    myParent.addShortcut(ACTION_2, shortcut2);
+    myParent.addShortcut(ACTION_2, shortcutA);
+    myParent.addShortcut(ACTION_2, shortcutB);
+
+    myChild.removeShortcut(ACTION_2, shortcutB);
+    assertThat(myChild.getShortcuts(ACTION_2)).containsExactly(shortcut2, shortcutA);
+  }
+
+  public void testRemovingShortcutFromChildWhenInherited() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
@@ -148,7 +233,7 @@ public class KeymapTest extends PlatformTestCase {
     assertSameElements(myChild.getShortcuts(ACTION_1), shortcut2);
   }
 
-  public void testRemovingShortcutFromChildWhenInheritedAndBound() throws Exception {
+  public void testRemovingShortcutFromChildWhenInheritedAndBound() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
@@ -196,7 +281,7 @@ public class KeymapTest extends PlatformTestCase {
     }
   }
 
-  public void testRemovingShortcutNotInheritedBoundAndNotBound() throws Exception {
+  public void testRemovingShortcutNotInheritedBoundAndNotBound() {
     KeymapImpl standalone = new KeymapImpl();
     standalone.setName("standalone");
 
@@ -238,7 +323,7 @@ public class KeymapTest extends PlatformTestCase {
     }
   }
 
-  public void testResettingMappingInChild() throws Exception {
+  public void testResettingMappingInChild() {
     assertSameElements(myChild.getShortcuts(ACTION_1), shortcut1, shortcutA);
     assertSameElements(myChild.getActionIds(shortcut1), ACTION_1);
     assertSameElements(myChild.getActionIds(shortcutA), ACTION_1);
@@ -261,7 +346,7 @@ public class KeymapTest extends PlatformTestCase {
     assertFalse(myChild.hasOwnActionId(ACTION_2));
   }
 
-  public void testChangingAndResettingBoundShortcutsInParentKeymap() throws Exception {
+  public void testChangingAndResettingBoundShortcutsInParentKeymap() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
@@ -386,7 +471,7 @@ public class KeymapTest extends PlatformTestCase {
     }
   }
 
-  public void testChangingAndResettingBoundShortcutsInChildKeymap() throws Exception {
+  public void testChangingAndResettingBoundShortcutsInChildKeymap() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
@@ -522,7 +607,7 @@ public class KeymapTest extends PlatformTestCase {
     }
   }
 
-  public void testRemovingChildMappingIsTheSameAsResetting() throws Exception {
+  public void testRemovingChildMappingIsTheSameAsResetting() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
 
@@ -601,7 +686,7 @@ public class KeymapTest extends PlatformTestCase {
     }
   }
 
-  public void testLookingForShortcutsInParentFirstAndOnlyThenConsiderBoundActions() throws Exception {
+  public void testLookingForShortcutsInParentFirstAndOnlyThenConsiderBoundActions() {
     myParent.clearOwnActionsIds();
     myChild.clearOwnActionsIds();
     KeymapImpl myGrandChild = myChild.deriveKeymap("GrandChild");

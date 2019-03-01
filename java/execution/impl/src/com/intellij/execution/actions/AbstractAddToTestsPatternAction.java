@@ -15,9 +15,9 @@
  */
 package com.intellij.execution.actions;
 
+import com.intellij.execution.JavaTestConfigurationBase;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.configurations.ConfigurationType;
-import com.intellij.execution.configurations.ModuleBasedConfiguration;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.testframework.AbstractPatternBasedConfigurationProducer;
 import com.intellij.openapi.actionSystem.*;
@@ -27,12 +27,13 @@ import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.search.PsiElementProcessor;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.*;
 
-public abstract class AbstractAddToTestsPatternAction<T extends ModuleBasedConfiguration> extends AnAction {
+public abstract class AbstractAddToTestsPatternAction<T extends JavaTestConfigurationBase> extends AnAction {
   @NotNull protected abstract AbstractPatternBasedConfigurationProducer<T> getPatternBasedProducer();
 
   @NotNull protected abstract ConfigurationType getConfigurationType();
@@ -42,7 +43,7 @@ public abstract class AbstractAddToTestsPatternAction<T extends ModuleBasedConfi
   protected abstract Set<String> getPatterns(T configuration);
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final PsiElement[] psiElements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(dataContext);
     final LinkedHashSet<PsiElement> classes = new LinkedHashSet<>();
@@ -81,7 +82,7 @@ public abstract class AbstractAddToTestsPatternAction<T extends ModuleBasedConfi
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Presentation presentation = e.getPresentation();
     presentation.setVisible(false);
     final DataContext dataContext = e.getDataContext();
@@ -110,7 +111,7 @@ public abstract class AbstractAddToTestsPatternAction<T extends ModuleBasedConfi
     for (RunConfiguration configuration : configurations) {
       if (isPatternBasedConfiguration((T)configuration)) {
         if (foundClasses.size() > 1 ||
-            !getPatterns((T)configuration).contains(getPatternBasedProducer().getQName(foundClasses.iterator().next()))) {
+            foundClasses.size() == 1 && !getPatterns((T)configuration).contains(getPatternBasedProducer().getQName(ContainerUtil.getFirstItem(foundClasses)))) {
           foundConfigurations.add((T)configuration);
         }
       }

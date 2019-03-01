@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xmlb;
 
 import com.intellij.openapi.util.JDOMUtil;
@@ -31,7 +17,7 @@ class OptionTagBinding extends BasePrimitiveBinding {
   private final String myNameAttribute;
   private final String myValueAttribute;
 
-  public OptionTagBinding(@NotNull MutableAccessor accessor, @Nullable OptionTag optionTag) {
+  OptionTagBinding(@NotNull MutableAccessor accessor, @Nullable OptionTag optionTag) {
     super(accessor, optionTag == null ? null : optionTag.value(), optionTag == null ? null : optionTag.converter());
 
     if (optionTag == null) {
@@ -53,7 +39,7 @@ class OptionTagBinding extends BasePrimitiveBinding {
 
   @Override
   @Nullable
-  public Object serialize(@NotNull Object o, @Nullable Object context, @NotNull SerializationFilter filter) {
+  public Object serialize(@NotNull Object o, @Nullable SerializationFilter filter) {
     Object value = myAccessor.read(o);
     Element targetElement = new Element(myTagName);
 
@@ -65,9 +51,10 @@ class OptionTagBinding extends BasePrimitiveBinding {
       return targetElement;
     }
 
-    if (myConverter == null) {
+    Converter<Object> converter = getConverter();
+    if (converter == null) {
       if (myBinding == null) {
-        targetElement.setAttribute(myValueAttribute, XmlSerializerImpl.convertToString(value));
+        targetElement.setAttribute(myValueAttribute, JDOMUtil.removeControlChars(XmlSerializerImpl.convertToString(value)));
       }
       else if (myBinding instanceof BeanBinding && myValueAttribute.isEmpty()) {
         ((BeanBinding)myBinding).serializeInto(value, targetElement, filter);
@@ -75,23 +62,27 @@ class OptionTagBinding extends BasePrimitiveBinding {
       else {
         Object node = myBinding.serialize(value, targetElement, filter);
         if (node != null && targetElement != node) {
-          JDOMUtil.addContent(targetElement, node);
+          addContent(targetElement, node);
         }
       }
     }
     else {
-      targetElement.setAttribute(myValueAttribute, myConverter.toString(value));
+      String text = converter.toString(value);
+      if (text != null) {
+        targetElement.setAttribute(myValueAttribute, JDOMUtil.removeControlChars(text));
+      }
     }
     return targetElement;
   }
 
   @Override
-  public Object deserialize(Object context, @NotNull Element element) {
+  @NotNull
+  public Object deserialize(@NotNull Object context, @NotNull Element element) {
     Attribute valueAttribute = element.getAttribute(myValueAttribute);
     if (valueAttribute == null) {
       if (myValueAttribute.isEmpty()) {
         assert myBinding != null;
-        myAccessor.set(context, myBinding.deserialize(context, element));
+        myAccessor.set(context, myBinding.deserializeUnsafe(context, element));
       }
       else {
         List<Element> children = element.getChildren();
@@ -100,15 +91,30 @@ class OptionTagBinding extends BasePrimitiveBinding {
         }
         else {
           assert myBinding != null;
-          myAccessor.set(context, Binding.deserializeList(myBinding, myAccessor.read(context), children));
+          Object oldValue = myAccessor.read(context);
+          Object newValue = Binding.deserializeList(myBinding, oldValue, children);
+          if (myAccessor.isFinal()) {
+            LOG.assertTrue(oldValue == newValue);
+          }
+          else {
+            myAccessor.set(context, newValue);
+          }
         }
       }
     }
-    else if (myConverter == null) {
-      XmlSerializerImpl.doSet(context, valueAttribute.getValue(), myAccessor, XmlSerializerImpl.typeToClass(myAccessor.getGenericType()));
-    }
     else {
-      myAccessor.set(context, myConverter.fromString(valueAttribute.getValue()));
+      String value = valueAttribute.getValue();
+      if (myConverter == null) {
+        try {
+          XmlSerializerImpl.doSet(context, value, myAccessor, XmlSerializerImpl.typeToClass(myAccessor.getGenericType()));
+        }
+        catch (Exception e) {
+          throw new RuntimeException("Cannot set value for field " + myName, e);
+        }
+      }
+      else {
+        myAccessor.set(context, myConverter.fromString(value));
+      }
     }
     return context;
   }

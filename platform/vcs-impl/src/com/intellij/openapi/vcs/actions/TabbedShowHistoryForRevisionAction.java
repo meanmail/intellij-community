@@ -17,14 +17,18 @@ package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ContentRevision;
 import com.intellij.openapi.vcs.history.VcsHistoryProvider;
+import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.impl.AbstractVcsHelperImpl;
 import com.intellij.vcs.history.VcsHistoryProviderEx;
+import com.intellij.vcs.log.VcsLogFileHistoryProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -46,18 +50,34 @@ public class TabbedShowHistoryForRevisionAction extends DumbAwareAction {
   public void actionPerformed(@NotNull AnActionEvent event) {
     Project project = event.getRequiredData(CommonDataKeys.PROJECT);
     AbstractVcs vcs = assertNotNull(getVcs(project, event.getData(VcsDataKeys.VCS)));
-    VcsHistoryProviderEx vcsHistoryProvider = assertNotNull((VcsHistoryProviderEx)vcs.getVcsHistoryProvider());
 
-    Change change = event.getRequiredData(VcsDataKeys.SELECTED_CHANGES)[0];
-    ContentRevision revision = assertNotNull(getContentRevision(change));
+    Pair<FilePath, VcsRevisionNumber> fileAndRevision = assertNotNull(getFileAndRevision(event));
+    FilePath file = fileAndRevision.getFirst();
+    VcsRevisionNumber revisionNumber = fileAndRevision.getSecond();
 
-    AbstractVcsHelperImpl helper = assertNotNull(getVcsHelper(project));
-    helper.showFileHistory(vcsHistoryProvider, revision.getFile(), vcs, revision.getRevisionNumber());
+    if (canShowNewFileHistory(project, file)) {
+      showNewFileHistory(project, file, revisionNumber.asString());
+    }
+    else {
+      VcsHistoryProviderEx vcsHistoryProvider = assertNotNull((VcsHistoryProviderEx)vcs.getVcsHistoryProvider());
+      AbstractVcsHelperImpl helper = assertNotNull(getVcsHelper(project));
+      helper.showFileHistory(vcsHistoryProvider, file, vcs, revisionNumber);
+    }
+  }
+
+  private static void showNewFileHistory(@NotNull Project project, @NotNull FilePath path, @NotNull String revisionNumber) {
+    VcsLogFileHistoryProvider historyProvider = ServiceManager.getService(VcsLogFileHistoryProvider.class);
+    historyProvider.showFileHistory(project, path, revisionNumber);
+  }
+
+  private static boolean canShowNewFileHistory(@NotNull Project project, @NotNull FilePath path) {
+    VcsLogFileHistoryProvider historyProvider = ServiceManager.getService(VcsLogFileHistoryProvider.class);
+    return historyProvider != null && historyProvider.canShowFileHistory(project, path);
   }
 
   private static boolean isVisible(@NotNull AnActionEvent event) {
     Project project = event.getProject();
-    if (project == null) return false;
+    if (project == null || project.isDisposed()) return false;
     if (getVcsHelper(project) == null) return false;
     AbstractVcs vcs = getVcs(project, event.getData(VcsDataKeys.VCS));
     if (vcs == null) return false;
@@ -67,14 +87,30 @@ public class TabbedShowHistoryForRevisionAction extends DumbAwareAction {
   }
 
   private static boolean isEnabled(@NotNull AnActionEvent event) {
-    Change[] changes = event.getData(VcsDataKeys.SELECTED_CHANGES);
-    if (changes == null || changes.length != 1) return false;
-    return getContentRevision(changes[0]) != null;
+    return getFileAndRevision(event) != null;
   }
 
   @Nullable
-  private static ContentRevision getContentRevision(@NotNull Change change) {
-    return change.getType() == Change.Type.DELETED ? change.getBeforeRevision() : change.getAfterRevision();
+  private static Pair<FilePath, VcsRevisionNumber> getFileAndRevision(@NotNull AnActionEvent event) {
+    Change[] changes = event.getData(VcsDataKeys.SELECTED_CHANGES);
+    if (changes == null || changes.length != 1) return null;
+    Change change = changes[0];
+    Pair<FilePath, VcsRevisionNumber> fileAndRevision = getFileAndRevision(change);
+    if (fileAndRevision == null || change.getType() != Change.Type.DELETED) return fileAndRevision;
+
+    Project project = event.getProject();
+    if (project == null || !canShowNewFileHistory(project, fileAndRevision.getFirst())) return fileAndRevision;
+    VcsRevisionNumber revisionNumber = event.getData(VcsDataKeys.VCS_REVISION_NUMBER);
+    if (revisionNumber == null) return fileAndRevision;
+
+    return Pair.create(fileAndRevision.getFirst(), revisionNumber);
+  }
+
+  @Nullable
+  private static Pair<FilePath, VcsRevisionNumber> getFileAndRevision(@NotNull Change change) {
+    ContentRevision revision = change.getType() == Change.Type.DELETED ? change.getBeforeRevision() : change.getAfterRevision();
+    if (revision == null) return null;
+    return Pair.create(revision.getFile(), revision.getRevisionNumber());
   }
 
   @Nullable

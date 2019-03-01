@@ -1,39 +1,28 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl;
 
-import com.intellij.ProjectTopics;
 import com.intellij.codeEditor.JavaEditorFileSwapper;
 import com.intellij.codeInsight.AttachSourcesProvider;
 import com.intellij.ide.highlighter.JavaClassFileType;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
-import com.intellij.openapi.roots.*;
+import com.intellij.openapi.projectRoots.JavaSdkVersion;
+import com.intellij.openapi.roots.LibraryOrderEntry;
+import com.intellij.openapi.roots.OrderEntry;
+import com.intellij.openapi.roots.OrderRootType;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.ui.configuration.LibrarySourceRootDetectorUtil;
 import com.intellij.openapi.ui.Messages;
@@ -44,18 +33,16 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.impl.compiled.ClsParsingUtil;
 import com.intellij.ui.EditorNotificationPanel;
 import com.intellij.ui.EditorNotifications;
 import com.intellij.ui.GuiUtils;
-import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -74,16 +61,9 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
 
   private static final Key<EditorNotificationPanel> KEY = Key.create("add sources to class");
 
-  private final Project myProject;
-
+  // todo remove when Scala removes its usage
+  @Deprecated
   public AttachSourcesNotificationProvider(Project project, final EditorNotifications notifications) {
-    myProject = project;
-    myProject.getMessageBus().connect(project).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
-      @Override
-      public void rootsChanged(ModuleRootEvent event) {
-        notifications.updateAllNotifications();
-      }
-    });
   }
 
   @NotNull
@@ -92,8 +72,22 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
     return KEY;
   }
 
+  // todo remove when Scala removes its usage
+  @SuppressWarnings("deprecation")
+  @Nullable
   @Override
-  public EditorNotificationPanel createNotificationPanel(@NotNull final VirtualFile file, @NotNull FileEditor fileEditor) {
+  @Deprecated
+  public EditorNotificationPanel createNotificationPanel(@NotNull VirtualFile file, @NotNull FileEditor fileEditor) {
+    Editor editor = fileEditor instanceof TextEditor ? ((TextEditor)fileEditor).getEditor() : null;
+    Project project = editor == null ? null : editor.getProject();
+    if (project != null) {
+      return createNotificationPanel(file, fileEditor, project);
+    }
+    return null;
+  }
+
+  @Override
+  public EditorNotificationPanel createNotificationPanel(@NotNull final VirtualFile file, @NotNull FileEditor fileEditor, @NotNull Project project) {
     if (file.getFileType() != JavaClassFileType.INSTANCE) return null;
 
     final EditorNotificationPanel panel = new EditorNotificationPanel();
@@ -103,15 +97,15 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
     if (classInfo != null) text += ", " + classInfo;
     panel.setText(text);
 
-    final VirtualFile sourceFile = JavaEditorFileSwapper.findSourceFile(myProject, file);
+    final VirtualFile sourceFile = JavaEditorFileSwapper.findSourceFile(project, file);
     if (sourceFile == null) {
-      final List<LibraryOrderEntry> libraries = findLibraryEntriesForFile(file);
+      final List<LibraryOrderEntry> libraries = findLibraryEntriesForFile(file, project);
       if (libraries != null) {
         List<AttachSourcesProvider.AttachSourcesAction> actions = new ArrayList<>();
 
-        PsiFile clsFile = PsiManager.getInstance(myProject).findFile(file);
+        PsiFile clsFile = PsiManager.getInstance(project).findFile(file);
         boolean hasNonLightAction = false;
-        for (AttachSourcesProvider each : Extensions.getExtensions(EXTENSION_POINT_NAME)) {
+        for (AttachSourcesProvider each : EXTENSION_POINT_NAME.getExtensionList()) {
           for (AttachSourcesProvider.AttachSourcesAction action : each.getActions(libraries, clsFile)) {
             if (hasNonLightAction) {
               if (action instanceof AttachSourcesProvider.LightAttachSourcesAction) {
@@ -135,15 +129,15 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
           defaultAction = new AttachJarAsSourcesAction(file);
         }
         else {
-          defaultAction = new ChooseAndAttachSourcesAction(myProject, panel);
+          defaultAction = new ChooseAndAttachSourcesAction(project, panel);
         }
         actions.add(defaultAction);
 
         for (final AttachSourcesProvider.AttachSourcesAction action : actions) {
           panel.createActionLabel(GuiUtils.getTextWithoutMnemonicEscaping(action.getName()), () -> {
-            List<LibraryOrderEntry> entries = findLibraryEntriesForFile(file);
+            List<LibraryOrderEntry> entries = findLibraryEntriesForFile(file, project);
             if (!Comparing.equal(libraries, entries)) {
-              Messages.showErrorDialog(myProject, "Can't find library for " + file.getName(), "Error");
+              Messages.showErrorDialog(project, "Can't find library for " + file.getName(), "Error");
               return;
             }
 
@@ -156,8 +150,10 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
     }
     else {
       panel.createActionLabel(ProjectBundle.message("class.file.open.source.action"), () -> {
-        OpenFileDescriptor descriptor = new OpenFileDescriptor(myProject, sourceFile);
-        FileEditorManager.getInstance(myProject).openTextEditor(descriptor, true);
+        if (sourceFile.isValid()) {
+          OpenFileDescriptor descriptor = new OpenFileDescriptor(project, sourceFile);
+          FileEditorManager.getInstance(project).openTextEditor(descriptor, true);
+        }
       });
     }
 
@@ -174,9 +170,9 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
             int minor = stream.readUnsignedShort();
             int major = stream.readUnsignedShort();
             StringBuilder info = new StringBuilder().append("bytecode version: ").append(major).append('.').append(minor);
-            LanguageLevel level = ClsParsingUtil.getLanguageLevelByVersion(major);
-            if (level != null) {
-              info.append(" (").append(level == LanguageLevel.JDK_1_3 ? level.getName() + " or older" : level.getName()).append(')');
+            JavaSdkVersion sdkVersion = ClsParsingUtil.getJdkVersionByBytecode(major);
+            if (sdkVersion != null) {
+              info.append(" (Java ").append(sdkVersion.getDescription()).append(')');
             }
             return info.toString();
           }
@@ -188,10 +184,10 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
   }
 
   @Nullable
-  private List<LibraryOrderEntry> findLibraryEntriesForFile(VirtualFile file) {
+  private static List<LibraryOrderEntry> findLibraryEntriesForFile(VirtualFile file, @NotNull Project project) {
     List<LibraryOrderEntry> entries = null;
 
-    ProjectFileIndex index = ProjectFileIndex.SERVICE.getInstance(myProject);
+    ProjectFileIndex index = ProjectFileIndex.SERVICE.getInstance(project);
     for (OrderEntry entry : index.getOrderEntriesForFile(file)) {
       if (entry instanceof LibraryOrderEntry) {
         if (entries == null) entries = ContainerUtil.newSmartList();
@@ -215,7 +211,7 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
   private static class AttachJarAsSourcesAction implements AttachSourcesProvider.AttachSourcesAction {
     private final VirtualFile myClassFile;
 
-    public AttachJarAsSourcesAction(VirtualFile classFile) {
+    AttachJarAsSourcesAction(VirtualFile classFile) {
       myClassFile = classFile;
     }
 
@@ -242,14 +238,11 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
         modelsToCommit.add(model);
       }
       if (modelsToCommit.isEmpty()) return ActionCallback.REJECTED;
-      new WriteAction() {
-        @Override
-        protected void run(@NotNull final Result result) {
-          for (Library.ModifiableModel model : modelsToCommit) {
-            model.commit();
-          }
+      WriteAction.runAndWait(() -> {
+        for (Library.ModifiableModel model : modelsToCommit) {
+          model.commit();
         }
-      }.execute();
+      });
 
       return ActionCallback.DONE;
     }
@@ -269,7 +262,7 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
     private final Project myProject;
     private final JComponent myParentComponent;
 
-    public ChooseAndAttachSourcesAction(Project project, JComponent parentComponent) {
+    ChooseAndAttachSourcesAction(Project project, JComponent parentComponent) {
       myProject = project;
       myParentComponent = parentComponent;
     }
@@ -291,7 +284,7 @@ public class AttachSourcesNotificationProvider extends EditorNotifications.Provi
       descriptor.setDescription(ProjectBundle.message("library.attach.sources.description"));
       Library firstLibrary = libraries.get(0).getLibrary();
       VirtualFile[] roots = firstLibrary != null ? firstLibrary.getFiles(OrderRootType.CLASSES) : VirtualFile.EMPTY_ARRAY;
-      VirtualFile[] candidates = FileChooser.chooseFiles(descriptor, myProject, roots.length == 0 ? null : PathUtil.getLocalFile(roots[0]));
+      VirtualFile[] candidates = FileChooser.chooseFiles(descriptor, myProject, roots.length == 0 ? null : VfsUtil.getLocalFile(roots[0]));
       if (candidates.length == 0) return ActionCallback.REJECTED;
       VirtualFile[] files = LibrarySourceRootDetectorUtil.scanAndSelectDetectedJavaSourceRoots(myParentComponent, candidates);
       if (files.length == 0) return ActionCallback.REJECTED;

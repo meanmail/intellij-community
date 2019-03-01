@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.file;
 
 import com.intellij.ide.util.PsiNavigationSupport;
@@ -24,7 +10,8 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
-import com.intellij.openapi.progress.ProgressIndicatorProvider;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.ui.Queryable;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.TextRange;
@@ -76,7 +63,7 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
 
   @Override
   public boolean isValid() {
-    return myFile.isValid();
+    return myFile.isValid() && !getProject().isDisposed();
   }
 
   @Override
@@ -139,14 +126,14 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
   @NotNull
   public PsiDirectory[] getSubdirectories() {
     VirtualFile[] files = myFile.getChildren();
-    ArrayList<PsiDirectory> dirs = new ArrayList<PsiDirectory>();
+    ArrayList<PsiDirectory> dirs = new ArrayList<>();
     for (VirtualFile file : files) {
       PsiDirectory dir = myManager.findDirectory(file);
       if (dir != null) {
         dirs.add(dir);
       }
     }
-    return dirs.toArray(new PsiDirectory[dirs.size()]);
+    return dirs.toArray(PsiDirectory.EMPTY_ARRAY);
   }
 
   @Override
@@ -154,7 +141,7 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
   public PsiFile[] getFiles() {
     if (!myFile.isValid()) throw new InvalidVirtualFileAccessException(myFile);
     VirtualFile[] files = myFile.getChildren();
-    ArrayList<PsiFile> psiFiles = new ArrayList<PsiFile>();
+    ArrayList<PsiFile> psiFiles = new ArrayList<>();
     for (VirtualFile file : files) {
       PsiFile psiFile = myManager.findFile(file);
       if (psiFile != null) {
@@ -166,6 +153,7 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
 
   @Override
   public PsiDirectory findSubdirectory(@NotNull String name) {
+    ProgressManager.checkCanceled();
     VirtualFile childVFile = myFile.findChild(name);
     if (childVFile == null) return null;
     return myManager.findDirectory(childVFile);
@@ -173,6 +161,7 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
 
   @Override
   public PsiFile findFile(@NotNull String name) {
+    ProgressManager.checkCanceled();
     VirtualFile childVFile = myFile.findChild(name);
     if (childVFile == null) return null;
     if (!childVFile.isValid()) {
@@ -185,9 +174,11 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
   @Override
   public boolean processChildren(PsiElementProcessor<PsiFileSystemItem> processor) {
     checkValid();
-    ProgressIndicatorProvider.checkCanceled();
 
     for (VirtualFile vFile : myFile.getChildren()) {
+      ProgressManager.checkCanceled();
+      if (!vFile.isValid()) continue;
+
       boolean isDir = vFile.isDirectory();
       if (processor instanceof PsiFileSystemItemProcessor && !((PsiFileSystemItemProcessor)processor).acceptItem(vFile.getName(), isDir)) {
         continue;
@@ -208,13 +199,10 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
     checkValid();
 
     VirtualFile[] files = myFile.getChildren();
-    final ArrayList<PsiElement> children = new ArrayList<PsiElement>(files.length);
-    processChildren(new PsiElementProcessor<PsiFileSystemItem>() {
-      @Override
-      public boolean execute(@NotNull final PsiFileSystemItem element) {
-        children.add(element);
-        return true;
-      }
+    final ArrayList<PsiElement> children = new ArrayList<>(files.length);
+    processChildren(element -> {
+      children.add(element);
+      return true;
     });
 
     return PsiUtilCore.toPsiElementArray(children);
@@ -364,7 +352,8 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
       else {
         copyVFile = VfsUtilCore.copyFile(this, vFile, parent, newName);
       }
-      if (copyVFile == null) throw new IncorrectOperationException("File was not copied: " + vFile);
+
+      DumbService.getInstance(getProject()).completeJustSubmittedTasks();
 
       final PsiFile copyPsi = myManager.findFile(copyVFile);
       if (copyPsi == null) throw new IncorrectOperationException("Could not find file " + copyVFile + " after copying " + vFile);
@@ -514,6 +503,7 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
     visitor.visitDirectory(this);
   }
 
+  @Override
   public String toString() {
     return "PsiDirectory:" + myFile.getPresentableUrl();
   }
@@ -540,11 +530,31 @@ public class PsiDirectoryImpl extends PsiElementBase implements PsiDirectory, Qu
 
   @Override
   protected Icon getElementIcon(final int flags) {
-    return PlatformIcons.DIRECTORY_CLOSED_ICON;
+    return PlatformIcons.FOLDER_ICON;
   }
 
   @Override
   public void putInfo(@NotNull Map<String, String> info) {
     info.put("fileName", getName());
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+
+    PsiDirectoryImpl directory = (PsiDirectoryImpl)o;
+
+    if (!myManager.equals(directory.myManager)) return false;
+    if (!myFile.equals(directory.myFile)) return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    int result = myManager.hashCode();
+    result = 31 * result + myFile.hashCode();
+    return result;
   }
 }

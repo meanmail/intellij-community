@@ -1,22 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.notification.impl.ui;
 
 import com.intellij.notification.NotificationDisplayType;
-import com.intellij.notification.impl.*;
+import com.intellij.notification.impl.NotificationParentGroup;
+import com.intellij.notification.impl.NotificationParentGroupBean;
+import com.intellij.notification.impl.NotificationSettings;
+import com.intellij.notification.impl.NotificationsConfigurationImpl;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ui.ComboBoxTableRenderer;
 import com.intellij.openapi.ui.StripeTable;
@@ -47,8 +36,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author spleaner
@@ -97,6 +86,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     myTable.removeSelected();
   }
 
+  @Override
   public void dispose() {
     myTable = null;
   }
@@ -195,7 +185,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     private static final int LOG_COLUMN = 2;
     private static final int READ_ALOUD_COLUMN = 3;
 
-    public NotificationsTreeTable() {
+    NotificationsTreeTable() {
       super(new NotificationsTreeTableModel());
       StripeTable.apply(this);
       setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -304,7 +294,7 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
   private static class TreeColumnCellRenderer extends JLabel implements TreeCellRenderer {
     private final JTable myTable;
 
-    public TreeColumnCellRenderer(@NotNull JTable table) {
+    TreeColumnCellRenderer(@NotNull JTable table) {
       myTable = table;
       setHorizontalAlignment(SwingConstants.CENTER);
       setVerticalAlignment(SwingConstants.CENTER);
@@ -328,49 +318,40 @@ public class NotificationsConfigurablePanel extends JPanel implements Disposable
     private final List<SettingsWrapper> mySettings = new ArrayList<>();
     private JTree myTree;
 
-    public NotificationsTreeTableModel() {
+    NotificationsTreeTableModel() {
       super(null);
 
       List<DefaultMutableTreeNode> rootChildren = new ArrayList<>();
 
-      if (NotificationsManagerImpl.newEnabled()) {
-        Map<NotificationParentGroupBean, List<DefaultMutableTreeNode>> parentChildrenTable = new HashMap<>();
-        for (NotificationSettings setting : NotificationsConfigurationImpl.getInstanceImpl().getAllSettings()) {
-          SettingsWrapper wrapper = new SettingsWrapper(setting);
-          mySettings.add(wrapper);
+      Map<NotificationParentGroupBean, List<DefaultMutableTreeNode>> parentChildrenTable = new HashMap<>();
+      for (NotificationSettings setting : NotificationsConfigurationImpl.getInstanceImpl().getAllSettings()) {
+        SettingsWrapper wrapper = new SettingsWrapper(setting);
+        mySettings.add(wrapper);
 
-          NotificationParentGroupBean parentGroup = NotificationParentGroup.findParent(setting);
-          DefaultMutableTreeNode treeNode = new DefaultMutableTreeNode(wrapper, false);
-          if (parentGroup == null) {
-            rootChildren.add(treeNode);
-          }
-          else {
-            wrapper.myTitle = NotificationParentGroup.getReplaceTitle(wrapper.getGroupId());
-            if (wrapper.myTitle == null && parentGroup.titlePrefix != null) {
-              wrapper.myTitle = StringUtil.substringAfter(wrapper.getGroupId(), parentGroup.titlePrefix);
-            }
-
-            List<DefaultMutableTreeNode> children = parentChildrenTable.get(parentGroup);
-            if (children == null) {
-              parentChildrenTable.put(parentGroup, children = new ArrayList<>());
-            }
-            children.add(treeNode);
-          }
+        NotificationParentGroupBean parentGroup = NotificationParentGroup.findParent(setting);
+        DefaultMutableTreeNode treeNode = new DefaultMutableTreeNode(wrapper, false);
+        if (parentGroup == null) {
+          rootChildren.add(treeNode);
         }
-
-        for (NotificationParentGroupBean parentGroup : NotificationParentGroup.getParents()) {
-          if (parentGroup.parentId == null) {
-            DefaultMutableTreeNode node = new DefaultMutableTreeNode(parentGroup);
-            addParentGroup(parentGroup, node, parentChildrenTable);
-            rootChildren.add(node);
+        else {
+          wrapper.myTitle = NotificationParentGroup.getReplaceTitle(wrapper.getGroupId());
+          if (wrapper.myTitle == null && parentGroup.titlePrefix != null) {
+            wrapper.myTitle = StringUtil.substringAfter(wrapper.getGroupId(), parentGroup.titlePrefix);
           }
+
+          List<DefaultMutableTreeNode> children = parentChildrenTable.get(parentGroup);
+          if (children == null) {
+            parentChildrenTable.put(parentGroup, children = new ArrayList<>());
+          }
+          children.add(treeNode);
         }
       }
-      else {
-        for (NotificationSettings setting : NotificationsConfigurationImpl.getInstanceImpl().getAllSettings()) {
-          SettingsWrapper wrapper = new SettingsWrapper(setting);
-          mySettings.add(wrapper);
-          rootChildren.add(new DefaultMutableTreeNode(wrapper, false));
+
+      for (NotificationParentGroupBean parentGroup : NotificationParentGroup.getParents()) {
+        if (parentGroup.parentId == null) {
+          DefaultMutableTreeNode node = new DefaultMutableTreeNode(parentGroup);
+          addParentGroup(parentGroup, node, parentChildrenTable);
+          rootChildren.add(node);
         }
       }
 

@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.integration;
 
 import com.intellij.openapi.util.Couple;
@@ -97,7 +98,7 @@ public class YouTrackIntegrationTest extends TaskManagerTestCase {
 
   @NotNull
   private String createIssue(@NotNull HttpClient client) throws IOException {
-    // http PUT "http://trackers-tests.labs.intellij.net:8067/rest/issue" project==BTYT4TT "summary==First issue created via REST API" 
+    // http PUT "http://trackers-tests.labs.intellij.net:8067/rest/issue" project==BTYT4TT "summary==First issue created via REST API"
     final PutMethod method = new PutMethod(myRepository.getUrl() + "/rest/issue");
     method.setQueryString(new NameValuePair[] {
       new NameValuePair("project", "BTYT4TT"),

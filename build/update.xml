@@ -1,23 +1,8 @@
-<!--
-  ~ Copyright 2000-2010 JetBrains s.r.o.
-  ~
-  ~ Licensed under the Apache License, Version 2.0 (the "License");
-  ~ you may not use this file except in compliance with the License.
-  ~ You may obtain a copy of the License at
-  ~
-  ~ http://www.apache.org/licenses/LICENSE-2.0
-  ~
-  ~ Unless required by applicable law or agreed to in writing, software
-  ~ distributed under the License is distributed on an "AS IS" BASIS,
-  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-  ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
-  -->
-<project name="IntelliJ IDEA CE build file" default="layout">
+<!-- Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file. -->
+<project name="IntelliJ IDEA CE developer's update" default="layout">
   <dirname property="build" file="${ant.file}"/>
   <property name="project.home" value="${build}/../"/>
   <property name="gant.home" value="${project.home}/build/lib/gant"/>
-  <property name="modules.output" value="${project.home}/out"/>
 
   <macrodef name="run">
     <attribute name="script"/>
@@ -25,33 +10,14 @@
     <attribute name="deploy"/>
 
     <sequential>
-      <java classname="org.apache.tools.ant.Main" fork="true" failonerror="true" dir="${project.home}">
-        <sysproperty key="workIdeaHome" value="${work.idea.home}"/>
-        <sysproperty key="modulesOutput" value="${modules.output}"/>
-        <sysproperty key="gant.script" value="${project.home}/build/scripts/download_kotlin.gant"/>
-        <sysproperty key="include.kotlin.jars.to.classpath" value="false"/>
-        <classpath>
-          <fileset dir="${project.home}/lib/ant/lib">
-            <include name="*.jar"/>
-          </fileset>
-        </classpath>
-        <arg value="-f"/>
-        <arg value="${project.home}/build/gant.xml"/>
-      </java>
-      <java failonerror="true" classname="org.apache.tools.ant.Main" fork="true">
-        <jvmarg line="-Xms64m -Xmx512m"/>
+      <java classname="org.apache.tools.ant.Main" dir="${project.home}" fork="true" failonerror="true">
+        <jvmarg line="-Xmx512m"/>
         <jvmarg line="&quot;-Ddeploy=@{deploy}&quot;"/>
-        <jvmarg line="&quot;-Dmodules.output=${modules.output}&quot;"/>
         <jvmarg line="&quot;-Dgant.script=@{script}&quot;"/>
         <jvmarg line="&quot;-Dgant.target=@{target}&quot;"/>
-        <jvmarg line="-DmaySkipAndroidPlugin=true"/>
-
         <classpath>
-          <fileset dir="${project.home}/lib/ant/lib">
-            <include name="*.jar"/>
-          </fileset>
+          <fileset dir="${project.home}/lib/ant/lib" includes="*.jar"/>
         </classpath>
-
         <arg value="-f"/>
         <arg value="gant.xml"/>
       </java>
@@ -59,14 +25,14 @@
   </macrodef>
 
   <target name="layout">
-    <run script="${project.home}/build/scripts/dist.gant"
+    <run script="${project.home}/build/scripts/idea_community.gant"
          target="update-from-sources"
          deploy="${project.home}/out/deploy"/>
   </target>
 
-  <target name="build-jars">
-    <run script="${project.home}/build/scripts/dist.gant"
-         target="build-dist-jars"
+  <target name="build-intellij-core">
+    <run script="${project.home}/build/scripts/idea_community.gant"
+         target="build-intellij-core"
          deploy="${project.home}/out/deploy"/>
   </target>
 </project>

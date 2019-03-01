@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.cmdline;
 
 import com.google.protobuf.Message;
@@ -25,9 +11,13 @@ import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.containers.ContainerUtil;
 import com.jgoodies.forms.layout.CellConstraints;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.EventLoopGroup;
+import io.netty.handler.codec.protobuf.ProtobufDecoder;
+import io.netty.resolver.AddressResolverGroup;
 import io.netty.util.NetUtil;
 import net.n3.nanoxml.IXMLBuilder;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.aether.ArtifactRepositoryManager;
 import org.jetbrains.jps.builders.impl.java.EclipseCompilerTool;
 import org.jetbrains.jps.builders.java.JavaCompilingTool;
 import org.jetbrains.jps.builders.java.JavaSourceTransformer;
@@ -40,116 +30,53 @@ import org.jetbrains.org.objectweb.asm.ClassWriter;
 
 import javax.tools.*;
 import java.io.File;
-import java.lang.reflect.Method;
 import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 9/12/11
  */
 public class ClasspathBootstrap {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.cmdline.ClasspathBootstrap");
 
-  private static class OptimizedFileManagerClassHolder {
-    static final String CLASS_NAME = "org.jetbrains.jps.javac.OptimizedFileManager";
-    @Nullable
-    static final Class<StandardJavaFileManager> managerClass;
-    static final Method directoryCacheClearMethod;
-    @Nullable
-    static final String initError;
-    static {
-      Class<StandardJavaFileManager> aClass = null;
-      Method cacheClearMethod = null;
-      String error = null;
-      try {
-        @SuppressWarnings("unchecked")
-        Class<StandardJavaFileManager> c = (Class<StandardJavaFileManager>)Class.forName(CLASS_NAME);
-        aClass = c;
-        try {
-          cacheClearMethod = c.getMethod("fileGenerated", File.class);
-          cacheClearMethod.setAccessible(true);
-        }
-        catch (NoSuchMethodException e) {
-          LOG.info(e);
-        }
-      }
-      catch (Throwable ex) {
-        aClass = null;
-        error = ex.getClass().getName() + ": " + ex.getMessage();
-      }
-      managerClass = aClass;
-      directoryCacheClearMethod = cacheClearMethod;
-      initError = error;
-    }
-
-    private OptimizedFileManagerClassHolder() {
-    }
-  }
-
-  private static class OptimizedFileManager17ClassHolder {
-    static final String CLASS_NAME = "org.jetbrains.jps.javac.OptimizedFileManager17";
-    @Nullable
-    static final Class<StandardJavaFileManager> managerClass;
-    static final Method directoryCacheClearMethod;
-    @Nullable
-    static final String initError;
-    static {
-      Class<StandardJavaFileManager> aClass;
-      Method cacheClearMethod = null;
-      String error = null;
-      try {
-        @SuppressWarnings("unchecked")
-        Class<StandardJavaFileManager> c = (Class<StandardJavaFileManager>)Class.forName(CLASS_NAME);
-        aClass = c;
-        try {
-          cacheClearMethod = c.getMethod("fileGenerated", File.class);
-          cacheClearMethod.setAccessible(true);
-        }
-        catch (NoSuchMethodException e) {
-          LOG.info(e);
-        }
-      }
-      catch (Throwable ex) {
-        aClass = null;
-        error = ex.getClass().getName() + ": " + ex.getMessage();
-      }
-      managerClass = aClass;
-      directoryCacheClearMethod = cacheClearMethod;
-      initError = error;
-    }
-
-    private OptimizedFileManager17ClassHolder() {
-    }
-  }
-
   private ClasspathBootstrap() {
   }
 
-  public static List<String> getBuildProcessApplicationClasspath(boolean isLauncherUsed) {
+  private static final Class<?>[] COMMON_REQUIRED_CLASSES = {
+    Message.class, // protobuf
+    NetUtil.class, // netty common
+    EventLoopGroup.class, // netty transport
+    AddressResolverGroup.class, // netty resolver
+    ByteBufAllocator.class, // netty buffer
+    ProtobufDecoder.class,  // netty codec
+  };
+
+  public static List<String> getBuildProcessApplicationClasspath() {
     final Set<String> cp = ContainerUtil.newHashSet();
 
     cp.add(getResourcePath(BuildMain.class));
+    cp.add(getResourcePath(ExternalJavacProcess.class));  // intellij.platform.jps.build.javac.rt part
 
-    cp.addAll(PathManager.getUtilClassPath()); // util
-    cp.add(getResourcePath(Message.class)); // protobuf
-    cp.add(getResourcePath(NetUtil.class)); // netty
+    cp.addAll(PathManager.getUtilClassPath()); // intellij.platform.util
+
+    for (Class<?> aClass : COMMON_REQUIRED_CLASSES) {
+      cp.add(getResourcePath(aClass));
+    }
+
     cp.add(getResourcePath(ClassWriter.class));  // asm
     cp.add(getResourcePath(ClassVisitor.class));  // asm-commons
-    cp.add(getResourcePath(JpsModel.class));  // jps-model-api
-    cp.add(getResourcePath(JpsModelImpl.class));  // jps-model-impl
-    cp.add(getResourcePath(JpsProjectLoader.class));  // jps-model-serialization
-    cp.add(getResourcePath(AlienFormFileException.class));  // forms-compiler
-    cp.add(getResourcePath(GridConstraints.class));  // forms-rt
+    cp.add(getResourcePath(JpsModel.class));  // intellij.platform.jps.model
+    cp.add(getResourcePath(JpsModelImpl.class));  // intellij.platform.jps.model.impl
+    cp.add(getResourcePath(JpsProjectLoader.class));  // intellij.platform.jps.model.serialization
+    cp.add(getResourcePath(AlienFormFileException.class));  // intellij.java.guiForms.compiler
+    cp.add(getResourcePath(GridConstraints.class));  // intellij.java.guiForms.rt
     cp.add(getResourcePath(CellConstraints.class));  // jGoodies-forms
     cp.addAll(getInstrumentationUtilRoots());
     cp.add(getResourcePath(IXMLBuilder.class));  // nano-xml
-    cp.add(getJpsPluginSystemClassesPath().getAbsolutePath().replace('\\', '/'));
-    
-    //don't forget to update layoutCommunityJps() in layouts.gant accordingly
 
-    if (!isLauncherUsed) {
-      appendJavaCompilerClasspath(cp);
-    }
+    cp.addAll(ContainerUtil.map(ArtifactRepositoryManager.getClassesFromDependencies(), ClasspathBootstrap::getResourcePath));
+
+    cp.addAll(getJavac8RefScannerClasspath());
+    //don't forget to update CommunityStandaloneJpsBuilder.layoutJps accordingly
 
     try {
       final Class<?> cmdLineWrapper = Class.forName("com.intellij.rt.execution.CommandLineWrapper");
@@ -161,41 +88,25 @@ public class ClasspathBootstrap {
     return ContainerUtil.newArrayList(cp);
   }
 
-  public static void appendJavaCompilerClasspath(Collection<String> cp) {
-    final Class<StandardJavaFileManager> optimizedFileManagerClass = getOptimizedFileManagerClass();
-    if (optimizedFileManagerClass != null) {
-      cp.add(getResourcePath(optimizedFileManagerClass));  // optimizedFileManager
-    }
-
-    File file = EclipseCompilerTool.findEcjJarFile();
-    if (file != null) {
-      cp.add(file.getAbsolutePath());
+  public static void appendJavaCompilerClasspath(Collection<? super String> cp, boolean includeEcj) {
+    if (includeEcj) {
+      File file = EclipseCompilerTool.findEcjJarFile();
+      if (file != null) {
+        cp.add(file.getAbsolutePath());
+      }
     }
   }
 
   public static List<File> getExternalJavacProcessClasspath(String sdkHome, JavaCompilingTool compilingTool) {
-    final Set<File> cp = new LinkedHashSet<File>();
+    final Set<File> cp = new LinkedHashSet<>();
     cp.add(getResourceFile(ExternalJavacProcess.class)); // self
     // util
     for (String path : PathManager.getUtilClassPath()) {
       cp.add(new File(path));
     }
-    cp.add(getResourceFile(JpsModel.class));  // jps-model-api
-    cp.add(getResourceFile(JpsModelImpl.class));  // jps-model-impl
-    cp.add(getResourceFile(Message.class)); // protobuf
-    cp.add(getResourceFile(NetUtil.class)); // netty
-    cp.add(getJpsPluginSystemClassesPath());
-    
-    final Class<StandardJavaFileManager> optimizedFileManagerClass = getOptimizedFileManagerClass();
-    if (optimizedFileManagerClass != null) {
-      cp.add(getResourceFile(optimizedFileManagerClass));  // optimizedFileManager, if applicable
-    }
-    else {
-      // last resort
-      final File f = new File(PathManager.getLibPath(), "optimizedFileManager.jar");
-      if (f.exists()) {
-        cp.add(f);
-      }
+
+    for (Class<?> aClass : COMMON_REQUIRED_CLASSES) {
+      cp.add(getResourceFile(aClass));
     }
 
     try {
@@ -216,17 +127,22 @@ public class ClasspathBootstrap {
       else {
         // last resort
         final JavaCompiler systemCompiler = ToolProvider.getSystemJavaCompiler();
+        Class compilerClass;
         if (systemCompiler != null) {
-          final String localJarPath = FileUtil.toSystemIndependentName(getResourceFile(systemCompiler.getClass()).getPath());
-          String relPath = FileUtil.getRelativePath(localJavaHome, localJarPath, '/');
+          compilerClass = systemCompiler.getClass();
+        }
+        else {
+          compilerClass = Class.forName("com.sun.tools.javac.api.JavacTool", false, ClasspathBootstrap.class.getClassLoader());
+        }
+        String localJarPath = FileUtil.toSystemIndependentName(getResourceFile(compilerClass).getPath());
+        String relPath = FileUtil.getRelativePath(localJavaHome, localJarPath, '/');
+        if (relPath != null) {
+          if (relPath.contains("..")) {
+            relPath = FileUtil.getRelativePath(FileUtil.toSystemIndependentName(new File(localJavaHome).getParent()), localJarPath, '/');
+          }
           if (relPath != null) {
-            if (relPath.contains("..")) {
-              relPath = FileUtil.getRelativePath(FileUtil.toSystemIndependentName(new File(localJavaHome).getParent()), localJarPath, '/');
-            }
-            if (relPath != null) {
-              final File targetFile = new File(sdkHome, relPath);
-              cp.add(targetFile);  // tools.jar
-            }
+            final File targetFile = new File(sdkHome, relPath);
+            cp.add(targetFile);  // tools.jar
           }
         }
       }
@@ -237,46 +153,11 @@ public class ClasspathBootstrap {
 
     cp.addAll(compilingTool.getAdditionalClasspath());
 
-    final Class<JavaSourceTransformer> transformerClass = JavaSourceTransformer.class;
-    final ServiceLoader<JavaSourceTransformer> loader = ServiceLoader.load(transformerClass, transformerClass.getClassLoader());
-    for (JavaSourceTransformer t : loader) {
+    for (JavaSourceTransformer t : JavaSourceTransformer.getTransformers()) {
       cp.add(getResourceFile(t.getClass()));
     }
 
-    return new ArrayList<File>(cp);
-  }
-
-  @Nullable
-  public static Class<StandardJavaFileManager> getOptimizedFileManagerClass() {
-    final Class<StandardJavaFileManager> aClass = OptimizedFileManagerClassHolder.managerClass;
-    if (aClass != null) {
-      return aClass;
-    }
-    return OptimizedFileManager17ClassHolder.managerClass;
-  }
-
-  @Nullable
-  public static Method getOptimizedFileManagerCacheClearMethod() {
-    final Method method = OptimizedFileManagerClassHolder.directoryCacheClearMethod;
-    if (method != null) {
-      return method;
-    }
-    return OptimizedFileManager17ClassHolder.directoryCacheClearMethod;
-  }
-
-  @Nullable
-  public static String getOptimizedFileManagerLoadError() {
-    StringBuilder builder = new StringBuilder();
-    if (OptimizedFileManagerClassHolder.initError != null) {
-      builder.append(OptimizedFileManagerClassHolder.initError);
-    }
-    if (OptimizedFileManager17ClassHolder.initError != null) {
-      if (builder.length() > 0) {
-        builder.append("\n");
-      }
-      builder.append(OptimizedFileManager17ClassHolder.initError);
-    }
-    return builder.toString();
+    return new ArrayList<>(cp);
   }
 
   public static String getResourcePath(Class aClass) {
@@ -291,24 +172,24 @@ public class ClasspathBootstrap {
     String instrumentationUtilPath = getResourcePath(NotNullVerifyingInstrumenter.class);
     File instrumentationUtil = new File(instrumentationUtilPath);
     if (instrumentationUtil.isDirectory()) {
-      //running from sources: load classes from .../out/production/instrumentation-util-8
-      return Arrays.asList(instrumentationUtilPath, new File(instrumentationUtil.getParentFile(), "instrumentation-util-8").getAbsolutePath());
+      //running from sources: load classes from .../out/production/intellij.java.compiler.instrumentationUtil.java8
+      return Arrays.asList(instrumentationUtilPath, new File(instrumentationUtil.getParentFile(), "intellij.java.compiler.instrumentationUtil.java8").getAbsolutePath());
     }
     else {
-      //running from jars: instrumentation-util-8 is located in the same jar
+      //running from jars: intellij.java.compiler.instrumentationUtil.java8 is located in the same jar
       return Collections.singletonList(instrumentationUtilPath);
     }
   }
 
-  private static File getJpsPluginSystemClassesPath() {
-    File classesRoot = new File(getResourcePath(ClasspathBootstrap.class));
-    if (classesRoot.isDirectory()) {
-      //running from sources: load classes from .../out/production/jps-plugin-system
-      return new File(classesRoot.getParentFile(), "jps-plugin-system");
+  private static List<String> getJavac8RefScannerClasspath() {
+    String instrumentationPath = getResourcePath(NotNullVerifyingInstrumenter.class);
+    File instrumentationUtil = new File(instrumentationPath);
+    if (instrumentationUtil.isDirectory()) {
+      //running from sources: load classes from .../out/production/intellij.java.jps.javacRefScanner8
+      return Collections.singletonList(new File(instrumentationUtil.getParentFile(), "intellij.java.jps.javacRefScanner8").getAbsolutePath());
     }
     else {
-      return new File(classesRoot.getParentFile(), "rt/jps-plugin-system.jar");
+      return Collections.singletonList(instrumentationPath);
     }
   }
-  
 }

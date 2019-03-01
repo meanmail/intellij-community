@@ -38,12 +38,6 @@ public class HgContentRevision implements ByteBackedContentRevision {
     myRevisionNumber = revisionNumber;
   }
 
-  // The method is used in "Upsource Integration" plugin
-  @NotNull
-  public HgFile getHgFile() {
-    return myHgFile;
-  }
-
   @NotNull
   public static HgContentRevision create(Project project, @NotNull HgFile hgFile, @NotNull HgRevisionNumber revisionNumber) {
     return !hgFile.toFilePath().getFileType().isBinary()
@@ -53,18 +47,20 @@ public class HgContentRevision implements ByteBackedContentRevision {
 
   @Nullable
   @Override
-  public String getContent() throws VcsException {
+  public String getContent() {
     if (myRevisionNumber.isWorkingVersion()) return VcsUtil.getFileContent(myHgFile.getFile().getPath());
     final HgFile fileToCat = HgUtil.getFileNameInTargetRevision(myProject, myRevisionNumber, myHgFile);
     return CharsetToolkit.bytesToString(HgUtil.loadContent(myProject, myRevisionNumber, fileToCat), getFile().getCharset());
   }
 
+  @Override
   public byte[] getContentAsBytes() {
     if (myRevisionNumber.isWorkingVersion()) return VcsUtil.getFileByteContent(myHgFile.getFile());
     final HgFile fileToCat = HgUtil.getFileNameInTargetRevision(myProject, myRevisionNumber, myHgFile);
     return HgUtil.loadContent(myProject, myRevisionNumber, fileToCat);
   }
 
+  @Override
   @NotNull
   public FilePath getFile() {
     if (filePath == null) {
@@ -73,6 +69,7 @@ public class HgContentRevision implements ByteBackedContentRevision {
     return filePath;
   }
 
+  @Override
   @NotNull
   public HgRevisionNumber getRevisionNumber() {
     return myRevisionNumber;

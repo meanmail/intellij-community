@@ -26,6 +26,7 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
@@ -89,12 +90,11 @@ public class Xsd2InstanceUtils {
         }
       }
 
-        XmlObject[] schemas = (XmlObject[]) sdocs.toArray(new XmlObject[sdocs.size()]);
+        XmlObject[] schemas = (XmlObject[]) sdocs.toArray(new XmlObject[0]);
 
         SchemaTypeSystem sts = null;
         if (schemas.length > 0)
         {
-            Collection errors = new ArrayList();
             XmlOptions compileOptions = new XmlOptions();
             if (dl)
                 compileOptions.setCompileDownloadUrls();
@@ -105,10 +105,12 @@ public class Xsd2InstanceUtils {
 
           try {
             sts = XmlBeans.compileXsd(schemas, XmlBeans.getBuiltinTypeSystem(), compileOptions);
-          } catch (XmlException e) {
-              String out = "Schema compilation errors: ";
-              for (Object error : errors) out += "\n" + error;
-              throw new IllegalArgumentException(out);
+          }
+          catch (XmlException e) {
+            StringBuilder out = new StringBuilder("Schema compilation errors: ");
+            Collection errors = e.getErrors();
+            for (Object error : errors) out.append("\n").append(error);
+              throw new IllegalArgumentException(out.toString());
           }
         }
 
@@ -199,8 +201,9 @@ public class Xsd2InstanceUtils {
         } else if ("schemaLocation".equals(xmlAttribute.getName())) {
           final PsiReference[] references = xmlAttribute.getValueElement().getReferences();
 
-          if (references.length > 0) {
-            PsiElement psiElement = references[0].resolve();
+          PsiReference reference = ArrayUtil.getLastElement(references);
+          if (reference != null) {
+            PsiElement psiElement = reference.resolve();
 
             if (psiElement instanceof XmlFile) {
               final String s = processAndSaveAllSchemas(((XmlFile) psiElement), scannedToFileName, schemaReferenceProcessor);

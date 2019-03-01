@@ -23,7 +23,6 @@ import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.CommitResultHandler;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
-import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.history.VcsHistoryProvider;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
 import com.intellij.openapi.vcs.merge.MergeDialogCustomizer;
@@ -37,7 +36,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
-import java.io.File;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -50,14 +48,14 @@ import java.util.Map;
  */
 public class HgMockVcsHelper extends AbstractVcsHelper {
 
-  private Collection<VcsHelperListener> myListeners = new THashSet<>();
+  private final Collection<VcsHelperListener> myListeners = new THashSet<>();
 
   public HgMockVcsHelper(@NotNull Project project) {
     super(project);
   }
 
   @Override
-  public void showErrors(List<VcsException> abstractVcsExceptions, @NotNull String tabDisplayName) {
+  public void showErrors(List<? extends VcsException> abstractVcsExceptions, @NotNull String tabDisplayName) {
   }
 
   @Override
@@ -78,11 +76,11 @@ public class HgMockVcsHelper extends AbstractVcsHelper {
   }
 
   @Override
-  public void showDifferences(VcsFileRevision cvsVersionOn, VcsFileRevision cvsVersionOn1, File file) {
+  public void showChangesListBrowser(CommittedChangeList changelist, @Nls String title) {
   }
 
   @Override
-  public void showChangesListBrowser(CommittedChangeList changelist, @Nls String title) {
+  public void showChangesListBrowser(CommittedChangeList changelist, @Nullable VirtualFile toSelect, @Nls String title) {
   }
 
   @Override
@@ -105,12 +103,6 @@ public class HgMockVcsHelper extends AbstractVcsHelper {
   }
 
   @Override
-  public <T extends CommittedChangeList, U extends ChangeBrowserSettings> T chooseCommittedChangeList(@NotNull CommittedChangesProvider<T, U> provider,
-                                                                                                      RepositoryLocation location) {
-    return null;
-  }
-
-  @Override
   public void openCommittedChangesTab(AbstractVcs vcs, VirtualFile root, ChangeBrowserSettings settings, int maxCount, String title) {
   }
 
@@ -124,52 +116,65 @@ public class HgMockVcsHelper extends AbstractVcsHelper {
 
   @NotNull
   @Override
-  public List<VirtualFile> showMergeDialog(List<VirtualFile> files, MergeProvider provider, @NotNull MergeDialogCustomizer mergeDialogCustomizer) {
+  public List<VirtualFile> showMergeDialog(List<? extends VirtualFile> files, MergeProvider provider, @NotNull MergeDialogCustomizer mergeDialogCustomizer) {
     return null;
   }
 
   @Override
-  public void showFileHistory(@NotNull VcsHistoryProvider historyProvider, @NotNull FilePath path, @NotNull AbstractVcs vcs, String repositoryPath) {
+  public void showFileHistory(@NotNull VcsHistoryProvider historyProvider, @NotNull FilePath path, @NotNull AbstractVcs vcs) {
   }
 
   @Override
   public void showFileHistory(@NotNull VcsHistoryProvider historyProvider,
                               AnnotationProvider annotationProvider,
                               @NotNull FilePath path,
-                              String repositoryPath,
                               @NotNull AbstractVcs vcs) {
   }
 
   @Override
-  public void showRollbackChangesDialog(List<Change> changes) {
+  public void showRollbackChangesDialog(List<? extends Change> changes) {
   }
 
   @Nullable
   @Override
-  public Collection<VirtualFile> selectFilesToProcess(List<VirtualFile> files,
+  public Collection<VirtualFile> selectFilesToProcess(List<? extends VirtualFile> files,
                                                       String title,
                                                       @Nullable String prompt,
                                                       String singleFileTitle,
                                                       String singleFilePromptTemplate,
-                                                      VcsShowConfirmationOption confirmationOption) {
+                                                      @NotNull VcsShowConfirmationOption confirmationOption) {
     notifyListeners();
     return null;
   }
   
   @Nullable
   @Override
-  public Collection<FilePath> selectFilePathsToProcess(List<FilePath> files,
+  public Collection<FilePath> selectFilePathsToProcess(@NotNull List<? extends FilePath> files,
                                                        String title,
                                                        @Nullable String prompt,
                                                        String singleFileTitle,
                                                        String singleFilePromptTemplate,
-                                                       VcsShowConfirmationOption confirmationOption) {
+                                                       @NotNull VcsShowConfirmationOption confirmationOption) {
+    notifyListeners();
+    return null;
+  }
+
+  @Nullable
+  @Override
+  public Collection<FilePath> selectFilePathsToProcess(@NotNull List<? extends FilePath> files,
+                                                       String title,
+                                                       @Nullable String prompt,
+                                                       @Nullable String singleFileTitle,
+                                                       @Nullable String singleFilePromptTemplate,
+                                                       @NotNull VcsShowConfirmationOption confirmationOption,
+                                                       @Nullable String okActionName,
+                                                       @Nullable String cancelActionName) {
     notifyListeners();
     return null;
   }
 
   @Override
-  public boolean commitChanges(@NotNull Collection<Change> changes, @NotNull LocalChangeList initialChangeList,
+  public boolean commitChanges(@NotNull Collection<? extends Change> changes, @NotNull LocalChangeList initialChangeList,
                                @NotNull String commitMessage, @Nullable CommitResultHandler customResultHandler) {
     throw new UnsupportedOperationException();
   }

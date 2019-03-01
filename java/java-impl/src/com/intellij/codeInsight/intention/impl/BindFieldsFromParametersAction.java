@@ -28,7 +28,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
+import com.intellij.psi.codeStyle.SuggestedNameInfo;
+import com.intellij.psi.codeStyle.VariableKind;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -64,10 +67,11 @@ public class BindFieldsFromParametersAction extends BaseIntentionAction implemen
       for (PsiParameter parameter : parameters) {
         params.add(SmartPointerManager.getInstance(project).createSmartPsiElementPointer(parameter));
       }
-      if (params.isEmpty()) return false;
       if (params.size() == 1 && psiParameter != null) return false;
+      Iterator<SmartPsiElementPointer<PsiParameter>> iterator = params.iterator();
+      if (!iterator.hasNext()) return false;
       if (psiParameter == null) {
-        psiParameter = params.iterator().next().getElement();
+        psiParameter = iterator.next().getElement();
         LOG.assertTrue(psiParameter != null);
       }
 
@@ -166,7 +170,7 @@ public class BindFieldsFromParametersAction extends BaseIntentionAction implemen
     for (PsiParameter parameter : parameters) {
       types.putValue(parameter.getType(), parameter);
     }
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(project);
+    final JavaCodeStyleSettings settings = JavaCodeStyleSettings.getInstance(file);
     final boolean preferLongerNames = settings.PREFER_LONGER_NAMES;
     for (PsiParameter selected : parameters) {
       try {
@@ -226,7 +230,7 @@ public class BindFieldsFromParametersAction extends BaseIntentionAction implemen
         if (calledMethod != null && calledMethod.isConstructor()) {
           for (PsiExpression arg : ((PsiMethodCallExpression)expression).getArgumentList().getExpressions()) {
             if (arg instanceof PsiReferenceExpression) {
-              ContainerUtil.addIfNotNull(((PsiReferenceExpression)arg).resolve(), resolvedInSuperOrThis);
+              ContainerUtil.addIfNotNull(resolvedInSuperOrThis, ((PsiReferenceExpression)arg).resolve());
             }
           }
         }
@@ -238,8 +242,7 @@ public class BindFieldsFromParametersAction extends BaseIntentionAction implemen
   @NotNull
   private static ParameterClassMember[] sortByParameterIndex(@NotNull ParameterClassMember[] members, @NotNull PsiMethod method) {
     final PsiParameterList parameterList = method.getParameterList();
-    Arrays.sort(members, (o1, o2) -> parameterList.getParameterIndex(o1.getParameter()) -
-                                 parameterList.getParameterIndex(o2.getParameter()));
+    Arrays.sort(members, Comparator.comparingInt(o -> parameterList.getParameterIndex(o.getParameter())));
     return members;
   }
 
@@ -283,7 +286,7 @@ public class BindFieldsFromParametersAction extends BaseIntentionAction implemen
 
   private static void processParameter(final Project project,
                                        final PsiParameter parameter,
-                                       final Set<String> usedNames) {
+                                       final Set<? super String> usedNames) {
     IdeDocumentHistory.getInstance(project).includeCurrentPlaceAsChangePlace();
     final PsiType type = FieldFromParameterUtils.getSubstitutedType(parameter);
     final JavaCodeStyleManager styleManager = JavaCodeStyleManager.getInstance(project);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,13 @@ import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.*;
 import com.intellij.icons.AllIcons;
 import com.intellij.lang.Language;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiComment;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiWhiteSpace;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ThreeState;
@@ -60,6 +60,7 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
     myReplaceOtherSuppressionIds = replaceOtherSuppressionIds;
   }
 
+  @Override
   public void setShouldBeAppliedToInjectionHost(@NotNull ThreeState shouldBeAppliedToInjectionHost) {
     myShouldBeAppliedToInjectionHost = shouldBeAppliedToInjectionHost;
   }
@@ -78,7 +79,7 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   @Override
   public Icon getIcon(int flags) {
-    return AllIcons.General.InspectionsOff;
+    return AllIcons.Ide.HectorOff;
   }
 
   private String myText = "";
@@ -89,10 +90,6 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   protected void setText(@NotNull String text) {
     myText = text;
-  }
-
-  public boolean startInWriteAction() {
-    return true;
   }
 
   @Override
@@ -109,11 +106,12 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   @Override
   public boolean isSuppressAll() {
-    return SuppressionUtil.ALL.equals(myID);
+    return SuppressionUtil.ALL.equalsIgnoreCase(myID);
   }
 
   protected final void replaceSuppressionComment(@NotNull final PsiElement comment) {
-    SuppressionUtil.replaceSuppressionComment(comment, myID, myReplaceOtherSuppressionIds, getCommentLanguage(comment));
+    if (!FileModificationService.getInstance().preparePsiElementsForWrite(comment)) return;
+    WriteAction.run(() -> SuppressionUtil.replaceSuppressionComment(comment, myID, myReplaceOtherSuppressionIds, getCommentLanguage(comment)));
   }
 
   protected void createSuppression(@NotNull Project project,
@@ -142,8 +140,6 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
     PsiElement container = getContainer(element);
     if (container == null) return;
 
-    if (!FileModificationService.getInstance().preparePsiElementForWrite(container)) return;
-
     if (replaceSuppressionComments(container)) return;
 
     createSuppression(project, element, container);
@@ -165,7 +161,7 @@ public abstract class AbstractBatchSuppressByNoInspectionCommentFix implements C
 
   @Nullable
   protected List<? extends PsiElement> getCommentsFor(@NotNull final PsiElement container) {
-    final PsiElement prev = PsiTreeUtil.skipSiblingsBackward(container, PsiWhiteSpace.class);
+    final PsiElement prev = PsiTreeUtil.skipWhitespacesBackward(container);
     if (prev == null) {
       return null;
     }

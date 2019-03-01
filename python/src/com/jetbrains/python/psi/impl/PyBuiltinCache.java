@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.psi.impl;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
@@ -25,13 +24,13 @@ import com.intellij.openapi.roots.JdkOrderEntry;
 import com.intellij.openapi.roots.OrderEntry;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.roots.impl.ModuleLibraryOrderEntryImpl;
-import com.intellij.openapi.util.Ref;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
-import com.jetbrains.python.PyNames;
+import com.intellij.psi.impl.source.resolve.FileContextUtil;
+import com.intellij.psi.util.QualifiedName;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.psi.*;
+import com.jetbrains.python.psi.resolve.PyResolveImportUtil;
 import com.jetbrains.python.psi.resolve.PythonSdkPathCache;
 import com.jetbrains.python.psi.types.*;
 import com.jetbrains.python.sdk.PythonSdkType;
@@ -39,8 +38,11 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.File;
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static com.jetbrains.python.psi.PyUtil.as;
 
 /**
  * Provides access to Python builtins via skeletons.
@@ -48,7 +50,7 @@ import java.util.*;
 public class PyBuiltinCache {
   public static final String BUILTIN_FILE = "__builtin__.py";
   public static final String BUILTIN_FILE_3K = "builtins.py";
-  public static final String EXCEPTIONS_FILE = "exceptions.py";
+  private static final String EXCEPTIONS_FILE = "exceptions.py";
 
   private static final PyBuiltinCache DUD_INSTANCE = new PyBuiltinCache(null, null);
 
@@ -102,12 +104,18 @@ public class PyBuiltinCache {
   }
 
   @Nullable
-  public static Sdk findSdkForNonModuleFile(PsiFileSystemItem psiFile) {
-    Project project = psiFile.getProject();
+  public static Sdk findSdkForNonModuleFile(@NotNull PsiFileSystemItem psiFile) {
+    final VirtualFile vfile;
+    if (psiFile instanceof PsiFile) {
+      final PsiFile contextFile = FileContextUtil.getContextFile(psiFile);
+      vfile = contextFile != null ? contextFile.getOriginalFile().getVirtualFile() : null;
+    }
+    else {
+      vfile = psiFile.getVirtualFile();
+    }
     Sdk sdk = null;
-    final VirtualFile vfile = psiFile instanceof PsiFile ? ((PsiFile) psiFile).getOriginalFile().getVirtualFile() : psiFile.getVirtualFile();
     if (vfile != null) { // reality
-      final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(project);
+      final ProjectRootManager projectRootManager = ProjectRootManager.getInstance(psiFile.getProject());
       sdk = projectRootManager.getProjectSdk();
       if (sdk == null) {
         final List<OrderEntry> orderEntries = projectRootManager.getFileIndex().getOrderEntriesForFile(vfile);
@@ -130,31 +138,21 @@ public class PyBuiltinCache {
   }
 
   @Nullable
-  public static PyFile getSkeletonFile(final @NotNull Project project, @NotNull Sdk sdk, @NotNull String name) {
+  public static PyFile getExceptionsForSdk(@NotNull Project project, @NotNull Sdk sdk) {
+    return getSkeletonFile(project, sdk, EXCEPTIONS_FILE);
+  }
+
+  @Nullable
+  private static PyFile getSkeletonFile(final @NotNull Project project, @NotNull Sdk sdk, @NotNull String name) {
     SdkTypeId sdkType = sdk.getSdkType();
     if (sdkType instanceof PythonSdkType) {
-      // dig out the builtins file, create an instance based on it
-      final String[] urls = sdk.getRootProvider().getUrls(PythonSdkType.BUILTIN_ROOT_TYPE);
-      for (String url : urls) {
-        if (url.contains(PythonSdkType.SKELETON_DIR_NAME)) {
-          final String builtins_url = url + "/" + name;
-          File builtins = new File(VfsUtilCore.urlToPath(builtins_url));
-          if (builtins.isFile() && builtins.canRead()) {
-            final VirtualFile builtins_vfile = LocalFileSystem.getInstance().findFileByIoFile(builtins);
-            if (builtins_vfile != null) {
-              final Ref<PyFile> result = Ref.create();
-              ApplicationManager.getApplication().runReadAction(() -> {
-                PsiFile file = PsiManager.getInstance(project).findFile(builtins_vfile);
-                if (file instanceof PyFile) {
-                  result.set((PyFile)file);
-                }
-              });
-              return result.get();
-
-            }
-          }
-        }
+      final int index = name.indexOf(".");
+      if (index != -1) {
+        name = name.substring(0, index);
       }
+      final List<PsiElement> results = PyResolveImportUtil.resolveQualifiedName(QualifiedName.fromComponents(name),
+                                                                                PyResolveImportUtil.fromSdk(project, sdk));
+      return as(ContainerUtil.getFirstItem(results), PyFile.class);
     }
     return null;
   }
@@ -163,39 +161,9 @@ public class PyBuiltinCache {
   public PyType createLiteralCollectionType(final PySequenceExpression sequence, final String name, @NotNull TypeEvalContext context) {
     final PyClass cls = getClass(name);
     if (cls != null) {
-      return new PyCollectionTypeImpl(cls, false, getSequenceElementTypes(sequence, context));
+      return new PyCollectionTypeImpl(cls, false, PyCollectionTypeUtil.INSTANCE.getTypeByModifications(sequence, context));
     }
     return null;
-  }
-
-  @NotNull
-  private static List<PyType> getSequenceElementTypes(@NotNull PySequenceExpression sequence, @NotNull TypeEvalContext context) {
-    final PyExpression[] elements = sequence.getElements();
-    if (elements.length == 0 || elements.length > 10 /* performance */) {
-      return Collections.singletonList(null);
-    }
-    final PyType firstElementType = context.getType(elements[0]);
-    if (firstElementType == null) {
-      return Collections.singletonList(null);
-    }
-    for (int i = 1; i < elements.length; i++) {
-      final PyType elementType = context.getType(elements[i]);
-      if (elementType == null || !elementType.equals(firstElementType)) {
-        return Collections.singletonList(null);
-      }
-    }
-    if (sequence instanceof PyDictLiteralExpression) {
-      if (firstElementType instanceof PyTupleType) {
-        final PyTupleType tupleType = (PyTupleType)firstElementType;
-        if (tupleType.getElementCount() == 2) {
-          return Arrays.asList(tupleType.getElementType(0), tupleType.getElementType(1));
-        }
-      }
-      return Arrays.asList(null, null);
-    }
-    else {
-      return Collections.singletonList(firstElementType);
-    }
   }
 
   @Nullable
@@ -347,18 +315,30 @@ public class PyBuiltinCache {
     }
   }
 
-  private PyType getStrOrUnicodeType() {
-    return PyUnionType.union(getObjectType("str"), getObjectType("unicode"));
+  @Nullable
+  public PyType getStrOrUnicodeType() {
+    return getStrOrUnicodeType(false);
+  }
+
+  @Nullable
+  public PyType getStrOrUnicodeType(boolean definition) {
+    PyClassLikeType str = getObjectType("str");
+    PyClassLikeType unicode = getObjectType("unicode");
+
+    if (str != null && str.isDefinition() ^ definition) {
+      str = definition ? str.toClass() : str.toInstance();
+    }
+
+    if (unicode != null && unicode.isDefinition() ^ definition) {
+      unicode = definition ? unicode.toClass() : unicode.toInstance();
+    }
+
+    return PyUnionType.union(str, unicode);
   }
 
   @Nullable
   public PyClassType getBoolType() {
     return getObjectType("bool");
-  }
-
-  @Nullable
-  public PyClassType getOldstyleClassobjType() {
-    return getObjectType(PyNames.FAKE_OLD_BASE);
   }
 
   @Nullable

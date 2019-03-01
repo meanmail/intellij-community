@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
 import com.intellij.openapi.vfs.newvfs.NewVirtualFileSystem;
-import com.intellij.util.Processor;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.SystemIndependent;
 
 import java.io.File;
 import java.util.Collection;
@@ -29,10 +14,9 @@ import java.util.Set;
 import static java.util.Collections.singleton;
 
 public abstract class LocalFileSystem extends NewVirtualFileSystem {
-  @NonNls public static final String PROTOCOL = StandardFileSystems.FILE_PROTOCOL;
-  @NonNls public static final String PROTOCOL_PREFIX = StandardFileSystems.FILE_PROTOCOL_PREFIX;
+  public static final String PROTOCOL = StandardFileSystems.FILE_PROTOCOL;
+  public static final String PROTOCOL_PREFIX = StandardFileSystems.FILE_PROTOCOL_PREFIX;
 
-  @SuppressWarnings("UtilityClassWithoutPrivateConstructor")
   private static class LocalFileSystemHolder {
     private static final LocalFileSystem ourInstance = (LocalFileSystem)VirtualFileManager.getInstance().getFileSystem(PROTOCOL);
   }
@@ -51,26 +35,22 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
    * Performs a non-recursive synchronous refresh of specified files.
    *
    * @param files files to refresh.
-   * @since 6.0
    */
-  public abstract void refreshIoFiles(@NotNull Iterable<File> files);
+  public abstract void refreshIoFiles(@NotNull Iterable<? extends File> files);
 
-  public abstract void refreshIoFiles(@NotNull Iterable<File> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
+  public abstract void refreshIoFiles(@NotNull Iterable<? extends File> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
 
   /**
    * Performs a non-recursive synchronous refresh of specified files.
    *
    * @param files files to refresh.
-   * @since 6.0
    */
-  public abstract void refreshFiles(@NotNull Iterable<VirtualFile> files);
+  public abstract void refreshFiles(@NotNull Iterable<? extends VirtualFile> files);
 
-  public abstract void refreshFiles(@NotNull Iterable<VirtualFile> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
+  public abstract void refreshFiles(@NotNull Iterable<? extends VirtualFile> files, boolean async, boolean recursive, @Nullable Runnable onFinish);
 
   public interface WatchRequest {
-    @NotNull
-    String getRootPath();
-
+    @NotNull @SystemIndependent String getRootPath();
     boolean isToWatchRecursively();
   }
 
@@ -93,10 +73,8 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
     }
   }
 
-  public void removeWatchedRoot(@Nullable WatchRequest watchRequest) {
-    if (watchRequest != null) {
-      removeWatchedRoots(singleton(watchRequest));
-    }
+  public void removeWatchedRoot(@NotNull WatchRequest watchRequest) {
+    removeWatchedRoots(singleton(watchRequest));
   }
 
   public void removeWatchedRoots(@NotNull Collection<WatchRequest> watchRequests) {
@@ -113,6 +91,10 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
     return result.size() == 1 ? result.iterator().next() : null;
   }
 
+  /**
+   * Stops watching given watch requests and starts watching new paths.
+   * May do nothing and return the same set of requests when it contains exactly the same paths.
+   */
   @NotNull
   public abstract Set<WatchRequest> replaceWatchedRoots(@NotNull Collection<WatchRequest> watchRequests,
                                                         @Nullable Collection<String> recursiveRoots,
@@ -133,6 +115,4 @@ public abstract class LocalFileSystem extends NewVirtualFileSystem {
    * @param handler the handler instance.
    */
   public abstract void unregisterAuxiliaryFileOperationsHandler(@NotNull LocalFileOperationsHandler handler);
-
-  public abstract boolean processCachedFilesInSubtree(@NotNull VirtualFile file, @NotNull Processor<VirtualFile> processor);
 }

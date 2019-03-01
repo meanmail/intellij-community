@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 IS_PY3K = False
 
@@ -9,12 +9,12 @@ try:
 except AttributeError:
     pass  #Not all versions have sys.version_info
 
-import thriftpy
-profiler = thriftpy.load(os.path.join(os.path.dirname(os.path.realpath(__file__)), "profiler.thrift"), module_name="profiler_thrift")
+import _shaded_thriftpy
+profiler = _shaded_thriftpy.load(os.path.join(os.path.dirname(os.path.realpath(__file__)), "profiler.thrift"), module_name="profiler_thrift")
 
 
-from thriftpy.protocol.binary import TBinaryProtocolFactory
-from thriftpy.transport import TMemoryBuffer
+from _shaded_thriftpy.protocol.binary import TBinaryProtocolFactory
+from _shaded_thriftpy.transport import TMemoryBuffer
 
 # noinspection PyUnresolvedReferences
 from profiler_thrift import ProfilerRequest, ProfilerResponse, Stats, FuncStat, Function, TreeStats, CallTreeStat
@@ -34,3 +34,8 @@ def deserialize(base,
     base.read(protocol)
     return base
 
+
+if IS_PY3K:
+    import pkgutil
+else:
+    from _imps import _pydev_pkgutil_old as pkgutil

@@ -19,8 +19,6 @@ package org.intellij.plugins.relaxNG.model.descriptors;
 import com.intellij.codeInsight.daemon.Validator;
 import com.intellij.javaee.ExternalResourceManager;
 import com.intellij.openapi.project.DumbService;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
@@ -28,13 +26,15 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.PsiElementProcessor;
-import com.intellij.psi.util.*;
+import com.intellij.psi.util.CachedValue;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptorEx;
 import com.intellij.xml.impl.schema.AnyXmlElementDescriptor;
@@ -52,16 +52,9 @@ import org.kohsuke.rngom.nc.NameClass;
 import javax.xml.namespace.QName;
 import java.util.*;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 18.07.2007
- */
 public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
   private final Map<QName, CachedValue<XmlElementDescriptor>> myDescriptorsMap =
     Collections.synchronizedMap(new HashMap<QName, CachedValue<XmlElementDescriptor>>());
-
-  private static final Key<ParameterizedCachedValue<XmlElementDescriptor, RngNsDescriptor>> ROOT_KEY = Key.create("ROOT_DESCRIPTOR");
 
   private XmlFile myFile;
   private PsiElement myElement;
@@ -106,31 +99,12 @@ public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
   }
 
   private XmlElementDescriptor findRootDescriptor(final XmlTag tag) {
-    return CachedValuesManager.getManager(tag.getProject())
-        .getParameterizedCachedValue(tag, ROOT_KEY, new ParameterizedCachedValueProvider<XmlElementDescriptor, RngNsDescriptor>() {
-          @Override
-          public CachedValueProvider.Result<XmlElementDescriptor> compute(RngNsDescriptor o) {
-            final XmlElementDescriptor descr = o.findRootDescriptorInner(tag);
-            if (descr != null) {
-              return CachedValueProvider.Result.create(descr, tag, descr.getDependences(), o.getDependences());
-            }
-            else {
-              return CachedValueProvider.Result.create(null, tag, o.getDependences());
-            }
-          }
-        }, false, this);
-  }
-
-  private XmlElementDescriptor findRootDescriptorInner(XmlTag tag) {
-    final List<DElementPattern> allNamedPatterns =
-      ContainerUtil.findAll(ChildElementFinder.find(-1, myPattern), NamedPatternFilter.INSTANCE);
-    XmlElementDescriptor descriptor = findDescriptor(tag, allNamedPatterns);
-    return descriptor != null ? descriptor : findDescriptor(tag, ChildElementFinder.find(myPattern));
+    return getElementDescriptor(tag.getLocalName(), tag.getNamespace());
   }
 
   private XmlElementDescriptor findRootDescriptorInner(QName qName) {
-    return findDescriptor(qName, ContainerUtil.findAll(
-      ChildElementFinder.find(-1, myPattern), NamedPatternFilter.INSTANCE));
+    XmlElementDescriptor descriptor = findDescriptor(qName, ContainerUtil.findAll(ChildElementFinder.find(-1, myPattern), NamedPatternFilter.INSTANCE));
+    return descriptor != null ? descriptor : findDescriptor(qName, ChildElementFinder.find(myPattern));
   }
 
   public XmlElementDescriptor findDescriptor(XmlTag tag, List<DElementPattern> list) {
@@ -182,7 +156,7 @@ public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
   XmlElementDescriptor[] convertElementDescriptors(List<DElementPattern> patterns) {
     patterns = ContainerUtil.findAll(patterns, NamedPatternFilter.INSTANCE);
 
-    final Map<QName, List<DElementPattern>> name2patterns = new HashMap<>();
+    final Map<QName, List<DElementPattern>> name2patterns = new LinkedHashMap<>();
     for (DElementPattern pattern : patterns) {
       for (QName qName : pattern.getName().listNames()) {
         List<DElementPattern> dPatterns = name2patterns.get(qName);
@@ -204,7 +178,7 @@ public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
       }
     }
 
-    return result.toArray(new XmlElementDescriptor[result.size()]);
+    return result.toArray(XmlElementDescriptor.EMPTY_ARRAY);
   }
 
   protected XmlElementDescriptor initDescriptor(@NotNull XmlElementDescriptor descriptor) {
@@ -245,8 +219,9 @@ public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
     return getDescriptorFile().getName();
   }
 
+  @NotNull
   @Override
-  public Object[] getDependences() {
+  public Object[] getDependencies() {
     if (myPattern != null) {
       if (DumbService.isDumb(myElement.getProject())) {
         return new Object[] { ModificationTracker.EVER_CHANGED, ExternalResourceManager.getInstance()};
@@ -303,8 +278,8 @@ public class RngNsDescriptor implements XmlNSDescriptorEx, Validator {
         CachedValuesManager.getManager(myElement.getProject()).createCachedValue(() -> {
           final XmlElementDescriptor descriptor = findRootDescriptorInner(qName);
           return descriptor != null
-                 ? new CachedValueProvider.Result<>(descriptor, descriptor.getDependences())
-                 : new CachedValueProvider.Result<>(null, getDependences());
+                 ? new CachedValueProvider.Result<>(descriptor, descriptor.getDependencies())
+                 : new CachedValueProvider.Result<>(null, getDependencies());
         }, false);
       myDescriptorsMap.put(qName, cachedValue);
     }

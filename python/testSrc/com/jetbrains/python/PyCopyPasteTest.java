@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,8 +36,15 @@ public class PyCopyPasteTest extends PyTestCase {
 
   @Override
   public void tearDown() throws Exception {
-    CodeInsightSettings.getInstance().INDENT_TO_CARET_ON_PASTE = myOldEnabled;
-    super.tearDown();
+    try {
+      CodeInsightSettings.getInstance().INDENT_TO_CARET_ON_PASTE = myOldEnabled;
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
   public void testIndent1() {
@@ -393,6 +400,10 @@ public class PyCopyPasteTest extends PyTestCase {
     doTest();
   }
 
+  public void testEmptyFunctionCaretAtEndOfFile() {
+    doTest();
+  }
+  
   // PY-19053
   public void testSimpleExpressionPartCaretAtLineEnd() {
     doTest();
@@ -441,5 +452,45 @@ public class PyCopyPasteTest extends PyTestCase {
   // PY-19100
   public void testAsyncFunctionWithBadSelection() {
     runWithLanguageLevel(LanguageLevel.PYTHON35, this::doTest);
+  }
+
+  // PY-20138
+  public void testUseExistingIndentWhenCaretAtFirstColumn() {
+    doTest();
+  }
+  
+  // PY-20138
+  public void testUseExistingIndentWhenCaretAtFirstColumnEndOfFile() {
+    doTest();
+  }
+  
+  // PY-20138
+  public void testInvalidExistingIndentWhenCaretAtFirstColumn() {
+    doTest();
+  }
+
+  // PY-22563
+  public void testBeginningOfIndentedLineSelectedAndReplacedWithWord() {
+    doTest();
+  }
+
+  // PY-22563
+  public void testWholeIndentedLineSelectedWithoutIndentAndReplacedWithWord() {
+    doTest();
+  }
+
+  // PY-22563
+  public void testWholeIndentedLineSelectedWithIndentAndReplacedWithWord() {
+    doTest();
+  }
+  
+  // PY-22563
+  public void testWholeIndentedLineSelectedWithPartialIndentAndReplacedWithWord() {
+    doTest();
+  }
+
+  // PY-29506
+  public void testBeginningOfIndentedLinePrecededByPastedWord() {
+    doTest();
   }
 }

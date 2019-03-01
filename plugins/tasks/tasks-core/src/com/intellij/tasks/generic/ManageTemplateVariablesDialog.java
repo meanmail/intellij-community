@@ -15,10 +15,6 @@ import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.util.List;
 
-/**
- * User: evgeny.zakrevsky
- * Date: 10/26/12
- */
 public class ManageTemplateVariablesDialog extends DialogWrapper {
   private final TemplateVariablesTable myTemplateVariableTable;
 
@@ -44,7 +40,7 @@ public class ManageTemplateVariablesDialog extends DialogWrapper {
   }
 
   private static class TemplateVariablesTable extends ListTableWithButtons<TemplateVariable> {
-    public TemplateVariablesTable() {
+    TemplateVariablesTable() {
       getTableView().getEmptyText().setText("No variables");
     }
 
@@ -203,7 +199,7 @@ public class ManageTemplateVariablesDialog extends DialogWrapper {
           return "Whether this template variable will be hidden like password field";
         }
       };
-      return new ListTableModel((new ColumnInfo[]{name, value, isShownOnFirstTab, isHidden}));
+      return new ListTableModel(name, value, isShownOnFirstTab, isHidden);
     }
 
     @Override

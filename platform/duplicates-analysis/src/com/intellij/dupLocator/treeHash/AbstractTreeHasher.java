@@ -12,13 +12,6 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: db, oleg
- * Date: Mar 26, 2004
- * Time: 4:44:13 PM
- * To change this template use File | Settings | File Templates.
- */
 public abstract class AbstractTreeHasher implements TreeHasher {
   protected final boolean myForIndexing;
   protected final FragmentsCollector myCallBack;
@@ -28,6 +21,7 @@ public abstract class AbstractTreeHasher implements TreeHasher {
     myForIndexing = forIndexing;
   }
 
+  @Override
   public final void hash(@NotNull final PsiElement root, @NotNull final NodeSpecificHasher hasher) {
     hash(root, null, hasher);
   }

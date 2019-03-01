@@ -1,18 +1,20 @@
 package com.siyeh.igtest.abstraction.overly_strong_type_cast;
 
 import java.lang.reflect.Array;
-import java.util.AbstractList;
-import java.util.ArrayList;
-import java.util.List;
-
-
-
+import java.util.*;
 
 
 interface TestInter{}
 
 public class OverlyStrongTypeCast
 {
+  void g() {
+    f((<warning descr="Cast to 'Number' can be weakened to 'Object'">Number</warning>) null);
+  }
+  void f(char[] cs) {}
+  void f(String n) {}
+  void f(Object o) {}
+
   void iterate(Object o) {
     for (Object object : (<warning descr="Cast to 'ArrayList' can be weakened to 'Iterable'">ArrayList</warning>) o) {}
     for (String s : (<warning descr="Cast to 'ArrayList<String>' can be weakened to 'Iterable<String>'">ArrayList<String></warning>) o) {}
@@ -88,4 +90,24 @@ interface SafeCloseable extends Closeable {
 interface Closeable extends AutoCloseable {
 
   public void close() throws java.io.IOException;
+}
+
+interface IndexerFunction<K, V> {
+    IndexerFunction<Long, String> indexer = (IndexerFunction.LongKey<String>) value -> value.length();
+    
+    K getObjectKey(V value);
+
+    interface LongKey<V> extends IndexerFunction<Long, V> {
+        long getNumberKey(V value);
+
+        @Override
+        default Long getObjectKey(V value) {
+            return getNumberKey(value);
+        }
+    }
+}
+class Varargs {
+  void m(Object value) {
+    Arrays.asList((Object[]) value); 
+  }
 }

@@ -19,25 +19,26 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.CommonProcessors;
-import com.intellij.util.io.IOUtil;
-import com.intellij.util.io.KeyDescriptor;
-import com.intellij.util.io.PersistentEnumeratorBase;
+import com.intellij.util.Function;
+import com.intellij.util.io.*;
 import com.intellij.vcs.log.*;
-import com.intellij.vcs.log.impl.FatalErrorConsumer;
+import com.intellij.vcs.log.impl.FatalErrorHandler;
 import com.intellij.vcs.log.impl.HashImpl;
 import com.intellij.vcs.log.impl.VcsRefImpl;
 import com.intellij.vcs.log.util.PersistentUtil;
+import com.intellij.vcs.log.util.StorageId;
 import gnu.trove.TObjectIntHashMap;
 import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.*;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.File;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -50,21 +51,18 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
   @NotNull private static final String REFS_STORAGE = "refs";
   @NotNull public static final VcsLogStorage EMPTY = new EmptyLogStorage();
 
-  public static final int VERSION = 5;
-  private static final int REFS_VERSION = 1;
-  @NotNull private static final String ROOT_STORAGE_KIND = "roots";
-  private static final int ROOTS_STORAGE_VERSION = 0;
-
+  public static final int VERSION = 6;
   public static final int NO_INDEX = -1;
+  private static final int REFS_VERSION = 1;
 
-  @NotNull private final PersistentEnumeratorBase<CommitId> myCommitIdEnumerator;
+  @NotNull private final MyPersistentBTreeEnumerator myCommitIdEnumerator;
   @NotNull private final PersistentEnumeratorBase<VcsRef> myRefsEnumerator;
-  @NotNull private final FatalErrorConsumer myExceptionReporter;
+  @NotNull private final FatalErrorHandler myExceptionReporter;
   private volatile boolean myDisposed = false;
 
   public VcsLogStorageImpl(@NotNull Project project,
                            @NotNull Map<VirtualFile, VcsLogProvider> logProviders,
-                           @NotNull FatalErrorConsumer exceptionReporter,
+                           @NotNull FatalErrorHandler exceptionReporter,
                            @NotNull Disposable parent) throws IOException {
     myExceptionReporter = exceptionReporter;
 
@@ -72,16 +70,22 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
 
     String logId = PersistentUtil.calcLogId(project, logProviders);
     MyCommitIdKeyDescriptor commitIdKeyDescriptor = new MyCommitIdKeyDescriptor(roots);
-    myCommitIdEnumerator = PersistentUtil.createPersistentEnumerator(commitIdKeyDescriptor, HASHES_STORAGE, logId, VERSION);
-    myRefsEnumerator =
-      PersistentUtil.createPersistentEnumerator(new VcsRefKeyDescriptor(logProviders, commitIdKeyDescriptor), REFS_STORAGE, logId,
-                                                VERSION + REFS_VERSION);
 
-    // cleanup old root storages, to remove after 2016.3 release
-    PersistentUtil
-      .cleanupOldStorageFile(ROOT_STORAGE_KIND, project.getName() + "." + project.getBaseDir().getPath().hashCode(), ROOTS_STORAGE_VERSION);
-
+    File storageFile = new StorageId(HASHES_STORAGE, logId, VERSION).getStorageFile();
+    myCommitIdEnumerator = IOUtil.openCleanOrResetBroken(() -> new MyPersistentBTreeEnumerator(storageFile, commitIdKeyDescriptor),
+                                                         storageFile);
+    myRefsEnumerator = PersistentUtil.createPersistentEnumerator(new VcsRefKeyDescriptor(logProviders, commitIdKeyDescriptor),
+                                                                 new StorageId(REFS_STORAGE, logId, VERSION + REFS_VERSION));
     Disposer.register(parent, this);
+  }
+
+  @NotNull
+  public static Function<Integer, Hash> createHashGetter(@NotNull VcsLogStorage storage) {
+    return commitIndex -> {
+      CommitId commitId = storage.getCommitId(commitIndex);
+      if (commitId == null) return null;
+      return commitId.getHash();
+    };
   }
 
   @Nullable
@@ -123,26 +127,30 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
   }
 
   @Override
-  @Nullable
-  public CommitId findCommitId(@NotNull final Condition<CommitId> condition) {
+  public boolean containsCommit(@NotNull CommitId id) {
     checkDisposed();
     try {
-      final Ref<CommitId> hashRef = Ref.create();
-      myCommitIdEnumerator.iterateData(new CommonProcessors.FindProcessor<CommitId>() {
-        @Override
-        protected boolean accept(CommitId commitId) {
-          boolean matches = condition.value(commitId);
-          if (matches) {
-            hashRef.set(commitId);
-          }
-          return matches;
-        }
-      });
-      return hashRef.get();
+      return myCommitIdEnumerator.contains(id);
     }
     catch (IOException e) {
       myExceptionReporter.consume(this, e);
-      return null;
+    }
+    return false;
+  }
+
+  @Override
+  public void iterateCommits(@NotNull Function<? super CommitId, Boolean> consumer) {
+    checkDisposed();
+    try {
+      myCommitIdEnumerator.iterateData(new CommonProcessors.FindProcessor<CommitId>() {
+        @Override
+        protected boolean accept(CommitId commitId) {
+          return consumer.fun(commitId);
+        }
+      });
+    }
+    catch (IOException e) {
+      myExceptionReporter.consume(this, e);
     }
   }
 
@@ -171,6 +179,7 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
     }
   }
 
+  @Override
   public void flush() {
     checkDisposed();
     myCommitIdEnumerator.force();
@@ -194,10 +203,10 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
   }
 
   private static class MyCommitIdKeyDescriptor implements KeyDescriptor<CommitId> {
-    @NotNull private final List<VirtualFile> myRoots;
+    @NotNull private final List<? extends VirtualFile> myRoots;
     @NotNull private final TObjectIntHashMap<VirtualFile> myRootsReversed;
 
-    public MyCommitIdKeyDescriptor(@NotNull List<VirtualFile> roots) {
+    MyCommitIdKeyDescriptor(@NotNull List<? extends VirtualFile> roots) {
       myRoots = roots;
 
       myRootsReversed = new TObjectIntHashMap<>();
@@ -243,10 +252,13 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
       throw new UnsupportedOperationException("Illegal access to empty hash map by index " + commitIndex);
     }
 
-    @Nullable
     @Override
-    public CommitId findCommitId(@NotNull Condition<CommitId> string) {
-      return null;
+    public boolean containsCommit(@NotNull CommitId id) {
+      return false;
+    }
+
+    @Override
+    public void iterateCommits(@NotNull Function<? super CommitId, Boolean> consumer) {
     }
 
     @Override
@@ -269,8 +281,8 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
     @NotNull private final Map<VirtualFile, VcsLogProvider> myLogProviders;
     @NotNull private final KeyDescriptor<CommitId> myCommitIdKeyDescriptor;
 
-    public VcsRefKeyDescriptor(@NotNull Map<VirtualFile, VcsLogProvider> logProviders,
-                               @NotNull KeyDescriptor<CommitId> commitIdKeyDescriptor) {
+    VcsRefKeyDescriptor(@NotNull Map<VirtualFile, VcsLogProvider> logProviders,
+                        @NotNull KeyDescriptor<CommitId> commitIdKeyDescriptor) {
       myLogProviders = logProviders;
       myCommitIdKeyDescriptor = commitIdKeyDescriptor;
     }
@@ -299,6 +311,16 @@ public class VcsLogStorageImpl implements Disposable, VcsLogStorage {
       String name = IOUtil.readUTF(in);
       VcsRefType type = myLogProviders.get(commitId.getRoot()).getReferenceManager().deserialize(in);
       return new VcsRefImpl(commitId.getHash(), name, type, commitId.getRoot());
+    }
+  }
+
+  private static class MyPersistentBTreeEnumerator extends PersistentBTreeEnumerator<CommitId> {
+    MyPersistentBTreeEnumerator(File storageFile, MyCommitIdKeyDescriptor commitIdKeyDescriptor) throws IOException {
+      super(storageFile, commitIdKeyDescriptor, Page.PAGE_SIZE, null, VERSION);
+    }
+
+    public boolean contains(@NotNull CommitId id) throws IOException {
+      return tryEnumerate(id) != NULL_ID;
     }
   }
 }

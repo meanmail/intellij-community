@@ -37,7 +37,6 @@ import java.util.concurrent.Future;
  */
 public class FileNameCacheMicroBenchmark {
   public static void main(String[] args) throws Exception {
-    //noinspection SSBasedInspection
     SwingUtilities.invokeAndWait(() -> {
       try {
         IdeaTestFixture fixture = IdeaTestFixtureFactory.getFixtureFactory().createLightFixtureBuilder(LightProjectDescriptor.EMPTY_PROJECT_DESCRIPTOR).getFixture();
@@ -185,7 +184,7 @@ public class FileNameCacheMicroBenchmark {
   private abstract static class TestIteration {
     abstract void doTest(int threadNumber, int[] ids, Random threadRandom, int queryCount);
     static void failure() {
-      System.out.println("Failure");
+      System.err.println("Failure");
       assert false;
     }
   }

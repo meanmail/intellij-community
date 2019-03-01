@@ -45,7 +45,7 @@ public class CloseTaskDialog extends DialogWrapper {
   private final Project myProject;
   private final LocalTask myTask;
   private final List<TaskDialogPanel> myPanels;
-  
+
   private JPanel myPanel;
   private JLabel myTaskLabel;
   private TaskStateCombo myStateCombo;
@@ -56,6 +56,8 @@ public class CloseTaskDialog extends DialogWrapper {
     super(project, false);
     myProject = project;
     myTask = task;
+    myStateCombo.setProject(myProject);
+    myStateCombo.setTask(myTask);
 
     setTitle("Close Task");
     myTaskLabel.setText(TaskUtil.getTrimmedSummary(task));
@@ -85,13 +87,13 @@ public class CloseTaskDialog extends DialogWrapper {
     if (myUpdateState.isSelected()) {
       myStateCombo.scheduleUpdateOnce();
     }
-    
+
     myAdditionalPanel.setLayout(new BoxLayout(myAdditionalPanel, BoxLayout.Y_AXIS));
     myPanels = TaskDialogPanelProvider.getCloseTaskPanels(project, task);
     for (TaskDialogPanel panel : myPanels) {
       myAdditionalPanel.add(panel.getPanel());
     }
-    
+
     init();
   }
 
@@ -103,6 +105,7 @@ public class CloseTaskDialog extends DialogWrapper {
     super.doOKAction();
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
@@ -119,7 +122,7 @@ public class CloseTaskDialog extends DialogWrapper {
   }
 
   private void createUIComponents() {
-    myStateCombo = new TaskStateCombo(myProject, myTask) {
+    myStateCombo = new TaskStateCombo() {
       @Nullable
       @Override
       protected CustomTaskState getPreferredState(@NotNull TaskRepository repository, @NotNull Collection<CustomTaskState> available) {

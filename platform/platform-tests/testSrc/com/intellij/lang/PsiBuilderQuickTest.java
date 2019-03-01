@@ -35,6 +35,7 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class PsiBuilderQuickTest extends LightPlatformTestCase {
   private static final IFileElementType ROOT = new IFileElementType("ROOT", Language.ANY);
@@ -49,7 +50,7 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
   };
   private static final IElementType COMMENT = new IElementType("COMMENT", Language.ANY);
 
-  private static final TokenSet WHITESPACE_SET = TokenSet.create(TokenType.WHITE_SPACE);
+  private static final TokenSet WHITESPACE_SET = TokenSet.WHITE_SPACE;
   private static final TokenSet COMMENT_SET = TokenSet.create(COMMENT);
 
   public void testPlain() {
@@ -461,6 +462,39 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
            "    PsiElement(OTHER)('}')\n");
   }
 
+  public void testLightChameleonIsParsedOnce() {
+    AtomicInteger parserInvocations = new AtomicInteger();
+
+    PsiBuilder builder = createBuilder("{x}");
+    PsiBuilder.Marker rootMarker = builder.mark();
+    PsiBuilder.Marker chameleon = builder.mark();
+    PsiBuilderUtil.advance(builder, 3);
+    chameleon.collapse(new MyChameleon2Type() {
+      @Override
+      public void parse(PsiBuilder builder1) {
+        parserInvocations.incrementAndGet();
+        super.parse(builder1);
+      }
+    });
+    rootMarker.done(ROOT);
+
+    String treeString = "Element(ROOT)\n" +
+                        "  Element(CHAMELEON_2)\n" +
+                        "    PsiElement(OTHER)('{')\n" +
+                        "    PsiElement(LETTER)('x')\n" +
+                        "    PsiElement(OTHER)('}')\n";
+    FlyweightCapableTreeStructure<LighterASTNode> tree = builder.getLightTree();
+    assertEquals(treeString, DebugUtil.lightTreeToString(tree, false));
+    assertEquals(1, parserInvocations.get());
+
+    assertEquals(treeString, DebugUtil.lightTreeToString(tree, false));
+    assertEquals(1, parserInvocations.get());
+
+    // new tree
+    assertEquals(treeString, DebugUtil.lightTreeToString(builder.getLightTree(), false));
+    assertEquals(1, parserInvocations.get());
+  }
+
   public void testEndMarkersOverlapping() {
     doTest("a ",
            new Parser() {
@@ -665,7 +699,7 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
   private static class MyChameleon1Type extends MyLazyElementType {
     private final IElementType myCHAMELEON_2;
 
-    public MyChameleon1Type(IElementType CHAMELEON_2) {
+    MyChameleon1Type(IElementType CHAMELEON_2) {
       super("CHAMELEON_1");
       myCHAMELEON_2 = CHAMELEON_2;
     }
@@ -678,7 +712,7 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
     }
 
     @Override
-    public ASTNode parseContents(ASTNode chameleon) {
+    public ASTNode parseContents(@NotNull ASTNode chameleon) {
       final PsiBuilder builder = createBuilder(chameleon.getText());
       parse(builder);
       return builder.getTreeBuilt().getFirstChildNode();
@@ -706,7 +740,7 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
   }
 
   private static class MyChameleon2Type extends MyLazyElementType {
-    public MyChameleon2Type() {
+    MyChameleon2Type() {
       super("CHAMELEON_2");
     }
 
@@ -718,7 +752,7 @@ public class PsiBuilderQuickTest extends LightPlatformTestCase {
     }
 
     @Override
-    public ASTNode parseContents(ASTNode chameleon) {
+    public ASTNode parseContents(@NotNull ASTNode chameleon) {
       final PsiBuilder builder = createBuilder(chameleon.getText());
       parse(builder);
       return builder.getTreeBuilt().getFirstChildNode();

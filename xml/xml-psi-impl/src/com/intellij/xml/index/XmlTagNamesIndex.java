@@ -18,9 +18,10 @@ package com.intellij.xml.index;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import com.intellij.util.indexing.*;
 import com.intellij.util.io.DataExternalizer;
+import com.intellij.util.io.VoidDataExternalizer;
 import com.intellij.util.text.CharArrayUtil;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NotNull;
@@ -72,7 +73,7 @@ public class XmlTagNamesIndex extends XmlIndex<Void> {
   @NotNull
   @Override
   public DataExternalizer<Void> getValueExternalizer() {
-    return ScalarIndexExtension.VOID_DATA_EXTERNALIZER;
+    return VoidDataExternalizer.INSTANCE;
   }
 
 }

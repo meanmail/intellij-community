@@ -31,7 +31,6 @@ import com.intellij.openapi.util.text.CharSequenceWithStringHash;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 /**
  * A pruned and optimized version of javolution.text.Text
@@ -46,15 +45,15 @@ import org.jetbrains.annotations.Nullable;
  *        sequences, they form a minimal-depth binary tree.
  *        The tree is maintained balanced automatically through <a 
  *        href="http://en.wikipedia.org/wiki/Tree_rotation">tree rotations</a>. 
- *        Insertion/deletions are performed in <code>O[Log(n)]</code>
- *        instead of <code>O[n]</code> for 
- *        <code>StringBuffer/StringBuilder</code>.</i></p>
+ *        Insertion/deletions are performed in {@code O[Log(n)]}
+ *        instead of {@code O[n]} for
+ *        {@code StringBuffer/StringBuilder}.</i></p>
  *
  * @author  <a href="mailto:jean-marie@dautelle.com">Jean-Marie Dautelle</a>
  * @author Wilfried Middleton
  * @version 5.3, January 10, 2007
  */
-@SuppressWarnings({"AssignmentToForLoopParameter","UnnecessaryThis"})
+@SuppressWarnings({"UnnecessaryThis"})
 final class ImmutableText extends ImmutableCharSequence implements CharArrayExternalizable, CharSequenceWithStringHash {
   /**
    * Holds the default size for primitive blocks of characters.
@@ -89,38 +88,13 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
   }
 
   private static LeafNode createLeafNode(@NotNull CharSequence str) {
-    byte[] bytes = toBytesIfPossible(str);
+    byte[] bytes = ByteArrayCharSequence.toBytesIfPossible(str);
     if (bytes != null) {
       return new Leaf8BitNode(bytes);
     }
     char[] chars = new char[str.length()];
     CharArrayUtil.getChars(str, chars, 0, 0, str.length());
     return new WideLeafNode(chars);
-  }
-
-  @Nullable
-  private static byte[] toBytesIfPossible(CharSequence seq) {
-    byte[] bytes = new byte[seq.length()];
-    char[] chars = CharArrayUtil.fromSequenceWithoutCopying(seq);
-    if (chars == null) {
-      for (int i = 0; i < bytes.length; i++) {
-        char c = seq.charAt(i);
-        if ((c & 0xff00) != 0) {
-          return null;
-        }
-        bytes[i] = (byte)c;
-      }
-    }
-    else {
-      for (int i = 0; i < bytes.length; i++) {
-        char c = chars[i];
-        if ((c & 0xff00) != 0) {
-          return null;
-        }
-        bytes[i] = (byte)c;
-      }
-    }
-    return bytes;
   }
 
   /**
@@ -162,18 +136,18 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
   /**
    * Concatenates the specified text to the end of this text. 
    * This method is very fast (faster even than 
-   * <code>StringBuffer.append(String)</code>) and still returns
+   * {@code StringBuffer.append(String)}) and still returns
    * a text instance with an internal binary tree of minimal depth!
    *
    * @param  that the text that is concatenated.
-   * @return <code>this + that</code>
+   * @return {@code this + that}
    */
   private ImmutableText concat(ImmutableText that) {
     return that.length() == 0 ? this : length() == 0 ? that : new ImmutableText(concatNodes(ensureChunked().myNode, that.ensureChunked().myNode));
   }
 
   @Override
-  public ImmutableText concat(CharSequence sequence) {
+  public ImmutableText concat(@NotNull CharSequence sequence) {
     return concat(valueOf(sequence));
   }
 
@@ -182,30 +156,17 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
    *
    * @param  start the index of the first character inclusive.
    * @return the sub-text starting at the specified position.
-   * @throws IndexOutOfBoundsException if <code>(start < 0) || 
-   *          (start > this.length())</code>
+   * @throws IndexOutOfBoundsException if {@code (start < 0) ||
+   *          (start > this.length())}
    */
   private ImmutableText subtext(int start) {
     return subtext(start, length());
   }
 
-  /**
-   * Returns the text having the specified text inserted at 
-   * the specified location.
-   *
-   * @param index the insertion position.
-   * @param txt the text being inserted.
-   * @return <code>subtext(0, index).concat(txt).concat(subtext(index))</code>
-   * @throws IndexOutOfBoundsException if <code>(index < 0) ||
-   *            (index > this.length())</code>
-   */
-  private ImmutableText insert(int index, ImmutableText txt) {
-    return subtext(0, index).concat(txt).concat(subtext(index));
-  }
-
   @Override
-  public ImmutableText insert(int index, CharSequence seq) {
-    return insert(index, valueOf(seq));
+  public ImmutableText insert(int index, @NotNull CharSequence seq) {
+    if (seq.length() == 0) return this;
+    return subtext(0, index).concat(valueOf(seq)).concat(subtext(index));
   }
 
   /**
@@ -213,9 +174,9 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
    *
    * @param start the beginning index, inclusive.
    * @param end the ending index, exclusive.
-   * @return <code>subtext(0, start).concat(subtext(end))</code>
-   * @throws IndexOutOfBoundsException if <code>(start < 0) || (end < 0) ||
-   *         (start > end) || (end > this.length()</code>
+   * @return {@code subtext(0, start).concat(subtext(end))}
+   * @throws IndexOutOfBoundsException if {@code (start < 0) || (end < 0) ||
+   *         (start > end) || (end > this.length()}
    */
   @Override
   public ImmutableText delete(int start, int end) {
@@ -260,22 +221,19 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
 
   @Override
   public char charAt(int index) {
-    if (index < 0 || index >= length()) throw new IndexOutOfBoundsException("Index out of range: " + index);
-    
-    if (myNode instanceof LeafNode) {
-      return myNode.charAt(index);
-    }
-
     InnerLeaf leaf = myLastLeaf;
-    if (leaf == null || index < leaf.offset || index >= leaf.offset + leaf.leafNode.length()) {
-      myLastLeaf = leaf = findLeaf(index, 0);
+    if (leaf == null || index < leaf.offset || index >= leaf.end) {
+      myLastLeaf = leaf = findLeaf(index);
     }
     return leaf.leafNode.charAt(index - leaf.offset);
   }
-  private volatile InnerLeaf myLastLeaf;
+  private InnerLeaf myLastLeaf;
 
-  private InnerLeaf findLeaf(int index, int offset) {
+  private InnerLeaf findLeaf(int index) {
     Node node = myNode;
+    if (index < 0 || index >= node.length()) throw new IndexOutOfBoundsException("Index out of range: " + index);
+
+    int offset = 0;
     while (true) {
       if (index >= node.length()) {
         throw new IndexOutOfBoundsException();
@@ -298,10 +256,12 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
   private static class InnerLeaf {
     final LeafNode leafNode;
     final int offset;
+    final int end;
 
     private InnerLeaf(@NotNull LeafNode leafNode, int offset) {
       this.leafNode = leafNode;
       this.offset = offset;
+      this.end = offset + leafNode.length();
     }
   }
   
@@ -312,8 +272,8 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
    * @param  end the index of the last character exclusive.
    * @return the sub-text starting at the specified start position and 
    *         ending just before the specified end position.
-   * @throws IndexOutOfBoundsException if <code>(start < 0) || (end < 0) ||
-   *         (start > end) || (end > this.length())</code>
+   * @throws IndexOutOfBoundsException if {@code (start < 0) || (end < 0) ||
+   *         (start > end) || (end > this.length())}
    */
   @Override
   public ImmutableText subtext(int start, int end) {
@@ -338,8 +298,8 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
    * @param end the index after the last character to copy.
    * @param dest the destination array.
    * @param destPos the start offset in the destination array.
-   * @throws IndexOutOfBoundsException if <code>(start < 0) || (end < 0) ||
-   *         (start > end) || (end > this.length())</code>
+   * @throws IndexOutOfBoundsException if {@code (start < 0) || (end < 0) ||
+   *         (start > end) || (end > this.length())}
    */
   @Override
   public void getChars(int start, int end, @NotNull char[] dest, int destPos) {
@@ -347,9 +307,9 @@ final class ImmutableText extends ImmutableCharSequence implements CharArrayExte
   }
 
   /**
-   * Returns the <code>String</code> representation of this text.
+   * Returns the {@code String} representation of this text.
    *
-   * @return the <code>java.lang.String</code> for this text.
+   * @return the {@code java.lang.String} for this text.
    */
   @Override
   @NotNull

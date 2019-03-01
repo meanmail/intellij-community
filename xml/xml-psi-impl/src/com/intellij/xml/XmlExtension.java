@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml;
 
 import com.intellij.codeInsight.daemon.impl.HighlightInfoType;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.xml.SchemaPrefix;
@@ -48,8 +33,20 @@ public abstract class XmlExtension {
     return CachedValuesManager.getCachedValue(file, () -> CachedValueProvider.Result.create(calcExtension(file), PsiModificationTracker.MODIFICATION_COUNT));
   }
 
+  public interface AttributeValuePresentation {
+    @NotNull
+    String getPrefix();
+
+    @NotNull
+    String getPostfix();
+
+    default boolean showAutoPopup() {
+      return true;
+    }
+  }
+
   private static XmlExtension calcExtension(PsiFile file) {
-    for (XmlExtension extension : Extensions.getExtensions(EP_NAME)) {
+    for (XmlExtension extension : EP_NAME.getExtensionList()) {
       if (extension.isAvailable(file)) {
         return extension;
       }
@@ -57,7 +54,6 @@ public abstract class XmlExtension {
     return DefaultXmlExtension.DEFAULT_EXTENSION;
   }
 
-  @SuppressWarnings("ConstantConditions")
   public static XmlExtension getExtensionByElement(PsiElement element) {
     final PsiFile psiFile = element.getContainingFile();
     if (psiFile != null) {
@@ -127,7 +123,7 @@ public abstract class XmlExtension {
 
   @Nullable
   public XmlNSDescriptor getNSDescriptor(final XmlTag element, final String namespace, final boolean strict) {
-    return element.getNSDescriptor(namespace, strict);  
+    return element.getNSDescriptor(namespace, strict);
   }
 
   @Nullable
@@ -160,15 +156,50 @@ public abstract class XmlExtension {
     return descriptor.isRequired();
   }
 
+  @NotNull
+  public AttributeValuePresentation getAttributeValuePresentation(@Nullable XmlAttributeDescriptor descriptor,
+                                                                  @NotNull String defaultAttributeQuote,
+                                                                  @NotNull PsiElement context) {
+    return new AttributeValuePresentation() {
+      @NotNull
+      @Override
+      public String getPrefix() {
+        return defaultAttributeQuote;
+      }
+
+      @NotNull
+      @Override
+      public String getPostfix() {
+        return defaultAttributeQuote;
+      }
+    };
+  }
+
   public boolean isCustomTagAllowed(final XmlTag tag) {
     return false;
   }
 
-  public boolean needWhitespaceBeforeAttribute() {
+  public boolean useXmlTagInsertHandler() {
     return true;
   }
 
-  public boolean useXmlTagInsertHandler() {
-    return true;
+  public boolean isCollapsibleTag(XmlTag tag) {
+    return false;
+  }
+
+  public boolean isSelfClosingTagAllowed(@NotNull XmlTag tag) {
+    return false;
+  }
+
+  public boolean isSingleTagException(@NotNull XmlTag tag) { return false; }
+
+  public static boolean shouldIgnoreSelfClosingTag(@NotNull XmlTag tag) {
+    final XmlExtension extension = getExtensionByElement(tag);
+    return extension != null && extension.isSelfClosingTagAllowed(tag);
+  }
+
+  public static boolean isCollapsible(XmlTag tag) {
+    final XmlExtension extension = getExtensionByElement(tag);
+    return extension == null || extension.isCollapsibleTag(tag);
   }
 }

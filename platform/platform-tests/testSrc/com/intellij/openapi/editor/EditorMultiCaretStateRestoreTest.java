@@ -25,21 +25,27 @@ import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.EditorTestUtil;
 
 public class EditorMultiCaretStateRestoreTest extends HeavyFileEditorManagerTestCase {
-  public void testRestoreState() throws Exception {
+  public void testRestoreState() {
     String text = "some<caret> text<caret>\n" +
                   "some <selection><caret>other</selection> <selection>text<caret></selection>\n" +
                   "<selection>ano<caret>ther</selection> line";
     PsiFile psiFile = myFixture.configureByText(PlainTextFileType.INSTANCE, text);
     VirtualFile virtualFile = psiFile.getVirtualFile();
     assertNotNull(virtualFile);
-    myManager.openFile(virtualFile, false);
+    openFile(virtualFile);
     myManager.closeAllFiles();
+    Editor editor = openFile(virtualFile);
+
+    verifyEditorState(editor, text);
+  }
+
+  private Editor openFile(VirtualFile virtualFile) {
     FileEditor[] fileEditors = myManager.openFile(virtualFile, false);
     assertNotNull(fileEditors);
     assertEquals(1, fileEditors.length);
     Editor editor = ((TextEditor)fileEditors[0]).getEditor();
-
-    verifyEditorState(editor, text);
+    EditorTestUtil.waitForLoading(editor);
+    return editor;
   }
 
   private static void verifyEditorState(Editor editor, String textWithMarkup) {

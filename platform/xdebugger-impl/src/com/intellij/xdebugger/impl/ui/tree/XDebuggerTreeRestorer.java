@@ -43,7 +43,7 @@ public class XDebuggerTreeRestorer implements XDebuggerTreeListener, TreeSelecti
   private final Map<RestorableStateNode, XDebuggerTreeState.NodeInfo> myNode2ParentState = new HashMap<>();
   private boolean myStopRestoringSelection;
   private boolean myInsideRestoring;
-  private TreePath mySelectionPath;
+  private final TreePath mySelectionPath;
   private boolean myFinished;
 
   public XDebuggerTreeRestorer(final XDebuggerTree tree, Rectangle lastVisibleNodeRect) {
@@ -146,7 +146,7 @@ public class XDebuggerTreeRestorer implements XDebuggerTreeListener, TreeSelecti
   }
 
   @Override
-  public void nodeLoaded(@NotNull final RestorableStateNode node, final String name) {
+  public void nodeLoaded(@NotNull final RestorableStateNode node, @NotNull final String name) {
     XDebuggerTreeState.NodeInfo parentInfo = myNode2ParentState.remove(node);
     if (parentInfo != null) {
       doRestoreNode(node, parentInfo.getChild(node));

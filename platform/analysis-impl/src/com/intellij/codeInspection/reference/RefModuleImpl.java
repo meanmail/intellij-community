@@ -25,10 +25,6 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.ArrayList;
 
-/**
- * User: anna
- * Date: 09-Jan-2006
- */
 class RefModuleImpl extends RefEntityImpl implements RefModule {
   private final Module myModule;
 
@@ -51,7 +47,7 @@ class RefModuleImpl extends RefEntityImpl implements RefModule {
   }
 
   @Override
-  protected synchronized void removeChild(@NotNull final RefEntity child) {
+  public synchronized void removeChild(@NotNull final RefEntity child) {
     if (myChildren != null) {
       myChildren.remove(child);
     }

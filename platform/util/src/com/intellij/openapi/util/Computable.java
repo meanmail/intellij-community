@@ -19,8 +19,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
+ *  Please use {@link java.util.function.Supplier} instead
  *  @author dsl
  */
+@FunctionalInterface
 public interface Computable <T> {
 
   T compute();
@@ -37,9 +39,18 @@ public interface Computable <T> {
     public T compute() {
       return myValue;
     }
+
+    @Override
+    public String toString() {
+      return "PredefinedValueComputable{" + myValue + "}";
+    }
   }
 
-  abstract class NotNullCachedComputable<T> implements Computable<T> {
+  /**
+   * @deprecated Use {@link NotNullLazyValue}::getValue instead
+   */
+  @Deprecated
+  abstract class NotNullCachedComputable<T> implements NotNullComputable<T> {
     private T myValue;
 
     @NotNull
@@ -52,24 +63,6 @@ public interface Computable <T> {
         myValue = internalCompute();
       }
       return myValue;
-    }
-  }
-
-  abstract class NullableCachedComputable<T> implements Computable<T> {
-    private static final Object NULL_VALUE = new Object();
-    private Object myValue;
-
-    @Nullable
-    protected abstract T internalCompute();
-
-    @Nullable
-    @Override
-    public final T compute() {
-      if (myValue == null) {
-        final T value = internalCompute();
-        myValue = value != null ? value : NULL_VALUE;
-      }
-      return myValue != NULL_VALUE ? (T)myValue : null;
     }
   }
 }

@@ -15,13 +15,22 @@
  */
 package com.intellij.openapi.application.impl;
 
+import com.intellij.diagnostic.ThreadDumper;
+import com.intellij.openapi.application.AccessToken;
+import com.intellij.openapi.application.ex.ApplicationUtil;
+import com.intellij.openapi.diagnostic.Attachment;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.impl.CoreProgressManager;
 import com.intellij.util.containers.ConcurrentList;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.LockSupport;
 
 /**
@@ -38,11 +47,16 @@ import java.util.concurrent.locks.LockSupport;
  * Write lock: sets global {@link #writeRequested} bit and waits for all readers (in global {@link #readers} list) to release their locks by checking {@link Reader#readRequested} for all readers.
  */
 class ReadMostlyRWLock {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.application.impl.ReadMostlyRWLock");
   private final Thread writeThread;
-  private volatile boolean writeRequested;  // this writer is requesting or obtained the write access
+  volatile boolean writeRequested;  // this writer is requesting or obtained the write access
   private volatile boolean writeAcquired;   // this writer obtained the write lock
   // All reader threads are registered here. Dead readers are garbage collected in writeUnlock().
   private final ConcurrentList<Reader> readers = ContainerUtil.createConcurrentList();
+
+  private final Map<Thread, SuspensionId> privilegedReaders = new ConcurrentHashMap<>();
+
+  private volatile SuspensionId currentSuspension;
 
   ReadMostlyRWLock(@NotNull Thread writeThread) {
     this.writeThread = writeThread;
@@ -53,21 +67,28 @@ class ReadMostlyRWLock {
     @NotNull private final Thread thread;   // its thread
     private volatile boolean readRequested; // this reader is requesting or obtained read access. Written by reader thread only, read by writer.
     private volatile boolean blocked;       // this reader is blocked waiting for the writer thread to release write lock. Written by reader thread only, read by writer.
-
+    private boolean impatientReads; // true if should throw PCE on contented read lock
     Reader(@NotNull Thread readerThread) {
       thread = readerThread;
     }
+
+    @Override
+    public String toString() {
+      return "Reader{" +
+             "thread=" + thread +
+             ", readRequested=" + readRequested +
+             ", blocked=" + blocked +
+             ", impatientReads=" + impatientReads +
+             '}';
+    }
   }
 
-  private final ThreadLocal<Reader> R = new ThreadLocal<Reader>(){
-    @Override
-    protected Reader initialValue() {
-      Reader status = new Reader(Thread.currentThread());
-      boolean added = readers.addIfAbsent(status);
-      assert added : readers + "; "+Thread.currentThread();
-      return status;
-    }
-  };
+  private final ThreadLocal<Reader> R = ThreadLocal.withInitial(() -> {
+    Reader status = new Reader(Thread.currentThread());
+    boolean added = readers.addIfAbsent(status);
+    assert added : readers + "; "+Thread.currentThread();
+    return status;
+  });
 
   boolean isWriteThread() {
     return Thread.currentThread() == writeThread;
@@ -79,34 +100,71 @@ class ReadMostlyRWLock {
     return status.readRequested;
   }
 
+  boolean checkReadLockedByThisThreadAndNoPendingWrites() throws ApplicationUtil.CannotRunReadActionException {
+    checkReadThreadAccess();
+    Reader status = R.get();
+    throwIfImpatient(status);
+    return status.readRequested;
+  }
+
   void readLock() {
     checkReadThreadAccess();
     Reader status = R.get();
+    throwIfImpatient(status);
 
-    // be optimistic
-    if (tryReadLock(status)) {
-      return;
-    }
-
-    for(int iter=0;;iter++) {
-      if (tryReadLock(status)) {
-        return;
+    for (int iter = 0; ; iter++) {
+      if (tryReadLock(status, true)) {
+        break;
       }
 
       ProgressManager.checkCanceled();
+      waitABit(status, iter);
+    }
+  }
 
-      if (iter > SPIN_TO_WAIT_FOR_LOCK) {
-        status.blocked = true;
-        try {
-          LockSupport.parkNanos(this, 1000000);  // unparked by writeUnlock
-        }
-        finally {
-          status.blocked = false;
-        }
+  private void waitABit(Reader status, int iteration) {
+    if (iteration > SPIN_TO_WAIT_FOR_LOCK) {
+      status.blocked = true;
+      try {
+        throwIfImpatient(status);
+        LockSupport.parkNanos(this, 1_000_000);  // unparked by writeUnlock
       }
-      else {
-        Thread.yield();
+      finally {
+        status.blocked = false;
       }
+    }
+    else {
+      Thread.yield();
+    }
+  }
+
+  private void throwIfImpatient(Reader status) throws ApplicationUtil.CannotRunReadActionException {
+    // when client explicitly runs in non-cancelable block do not throw from within nested read actions
+    if (status.impatientReads && writeRequested && !ProgressManager.getInstance().isInNonCancelableSection() && CoreProgressManager.ENABLED) {
+      throw ApplicationUtil.CannotRunReadActionException.create();
+    }
+  }
+
+  boolean isInImpatientReader() {
+    return R.get().impatientReads;
+  }
+
+  /**
+   * Executes a {@code runnable} in an "impatient" mode.
+   * In this mode any attempt to grab read lock
+   * will fail (i.e. throw {@link ApplicationUtil.CannotRunReadActionException})
+   * if there is a pending write lock request.
+   */
+  void executeByImpatientReader(@NotNull Runnable runnable) throws ApplicationUtil.CannotRunReadActionException {
+    checkReadThreadAccess();
+    Reader status = R.get();
+    boolean old = status.impatientReads;
+    try {
+      status.impatientReads = true;
+      runnable.run();
+    }
+    finally {
+      status.impatientReads = old;
     }
   }
 
@@ -122,11 +180,15 @@ class ReadMostlyRWLock {
   boolean tryReadLock() {
     checkReadThreadAccess();
     Reader status = R.get();
-    return tryReadLock(status);
+    return tryReadLock(status, true);
   }
 
-  private boolean tryReadLock(Reader status) {
+  private boolean tryReadLock(Reader status, boolean checkPrivileges) {
+    throwIfImpatient(status);
     if (!writeRequested) {
+      if (checkPrivileges && currentSuspension != null && !privilegedReaders.containsKey(Thread.currentThread())) {
+        return false;
+      }
       status.readRequested = true;
       if (!writeRequested) {
         return true;
@@ -137,6 +199,7 @@ class ReadMostlyRWLock {
   }
 
   private static final int SPIN_TO_WAIT_FOR_LOCK = 100;
+
   void writeLock() {
     checkWriteThreadAccess();
     assert !writeRequested;
@@ -150,12 +213,74 @@ class ReadMostlyRWLock {
       }
 
       if (iter > SPIN_TO_WAIT_FOR_LOCK) {
-        LockSupport.parkNanos(this, 1000000);  // unparked by readUnlock
+        LockSupport.parkNanos(this, 1_000_000);  // unparked by readUnlock
       }
       else {
         Thread.yield();
       }
     }
+  }
+
+  AccessToken writeSuspend() {
+    SuspensionId prevSuspension = currentSuspension;
+    if (prevSuspension == null) {
+      currentSuspension = new SuspensionId();
+    }
+    writeUnlock();
+    return new AccessToken() {
+      @Override
+      public void finish() {
+        writeLock();
+        currentSuspension = prevSuspension;
+        if (prevSuspension == null) {
+          ensureNoPrivilegedReaders();
+        }
+      }
+    };
+  }
+
+  private void ensureNoPrivilegedReaders() {
+    if (!privilegedReaders.isEmpty()) {
+      List<String> offenderNames = ContainerUtil.map(privilegedReaders.keySet(), Thread::getName);
+      privilegedReaders.clear();
+      LOG.error("Pooled threads created during write action suspension should have been terminated: " + offenderNames,
+                new Attachment("threadDump.txt", ThreadDumper.dumpThreadsToString()));
+    }
+  }
+
+  @Nullable
+  SuspensionId currentReadPrivilege() {
+    return privilegedReaders.get(Thread.currentThread());
+  }
+
+  @NotNull AccessToken applyReadPrivilege(@Nullable SuspensionId context) {
+    Reader status = R.get();
+    int iter = 0;
+    while (context != null && context == currentSuspension) {
+      if (tryReadLock(status, false)) {
+        try {
+          return context == currentSuspension ? grantReadPrivilege() : AccessToken.EMPTY_ACCESS_TOKEN;
+        }
+        finally {
+          readUnlock();
+        }
+      }
+
+      waitABit(status, iter++);
+    }
+    return AccessToken.EMPTY_ACCESS_TOKEN;
+  }
+
+  @NotNull
+  AccessToken grantReadPrivilege() {
+    Thread thread = Thread.currentThread();
+    privilegedReaders.put(thread, currentSuspension);
+    return new AccessToken() {
+      @Override
+      public void finish() {
+        privilegedReaders.remove(thread);
+      }
+    };
   }
 
   void writeUnlock() {
@@ -186,21 +311,6 @@ class ReadMostlyRWLock {
     }
   }
 
-  boolean tryWriteLock() {
-    checkWriteThreadAccess();
-    assert !writeRequested;
-    assert !writeAcquired;
-
-    writeRequested = true;
-    if (areAllReadersIdle()) {
-      writeAcquired = true;
-      return true;
-    }
-
-    writeRequested = false;
-    return false;
-  }
-
   private boolean areAllReadersIdle() {
     for (Reader reader : readers) {
       if (reader.readRequested) {
@@ -213,5 +323,19 @@ class ReadMostlyRWLock {
 
   boolean isWriteLocked() {
     return writeAcquired;
+  }
+
+  static class SuspensionId {}
+
+  @Override
+  public String toString() {
+    return "ReadMostlyRWLock{" +
+           "writeThread=" + writeThread +
+           ", writeRequested=" + writeRequested +
+           ", writeAcquired=" + writeAcquired +
+           ", readers=" + readers +
+           ", privilegedReaders=" + privilegedReaders +
+           ", currentSuspension=" + currentSuspension +
+           '}';
   }
 }

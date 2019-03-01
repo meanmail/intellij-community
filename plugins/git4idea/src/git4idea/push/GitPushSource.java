@@ -33,7 +33,12 @@ public abstract class GitPushSource implements PushSource {
   }
 
   @NotNull
-  abstract GitLocalBranch getBranch();
+  public abstract GitLocalBranch getBranch();
+
+  @Override
+  public String toString() {
+    return getPresentation();
+  }
 
   private static class OnBranch extends GitPushSource {
     @NotNull private final GitLocalBranch myBranch;
@@ -50,7 +55,7 @@ public abstract class GitPushSource implements PushSource {
 
     @NotNull
     @Override
-    GitLocalBranch getBranch() {
+    public GitLocalBranch getBranch() {
       return myBranch;
     }
   }
@@ -58,7 +63,7 @@ public abstract class GitPushSource implements PushSource {
   private static class DetachedHead extends GitPushSource {
     @NotNull private final String myRevision;
 
-    public DetachedHead(@NotNull String revision) {
+    DetachedHead(@NotNull String revision) {
       myRevision = revision;
     }
 
@@ -70,7 +75,7 @@ public abstract class GitPushSource implements PushSource {
 
     @NotNull
     @Override
-    GitLocalBranch getBranch() {
+    public GitLocalBranch getBranch() {
       throw new IllegalStateException("Push is not allowed from detached HEAD");
     }
   }

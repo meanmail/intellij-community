@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package com.maddyhome.idea.copyright.options;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.text.StringUtil;
 import com.maddyhome.idea.copyright.CopyrightProfile;
 import org.jdom.Element;
 import org.jetbrains.annotations.Nullable;
@@ -61,7 +62,7 @@ public class ExternalOptionHelper {
     }
   }
 
-  public static void extractNoticeAndKeyword(Element valueElement, List<CopyrightProfile> profiles) {
+  public static void extractNoticeAndKeyword(Element valueElement, List<? super CopyrightProfile> profiles) {
     CopyrightProfile profile = new CopyrightProfile();
     boolean extract = false;
     for (Object l : valueElement.getChildren("LanguageOptions")) {
@@ -75,7 +76,7 @@ public class ExternalOptionHelper {
     if (extract) profiles.add(profile);
   }
 
-  public static void extractNewNoticeAndKeyword(Element valueElement, List<CopyrightProfile> profiles) {
+  public static void extractNewNoticeAndKeyword(Element valueElement, List<? super CopyrightProfile> profiles) {
     CopyrightProfile profile = new CopyrightProfile();
     boolean extract = false;
     for (Object l : valueElement.getChildren("option")) {
@@ -93,6 +94,12 @@ public class ExternalOptionHelper {
       profile.setKeyword(el.getAttributeValue("value"));
     } else if (el.getAttributeValue("name").equals("myName")) {
       profile.setName(el.getAttributeValue("value"));
+    }
+    else if (el.getAttributeValue("name").equals("allowReplaceKeyword")) {
+      profile.setAllowReplaceRegexp(StringUtil.escapeToRegexp(el.getAttributeValue("value")));
+    }
+    else if (el.getAttributeValue("name").equals("allowReplaceRegexp")) {
+      profile.setAllowReplaceRegexp(el.getAttributeValue("value"));
     }
     return false;
   }

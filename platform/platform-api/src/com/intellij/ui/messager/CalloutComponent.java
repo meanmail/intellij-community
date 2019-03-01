@@ -1,25 +1,11 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.messager;
 
 
 import com.intellij.ui.DrawUtil;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.LineEndDecorator;
 import com.intellij.ui.ScreenUtil;
-import com.intellij.ui.UI;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.awt.RelativeRectangle;
 import com.intellij.ui.components.panels.NonOpaquePanel;
@@ -211,10 +197,10 @@ public class CalloutComponent {
     myKeyboardFocusManager.addKeyEventDispatcher(myKeyEventDispatcher);
 
     myMulticastListener = new AWTEventListener() {
+      @Override
       public void eventDispatched(AWTEvent event) {
-        switch (event.getID()) {
-          case MouseEvent.MOUSE_PRESSED:
-            dispose();
+        if (event.getID() == MouseEvent.MOUSE_PRESSED) {
+          dispose();
         }
       }
     };
@@ -222,48 +208,59 @@ public class CalloutComponent {
     Toolkit.getDefaultToolkit().addAWTEventListener(myMulticastListener, AWTEvent.MOUSE_EVENT_MASK );
 
     myComponentListener = new ComponentListener() {
+      @Override
       public void componentHidden(ComponentEvent e) {
         dispose();
       }
 
+      @Override
       public void componentMoved(ComponentEvent e) {
         dispose();
       }
 
+      @Override
       public void componentResized(ComponentEvent e) {
         dispose();
       }
 
+      @Override
       public void componentShown(ComponentEvent e) {
         dispose();
       }
     };
 
     myWindowListener = new WindowListener() {
+      @Override
       public void windowActivated(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowClosed(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowClosing(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowDeactivated(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowDeiconified(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowIconified(WindowEvent e) {
         dispose();
       }
 
+      @Override
       public void windowOpened(WindowEvent e) {
         dispose();
       }
@@ -271,6 +268,7 @@ public class CalloutComponent {
     myTargetWindow.addWindowListener(myWindowListener);
 
     myWindowStateListener = new WindowStateListener() {
+      @Override
       public void windowStateChanged(WindowEvent e) {
         dispose();
       }
@@ -302,25 +300,26 @@ public class CalloutComponent {
   }
 
   private int getPointerShift() {
-    return (int) Math.sqrt(POINTER_LENGTH * POINTER_LENGTH / 2);
+    return (int) Math.sqrt(POINTER_LENGTH * POINTER_LENGTH / 2.0);
   }
 
   private Color getFillColor() {
-    return UI.getColor("callout.background");
+    return JBColor.background();
   }
 
   private Color getBoundsColor() {
-    return UI.getColor("callout.frame.color");
+    return JBColor.RED;
   }
 
   private class Wrapper extends NonOpaquePanel {
 
-    public Wrapper(JComponent component) {
+    Wrapper(JComponent component) {
       setBorder(BorderFactory.createEmptyBorder(2, 3, 2, 3));
       setLayout(new BorderLayout());
       add(component, BorderLayout.CENTER);
     }
 
+    @Override
     protected void paintComponent(Graphics g) {
       Graphics2D g2 = (Graphics2D) g;
 
@@ -339,10 +338,11 @@ public class CalloutComponent {
   private class Pointer extends NonOpaquePanel {
     private final int myOrientation;
 
-    public Pointer(int orientation) {
+    Pointer(int orientation) {
       myOrientation = orientation;
     }
 
+    @Override
     protected void paintComponent(Graphics g) {
       Graphics2D g2 = (Graphics2D) g;
 
@@ -376,7 +376,7 @@ public class CalloutComponent {
     }
   }
 
-  private JLayeredPane getLayeredPane(Window window) {
+  private static JLayeredPane getLayeredPane(Window window) {
     if (window instanceof JFrame) {
       return ((JFrame) window).getRootPane().getLayeredPane();
     } else if (window instanceof JDialog) {

@@ -20,6 +20,7 @@ import com.intellij.execution.process.ProcessEvent;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.project.MavenConsole;
 import org.jetbrains.idea.maven.utils.MavenLog;
 
@@ -33,27 +34,31 @@ public class SoutMavenConsole extends MavenConsole {
     super(outputLevel, printStrackTrace);
   }
 
+  @Override
   public boolean canPause() {
     return false;
   }
 
+  @Override
   public boolean isOutputPaused() {
     return false;
   }
 
+  @Override
   public void setOutputPaused(boolean outputPaused) {
   }
 
+  @Override
   public void attachToProcess(ProcessHandler processHandler) {
     processHandler.addProcessListener(new ProcessAdapter() {
       @Override
-      public void onTextAvailable(ProcessEvent event, Key outputType) {
+      public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
         System.out.print(event.getText());
         MavenLog.LOG.info(StringUtil.trimTrailing(event.getText()));
       }
 
       @Override
-      public void processTerminated(ProcessEvent event) {
+      public void processTerminated(@NotNull ProcessEvent event) {
         final String text = "PROCESS TERMINATED: " + event.getExitCode();
         System.out.println(text);
         MavenLog.LOG.info(StringUtil.trimTrailing(text));
@@ -61,6 +66,7 @@ public class SoutMavenConsole extends MavenConsole {
     });
   }
 
+  @Override
   protected void doPrint(String text, OutputType type) {
     System.out.print(text);
     MavenLog.LOG.info(StringUtil.trimTrailing(text));

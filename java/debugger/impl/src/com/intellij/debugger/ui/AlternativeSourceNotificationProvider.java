@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -55,14 +41,9 @@ import java.util.ArrayList;
 /**
  * @author egor
  */
-public class AlternativeSourceNotificationProvider extends EditorNotifications.Provider<EditorNotificationPanel> {
+public final class AlternativeSourceNotificationProvider extends EditorNotifications.Provider<EditorNotificationPanel> {
   private static final Key<EditorNotificationPanel> KEY = Key.create("AlternativeSource");
   private static final Key<Boolean> FILE_PROCESSED_KEY = Key.create("AlternativeSourceCheckDone");
-  private final Project myProject;
-
-  public AlternativeSourceNotificationProvider(Project project) {
-    myProject = project;
-  }
 
   @NotNull
   @Override
@@ -72,23 +53,23 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
 
   @Nullable
   @Override
-  public EditorNotificationPanel createNotificationPanel(@NotNull VirtualFile file, @NotNull FileEditor fileEditor) {
+  public EditorNotificationPanel createNotificationPanel(@NotNull VirtualFile file, @NotNull FileEditor fileEditor, @NotNull Project project) {
     if (!DebuggerSettings.getInstance().SHOW_ALTERNATIVE_SOURCE) {
       return null;
     }
-    XDebugSession session = XDebuggerManager.getInstance(myProject).getCurrentSession();
+    XDebugSession session = XDebuggerManager.getInstance(project).getCurrentSession();
     if (session == null) {
-      FILE_PROCESSED_KEY.set(file, null);
+      setFileProcessed(file, false);
       return null;
     }
 
     XSourcePosition position = session.getCurrentPosition();
     if (position == null || !file.equals(position.getFile())) {
-      FILE_PROCESSED_KEY.set(file, null);
+      setFileProcessed(file, false);
       return null;
     }
 
-    final PsiFile psiFile = PsiManager.getInstance(myProject).findFile(file);
+    final PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
     if (psiFile == null) return null;
 
     if (!(psiFile instanceof PsiJavaFile)) return null;
@@ -101,13 +82,13 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
 
     if (name == null) return null;
 
-    if (DumbService.getInstance(myProject).isDumb()) return null;
+    if (DumbService.getInstance(project).isDumb()) return null;
 
     ArrayList<PsiClass> alts = ContainerUtil.newArrayList(
-      JavaPsiFacade.getInstance(myProject).findClasses(name, GlobalSearchScope.allScope(myProject)));
+      JavaPsiFacade.getInstance(project).findClasses(name, GlobalSearchScope.allScope(project)));
     ContainerUtil.removeDuplicates(alts);
 
-    FILE_PROCESSED_KEY.set(file, true);
+    setFileProcessed(file, true);
 
     if (alts.size() > 1) {
       for (PsiClass cls : alts) {
@@ -131,7 +112,7 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
         }
       }
 
-      return new AlternativeSourceNotificationPanel(elems, baseClass, myProject, file, locationDeclName);
+      return new AlternativeSourceNotificationPanel(elems, baseClass, project, file, locationDeclName);
     }
     return null;
   }
@@ -140,11 +121,11 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
     private final PsiClass myClass;
     private String myText;
 
-    public ComboBoxClassElement(PsiClass aClass) {
+    ComboBoxClassElement(PsiClass aClass) {
       myClass = aClass;
     }
 
-    private static JList ourDummyList = new JBList(); // to use ModuleRendererFactory
+    private static final JList ourDummyList = new JBList(); // to use ModuleRendererFactory
 
     @Override
     public String toString() {
@@ -158,12 +139,16 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
     }
   }
 
-  public static boolean fileProcessed(VirtualFile file) {
+  public static boolean isFileProcessed(VirtualFile file) {
     return FILE_PROCESSED_KEY.get(file) != null;
   }
 
+  public static void setFileProcessed(VirtualFile file, boolean value) {
+    FILE_PROCESSED_KEY.set(file, value ? Boolean.TRUE : null);
+  }
+
   private static class AlternativeSourceNotificationPanel extends EditorNotificationPanel {
-    public AlternativeSourceNotificationPanel(ComboBoxClassElement[] alternatives,
+    AlternativeSourceNotificationPanel(ComboBoxClassElement[] alternatives,
                                               final PsiClass aClass,
                                               final Project project,
                                               final VirtualFile file,
@@ -180,7 +165,7 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
           if (session != null && vFile != null) {
             session.getProcess().getManagerThread().schedule(new DebuggerCommandImpl() {
               @Override
-              protected void action() throws Exception {
+              protected void action() {
                 if (!StringUtil.isEmpty(locationDeclName)) {
                   DebuggerUtilsEx.setAlternativeSourceUrl(locationDeclName, vFile.getUrl(), project);
                 }
@@ -200,7 +185,7 @@ public class AlternativeSourceNotificationProvider extends EditorNotifications.P
       myLinksPanel.add(switcher);
       createActionLabel(DebuggerBundle.message("action.disable.text"), () -> {
         DebuggerSettings.getInstance().SHOW_ALTERNATIVE_SOURCE = false;
-        FILE_PROCESSED_KEY.set(file, null);
+        setFileProcessed(file, false);
         FileEditorManager fileEditorManager = FileEditorManager.getInstance(project);
         FileEditor editor = fileEditorManager.getSelectedEditor(file);
         if (editor != null) {

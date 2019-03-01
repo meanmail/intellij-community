@@ -15,8 +15,10 @@
  */
 package com.intellij.diff.actions;
 
-import com.intellij.diff.DiffRequestFactory;
+import com.intellij.diff.chains.DiffRequestChain;
+import com.intellij.diff.chains.SimpleDiffRequestChain;
 import com.intellij.diff.requests.DiffRequest;
+import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -94,24 +96,41 @@ public class CompareFilesAction extends BaseShowDiffAction {
   }
 
   @Nullable
-  @Override
   protected DiffRequest getDiffRequest(@NotNull AnActionEvent e) {
+    return e.getData(DIFF_REQUEST);
+  }
+
+  @Nullable
+  @Override
+  protected DiffRequestChain getDiffRequestChain(@NotNull AnActionEvent e) {
     Project project = e.getProject();
-    DiffRequest diffRequest = e.getData(DIFF_REQUEST);
+    DiffRequest diffRequest = getDiffRequest(e);
     if (diffRequest != null) {
-      return diffRequest;
+      return new SimpleDiffRequestChain(diffRequest);
     }
+
+    VirtualFile file1;
+    VirtualFile file2;
 
     VirtualFile[] data = e.getRequiredData(CommonDataKeys.VIRTUAL_FILE_ARRAY);
     if (data.length == 1) {
-      VirtualFile otherFile = getOtherFile(project, data[0]);
-      if (otherFile == null) return null;
-      if (!hasContent(data[0])) return null;
-      return DiffRequestFactory.getInstance().createFromFiles(project, data[0], otherFile);
+      file1 = data[0];
+      file2 = getOtherFile(project, file1);
+      if (file2 == null || !hasContent(file2)) return null;
     }
     else {
-      return DiffRequestFactory.getInstance().createFromFiles(project, data[0], data[1]);
+      file1 = data[0];
+      file2 = data[1];
     }
+
+    if (!file1.isValid() || !file2.isValid()) return null; // getOtherFile() shows dialog that can invalidate files
+
+    Type type1 = getType(file1);
+    Type type2 = getType(file2);
+    if (type1 == Type.DIRECTORY || type2 == Type.DIRECTORY) FeatureUsageTracker.getInstance().triggerFeatureUsed("dir.diff");
+    if (type1 == Type.ARCHIVE || type2 == Type.ARCHIVE) FeatureUsageTracker.getInstance().triggerFeatureUsed("jar.diff");
+
+    return createMutableChainFromFiles(project, file1, file2);
   }
 
   @Nullable
@@ -151,8 +170,8 @@ public class CompareFilesAction extends BaseShowDiffAction {
   @NotNull
   private static Type getType(@Nullable VirtualFile file) {
     if (file == null) return Type.FILE;
-    if (file.isDirectory()) return Type.DIRECTORY;
     if (file.getFileType() instanceof ArchiveFileType) return Type.ARCHIVE;
+    if (file.isDirectory()) return Type.DIRECTORY;
     return Type.FILE;
   }
 

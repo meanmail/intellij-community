@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,16 +16,13 @@
 package com.intellij.openapi.editor.impl.view;
 
 import com.intellij.openapi.editor.impl.FontInfo;
+import com.intellij.util.ui.UIUtilities;
 import org.jetbrains.annotations.NotNull;
-import sun.swing.SwingUtilities2;
-
-import java.awt.font.FontRenderContext;
 
 class TextFragmentFactory {
-  public static TextFragment createTextFragment(@NotNull char[] lineChars, int start, int end, boolean isRtl,
-                                                @NotNull FontInfo fontInfo, @NotNull FontRenderContext fontRenderContext) {
+  public static TextFragment createTextFragment(@NotNull char[] lineChars, int start, int end, boolean isRtl, @NotNull FontInfo fontInfo) {
     if (isRtl || fontInfo.getFont().hasLayoutAttributes() || isComplexText(lineChars, start, end)) {
-      return new ComplexTextFragment(lineChars, start, end, isRtl, fontInfo.getFont(), fontRenderContext);
+      return new ComplexTextFragment(lineChars, start, end, isRtl, fontInfo);
     }
     else {
       return new SimpleTextFragment(lineChars, start, end, fontInfo);
@@ -34,6 +31,6 @@ class TextFragmentFactory {
 
   private static boolean isComplexText(char[] chars, int start, int end) {
     // replace with Font.textRequiresLayout in Java 9
-    return SwingUtilities2.isComplexLayout(chars, start, end);
+    return UIUtilities.isComplexLayout(chars, start, end);
   }
 }

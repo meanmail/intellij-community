@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,15 +24,12 @@ import com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSources
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.ui.MultiLineLabelUI;
 import com.intellij.openapi.ui.ex.MultiLineLabel;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.File;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -51,7 +48,7 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
   private final Icon myIcon;
   private final String myHelpId;
   private DetectedRootsChooser myDetectedRootsChooser;
-  private String myCurrentBaseProjectPath = null;
+  private String myCurrentBaseProjectPath;
   private JPanel myResultPanel;
 
   public RootsDetectionStep(ProjectFromSourcesBuilderImpl builder,
@@ -67,15 +64,11 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
     myHelpId = helpId;
   }
 
+  @Override
   protected JComponent createResultsPanel() {
     final JPanel panel = new JPanel(new GridBagLayout());
     myDetectedRootsChooser = new DetectedRootsChooser();
-    myDetectedRootsChooser.addSelectionListener(new DetectedRootsChooser.RootSelectionListener() {
-      @Override
-      public void selectionChanged() {
-        updateSelectedTypes();
-      }
-    });
+    myDetectedRootsChooser.addSelectionListener(() -> updateSelectedTypes());
     final String text = IdeBundle.message("label.project.roots.have.been.found");
     final JLabel label = new JLabel(text);
     label.setUI(new MultiLineLabelUI());
@@ -95,30 +88,24 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
               new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.NONE,
                                      JBUI.insets(0, 0, 8, 10), 0, 0));
 
-    markAllButton.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        myDetectedRootsChooser.setAllElementsMarked(true);
-      }
-    });
-    unmarkAllButton.addActionListener(new ActionListener() {
-      public void actionPerformed(ActionEvent e) {
-        myDetectedRootsChooser.setAllElementsMarked(false);
-      }
-    });
+    markAllButton.addActionListener(e -> myDetectedRootsChooser.setAllElementsMarked(true));
+    unmarkAllButton.addActionListener(e -> myDetectedRootsChooser.setAllElementsMarked(false));
 
     myResultPanel = new JPanel(new CardLayout());
     myResultPanel.add(ROOTS_FOUND_CARD, panel);
     JPanel notFoundPanel = new JPanel(new BorderLayout());
-    notFoundPanel.setBorder(IdeBorderFactory.createEmptyBorder(5));
+    notFoundPanel.setBorder(JBUI.Borders.empty(5));
     notFoundPanel.add(BorderLayout.NORTH, new MultiLineLabel(IdeBundle.message("label.project.roots.not.found")));
     myResultPanel.add(ROOTS_NOT_FOUND_CARD, notFoundPanel);
     return myResultPanel;
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myDetectedRootsChooser.getComponent();
   }
 
+  @Override
   public void updateDataModel() {
     final List<DetectedRootData> selectedElements = myDetectedRootsChooser.getMarkedElements();
     myBuilder.setupProjectStructure(RootDetectionProcessor.createRootsMap(selectedElements));
@@ -140,14 +127,16 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
     myContext.requestWizardButtonsUpdate();
   }
 
+  @Override
   protected boolean shouldRunProgress() {
     final String baseProjectPath = getBaseProjectPath();
     return myCurrentBaseProjectPath == null ? baseProjectPath != null : !myCurrentBaseProjectPath.equals(baseProjectPath);
   }
 
+  @Override
   protected void onFinished(final List<DetectedRootData> foundRoots, final boolean canceled) {
     final CardLayout layout = (CardLayout)myResultPanel.getLayout();
-    if (foundRoots.size() > 0 && !canceled) {
+    if (!foundRoots.isEmpty() && !canceled) {
       myCurrentBaseProjectPath = getBaseProjectPath();
       myDetectedRootsChooser.setElements(foundRoots);
       updateSelectedTypes();
@@ -160,6 +149,7 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
     myResultPanel.revalidate();
   }
 
+  @Override
   protected List<DetectedRootData> calculate() {
     final String baseProjectPath = getBaseProjectPath();
     if (baseProjectPath == null) {
@@ -175,15 +165,18 @@ public class RootsDetectionStep extends AbstractStepWithProgress<List<DetectedRo
     return myBuilder.getBaseProjectPath();
   }
 
+  @Override
   protected String getProgressText() {
     final String root = getBaseProjectPath();
     return IdeBundle.message("progress.searching.for.sources", root != null ? root.replace('/', File.separatorChar) : "");
   }
 
+  @Override
   public Icon getIcon() {
     return myIcon;
   }
 
+  @Override
   public String getHelpId() {
     return myHelpId;
   }

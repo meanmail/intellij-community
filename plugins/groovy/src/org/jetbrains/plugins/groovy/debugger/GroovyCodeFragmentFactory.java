@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.debugger;
 
 import com.intellij.debugger.engine.evaluation.CodeFragmentFactory;
@@ -40,7 +26,7 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyRecursiveElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
+import org.jetbrains.plugins.groovy.lang.psi.api.GrFunctionalExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
@@ -49,7 +35,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatem
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.ClosureSyntheticParameter;
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrBindingVariable;
-import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrLightVariable;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
 import java.util.*;
@@ -189,7 +174,7 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
     final GroovyPsiElementFactory factory = GroovyPsiElementFactory.getInstance(context.getProject());
     final GroovyFile toEval = factory.createGroovyFile(text, false, context);
 
-    final GrClosableBlock closure = PsiTreeUtil.getParentOfType(context, GrClosableBlock.class);
+    final GrFunctionalExpression functionalExpression = PsiTreeUtil.getParentOfType(context, GrFunctionalExpression.class);
     final Map<String, String> parameters = new THashMap<>();
     final Map<GrExpression, String> replacements = new HashMap<>();
     toEval.accept(new GroovyRecursiveElementVisitor() {
@@ -229,10 +214,10 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
           }
 
           String value;
-          if (closure != null &&
-              PsiTreeUtil.findCommonParent(resolved, closure) != closure &&
+          if (functionalExpression != null &&
+              !PsiTreeUtil.isAncestor(functionalExpression, resolved, false) &&
               !(resolved instanceof ClosureSyntheticParameter)) {
-            // Evaluating inside closure for outer variable definitions
+            // Evaluating inside functionalExpression for outer variable definitions
             // All non-local variables are accessed by references
             value = "this." + name;
           }
@@ -260,12 +245,11 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
 
         if (resolved instanceof PsiMethod) {
           String methodName = ((PsiMethod)resolved).getName();
-          if (closure != null && "getDelegate".equals(methodName) || "call".equals(methodName)) {
-            return true;
-          }
+          return functionalExpression != null &&
+                 ("getDelegate".equals(methodName) || "getOwner".equals(methodName)) || "call".equals(methodName);
         }
 
-        return closure != null && resolved instanceof GrLightVariable && "owner".equals(((GrLightVariable)resolved).getName());
+        return false;
       }
 
       private void replaceWithReference(GrExpression expr, final String exprText) {
@@ -283,7 +267,7 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
               int dotIndex = qName.lastIndexOf(".");
               if (dotIndex < 0) return;
               String packageName = qName.substring(0, dotIndex);
-              refElement.setQualifier(factory.createReferenceElementFromText(packageName));
+              refElement.setQualifier(factory.createCodeReference(packageName));
             }
           }
         }
@@ -301,7 +285,7 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
     GrImportStatement[] imports = toEval.getImportStatements();
     for (int i = imports.length - 1; i >= 0; i--) {
       TextRange range = imports[i].getTextRange();
-      text = text.substring(0, range.getStartOffset()) + text.substring(range.getEndOffset(), text.length());
+      text = text.substring(0, range.getStartOffset()) + text.substring(range.getEndOffset());
     }
     return StringUtil.escapeStringCharacters(text);
   }
@@ -320,7 +304,7 @@ public class GroovyCodeFragmentFactory extends CodeFragmentFactory {
         return ((PsiMember)parent).hasModifierProperty(PsiModifier.STATIC);
       }
       if (parent instanceof GroovyFile && parent.isPhysical()) return false;
-      if (parent instanceof GrClosableBlock) return false;
+      if (parent instanceof GrFunctionalExpression) return false;
 
       parent = parent.getContext();
     }

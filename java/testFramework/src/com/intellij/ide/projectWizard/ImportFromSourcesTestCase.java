@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.projectWizard;
 
 import com.intellij.ide.util.importProject.DetectedRootData;
@@ -47,11 +33,17 @@ public abstract class ImportFromSourcesTestCase extends PlatformTestCase {
   @Override
   public void setUp() throws Exception {
     super.setUp();
-    myBuilder = new ProjectFromSourcesBuilderImpl(new WizardContext(null), ModulesProvider.EMPTY_MODULES_PROVIDER);
+    myBuilder = new ProjectFromSourcesBuilderImpl(new WizardContext(null, getTestRootDisposable()), ModulesProvider.EMPTY_MODULES_PROVIDER);
   }
 
   @Override
-  protected void setUpProject() throws Exception {
+  protected void tearDown() throws Exception {
+    myBuilder = null;
+    super.tearDown();
+  }
+
+  @Override
+  protected void setUpProject() {
   }
 
   protected Module assertOneModule(@NotNull ModuleType moduleType) {
@@ -70,16 +62,23 @@ public abstract class ImportFromSourcesTestCase extends PlatformTestCase {
   protected void importFromSources(File dir) {
     myRootDir = dir;
     try {
-      myProject = doCreateProject(getIprFile());
+      myProject = doCreateProject(getProjectDirOrFile());
       myBuilder.setBaseProjectPath(dir.getAbsolutePath());
       List<DetectedRootData> list = RootDetectionProcessor.detectRoots(dir);
       MultiMap<ProjectStructureDetector,DetectedProjectRoot> map = RootDetectionProcessor.createRootsMap(list);
       myBuilder.setupProjectStructure(map);
       for (ProjectStructureDetector detector : map.keySet()) {
         List<ModuleWizardStep> steps = detector.createWizardSteps(myBuilder, myBuilder.getProjectDescriptor(detector), EmptyIcon.ICON_16);
-        for (ModuleWizardStep step : steps) {
-          if (step instanceof AbstractStepWithProgress<?>) {
-            performStep((AbstractStepWithProgress<?>)step);
+        try {
+          for (ModuleWizardStep step : steps) {
+            if (step instanceof AbstractStepWithProgress<?>) {
+              performStep((AbstractStepWithProgress<?>)step);
+            }
+          }
+        }
+        finally {
+          for (ModuleWizardStep step : steps) {
+            step.disposeUIResources();
           }
         }
       }

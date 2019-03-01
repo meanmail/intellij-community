@@ -1,36 +1,28 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.gradle.settings;
 
-import com.google.common.base.Objects;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.module.Module;
+import com.intellij.util.xmlb.annotations.OptionTag;
+import org.gradle.internal.impldep.com.google.common.base.Objects;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.gradle.service.settings.GradleSettingsService;
 
 /**
  * @author Vladislav.Soroka
- * @since 14/8/2014
+ *
+ * @deprecated use {@link GradleSettingsService}
  */
-@State(name = "GradleSystemRunningSettings", storages = @Storage("gradle.run.settings.xml"))
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "2019.2")
+@State(name = "GradleSystemRunningSettings", storages = @Storage(value = "gradle.run.settings.xml", deprecated = true))
 public class GradleSystemRunningSettings implements PersistentStateComponent<GradleSystemRunningSettings.MyState> {
-
-  private boolean myUseGradleAwareMake;
+  private boolean myDelegatedBuildEnabledByDefault;
   @NotNull private PreferredTestRunner myPreferredTestRunner = PreferredTestRunner.PLATFORM_TEST_RUNNER;
 
   @NotNull
@@ -38,46 +30,37 @@ public class GradleSystemRunningSettings implements PersistentStateComponent<Gra
     return ServiceManager.getService(GradleSystemRunningSettings.class);
   }
 
-  @SuppressWarnings("unchecked")
   @Nullable
   @Override
   public GradleSystemRunningSettings.MyState getState() {
     MyState state = new MyState();
-    state.useGradleAwareMake = myUseGradleAwareMake;
+    state.useGradleAwareMake = myDelegatedBuildEnabledByDefault;
     state.preferredTestRunner = myPreferredTestRunner;
     return state;
   }
 
   @Override
-  public void loadState(MyState state) {
-    myUseGradleAwareMake = state.useGradleAwareMake;
+  public void loadState(@NotNull MyState state) {
+    myDelegatedBuildEnabledByDefault = state.useGradleAwareMake;
     myPreferredTestRunner = state.preferredTestRunner;
   }
 
+  @OptionTag("preferredTestRunner")
   @NotNull
-  public PreferredTestRunner getPreferredTestRunner() {
-    return myUseGradleAwareMake ? PreferredTestRunner.GRADLE_TEST_RUNNER : myPreferredTestRunner;
-  }
-
-  @NotNull
-  PreferredTestRunner getLastPreferredTestRunner() {
+  public PreferredTestRunner getDefaultTestRunner() {
     return myPreferredTestRunner;
   }
 
-  public void setPreferredTestRunner(@NotNull PreferredTestRunner preferredTestRunner) {
-    myPreferredTestRunner = preferredTestRunner;
-  }
-
+  /**
+   * @deprecated use {@link GradleSettingsService#isDelegatedBuildEnabled(Module)} )
+   */
+  @Deprecated
   public boolean isUseGradleAwareMake() {
-    return myUseGradleAwareMake;
-  }
-
-  public void setUseGradleAwareMake(boolean useGradleAwareMake) {
-    this.myUseGradleAwareMake = useGradleAwareMake;
+    return myDelegatedBuildEnabledByDefault;
   }
 
   public static class MyState {
-    public PreferredTestRunner preferredTestRunner;
+    public PreferredTestRunner preferredTestRunner = PreferredTestRunner.PLATFORM_TEST_RUNNER;
     public boolean useGradleAwareMake;
   }
 
@@ -86,13 +69,13 @@ public class GradleSystemRunningSettings implements PersistentStateComponent<Gra
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     GradleSystemRunningSettings settings = (GradleSystemRunningSettings)o;
-    return myUseGradleAwareMake == settings.myUseGradleAwareMake &&
+    return myDelegatedBuildEnabledByDefault == settings.myDelegatedBuildEnabledByDefault &&
            myPreferredTestRunner == settings.myPreferredTestRunner;
   }
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(myPreferredTestRunner, myUseGradleAwareMake);
+    return Objects.hashCode(myPreferredTestRunner, myDelegatedBuildEnabledByDefault);
   }
 
   public enum PreferredTestRunner {

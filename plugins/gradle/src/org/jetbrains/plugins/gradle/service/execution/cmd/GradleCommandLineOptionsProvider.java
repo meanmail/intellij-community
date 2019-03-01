@@ -20,7 +20,6 @@ import groovyjarjarcommonscli.Options;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/26/2014
  */
 @SuppressWarnings("AccessStaticViaInstance")
 public class GradleCommandLineOptionsProvider {
@@ -65,8 +64,6 @@ public class GradleCommandLineOptionsProvider {
     options.addOption(OptionBuilder.withLongOpt("project-cache-dir").withDescription(
       "Specifies the project-specific cache directory. Default value is .gradle in the root project directory.").hasArg().create());
     options.addOption(OptionBuilder.withLongOpt("quiet").withDescription("Log errors only.").create('q'));
-    options.addOption(OptionBuilder.withLongOpt("recompile-scripts")
-                        .withDescription("Specifies that cached build scripts are skipped and forced to be recompiled.").create());
     options.addOption(OptionBuilder.withLongOpt("refresh-dependencies").withDescription("Refresh the state of dependencies.").create());
     options
       .addOption(OptionBuilder.withLongOpt("rerun-tasks").withDescription("Specifies that any task optimization is ignored.").create());
@@ -87,7 +84,7 @@ public class GradleCommandLineOptionsProvider {
     //options.addOption(OptionBuilder.withLongOpt("build-file").withDescription("Specifies the build file.").hasArg().create('b'));
     //options.addOption(OptionBuilder.withLongOpt("help").withDescription("Shows a help message.").create('h'));
     //options.addOption(OptionBuilder.withLongOpt("version").withDescription("Prints version info.").create('v'));
-    //options.addOption(OptionBuilder.withLongOpt("all").withDescription("Shows additional detail in the task listing. See Section 11.6.2, “Listing tasks”.").create());
+    //options.addOption(OptionBuilder.withLongOpt("all").withDescription("Shows additional detail in the task listing. See Section 11.6.2, "Listing tasks".").create());
 
     ourOptions = options;
   }

@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.patch;
 
 import com.intellij.diff.chains.DiffRequestProducer;
 import com.intellij.diff.chains.DiffRequestProducerException;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.requests.UnknownFileTypeDiffRequest;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diff.impl.patch.FilePatch;
 import com.intellij.openapi.diff.impl.patch.PatchReader;
 import com.intellij.openapi.diff.impl.patch.TextFilePatch;
@@ -27,7 +12,6 @@ import com.intellij.openapi.fileTypes.UnknownFileType;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Getter;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.ContentRevision;
@@ -47,6 +31,7 @@ public class TextFilePatchInProgress extends AbstractFilePatchInProgress<TextFil
     super(patch.pathsOnlyCopy(), autoBases, baseDir);
   }
 
+  @Override
   public ContentRevision getNewContentRevision() {
     if (FilePatchStatus.DELETED.equals(myStatus)) return null;
 
@@ -54,19 +39,12 @@ public class TextFilePatchInProgress extends AbstractFilePatchInProgress<TextFil
       myConflicts = null;
       if (FilePatchStatus.ADDED.equals(myStatus)) {
         final FilePath newFilePath = VcsUtil.getFilePath(myIoCurrentBase, false);
-        final String content = myPatch.getNewFileText();
+        final String content = myPatch.getSingleHunkPatchText();
         myNewContentRevision = new SimpleContentRevision(content, newFilePath, myPatch.getAfterVersionId());
       }
       else {
         final FilePath newFilePath = detectNewFilePathForMovedOrModified();
         myNewContentRevision = new LazyPatchContentRevision(myCurrentBase, newFilePath, myPatch.getAfterVersionId(), myPatch);
-        if (myCurrentBase != null) {
-          ApplicationManager.getApplication().executeOnPooledThread(new Runnable() {
-            public void run() {
-              ((LazyPatchContentRevision)myNewContentRevision).getContent();
-            }
-          });
-        }
       }
     }
     return myNewContentRevision;
@@ -78,12 +56,6 @@ public class TextFilePatchInProgress extends AbstractFilePatchInProgress<TextFil
     final PatchChange change = getChange();
     final FilePatch patch = getPatch();
     final String path = patch.getBeforeName() == null ? patch.getAfterName() : patch.getBeforeName();
-    final Getter<CharSequence> baseContentGetter = new Getter<CharSequence>() {
-      @Override
-      public CharSequence get() {
-        return patchReader.getBaseRevision(project, path);
-      }
-    };
     return new DiffRequestProducer() {
       @NotNull
       @Override
@@ -96,16 +68,13 @@ public class TextFilePatchInProgress extends AbstractFilePatchInProgress<TextFil
         if (isConflictingChange()) {
           final VirtualFile file = getCurrentBase();
 
-          Getter<ApplyPatchForBaseRevisionTexts> getter = new Getter<ApplyPatchForBaseRevisionTexts>() {
-            @Override
-            public ApplyPatchForBaseRevisionTexts get() {
-              return ApplyPatchForBaseRevisionTexts.create(project, file, VcsUtil.getFilePath(file), getPatch(), baseContentGetter);
-            }
-          };
+          ApplyPatchForBaseRevisionTexts texts =
+            ApplyPatchForBaseRevisionTexts
+              .create(project, file, VcsUtil.getFilePath(file), getPatch(), patchReader.getBaseRevision(project, path));
 
           String afterTitle = getPatch().getAfterVersionId();
           if (afterTitle == null) afterTitle = "Patched Version";
-          return PatchDiffRequestFactory.createConflictDiffRequest(project, file, getPatch(), afterTitle, getter, getName(), context, indicator);
+          return PatchDiffRequestFactory.createConflictDiffRequest(project, file, getPatch(), afterTitle, texts, getName());
         }
         else {
           return PatchDiffRequestFactory.createDiffRequest(project, change, getName(), context, indicator);

@@ -39,15 +39,14 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.regex.Pattern;
 
 public class ConflictsDialog extends DialogWrapper{
   private static final int SHOW_CONFLICTS_EXIT_CODE = 4;
 
-  private final String[] myConflictDescriptions;
-  private MultiMap<PsiElement, String> myElementConflictDescription;
+  protected final String[] myConflictDescriptions;
+  protected MultiMap<PsiElement, String> myElementConflictDescription;
   private final Project myProject;
   private Runnable myDoRefactoringRunnable;
   private final boolean myCanShowConflictsInView;
@@ -72,23 +71,14 @@ public class ConflictsDialog extends DialogWrapper{
     myProject = project;
     myDoRefactoringRunnable = doRefactoringRunnable;
     myCanShowConflictsInView = canShowConflictsInView;
-    final LinkedHashSet<String> conflicts = new LinkedHashSet<>();
 
-    for (String conflict : conflictDescriptions.values()) {
-      conflicts.add(conflict);
-    }
+    final LinkedHashSet<String> conflicts = new LinkedHashSet<>(conflictDescriptions.values());
     myConflictDescriptions = ArrayUtil.toStringArray(conflicts);
     myElementConflictDescription = conflictDescriptions;
     setTitle(RefactoringBundle.message("problems.detected.title"));
     setOKButtonText(RefactoringBundle.message("continue.button"));
     setOKActionEnabled(alwaysShowOkButton || getDoRefactoringRunnable(null) != null);
     init();
-  }
-
-  @SuppressWarnings("deprecation")
-  @Deprecated
-  public ConflictsDialog(Project project, Collection<String> conflictDescriptions) {
-    this(project, ArrayUtil.toStringArray(conflictDescriptions));
   }
 
   @Deprecated
@@ -133,7 +123,9 @@ public class ConflictsDialog extends DialogWrapper{
       buf.append(description);
       buf.append("<br><br>");
     }
-    JEditorPane messagePane = new JEditorPane(UIUtil.HTML_MIME, buf.toString());
+    JEditorPane messagePane = new JEditorPane();
+    messagePane.setEditorKit(UIUtil.getHTMLEditorKit());
+    messagePane.setText(buf.toString());
     messagePane.setEditable(false);
     JScrollPane scrollPane = ScrollPaneFactory.createScrollPane(messagePane,
                                                                 ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
@@ -153,7 +145,7 @@ public class ConflictsDialog extends DialogWrapper{
   }
 
   private class CancelAction extends AbstractAction {
-    public CancelAction() {
+    CancelAction() {
       super(RefactoringBundle.message("cancel.button"));
       putValue(DEFAULT_ACTION,Boolean.TRUE);
     }
@@ -171,7 +163,7 @@ public class ConflictsDialog extends DialogWrapper{
   private class MyShowConflictsInUsageViewAction extends AbstractAction {
 
 
-    public MyShowConflictsInUsageViewAction() {
+    MyShowConflictsInUsageViewAction() {
       super("Show Conflicts in View");
     }
 
@@ -218,7 +210,7 @@ public class ConflictsDialog extends DialogWrapper{
         }
       }
       final UsageView usageView = UsageViewManager.getInstance(myProject)
-        .showUsages(UsageTarget.EMPTY_ARRAY, usages.toArray(new Usage[usages.size()]), presentation);
+        .showUsages(UsageTarget.EMPTY_ARRAY, usages.toArray(Usage.EMPTY_ARRAY), presentation);
       Runnable doRefactoringRunnable = getDoRefactoringRunnable(usageView);
       if (doRefactoringRunnable != null) {
         usageView.addPerformOperationAction(
@@ -230,17 +222,17 @@ public class ConflictsDialog extends DialogWrapper{
     }
 
     private class DescriptionOnlyUsage implements Usage {
-      private String myConflictDescription;
+      private final String myConflictDescription;
 
-      public DescriptionOnlyUsage(String conflictDescription) {
-        myConflictDescription = StringUtil.unescapeXml(conflictDescription)
+      DescriptionOnlyUsage(@NotNull String conflictDescription) {
+        myConflictDescription = StringUtil.unescapeXmlEntities(conflictDescription)
           .replaceAll("<code>", "")
           .replaceAll("</code>", "")
           .replaceAll("<b>", "")
           .replaceAll("</b>", "");
       }
 
-      public DescriptionOnlyUsage() {
+      DescriptionOnlyUsage() {
         myConflictDescription =
           Pattern.compile("<[^<>]*>").matcher(StringUtil.join(new LinkedHashSet<>(myElementConflictDescription.get(null)), "\n")).replaceAll("");
       }

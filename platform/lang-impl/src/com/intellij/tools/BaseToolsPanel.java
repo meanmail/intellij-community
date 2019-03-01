@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@
 
 package com.intellij.tools;
 
-import com.intellij.CommonBundle;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.options.CompoundScheme;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.PlatformIcons;
@@ -80,32 +80,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
 
   protected BaseToolsPanel() {
     myTree = new CheckboxTree(
-      new CheckboxTree.CheckboxTreeCellRenderer() {
-        @Override
-        public void customizeRenderer(final JTree tree,
-                                      final Object value,
-                                      final boolean selected,
-                                      final boolean expanded,
-                                      final boolean leaf,
-                                      final int row,
-                                      final boolean hasFocus) {
-          if (!(value instanceof CheckedTreeNode)) return;
-          Object object = ((CheckedTreeNode)value).getUserObject();
-
-          if (object instanceof ToolsGroup) {
-            final String groupName = ((ToolsGroup)object).getName();
-            if (groupName != null) {
-              getTextRenderer().append(groupName, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-            }
-            else {
-              getTextRenderer().append("[unnamed group]", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-            }
-          }
-          else if (object instanceof Tool) {
-            getTextRenderer().append(((Tool)object).getName(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
-          }
-        }
-      },
+      getTreeCellRenderer(),
       new CheckedTreeNode(null)) {
       @Override
       protected void onDoubleClick(final CheckedTreeNode node) {
@@ -140,7 +115,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
         if (dlg.showAndGet()) {
           insertNewTool(dlg.getData(), true);
         }
-        myTree.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
       }
     }).setRemoveAction(new AnActionButtonRunnable() {
       @Override
@@ -151,7 +126,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
       @Override
       public void run(AnActionButton button) {
         editSelected();
-        myTree.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
       }
     }).setMoveUpAction(new AnActionButtonRunnable() {
       @Override
@@ -167,7 +142,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
       }
     }).addExtraAction(myCopyButton = new AnActionButton(ToolsBundle.message("tools.copy.button"), PlatformIcons.COPY_ICON) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         Tool originalTool = getSelectedTool();
 
         if (originalTool != null) {
@@ -178,7 +153,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
           if (dlg.showAndGet()) {
             insertNewTool(dlg.getData(), true);
           }
-          myTree.requestFocus();
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
         }
       }
     }).createPanel(), BorderLayout.CENTER);
@@ -222,6 +197,38 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
   }
 
   protected abstract BaseToolManager<T> getToolManager();
+
+  protected CheckboxTree.CheckboxTreeCellRenderer getTreeCellRenderer() {
+    return new MyCheckboxTreeCellRenderer();
+  }
+
+  protected static class MyCheckboxTreeCellRenderer extends CheckboxTree.CheckboxTreeCellRenderer {
+    @Override
+    public void customizeRenderer(final JTree tree,
+                                  final Object value,
+                                  final boolean selected,
+                                  final boolean expanded,
+                                  final boolean leaf,
+                                  final int row,
+                                  final boolean hasFocus) {
+      if (!(value instanceof CheckedTreeNode)) return;
+      Object object = ((CheckedTreeNode)value).getUserObject();
+
+      if (object instanceof ToolsGroup) {
+        final String groupName = ((ToolsGroup)object).getName();
+        if (groupName != null) {
+          getTextRenderer().append(groupName, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+        }
+        else {
+          getTextRenderer().append("[unnamed group]", SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+        }
+      }
+      else if (object instanceof Tool) {
+        getTextRenderer().append(((Tool)object).getName(), SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES);
+      }
+    }
+  }
+
 
   @NotNull
   private CheckedTreeNode insertNewGroup(@NotNull ToolsGroup<T> groupCopy) {
@@ -285,7 +292,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
         TreePath path = new TreePath(node.getPath());
         myTree.getSelectionModel().setSelectionPath(path);
         myTree.expandPath(path);
-        myTree.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
       }
     }
   }
@@ -348,7 +355,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
   }
 
   @Nullable
-  private Tool getSelectedTool() {
+  public Tool getSelectedTool() {
     CheckedTreeNode node = getSelectedToolNode();
     if (node == null) return null;
     return node.getUserObject() instanceof Tool ? (Tool)node.getUserObject() : null;
@@ -402,7 +409,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
       int result = Messages.showYesNoDialog(
         this,
         ToolsBundle.message("tools.delete.confirmation"),
-        CommonBundle.getWarningTitle(),
+        "Delete Tool",
         Messages.getWarningIcon()
       );
       if (result != Messages.YES) {
@@ -422,7 +429,7 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
         removeNodeFromParent(node);
       }
       update();
-      myTree.requestFocus();
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
     }
   }
 
@@ -513,12 +520,11 @@ public abstract class BaseToolsPanel<T extends Tool> extends JPanel {
 
   public void selectTool(final String actionId) {
     Object root = myTree.getModel().getRoot();
-    if (root == null || !(root instanceof CheckedTreeNode)) {
+    if (!(root instanceof CheckedTreeNode)) {
       return;
     }
     final List<CheckedTreeNode> nodes = new ArrayList<>();
     new Object() {
-      @SuppressWarnings("unchecked")
       public void collect(CheckedTreeNode node) {
         if (node.isLeaf()) {
           Object userObject = node.getUserObject();

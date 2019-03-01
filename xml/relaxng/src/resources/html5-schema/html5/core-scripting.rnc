@@ -14,6 +14,7 @@ datatypes w = "http://whattf.org/datatype-draft"
 	script.attrs.embedded =
 		(	common.attrs
 		&	script.attrs.type?
+		&	script.attrs.nomodule?
 		&	script.attrs.language? # restricted in Schematron
 		&	script.attrs.integrity?
 		&	script.attrs.nonce?
@@ -30,6 +31,7 @@ datatypes w = "http://whattf.org/datatype-draft"
 		&	script.attrs.defer?
 		&	script.attrs.async?
 		&	script.attrs.type?
+		&	script.attrs.nomodule?
 		&	script.attrs.charset?
 		&	script.attrs.language? # restricted in Schematron
 		&	script.attrs.integrity?
@@ -53,11 +55,15 @@ datatypes w = "http://whattf.org/datatype-draft"
 			} & v5only
 		script.attrs.type =
 			attribute type {
-				common.data.mimetype # XXX without charset parameter!
+				w:string "module" | w:string "" | common.data.scripttype # XXX without charset parameter!
+			}
+		script.attrs.nomodule =
+			attribute nomodule {
+				w:string "nomodule" | w:string ""
 			}
 		script.attrs.charset =
 			attribute charset {
-				common.data.charset
+				string
 			}
 		script.attrs.language =
 			attribute language {
@@ -146,6 +152,8 @@ datatypes w = "http://whattf.org/datatype-draft"
 		&	scripting.attr.onended?
 		&	scripting.attr.onerror?
 		&	scripting.attr.onfocus?
+		&	scripting.attr.onfocusin?
+		&	scripting.attr.onfocusout?
 		&	scripting.attr.oninput?
 		&	scripting.attr.oninvalid?
 		&	scripting.attr.onkeydown?
@@ -174,7 +182,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 		&	scripting.attr.onseeked?
 		&	scripting.attr.onseeking?
 		&	scripting.attr.onselect?
-		&	scripting.attr.onshow?
 		&	scripting.attr.onsort?
 		&	scripting.attr.onstalled?
 		&	scripting.attr.onsubmit?
@@ -239,6 +246,10 @@ datatypes w = "http://whattf.org/datatype-draft"
 		attribute onerror { common.data.functionbody }
 	scripting.attr.onfocus =
 		attribute onfocus { common.data.functionbody }
+	scripting.attr.onfocusin =
+		attribute onfocusin { common.data.functionbody }
+	scripting.attr.onfocusout =
+		attribute onfocusout { common.data.functionbody }
 	scripting.attr.onformchange =
 		attribute onformchange { common.data.functionbody }
 	scripting.attr.onforminput =
@@ -299,8 +310,6 @@ datatypes w = "http://whattf.org/datatype-draft"
 		attribute onseeking { common.data.functionbody }
 	scripting.attr.onselect =
 		attribute onselect { common.data.functionbody }
-	scripting.attr.onshow =
-		attribute onshow { common.data.functionbody }
 	scripting.attr.onsort =
 		attribute onsort { common.data.functionbody }
 	scripting.attr.onstalled =

@@ -30,10 +30,10 @@ import com.intellij.execution.testframework.sm.runner.history.actions.AbstractIm
 import com.intellij.execution.testframework.sm.runner.history.actions.ImportTestsGroup;
 import com.intellij.execution.ui.ConsoleView;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.ide.util.PsiNavigationSupport;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -75,16 +75,6 @@ public class SMTRunnerConsoleProperties extends TestConsoleProperties implements
     myConfiguration = config;
     myTestFrameworkName = testFrameworkName;
     myCustomFilter = new CompositeFilter(project);
-  }
-
-  /** @deprecated {@use #setPrintTestingStartedTime} (to be removed in IDEA 16) */
-  @SuppressWarnings("unused")
-  public SMTRunnerConsoleProperties(@NotNull RunConfiguration config,
-                                    @NotNull String testFrameworkName,
-                                    @NotNull Executor executor,
-                                    boolean printTestingStartedTime) {
-    this(config, testFrameworkName, executor);
-    setPrintTestingStartedTime(printTestingStartedTime);
   }
 
   @NotNull
@@ -179,6 +169,7 @@ public class SMTRunnerConsoleProperties extends TestConsoleProperties implements
   }
 
   @Nullable
+  @Deprecated
   protected Navigatable findSuitableNavigatableForLine(@NotNull Project project, @NotNull VirtualFile file, int line) {
     // lets find first non-ws psi element
     
@@ -198,7 +189,7 @@ public class SMTRunnerConsoleProperties extends TestConsoleProperties implements
       }
     }
 
-    return new OpenFileDescriptor(project, file, offset);
+    return PsiNavigationSupport.getInstance().createNavigatable(project, file, offset);
   }
 
   public boolean fixEmptySuite() {
@@ -223,5 +214,9 @@ public class SMTRunnerConsoleProperties extends TestConsoleProperties implements
   @NotNull
   public String getTestFrameworkName() {
     return myTestFrameworkName;
+  }
+
+  public boolean isUndefined() {
+    return false;
   }
 }

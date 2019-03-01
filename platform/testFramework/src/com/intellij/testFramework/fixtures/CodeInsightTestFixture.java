@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.fixtures;
 
 import com.intellij.codeInsight.completion.CompletionType;
@@ -28,10 +14,12 @@ import com.intellij.codeInspection.LocalInspectionTool;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.ide.structureView.newStructureView.StructureViewComponent;
 import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.Inlay;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -39,11 +27,10 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
 import com.intellij.psi.PsiReference;
-import com.intellij.testFramework.EditorTestUtil;
-import com.intellij.testFramework.ExpectedHighlightingData;
-import com.intellij.testFramework.HighlightTestInfo;
-import com.intellij.testFramework.TestDataFile;
+import com.intellij.testFramework.*;
+import com.intellij.ui.components.breadcrumbs.Crumb;
 import com.intellij.usageView.UsageInfo;
+import com.intellij.usages.Usage;
 import com.intellij.util.Consumer;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
@@ -51,6 +38,8 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * @author Dmitry Avdeev
@@ -58,9 +47,7 @@ import java.util.List;
  * @see IdeaTestFixtureFactory#createCodeInsightFixture(IdeaProjectTestFixture)
  */
 public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
-
   String CARET_MARKER = EditorTestUtil.CARET_TAG;
-
   String ERROR_MARKER = "error";
   String WARNING_MARKER = "warning";
   String WEAK_WARNING_MARKER = "weak_warning";
@@ -220,7 +207,6 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
 
   /**
    * Enables inspections for highlighting tests.
-   * Should be called BEFORE {@link #setUp()}. And do not forget to call {@link #tearDown()}
    *
    * @param inspections inspections to be enabled in highlighting tests.
    * @see #enableInspections(InspectionToolProvider...)
@@ -359,6 +345,7 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
    * @return the matching intention
    * @throws AssertionError if no intentions are found or if multiple intentions match the hint text.
    */
+  @NotNull
   IntentionAction findSingleIntention(@NotNull String hint);
 
   /**
@@ -389,12 +376,12 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
    */
   void testCompletion(@TestDataFile @NotNull String fileBefore,
                       @NotNull @TestDataFile String fileAfter,
-                      @NotNull String... additionalFiles);
+                      @TestDataFile @NotNull String... additionalFiles);
 
   void testCompletionTyping(@NotNull @TestDataFile String fileBefore,
                             @NotNull String toType,
                             @NotNull @TestDataFile String fileAfter,
-                            @NotNull String... additionalFiles);
+                            @TestDataFile @NotNull String... additionalFiles);
 
   /**
    * Runs basic completion in caret position in fileBefore.
@@ -405,7 +392,8 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
   void testCompletionVariants(@NotNull @TestDataFile String fileBefore, @NotNull String... items);
 
   /**
-   * Launches renaming refactoring and checks the result.
+   * Opens the specified file in the editor, Launches renaming refactoring on the PSI element at caret and checks the result.
+   * For new tests, please use{@link #testRenameUsingHandler(String, String, String, String...)} instead of this method.
    *
    * @param fileBefore original file path. Use {@link #CARET_MARKER} to mark the element to rename.
    * @param fileAfter  result file to be checked against.
@@ -415,20 +403,70 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
   void testRename(@NotNull @TestDataFile String fileBefore,
                   @NotNull @TestDataFile String fileAfter,
                   @NotNull String newName,
-                  @NotNull String... additionalFiles);
+                  @TestDataFile @NotNull String... additionalFiles);
 
+  /**
+   * Opens the specified file in the editor, launches the rename refactoring using the rename handler (using the high-level
+   * rename API, as opposed to retrieving the PSI element at caret and invoking the PSI rename on it) and checks the result.
+   *
+   * @param fileBefore original file path. Use {@link #CARET_MARKER} to mark the element to rename.
+   * @param fileAfter  result file to be checked against.
+   * @param newName    new name for the element.
+   * @see #testRename(String, String)
+   */
+  void testRenameUsingHandler(@NotNull @TestDataFile String fileBefore,
+                              @NotNull @TestDataFile String fileAfter,
+                              @NotNull String newName,
+                              @TestDataFile @NotNull String... additionalFiles);
+
+  /**
+   * Launches the rename refactoring on the PSI element at caret and checks the result. For new tests, please use
+   * {@link #testRenameUsingHandler(String, String)} instead of this method.
+   */
   void testRename(@NotNull @TestDataFile String fileAfter, @NotNull String newName);
 
+  /**
+   * launches the rename refactoring using the rename handler (using the high-level rename API, as opposed to
+   * retrieving the PSI element at caret and invoking the PSI rename on it) and checks the result.
+   */
+  void testRenameUsingHandler(@NotNull @TestDataFile String fileAfter, @NotNull String newName);
+
+  /**
+   * Invokes the Find Usages handler for the PSI element at caret and returns the usages returned by it.
+   * For new tests, please use {@link #testFindUsagesUsingAction} instead of this method.
+   */
   @NotNull
   Collection<UsageInfo> testFindUsages(@TestDataFile @NotNull String... fileNames);
+
+  /**
+   * Opens the specified file in the editor, places the caret and selection according to the markup,
+   * launches the Find Usages action and returns the items displayed in the usage view.
+   */
+  @NotNull
+  Collection<Usage> testFindUsagesUsingAction(@TestDataFile @NotNull String... fileNames);
 
   @NotNull
   Collection<UsageInfo> findUsages(@NotNull PsiElement to);
 
+  /**
+   * @return a text representation of {@link com.intellij.usages.UsageView} created from the usages
+   */
+  @NotNull
+  String getUsageViewTreeTextRepresentation(@NotNull Collection<UsageInfo> usages);
+
+  /**
+   * @return a text representation of {@link com.intellij.usages.UsageView} created from usages of <code>to</code>
+   * <p>
+   * The result of the method could be more verbose than {@code getUsageViewTreeTextRepresentation(findUsages(to))}
+   */
+  @NotNull
+  String getUsageViewTreeTextRepresentation(@NotNull PsiElement to);
+
+
   @NotNull
   RangeHighlighter[] testHighlightUsages(@NotNull @TestDataFile String... files);
 
-  void moveFile(@NotNull @TestDataFile String filePath, @NotNull String to, @NotNull String... additionalFiles);
+  void moveFile(@NotNull @TestDataFile String filePath, @NotNull String to, @TestDataFile @NotNull String... additionalFiles);
 
   /**
    * Returns gutter renderer at the caret position.
@@ -465,6 +503,8 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
   void checkResult(@NotNull String text);
 
   void checkResult(@NotNull String text, boolean stripTrailingSpaces);
+
+  void checkResult(@NotNull String filePath, @NotNull String text, boolean stripTrailingSpaces);
 
   Document getDocument(@NotNull PsiFile file);
 
@@ -539,6 +579,19 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
 
   void testRainbow(@NotNull String fileName, @NotNull String text, boolean isRainbowOn, boolean withColor);
 
+  /**
+   *  Misnamed, actually it checks only parameter hints
+    */
+  void testInlays();
+
+  /**
+   * @param inlayPresenter function to render text of inlay. Inlays come to this function only if inlayFilter returned true
+   * @param inlayFilter filter to check only required inlays
+   */
+  void testInlays(Function<? super Inlay, String> inlayPresenter, Predicate<? super Inlay> inlayFilter);
+
+  void checkResultWithInlays(String text);
+
   void assertPreferredCompletionItems(int selected, @NotNull String... expected);
 
   /**
@@ -546,7 +599,7 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
    *
    * @param consumer the callback in which the actual testing of the structure view is performed.
    */
-  void testStructureView(@NotNull Consumer<StructureViewComponent> consumer);
+  void testStructureView(@NotNull Consumer<? super StructureViewComponent> consumer);
 
   /**
    * By default, if the caret in the text passed to {@link #configureByFile(String)} or {@link #configureByText} has an injected fragment
@@ -577,5 +630,32 @@ public interface CodeInsightTestFixture extends IdeaProjectTestFixture {
   @NotNull
   List<LookupElement> completeBasicAllCarets(@Nullable Character charToTypeAfterCompletion);
 
+  /**
+   * Get elements found by the Goto Class action called with the given pattern
+   * @param pattern a pattern to search for elements
+   * @param searchEverywhere indicates whether "include non-project classes" checkbox is selected
+   * @param contextForSorting a PsiElement used for "proximity sorting" of the results. The sorting will be disabled if null given.
+   * @return a list of the results (likely PsiElements) found for the given pattern
+   */
+  @NotNull
+  List<Object> getGotoClassResults(@NotNull String pattern, boolean searchEverywhere, @Nullable PsiElement contextForSorting);
+
+  /**
+   * Get breadcrumbs to be generated for the current cursor position in the loaded file
+   * @return a list of the breadcrumbs in the order from the topmost element crumb to the deepest
+   */
+  @NotNull
+  List<Crumb> getBreadcrumbsAtCaret();
+
   void saveText(@NotNull VirtualFile file, @NotNull String text);
+
+  /**
+   * @return Disposable for the corresponding project fixture.
+   * It's disposed earlier than {@link UsefulTestCase#getTestRootDisposable()} and can be useful
+   * e.g. for avoiding library virtual pointers leaks: {@code PsiTestUtil.addLibrary(myFixture.getProjectDisposable(), ...)}
+   */
+  @NotNull
+  default Disposable getProjectDisposable() {
+    return getProject();
+  }
 }

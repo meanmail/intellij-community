@@ -29,7 +29,6 @@ import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.ObjectUtils;
 import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.ContainerUtilRt;
@@ -37,11 +36,13 @@ import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.Collection;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 4/14/13 11:21 PM
  */
 @Order(ExternalSystemConstants.BUILTIN_SERVICE_ORDER)
 public abstract class AbstractDependencyDataService<E extends AbstractDependencyData<?>, I extends ExportableOrderEntry>
@@ -95,7 +96,23 @@ public abstract class AbstractDependencyDataService<E extends AbstractDependency
       MultiMap<String /*module name*/, String /*dep name*/> byModuleName = MultiMap.create();
       for (DataNode<E> node : toImport) {
         final AbstractDependencyData data = node.getData();
-        byModuleName.putValue(data.getOwnerModule().getInternalName(), getInternalName(data));
+        Module ownerModule = modelsProvider.findIdeModule(data.getOwnerModule());
+        if (ownerModule == null && modelsProvider.getUnloadedModuleDescription(data.getOwnerModule()) != null) {
+          continue;
+        }
+        assert ownerModule != null;
+        String depName;
+        if(data instanceof ModuleDependencyData) {
+          Module targetModule = modelsProvider.findIdeModule(((ModuleDependencyData)data).getTarget());
+          if (targetModule == null && modelsProvider.getUnloadedModuleDescription(((ModuleDependencyData)data).getTarget()) != null) {
+            continue;
+          }
+          assert targetModule != null;
+          depName = targetModule.getName();
+        } else {
+          depName = getInternalName(data);
+        }
+        byModuleName.putValue(ownerModule.getName(), depName);
       }
 
       final ModifiableModuleModel modifiableModuleModel = modelsProvider.getModifiableModuleModel();
@@ -109,7 +126,7 @@ public abstract class AbstractDependencyDataService<E extends AbstractDependency
             continue;
           }
           if (getOrderEntryType().isInstance(entry)) {
-            final String moduleName = ObjectUtils.chooseNotNull(modifiableModuleModel.getNewName(entry.getOwnerModule()), entry.getOwnerModule().getName()) ;
+            final String moduleName = modifiableModuleModel.getActualName(entry.getOwnerModule());
             //noinspection unchecked
             if (!byModuleName.get(moduleName).contains(getOrderEntryName(modelsProvider, (I)entry))) {
               //noinspection unchecked

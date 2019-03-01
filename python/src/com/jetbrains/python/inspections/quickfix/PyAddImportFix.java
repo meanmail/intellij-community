@@ -19,6 +19,8 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.codeInsight.imports.AddImportHelper;
 import com.jetbrains.python.psi.LanguageLevel;
@@ -36,7 +38,7 @@ public class PyAddImportFix implements LocalQuickFix {
   @NotNull
   private final String myImportToAdd;
   @NotNull
-  private final PyFile myFile;
+  private final SmartPsiElementPointer<PyFile> myFile;
 
   /**
    * @param importToAdd string representing what to add (i.e. "from foo import bar")
@@ -44,28 +46,24 @@ public class PyAddImportFix implements LocalQuickFix {
    */
   public PyAddImportFix(@NotNull final String importToAdd, @NotNull final PyFile file) {
     myImportToAdd = importToAdd;
-    myFile = file;
-  }
-
-  @NotNull
-  @Override
-  public String getName() {
-    return PyBundle.message("QFIX.add.import.add.import", myImportToAdd);
+    myFile = SmartPointerManager.createPointer(file);
   }
 
   @NotNull
   @Override
   public String getFamilyName() {
-    return getName();
+    return PyBundle.message("QFIX.add.import.add.import", myImportToAdd);
   }
 
   @Override
   public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
     final PyElementGenerator generator = PyElementGenerator.getInstance(project);
+    final PyFile file = myFile.getElement();
+    if (file == null) return;
     final PyImportStatementBase statement =
-      generator.createFromText(LanguageLevel.forElement(myFile), PyImportStatementBase.class, myImportToAdd);
-    final PsiElement recommendedPosition = AddImportHelper.getFileInsertPosition(myFile);
-    myFile.addAfter(statement, recommendedPosition);
+      generator.createFromText(LanguageLevel.forElement(file), PyImportStatementBase.class, myImportToAdd);
+    final PsiElement recommendedPosition = AddImportHelper.getFileInsertPosition(file);
+    file.addAfter(statement, recommendedPosition);
   }
 }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ import java.util.EnumSet;
 
 public class XsdRegExpParserDefinition extends RegExpParserDefinition {
 
-  public static Language LANGUAGE = new Language(RegExpLanguage.INSTANCE, "XsdRegExp") {};
+  public static final Language LANGUAGE = new Language(RegExpLanguage.INSTANCE, "XsdRegExp") {};
 
   private static final IFileElementType XSD_REGEXP_FILE = new IFileElementType("XSD_REGEXP_FILE", LANGUAGE);
 
@@ -38,6 +38,7 @@ public class XsdRegExpParserDefinition extends RegExpParserDefinition {
                                                                     RegExpCapability.ALLOW_HORIZONTAL_WHITESPACE_CLASS,
                                                                     RegExpCapability.UNICODE_CATEGORY_SHORTHAND);
 
+  @Override
   @NotNull
   public Lexer createLexer(Project project) {
     return new RegExpLexer(CAPABILITIES);

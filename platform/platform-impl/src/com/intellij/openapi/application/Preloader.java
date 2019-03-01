@@ -1,53 +1,54 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
-import com.intellij.openapi.components.ApplicationComponent;
+import com.intellij.ide.ApplicationInitializedListener;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.AbstractProgressIndicatorBase;
 import com.intellij.openapi.progress.util.ProgressIndicatorBase;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
+import com.intellij.util.StartUpMeasurer;
 import com.intellij.util.TimeoutUtil;
 import com.intellij.util.concurrency.SequentialTaskExecutor;
 import com.intellij.util.io.storage.HeavyProcessLatch;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.Executor;
 
 /**
  * @author peter
  */
-public class Preloader implements ApplicationComponent {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.application.Preloader");
-  private final Executor myExecutor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("com.intellij.openapi.application.Preloader pool");
-  private final ProgressIndicator myIndicator = new ProgressIndicatorBase();
-  private final ProgressIndicator myWrappingIndicator = new AbstractProgressIndicatorBase() {
-    @Override
-    public void checkCanceled() {
-      checkHeavyProcessRunning();
-      myIndicator.checkCanceled();
+final class Preloader implements ApplicationInitializedListener {
+  private static final Logger LOG = Logger.getInstance(Preloader.class);
+
+  private final Executor myExecutor;
+  private final ProgressIndicator myIndicator;
+  private final ProgressIndicator myWrappingIndicator;
+
+  Preloader() {
+    if (ApplicationManager.getApplication().isUnitTestMode() || !Registry.is("enable.activity.preloading")) {
+      throw ExtensionNotApplicableException.INSTANCE;
     }
 
-    @Override
-    public boolean isCanceled() {
-      return myIndicator.isCanceled();
-    }
-  };
+    myIndicator = new ProgressIndicatorBase();
+    Disposer.register(ApplicationManager.getApplication(), () -> myIndicator.cancel());
+    myExecutor = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("Preloader Pool");
+    myWrappingIndicator = new AbstractProgressIndicatorBase() {
+      @Override
+      public void checkCanceled() {
+        checkHeavyProcessRunning();
+        myIndicator.checkCanceled();
+      }
+
+      @Override
+      public boolean isCanceled() {
+        return myIndicator.isCanceled();
+      }
+    };
+  }
 
   private static void checkHeavyProcessRunning() {
     if (HeavyProcessLatch.INSTANCE.isRunning()) {
@@ -56,13 +57,9 @@ public class Preloader implements ApplicationComponent {
   }
 
   @Override
-  public void initComponent() {
-    if (ApplicationManager.getApplication().isUnitTestMode() || ApplicationManager.getApplication().isHeadlessEnvironment()) {
-      return;
-    }
-
+  public void componentsInitialized() {
     ProgressManager progressManager = ProgressManager.getInstance();
-    for (final PreloadingActivity activity : PreloadingActivity.EP_NAME.getExtensions()) {
+    for (final PreloadingActivity activity : PreloadingActivity.EP_NAME.getExtensionList()) {
       myExecutor.execute(() -> {
         if (myIndicator.isCanceled()) return;
 
@@ -70,25 +67,19 @@ public class Preloader implements ApplicationComponent {
         if (myIndicator.isCanceled()) return;
 
         progressManager.runProcess(() -> {
+          StartUpMeasurer.MeasureToken measureToken = StartUpMeasurer.start(StartUpMeasurer.Activities.PRELOAD_ACTIVITY, activity.getClass().getName());
           try {
             activity.preload(myWrappingIndicator);
           }
           catch (ProcessCanceledException ignore) {
+            return;
           }
-          LOG.info("Finished preloading " + activity);
+          measureToken.end();
+          if (LOG.isDebugEnabled()) {
+            LOG.debug(activity.getClass().getName() + " finished");
+          }
         }, myIndicator);
       });
     }
-  }
-
-  @Override
-  public void disposeComponent() {
-    myIndicator.cancel();
-  }
-
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return "Preloader";
   }
 }

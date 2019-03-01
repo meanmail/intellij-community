@@ -30,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Dmitry Avdeev
  */
 public abstract class XmlElementFactory {
-
   public static XmlElementFactory getInstance(Project project) {
     return ServiceManager.getService(project, XmlElementFactory.class);
   }
@@ -40,7 +39,7 @@ public abstract class XmlElementFactory {
    *
    * @param s the text of the element to create.
    * @return the created element.
-   * @throws com.intellij.util.IncorrectOperationException if the creation failed for some reason.
+   * @throws IncorrectOperationException if the creation failed for some reason.
    */
   @NotNull
   public abstract XmlText createDisplayText(@NotNull @NonNls String s) throws IncorrectOperationException;
@@ -70,7 +69,7 @@ public abstract class XmlElementFactory {
    *
    * @param text the text of an XML tag (which can contain attributes and subtags).
    * @return the created tag instance.
-   * @throws com.intellij.util.IncorrectOperationException if the text does not specify a valid XML fragment.
+   * @throws IncorrectOperationException if the text does not specify a valid XML fragment.
    * @see #createTagFromText(CharSequence text, Language language)
    */
   @NotNull
@@ -82,7 +81,7 @@ public abstract class XmlElementFactory {
    * @param text the text of an XML tag (which can contain attributes and subtags).
    * @param language the language for tag to be created.
    * @return the created tag instance.
-   * @throws com.intellij.util.IncorrectOperationException if the text does not specify a valid XML fragment.
+   * @throws IncorrectOperationException if the text does not specify a valid XML fragment.
    * @see #createTagFromText(CharSequence)
    */
   @NotNull
@@ -94,7 +93,7 @@ public abstract class XmlElementFactory {
    * @param name  the name of the attribute to create.
    * @param value the value of the attribute to create.
    * @return the created attribute instance.
-   * @throws IncorrectOperationException if either <code>name</code> or <code>value</code> are not valid.
+   * @throws IncorrectOperationException if either {@code name} or {@code value} are not valid.
    */
   @NotNull
   public abstract XmlAttribute createXmlAttribute(@NotNull @NonNls String name, @NotNull String value) throws IncorrectOperationException;
@@ -106,7 +105,7 @@ public abstract class XmlElementFactory {
    * @param value the value of the attribute to create.
    * @param context element which can be used to determine created attribute file type.
    * @return the created attribute instance.
-   * @throws IncorrectOperationException if either <code>name</code> or <code>value</code> are not valid.
+   * @throws IncorrectOperationException if either {@code name} or {@code value} are not valid.
    */
   @NotNull
   public abstract XmlAttribute createAttribute(@NotNull @NonNls String name, @NotNull String value, @Nullable PsiElement context) throws IncorrectOperationException;

@@ -30,7 +30,6 @@ import com.intellij.psi.stubs.IndexSink;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -56,8 +55,9 @@ public class JavaModuleElementType extends JavaStubElementType<PsiJavaModuleStub
     return new PsiJavaModuleImpl(node);
   }
 
+  @NotNull
   @Override
-  public PsiJavaModuleStub createStub(LighterAST tree, LighterASTNode node, StubElement parentStub) {
+  public PsiJavaModuleStub createStub(@NotNull LighterAST tree, @NotNull LighterASTNode node, @NotNull StubElement parentStub) {
     LighterASTNode ref = LightTreeUtil.requiredChildOfType(tree, node, JavaElementType.MODULE_REFERENCE);
     return new PsiJavaModuleStubImpl(parentStub, JavaSourceUtil.getReferenceText(tree, ref));
   }
@@ -70,8 +70,7 @@ public class JavaModuleElementType extends JavaStubElementType<PsiJavaModuleStub
   @NotNull
   @Override
   public PsiJavaModuleStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    String name = StringRef.toString(dataStream.readName());
-    return new PsiJavaModuleStubImpl(parentStub, name);
+    return new PsiJavaModuleStubImpl(parentStub, dataStream.readNameString());
   }
 
   @Override

@@ -12,19 +12,24 @@ import com.intellij.json.psi.*;
 
 public class JsonReferenceExpressionImpl extends JsonValueImpl implements JsonReferenceExpression {
 
-  public JsonReferenceExpressionImpl(ASTNode node) {
+  public JsonReferenceExpressionImpl(@NotNull ASTNode node) {
     super(node);
   }
 
+  public void accept(@NotNull JsonElementVisitor visitor) {
+    visitor.visitReferenceExpression(this);
+  }
+
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
-    if (visitor instanceof JsonElementVisitor) ((JsonElementVisitor)visitor).visitReferenceExpression(this);
+    if (visitor instanceof JsonElementVisitor) accept((JsonElementVisitor)visitor);
     else super.accept(visitor);
   }
 
   @Override
   @NotNull
-  public PsiElement getIndentifier() {
-    return findNotNullChildByType(INDENTIFIER);
+  public PsiElement getIdentifier() {
+    return findNotNullChildByType(IDENTIFIER);
   }
 
 }

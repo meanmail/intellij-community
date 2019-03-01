@@ -15,18 +15,17 @@
  */
 package com.jetbrains.python.formatter;
 
+import com.intellij.application.options.CodeStyleAbstractConfigurable;
+import com.intellij.application.options.CodeStyleAbstractPanel;
 import com.intellij.application.options.IndentOptionsEditor;
 import com.intellij.application.options.SmartIndentOptionsEditor;
 import com.intellij.lang.Language;
 import com.intellij.openapi.application.ApplicationBundle;
-import com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable;
-import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
-import com.intellij.psi.codeStyle.DisplayPriority;
-import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
-import com.intellij.util.PlatformUtils;
+import com.intellij.psi.codeStyle.*;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PythonLanguage;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable.*;
 
@@ -62,7 +61,9 @@ public class PyLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettin
                                    "SPACE_AROUND_MULTIPLICATIVE_OPERATORS",
                                    "SPACE_AROUND_SHIFT_OPERATORS",
                                    "SPACE_WITHIN_METHOD_CALL_PARENTHESES",
+                                   "SPACE_WITHIN_EMPTY_METHOD_CALL_PARENTHESES",
                                    "SPACE_WITHIN_METHOD_PARENTHESES",
+                                   "SPACE_WITHIN_EMPTY_METHOD_PARENTHESES",
                                    "SPACE_WITHIN_BRACKETS",
                                    "SPACE_AFTER_COMMA",
                                    "SPACE_BEFORE_COMMA",
@@ -100,6 +101,8 @@ public class PyLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettin
                                 PyBundle.message("formatter.around.top.level.classes.and.function"), BLANK_LINES);
       consumer.showCustomOption(PyCodeStyleSettings.class, "BLANK_LINES_AFTER_LOCAL_IMPORTS",
                                 PyBundle.message("formatter.after.local.imports"), BLANK_LINES);
+      consumer.showCustomOption(PyCodeStyleSettings.class, "BLANK_LINES_BEFORE_FIRST_METHOD",
+                                PyBundle.message("formatter.before.first.method"), BLANK_LINES);
     }
     else if (settingsType == SettingsType.WRAPPING_AND_BRACES_SETTINGS) {
       consumer.showStandardOptions("RIGHT_MARGIN",
@@ -117,9 +120,24 @@ public class PyLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettin
       consumer.showCustomOption(PyCodeStyleSettings.class, "ALIGN_COLLECTIONS_AND_COMPREHENSIONS",
                                 PyBundle.message("formatter.align.when.multiline"),
                                 PyBundle.message("formatter.collections.and.comprehensions"));
+      
+      consumer.showCustomOption(PyCodeStyleSettings.class, "FROM_IMPORT_WRAPPING",
+                                PyBundle.message("formatter.from.import.statements"), null, WRAP_OPTIONS, WRAP_VALUES);
       consumer.showCustomOption(PyCodeStyleSettings.class, "ALIGN_MULTILINE_IMPORTS",
                                 PyBundle.message("formatter.align.when.multiline"),
-                                PyBundle.message("formatter.import.statements"));
+                                PyBundle.message("formatter.from.import.statements"));
+      consumer.showCustomOption(PyCodeStyleSettings.class, "FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS",
+                                ApplicationBundle.message("wrapping.new.line.after.lpar"),
+                                PyBundle.message("formatter.from.import.statements"));
+      consumer.showCustomOption(PyCodeStyleSettings.class, "FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS",
+                                ApplicationBundle.message("wrapping.rpar.on.new.line"),
+                                PyBundle.message("formatter.from.import.statements"));
+      consumer.showCustomOption(PyCodeStyleSettings.class, "FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE",
+                                PyBundle.message("formatter.from.import.statements.force.parentheses.if.multiline"),
+                                PyBundle.message("formatter.from.import.statements"));
+      consumer.showCustomOption(PyCodeStyleSettings.class, "FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE",
+                                PyBundle.message("formatter.from.import.statements.force.comma.if.multline"),
+                                PyBundle.message("formatter.from.import.statements"));
 
       consumer.showCustomOption(PyCodeStyleSettings.class, "DICT_WRAPPING",
                                 PyBundle.message("formatter.dictionary.literals"), null, WRAP_OPTIONS, WRAP_VALUES);
@@ -129,6 +147,7 @@ public class PyLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettin
       consumer.showCustomOption(PyCodeStyleSettings.class, "DICT_NEW_LINE_BEFORE_RIGHT_BRACE",
                                 ApplicationBundle.message("wrapping.rbrace.on.new.line"),
                                 PyBundle.message("formatter.dictionary.literals"));
+      consumer.showCustomOption(PyCodeStyleSettings.class, "HANG_CLOSING_BRACKETS", PyBundle.message("formatter.hang.closing.brackets"), null);
     }
   }
 
@@ -138,56 +157,91 @@ public class PyLanguageCodeStyleSettingsProvider extends LanguageCodeStyleSettin
   }
 
   @Override
-  public CommonCodeStyleSettings getDefaultCommonSettings() {
-    CommonCodeStyleSettings defaultSettings = new CommonCodeStyleSettings(PythonLanguage.getInstance());
-    CommonCodeStyleSettings.IndentOptions indentOptions = defaultSettings.initIndentOptions();
+  protected void customizeDefaults(@NotNull CommonCodeStyleSettings commonSettings,
+                                   @NotNull CommonCodeStyleSettings.IndentOptions indentOptions) {
     indentOptions.INDENT_SIZE = 4;
-    defaultSettings.ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
-    defaultSettings.KEEP_BLANK_LINES_IN_DECLARATIONS = 1;
-    defaultSettings.KEEP_BLANK_LINES_IN_CODE = 1;
-    return defaultSettings;
+    commonSettings.ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
+    commonSettings.KEEP_BLANK_LINES_IN_DECLARATIONS = 1;
+    // Don't set it to 2 -- this setting is used implicitly in a lot of methods related to spacing,
+    // e.g. in SpacingBuilder#blankLines(), and can lead to unexpected side-effects in formatter's
+    // behavior
+    commonSettings.KEEP_BLANK_LINES_IN_CODE = 1;
   }
 
+  @Nullable
   @Override
-  public DisplayPriority getDisplayPriority() {
-    return PlatformUtils.isPyCharm() ? DisplayPriority.KEY_LANGUAGE_SETTINGS : DisplayPriority.LANGUAGE_SETTINGS;
+  public CustomCodeStyleSettings createCustomSettings(CodeStyleSettings settings) {
+    return new PyCodeStyleSettings(settings);
   }
 
-  @SuppressWarnings("FieldCanBeLocal")
-  private static String SPACING_SETTINGS_PREVIEW = "def settings_preview(argument, key=value):\n" +
-                                                   "    dict = {1:'a', 2:'b', 3:'c'}\n" +
-                                                   "    x = dict[1]\n" +
-                                                   "    expr = (1+2)*3 << 4**5 & 16\n" +
-                                                   "    if expr == 0 or abs(expr) < 0: print('weird'); return\n" +
-                                                   "    settings_preview(key=1)\n\n" +
-                                                   "foo =\\\n" +
-                                                   "    bar";
+  @NotNull
+  @Override
+  public CodeStyleConfigurable createConfigurable(@NotNull CodeStyleSettings baseSettings, @NotNull CodeStyleSettings modelSettings) {
+    return new CodeStyleAbstractConfigurable(baseSettings, modelSettings, "Python") {
+      @Override
+      protected CodeStyleAbstractPanel createPanel(final CodeStyleSettings settings) {
+        return new PyCodeStyleMainPanel(getCurrentSettings(), settings);
+      }
 
-  @SuppressWarnings("FieldCanBeLocal")
-  private static String BLANK_LINES_SETTINGS_PREVIEW = "import os\n" +
-                                                       "class C(object):\n" +
-                                                       "    x = 1\n" +
-                                                       "    def foo(self):\n" +
-                                                       "        pass";
-  @SuppressWarnings("FieldCanBeLocal")
-  private static String WRAP_SETTINGS_PREVIEW = "from foo import (bar,\n" +
-                                                "    baz)\n\n" +
-                                                "long_expression = component_one + component_two + component_three + component_four + component_five + component_six\n\n" +
-                                                "def xyzzy(long_parameter_1,\n" +
-                                                "long_parameter_2):\n" +
-                                                "    pass\n\n" +
-                                                "xyzzy('long_string_constant1',\n" +
-                                                "    'long_string_constant2')\n" +
-                                                "attrs = [e.attr for e in\n" +
-                                                "    items]\n\n" +
-                                                "if True: pass\n\n" +
-                                                "try: pass\n" +
-                                                "finally: pass\n";
-  @SuppressWarnings("FieldCanBeLocal")
-  private static String INDENT_SETTINGS_PREVIEW = "def foo():\n" +
-                                                  "    print 'bar'\n\n" +
-                                                  "def long_function_name(\n" +
-                                                  "        var_one, var_two, var_three,\n" +
-                                                  "        var_four):\n" +
-                                                  "    print(var_one)";
+      @Override
+      public String getHelpTopic() {
+        return "reference.settingsdialog.codestyle.python";
+      }
+    };
+  }
+
+  private static final String SPACING_SETTINGS_PREVIEW = "def settings_preview(argument, key=value):\n" +
+                                                         "    dict = {1:'a', 2:'b', 3:'c'}\n" +
+                                                         "    x = dict[1]\n" +
+                                                         "    expr = (1+2)*3 << 4**5 & 16\n" +
+                                                         "    if expr == 0 or abs(expr) < 0: print('weird'); return\n" +
+                                                         "    settings_preview(key=1)\n" +
+                                                         "\n" +
+                                                         "foo =\\\n" +
+                                                         "    bar\n" +
+                                                         "\n" +
+                                                         "def no_params():\n" +
+                                                         "    return globals()";
+
+  private static final String BLANK_LINES_SETTINGS_PREVIEW = "import os\n" +
+                                                             "class C(object):\n" +
+                                                             "    import sys\n" +
+                                                             "    x = 1\n" +
+                                                             "    def foo(self):\n" +
+                                                             "        import platform\n" +
+                                                             "        print(platform.processor())";
+  private static final String WRAP_SETTINGS_PREVIEW = "from module import foo, bar, baz, quux\n" +
+                                                      "\n" +
+                                                      "long_expression = component_one + component_two + component_three + component_four + component_five + component_six\n" +
+                                                      "\n" +
+                                                      "def xyzzy(long_parameter_1,\n" +
+                                                      "long_parameter_2):\n" +
+                                                      "    pass\n" +
+                                                      "\n" +
+                                                      "xyzzy('long_string_constant1',\n" +
+                                                      "    'long_string_constant2')\n" +
+                                                      "\n" +
+                                                      "xyzzy(\n" +
+                                                      "    'with',\n" +
+                                                      "    'hanging',\n" +
+                                                      "      'indent'\n" +
+                                                      ")\n" +
+                                                      "attrs = [e.attr for e in\n" +
+                                                      "    items]\n" +
+                                                      "\n" +
+                                                      "ingredients = [\n" +
+                                                      "    'green',\n" +
+                                                      "    'eggs',\n" +
+                                                      "]\n" +
+                                                      "\n" +
+                                                      "if True: pass\n" +
+                                                      "\n" +
+                                                      "try: pass\n" +
+                                                      "finally: pass\n";
+  private static final String INDENT_SETTINGS_PREVIEW = "def foo():\n" +
+                                                        "    print 'bar'\n\n" +
+                                                        "def long_function_name(\n" +
+                                                        "        var_one, var_two, var_three,\n" +
+                                                        "        var_four):\n" +
+                                                        "    print(var_one)";
 }

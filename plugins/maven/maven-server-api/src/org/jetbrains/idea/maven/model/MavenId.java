@@ -33,16 +33,31 @@ public class MavenId implements Serializable, MavenCoordinate {
     myVersion = version;
   }
 
+  public MavenId(@Nullable String coord) {
+    if (coord == null) {
+      myGroupId = myArtifactId = myVersion = null;
+    }
+    else {
+      String[] parts = coord.split(":");
+      myGroupId = parts.length > 0 ? parts[0] : null;
+      myArtifactId = parts.length > 1 ? parts[1] : null;
+      myVersion = parts.length > 2 ? parts[2] : null;
+    }
+  }
+
+  @Override
   @Nullable
   public String getGroupId() {
     return myGroupId;
   }
 
+  @Override
   @Nullable
   public String getArtifactId() {
     return myArtifactId;
   }
 
+  @Override
   @Nullable
   public String getVersion() {
     return myVersion;

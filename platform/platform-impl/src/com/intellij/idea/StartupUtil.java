@@ -1,24 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
+import com.intellij.concurrency.IdeaForkJoinWorkerThreadFactory;
+import com.intellij.ide.ClassUtilCore;
 import com.intellij.ide.cloudConfig.CloudConfigProvider;
 import com.intellij.ide.customize.CustomizeIDEWizardDialog;
 import com.intellij.ide.customize.CustomizeIDEWizardStepsProvider;
 import com.intellij.ide.plugins.PluginManagerCore;
+import com.intellij.ide.startup.StartupActionScriptManager;
 import com.intellij.ide.startupWizard.StartupWizard;
 import com.intellij.jna.JnaLoader;
 import com.intellij.openapi.application.ApplicationInfo;
@@ -31,46 +20,52 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.ShutDownTracker;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.SystemInfoRt;
-import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.io.win32.IdeaWin32;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.AppUIUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.EnvironmentUtil;
 import com.intellij.util.PlatformUtils;
-import com.intellij.util.lang.UrlClassLoader;
+import com.intellij.util.SystemProperties;
+import com.intellij.util.ui.UIUtil;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Level;
 import org.apache.log4j.PatternLayout;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.io.BuiltInServer;
 
 import javax.swing.*;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.lang.reflect.Method;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.OpenOption;
+import java.nio.file.StandardOpenOption;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 
 /**
  * @author yole
  */
 public class StartupUtil {
   public static final String NO_SPLASH = "nosplash";
+  public static final String IDEA_CLASS_BEFORE_APPLICATION_PROPERTY = "idea.class.before.app";
 
   private static SocketLock ourSocketLock;
 
   private StartupUtil() { }
 
-  public static boolean shouldShowSplash(final String[] args) {
-    return !Arrays.asList(args).contains(NO_SPLASH);
-  }
-
-  public synchronized static void addExternalInstanceListener(@Nullable Consumer<List<String>> consumer) {
+  public static synchronized void addExternalInstanceListener(@Nullable Consumer<List<String>> consumer) {
     // method called by app after startup
     if (ourSocketLock != null) {
       ourSocketLock.setExternalInstanceListener(consumer);
@@ -78,18 +73,35 @@ public class StartupUtil {
   }
 
   @Nullable
-  public synchronized static BuiltInServer getServer() {
+  public static synchronized BuiltInServer getServer() {
     return ourSocketLock == null ? null : ourSocketLock.getServer();
   }
 
+  @FunctionalInterface
   interface AppStarter {
     void start(boolean newConfigFolder);
 
     default void beforeImportConfigs() {}
   }
 
+  private static void runPreAppClass(Logger log) {
+    String classBeforeAppProperty = System.getProperty(IDEA_CLASS_BEFORE_APPLICATION_PROPERTY);
+    if (classBeforeAppProperty != null) {
+      try {
+        Class<?> clazz = Class.forName(classBeforeAppProperty);
+        Method invokeMethod = clazz.getDeclaredMethod("invoke");
+        invokeMethod.invoke(null);
+      } catch (Exception ex) {
+        log.error("Failed pre-app class init for class " + classBeforeAppProperty, ex);
+      }
+    }
+  }
+
   static void prepareAndStart(String[] args, AppStarter appStarter) {
+    IdeaForkJoinWorkerThreadFactory.setupForkJoinCommonPool(Main.isHeadless(args));
     boolean newConfigFolder = false;
+
+    checkHiDPISettings();
 
     if (!Main.isHeadless()) {
       AppUIUtil.updateFrameClass();
@@ -102,6 +114,7 @@ public class StartupUtil {
 
     // avoiding "log4j:WARN No appenders could be found"
     System.setProperty("log4j.defaultInitOverride", "true");
+    System.setProperty("com.jetbrains.suppressWindowRaise", "true");
     try {
       org.apache.log4j.Logger root = org.apache.log4j.Logger.getRootLogger();
       if (!root.getAllAppenders().hasMoreElements()) {
@@ -123,25 +136,35 @@ public class StartupUtil {
     if (result == ActivationResult.ACTIVATED) {
       System.exit(0);
     }
-    else if (result != ActivationResult.STARTED) {
+    if (result != ActivationResult.STARTED) {
       System.exit(Main.INSTANCE_CHECK_FAILED);
     }
 
-    if (newConfigFolder) {
-      appStarter.beforeImportConfigs();
-      ConfigImportHelper.importConfigsTo(PathManager.getConfigPath());
-    }
-
+    // the log initialization should happen only after locking the system directory
     Logger.setFactory(LoggerFactory.class);
     Logger log = Logger.getInstance(Main.class);
     startLogging(log);
     loadSystemLibraries(log);
     fixProcessEnvironment(log);
 
+    runPreAppClass(log);
+
+    if (!Main.isHeadless()) {
+      UIUtil.initDefaultLAF();
+    }
+
+    if (newConfigFolder) {
+      appStarter.beforeImportConfigs();
+      ConfigImportHelper.importConfigsTo(PathManager.getConfigPath(), log);
+    }
+    else {
+      installPluginUpdates();
+    }
+
     if (!Main.isHeadless()) {
       AppUIUtil.updateWindowIcon(JOptionPane.getRootFrame());
       AppUIUtil.registerBundledFonts();
-      AppUIUtil.showPrivacyPolicy();
+      AppUIUtil.showUserAgreementAndConsentsIfNeeded();
     }
 
     appStarter.start(newConfigFolder);
@@ -151,137 +174,130 @@ public class StartupUtil {
    * Checks if the program can run under the JDK it was started with.
    */
   private static boolean checkJdkVersion() {
-    String jreCheck = System.getProperty("idea.jre.check");
-    if (jreCheck != null && "true".equals(jreCheck)) {
+    if ("true".equals(System.getProperty("idea.jre.check"))) {
       try {
-        // try to find a class from tools.jar
+        // try to find a JDK class
         Class.forName("com.sun.jdi.Field", false, StartupUtil.class.getClassLoader());
       }
       catch (ClassNotFoundException e) {
-        String message = "'tools.jar' seems to be not in " + ApplicationNamesInfo.getInstance().getProductName() + " classpath.\n" +
-                         "Please ensure JAVA_HOME points to JDK rather than JRE.";
+        String message = "JDK classes seem to be not on " + ApplicationNamesInfo.getInstance().getProductName() + " classpath.\n" +
+                         "Please ensure you run the IDE on JDK rather than JRE.";
         Main.showMessage("JDK Required", message, true);
         return false;
       }
       catch (LinkageError e) {
-        String message = "Cannot load a class from 'tools.jar': " + e.getMessage() + "\n" +
-                         "Please ensure JAVA_HOME points to JDK rather than JRE.";
+        String message = "Cannot load a JDK class: " + e.getMessage() + "\n" +
+                         "Please ensure you run the IDE on JDK rather than JRE.";
         Main.showMessage("JDK Required", message, true);
         return false;
       }
+    }
 
-      if (StringUtil.containsIgnoreCase(System.getProperty("java.vm.name", ""), "OpenJDK") && !SystemInfo.isJavaVersionAtLeast("1.7")) {
-        String message = "OpenJDK 6 is not supported. Please use Oracle Java or newer OpenJDK.";
+    if ("true".equals(System.getProperty("idea.64bit.check"))) {
+      if (PlatformUtils.isCidr() && !SystemInfo.is64Bit) {
+        String message = "32-bit JVM is not supported. Please use 64-bit version.";
         Main.showMessage("Unsupported JVM", message, true);
         return false;
       }
     }
-    jreCheck = System.getProperty("idea.64bit.check");
-    if (jreCheck != null && "true".equals(jreCheck)) {
-      if (PlatformUtils.isCidr() && !SystemInfo.is64Bit) {
-          String message = "32-bit JVM is not supported. Please install 64-bit version.";
-          Main.showMessage("Unsupported JVM", message, true);
-        return false;
-      }
-    }
 
     return true;
   }
 
-  private synchronized static boolean checkSystemFolders() {
+  @TestOnly
+  public static void test_checkHiDPISettings() {
+    checkHiDPISettings();
+  }
+
+  private static void checkHiDPISettings() {
+    if (!SystemProperties.getBooleanProperty("hidpi", true)) {
+      // suppress JRE-HiDPI mode
+      System.setProperty("sun.java2d.uiScale.enabled", "false");
+    }
+  }
+
+  private static synchronized boolean checkSystemFolders() {
     String configPath = PathManager.getConfigPath();
     PathManager.ensureConfigFolderExists();
-    if (!new File(configPath).isDirectory()) {
-      String message = "Config path '" + configPath + "' is invalid.\n" +
-                       "If you have modified the '" + PathManager.PROPERTY_CONFIG_PATH + "' property please make sure it is correct,\n" +
-                       "otherwise please re-install the IDE.";
-      Main.showMessage("Invalid Config Path", message, true);
+    if (!checkDirectory(configPath, "Config", PathManager.PROPERTY_CONFIG_PATH, true, false)) {
       return false;
     }
 
     String systemPath = PathManager.getSystemPath();
-    if (!new File(systemPath).isDirectory()) {
-      String message = "System path '" + systemPath + "' is invalid.\n" +
-                       "If you have modified the '" + PathManager.PROPERTY_SYSTEM_PATH + "' property please make sure it is correct,\n" +
-                       "otherwise please re-install the IDE.";
-      Main.showMessage("Invalid System Path", message, true);
+    if (!checkDirectory(systemPath, "System", PathManager.PROPERTY_SYSTEM_PATH, true, false)) {
       return false;
     }
 
-    File logDir = new File(PathManager.getLogPath());
-    boolean logOk = false;
-    if (logDir.isDirectory() || logDir.mkdirs()) {
-      try {
-        File ideTempFile = new File(logDir, "idea_log_check.txt");
-        write(ideTempFile, "log check");
-        delete(ideTempFile);
-        logOk = true;
-      }
-      catch (IOException ignored) { }
-    }
-    if (!logOk) {
-      String message = "Log path '" + logDir.getPath() + "' is inaccessible.\n" +
-                       "If you have modified the '" + PathManager.PROPERTY_LOG_PATH + "' property please make sure it is correct,\n" +
-                       "otherwise please re-install the IDE.";
-      Main.showMessage("Invalid Log Path", message, true);
+    if (FileUtil.pathsEqual(configPath, systemPath)) {
+      String message = "Config and system paths seem to be equal.\n\n" +
+                       "If you have modified '" + PathManager.PROPERTY_CONFIG_PATH + "' or '" + PathManager.PROPERTY_SYSTEM_PATH + "' properties,\n" +
+                       "please make sure they point to different directories, otherwise please re-install the IDE.";
+      Main.showMessage("Invalid Config or System Path", message, true);
       return false;
     }
 
-    File ideTempDir = new File(PathManager.getTempPath());
-    String tempInaccessible = null;
+    return checkDirectory(PathManager.getLogPath(), "Log", PathManager.PROPERTY_LOG_PATH, false, false) &&
+           checkDirectory(PathManager.getTempPath(), "Temp", PathManager.PROPERTY_SYSTEM_PATH, false, SystemInfo.isXWindow);
+  }
 
-    if (!ideTempDir.isDirectory() && !ideTempDir.mkdirs()) {
-      tempInaccessible = "unable to create the directory";
+  private static boolean checkDirectory(String path, String kind, String property, boolean checkLock, boolean checkExec) {
+    File directory = new File(path);
+
+    if (!FileUtil.createDirectory(directory)) {
+      String message = kind + " directory '" + path + "' is invalid.\n\n" +
+                       "If you have modified the '" + property + "' property, please make sure it is correct,\n" +
+                       "otherwise please re-install the IDE.";
+      Main.showMessage("Invalid IDE Configuration", message, true);
+      return false;
     }
-    else {
+
+    String details = null;
+    File tempFile = new File(directory, "ij" + new Random().nextInt(Integer.MAX_VALUE) + ".tmp");
+    OpenOption[] options = {StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE};
+
+    if (checkLock) {
+      try (FileChannel channel = FileChannel.open(tempFile.toPath(), options); FileLock lock = channel.tryLock()) {
+        if (lock == null) {
+          details = "cannot exclusively lock temporary file";
+        }
+      }
+      catch (IOException e) {
+        details = "cannot create exclusive file lock (" + e.getClass().getSimpleName() + ": " + e.getMessage() + ')';
+      }
+    }
+    else if (checkExec) {
       try {
-        File ideTempFile = new File(ideTempDir, "idea_tmp_check.sh");
-        write(ideTempFile, "#!/bin/sh\nexit 0");
-
-        if (SystemInfo.isWindows || SystemInfo.isMac) {
-          tempInaccessible = null;
+        Files.write(tempFile.toPath(), "#!/bin/sh\nexit 0".getBytes(StandardCharsets.UTF_8), options);
+        if (!tempFile.setExecutable(true, true)) {
+          details = "cannot set executable permission";
         }
-        else if (!ideTempFile.setExecutable(true, true)) {
-          tempInaccessible = "cannot set executable permission";
+        else if (new ProcessBuilder(tempFile.getAbsolutePath()).start().waitFor() != 0) {
+          details = "cannot execute test script";
         }
-        else if (new ProcessBuilder(ideTempFile.getAbsolutePath()).start().waitFor() != 0) {
-          tempInaccessible = "cannot execute test script";
-        }
-
-        delete(ideTempFile);
       }
-      catch (Exception e) {
-        tempInaccessible = e.getClass().getSimpleName() + ": " + e.getMessage();
+      catch (IOException | InterruptedException e) {
+        details = e.getClass().getSimpleName() + ": " + e.getMessage();
       }
     }
 
-    if (tempInaccessible != null) {
-      String message = "Temp directory '" + ideTempDir + "' is inaccessible.\n" +
-                       "If you have modified the '" + PathManager.PROPERTY_SYSTEM_PATH + "' property please make sure it is correct,\n" +
-                       "otherwise please re-install the IDE.\n\nDetails: " + tempInaccessible;
-      Main.showMessage("Invalid System Path", message, true);
+    FileUtil.delete(tempFile);
+
+    if (details != null) {
+      String message = kind + " path '" + path + "' cannot be used by the IDE.\n\n" +
+                       "If you have modified the '" + property + "' property, please make sure it is correct,\n" +
+                       "otherwise please re-install the IDE.\n\n" +
+                       "Reason: " + details;
+      Main.showMessage("Invalid IDE Configuration", message, true);
       return false;
     }
 
     return true;
   }
 
-  private static void write(File file, String content) throws IOException {
-    FileWriter writer = new FileWriter(file);
-    try { writer.write(content); }
-    finally { writer.close(); }
-  }
-
-  @SuppressWarnings("SSBasedInspection")
-  private static void delete(File ideTempFile) {
-    if (!FileUtilRt.delete(ideTempFile)) {
-      ideTempFile.deleteOnExit();
-    }
-  }
-
   private enum ActivationResult { STARTED, ACTIVATED, FAILED }
 
-  private synchronized static @NotNull ActivationResult lockSystemFolders(String[] args) {
+  @NotNull
+  private static synchronized ActivationResult lockSystemFolders(String[] args) {
     if (ourSocketLock != null) {
       throw new AssertionError();
     }
@@ -307,13 +323,13 @@ public class StartupUtil {
       });
       return ActivationResult.STARTED;
     }
-    else if (status == SocketLock.ActivateStatus.ACTIVATED) {
+    if (status == SocketLock.ActivateStatus.ACTIVATED) {
       //noinspection UseOfSystemOutOrSystemErr
       System.out.println("Already running");
       return ActivationResult.ACTIVATED;
     }
-    else if (Main.isHeadless() || status == SocketLock.ActivateStatus.CANNOT_ACTIVATE) {
-      String message = "Only one instance of " + ApplicationNamesInfo.getInstance().getFullProductName() + " can be run at a time.";
+    if (Main.isHeadless() || status == SocketLock.ActivateStatus.CANNOT_ACTIVATE) {
+      String message = "Only one instance of " + ApplicationNamesInfo.getInstance().getProductName() + " can be run at a time.";
       Main.showMessage("Too Many Instances", message, true);
     }
 
@@ -331,62 +347,43 @@ public class StartupUtil {
   }
 
   private static void loadSystemLibraries(final Logger log) {
-    // load JNA and Snappy in own temp directory - to avoid collisions and work around no-exec /tmp
+    // load JNA in own temp directory - to avoid collisions and work around no-exec /tmp
     File ideTempDir = new File(PathManager.getTempPath());
     if (!(ideTempDir.mkdirs() || ideTempDir.exists())) {
       throw new RuntimeException("Unable to create temp directory '" + ideTempDir + "'");
     }
-
     if (System.getProperty("jna.tmpdir") == null) {
       System.setProperty("jna.tmpdir", ideTempDir.getPath());
     }
     if (System.getProperty("jna.nosys") == null) {
       System.setProperty("jna.nosys", "true");  // prefer bundled JNA dispatcher lib
     }
-    try {
-      JnaLoader.load(log);
-    }
-    catch (Throwable t) {
-      logError(log, "Unable to load JNA library", t);
-    }
+    JnaLoader.load(log);
 
     if (SystemInfo.isWin2kOrNewer) {
+      //noinspection ResultOfMethodCallIgnored
       IdeaWin32.isAvailable();  // logging is done there
     }
 
-    if (SystemInfo.isWin2kOrNewer && !Main.isHeadless()) {
-      try {
-        UrlClassLoader.loadPlatformLibrary("focusKiller");
-        log.info("Using \"FocusKiller\" library to prevent focus stealing.");
-      }
-      catch (Throwable t) {
-        log.info("\"FocusKiller\" library not found or there were problems loading it.", t);
-      }
+    if (SystemInfo.isWindows && System.getProperty("winp.folder.preferred") == null) {
+      System.setProperty("winp.folder.preferred", ideTempDir.getPath());
     }
-
-    if (SystemInfo.isWindows) {
-      // WinP should not unpack .dll files into parent directory
-      System.setProperty("winp.unpack.dll.to.parent.dir", "false");
+    if (System.getProperty("pty4j.tmpdir") == null) {
+      System.setProperty("pty4j.tmpdir", ideTempDir.getPath());
     }
-  }
-
-  private static void logError(Logger log, String message, Throwable t) {
-    message = message + " (OS: " + SystemInfo.OS_NAME + " " + SystemInfo.OS_VERSION + ")";
-    log.error(message, t);
+    if (System.getProperty("pty4j.preferred.native.folder") == null) {
+      System.setProperty("pty4j.preferred.native.folder", new File(PathManager.getLibPath(), "pty4j-native").getAbsolutePath());
+    }
   }
 
   private static void startLogging(final Logger log) {
-    Runtime.getRuntime().addShutdownHook(new Thread("Shutdown hook - logging") {
-      @Override
-      public void run() {
-        log.info("------------------------------------------------------ IDE SHUTDOWN ------------------------------------------------------");
-      }
-    });
+    ShutDownTracker.getInstance().registerShutdownTask(() ->
+        log.info("------------------------------------------------------ IDE SHUTDOWN ------------------------------------------------------"));
     log.info("------------------------------------------------------ IDE STARTED ------------------------------------------------------");
 
     ApplicationInfo appInfo = ApplicationInfoImpl.getShadowInstance();
     ApplicationNamesInfo namesInfo = ApplicationNamesInfo.getInstance();
-    String buildDate = new SimpleDateFormat("dd MMM yyyy HH:ss", Locale.US).format(appInfo.getBuildDate().getTime());
+    String buildDate = new SimpleDateFormat("dd MMM yyyy HH:mm", Locale.US).format(appInfo.getBuildDate().getTime());
     log.info("IDE: " + namesInfo.getFullProductName() + " (build #" + appInfo.getBuild().asString() + ", " + buildDate + ")");
     log.info("OS: " + SystemInfoRt.OS_NAME + " (" + SystemInfoRt.OS_VERSION + ", " + SystemInfo.OS_ARCH + ")");
     log.info("JRE: " + System.getProperty("java.runtime.version", "-") + " (" + System.getProperty("java.vendor", "-") + ")");
@@ -407,7 +404,24 @@ public class StartupUtil {
       }
     }
 
-    log.info("JNU charset: " + System.getProperty("sun.jnu.encoding"));
+    log.info("charsets: JNU=" + System.getProperty("sun.jnu.encoding") + " file=" + System.getProperty("file.encoding"));
+  }
+
+  private static void installPluginUpdates() {
+    if (!Main.isCommandLine() && !ClassUtilCore.isLoadingOfExternalPluginsDisabled()) {
+      try {
+        StartupActionScriptManager.executeActionScript();
+      }
+      catch (IOException e) {
+        String message =
+          "The IDE failed to install some plugins.\n\n" +
+          "Most probably, this happened because of a change in a serialization format.\n" +
+          "Please try again, and if the problem persists, please report it\n" +
+          "to http://jb.gg/ide/critical-startup-errors" +
+          "\n\nThe cause: " + e.getMessage();
+        Main.showMessage("Plugin Installation Error", message, false);
+      }
+    }
   }
 
   static void runStartupWizard() {

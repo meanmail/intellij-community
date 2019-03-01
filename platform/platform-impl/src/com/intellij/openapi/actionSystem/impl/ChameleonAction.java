@@ -44,6 +44,8 @@ public class ChameleonAction extends AnAction {
     if (action instanceof ActionStub) {
       String type = ((ActionStub)action).getProjectType();
       action = ActionManagerImpl.convertStub((ActionStub)action);
+      if (action == null) return null;
+
       projectType = type == null ? null : new ProjectType(type);
     }
     return myActions.put(projectType, action);
@@ -69,7 +71,7 @@ public class ChameleonAction extends AnAction {
   }
 
   @Nullable
-  private AnAction getAction(AnActionEvent e) {
+  private AnAction getAction(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     ProjectType projectType = ProjectTypeService.getProjectType(project);
     AnAction action = myActions.get(projectType);

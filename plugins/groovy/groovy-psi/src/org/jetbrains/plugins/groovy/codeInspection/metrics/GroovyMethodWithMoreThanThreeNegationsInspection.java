@@ -24,18 +24,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 public class GroovyMethodWithMoreThanThreeNegationsInspection extends BaseInspection {
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Method with more than three negations";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return METHOD_METRICS;
-  }
-
-  @Override
   public String buildErrorString(Object... args) {
     return "Method '#ref' has too many negations (" + args[0] + " > 3)";
   }

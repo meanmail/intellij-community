@@ -36,9 +36,8 @@ import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.ResolveState;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.scope.BaseScopeProcessor;
+import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.intellij.plugins.relaxNG.compact.RncElementTypes;
 import org.intellij.plugins.relaxNG.compact.RncFileType;
@@ -49,11 +48,6 @@ import org.intellij.plugins.relaxNG.compact.psi.util.RenameUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 14.08.2007
- */
 public class RncNameImpl extends RncElementImpl implements RncName, PsiReference,
         EmptyResolveMessageProvider, LocalQuickFixProvider {
 
@@ -89,11 +83,13 @@ public class RncNameImpl extends RncElementImpl implements RncName, PsiReference
     return getPrefix() == null ? null : this;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return TextRange.from(0, getText().indexOf(':'));
@@ -123,7 +119,7 @@ public class RncNameImpl extends RncElementImpl implements RncName, PsiReference
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final ASTNode node = getNode();
     final ASTNode child = RenameUtil.createPrefixedNode(getManager(), newElementName, getLocalPart());
     node.getTreeParent().replaceChild(node, child);
@@ -136,14 +132,8 @@ public class RncNameImpl extends RncElementImpl implements RncName, PsiReference
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return element instanceof RncElement && Comparing.equal(resolve(), element);
-  }
-
-  @Override
-  @NotNull
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @Override
@@ -167,12 +157,12 @@ public class RncNameImpl extends RncElementImpl implements RncName, PsiReference
     return LocalQuickFix.EMPTY_ARRAY;
   }
 
-  private static class MyResolver extends BaseScopeProcessor {
+  private static class MyResolver implements PsiScopeProcessor {
     private final String myPrefix;
     private final Kind myKind;
     private PsiElement myResult;
 
-    public MyResolver(String prefix, Kind kind) {
+    MyResolver(String prefix, Kind kind) {
       myPrefix = prefix;
       myKind = kind;
     }

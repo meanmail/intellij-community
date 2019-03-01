@@ -23,6 +23,7 @@ import com.intellij.util.containers.Stack;
 import gnu.trove.TIntArrayList;
 import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
@@ -30,25 +31,61 @@ import java.util.*;
  * @author dsl, ven
  */
 public class DFSTBuilder<Node> {
-  private final Graph<Node> myGraph;
+  private final OutboundSemiGraph<Node> myGraph;
   private final TObjectIntHashMap<Node> myNodeToNNumber; // node -> node number in topological order [0..size). Independent nodes are in reversed loading order (loading order is the graph.getNodes() order)
   private final Node[] myInvN; // node number in topological order [0..size) -> node
   private Couple<Node> myBackEdge;
 
-  private Comparator<Node> myComparator;
+  private Comparator<Node> myNComparator;
+  private Comparator<Node> myTComparator;
   private final TIntArrayList mySCCs = new TIntArrayList(); // strongly connected component sizes
-  private final TObjectIntHashMap<Node> myNodeToTNumber = new TObjectIntHashMap<Node>(); // node -> number in scc topological order. Independent scc are in reversed loading order
+  private final TObjectIntHashMap<Node> myNodeToTNumber = new TObjectIntHashMap<>(); // node -> number in scc topological order. Independent scc are in reversed loading order
 
   private final Node[] myInvT; // number in (enumerate all nodes scc by scc) order -> node
   private final Node[] myAllNodes;
 
-  @SuppressWarnings("unchecked")
+
+  /**
+   * @see DFSTBuilder#DFSTBuilder(OutboundSemiGraph, Object)
+   */
   public DFSTBuilder(@NotNull Graph<Node> graph) {
+    this(graph, null);
+  }
+
+  /**
+   * @see DFSTBuilder#DFSTBuilder(OutboundSemiGraph, Object)
+   */
+  public DFSTBuilder(@NotNull Graph<Node> graph, @Nullable Node entryNode) {
+    this((OutboundSemiGraph<Node>)graph, entryNode);
+  }
+
+  /**
+   * @see DFSTBuilder#DFSTBuilder(OutboundSemiGraph, Object)
+   */
+  public DFSTBuilder(@NotNull OutboundSemiGraph<Node> graph) {
+    this(graph, null);
+  }
+
+  /**
+   * @param entryNode is a first node for Tarjan's algorithm. Different entry nodes produce different node numbers in topological ordering.
+   *                  if all nodes of the graph is reachable from the entry node and the entry node doesn't have incoming edges then
+   *                  passing the entry node could be used for finding "natural" back edges (like a loop back edge)
+   */
+  public DFSTBuilder(@NotNull OutboundSemiGraph<Node> graph, @Nullable Node entryNode) {
+    //noinspection unchecked
     myAllNodes = (Node[])graph.getNodes().toArray();
+    if (entryNode != null) {
+      int index = ArrayUtil.indexOf(myAllNodes, entryNode);
+      if (index != -1) {
+        ArrayUtil.swap(myAllNodes, 0, index);
+      }
+    }
     myGraph = graph;
     int size = graph.getNodes().size();
-    myNodeToNNumber = new TObjectIntHashMap<Node>(size * 2, 0.5f);
+    myNodeToNNumber = new TObjectIntHashMap<>(size * 2, 0.5f);
+    //noinspection unchecked
     myInvN = (Node[])new Object[size];
+    //noinspection unchecked
     myInvT = (Node[])new Object[size];
     new Tarjan().build();
   }
@@ -70,7 +107,7 @@ public class DFSTBuilder<Node> {
     private final boolean[] isOnStack = new boolean[index.length];
 
     private class Frame {
-      public Frame(int nodeI) {
+      Frame(int nodeI) {
         this.nodeI = nodeI;
         Iterator<Node> outNodes = myGraph.getOut(myAllNodes[nodeI]);
         TIntArrayList list = new TIntArrayList();
@@ -95,8 +132,8 @@ public class DFSTBuilder<Node> {
       }
     }
 
-    private final Stack<Frame> frames = new Stack<Frame>(); // recursion stack
-    private final TObjectIntHashMap<Node> nodeIndex = new TObjectIntHashMap<Node>();
+    private final Stack<Frame> frames = new Stack<>(); // recursion stack
+    private final TObjectIntHashMap<Node> nodeIndex = new TObjectIntHashMap<>();
     private int dfsIndex;
     private int sccsSizeCombined;
     private final TIntArrayList topo = new TIntArrayList(index.length); // nodes in reverse topological order
@@ -110,7 +147,7 @@ public class DFSTBuilder<Node> {
       for (int i = 0; i < index.length; i++) {
         if (index[i] == -1) {
           frames.push(new Frame(i));
-          List<List<Node>> sccs = new ArrayList<List<Node>>();
+          List<List<Node>> sccs = new ArrayList<>();
 
           strongConnect(sccs);
 
@@ -148,7 +185,7 @@ public class DFSTBuilder<Node> {
       mySCCs.reverse(); // have to place SCCs in topological order too
     }
 
-    private void strongConnect(@NotNull List<List<Node>> sccs) {
+    private void strongConnect(@NotNull List<? super List<Node>> sccs) {
       int successor = -1;
       nextNode:
       while (!frames.isEmpty()) {
@@ -189,7 +226,7 @@ public class DFSTBuilder<Node> {
         // we are really back, pop a scc
         if (lowLink[i] == index[i]) {
           // found yer
-          List<Node> scc = new ArrayList<Node>();
+          List<Node> scc = new ArrayList<>();
           int pushedI;
           do {
             pushedI = nodesOnStack.pop();
@@ -206,16 +243,27 @@ public class DFSTBuilder<Node> {
 
   @NotNull
   public Comparator<Node> comparator() {
-    if (myComparator == null) {
-      final TObjectIntHashMap<Node> map = isAcyclic() ? myNodeToNNumber : myNodeToTNumber;
-      myComparator = new Comparator<Node>() {
-        @Override
-        public int compare(@NotNull Node t, @NotNull Node t1) {
-          return map.get(t) - map.get(t1);
-        }
-      };
+    return comparator(isAcyclic());
+  }
+
+  /**
+   * @param useNNumber if true then a node number in topological ordering will be used for comparison
+   *           otherwise a node number in scc topological order will be used
+   */
+  @NotNull
+  public Comparator<Node> comparator(boolean useNNumber) {
+    if (useNNumber) {
+      if (myNComparator == null) {
+        myNComparator = Comparator.comparingInt(myNodeToNNumber::get);
+      }
+      return myNComparator;
     }
-    return myComparator;
+    else {
+      if (myTComparator == null) {
+        myTComparator = Comparator.comparingInt(myNodeToTNumber::get);
+      }
+      return myTComparator;
+    }
   }
 
   public Couple<Node> getCircularDependency() {
@@ -251,17 +299,20 @@ public class DFSTBuilder<Node> {
     if (componentSizes.isEmpty()) return Collections.emptyList();
 
     return new MyCollection<Collection<Node>>(componentSizes.size()) {
+      @NotNull
       @Override
       public Iterator<Collection<Node>> iterator() {
         return new MyIterator<Collection<Node>>(componentSizes.size()) {
-          private int offset = 0;
+          private int offset;
 
           @Override
           protected Collection<Node> get(int i) {
-            final int cSize = componentSizes.get(i), cOffset = offset;
+            final int cSize = componentSizes.get(i);
+            final int cOffset = offset;
             if (cSize == 0) return Collections.emptyList();
             offset += cSize;
             return new MyCollection<Node>(cSize) {
+              @NotNull
               @Override
               public Iterator<Node> iterator() {
                 return new MyIterator<Node>(cSize) {
@@ -278,7 +329,7 @@ public class DFSTBuilder<Node> {
     };
   }
 
-  private static abstract class MyCollection<T> extends AbstractCollection<T> {
+  private abstract static class MyCollection<T> extends AbstractCollection<T> {
     private final int size;
 
     protected MyCollection(int size) {
@@ -291,9 +342,9 @@ public class DFSTBuilder<Node> {
     }
   }
 
-  private static abstract class MyIterator<T> implements Iterator<T> {
+  private abstract static class MyIterator<T> implements Iterator<T> {
     private final int size;
-    private int i = 0;
+    private int i;
 
     protected MyIterator(int size) {
       this.size = size;
@@ -320,8 +371,8 @@ public class DFSTBuilder<Node> {
 
   @NotNull
   public List<Node> getSortedNodes() {
-    List<Node> result = new ArrayList<Node>(myGraph.getNodes());
-    Collections.sort(result, comparator());
+    List<Node> result = new ArrayList<>(myGraph.getNodes());
+    result.sort(comparator());
     return result;
   }
 }

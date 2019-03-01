@@ -54,7 +54,7 @@ public class MethodParameterInjection extends BaseInjection {
     myClassName = className;
   }
 
-  public void setMethodInfos(final Collection<MethodInfo> newInfos) {
+  public void setMethodInfos(final Collection<? extends MethodInfo> newInfos) {
     myParameterMap.clear();
     for (MethodInfo methodInfo : newInfos) {
       myParameterMap.put(methodInfo.getMethodSignature(), methodInfo);
@@ -65,6 +65,7 @@ public class MethodParameterInjection extends BaseInjection {
     return myParameterMap.values();
   }
 
+  @Override
   public MethodParameterInjection copyFrom(@NotNull BaseInjection o) {
     super.copyFrom(o);
     if (o instanceof MethodParameterInjection) {
@@ -78,6 +79,7 @@ public class MethodParameterInjection extends BaseInjection {
     return this;
   }
 
+  @Override
   protected void readExternalImpl(Element e) {
     if (e.getAttribute("injector-id") == null) {
       setClassName(JDOMExternalizer.readString(e, "CLASS"));
@@ -147,6 +149,7 @@ public class MethodParameterInjection extends BaseInjection {
     return result;
   }
 
+  @Override
   @NotNull
   public String getDisplayName() {
     final String className = getClassName();
@@ -172,7 +175,6 @@ public class MethodParameterInjection extends BaseInjection {
   public static String fixSignature(final String signature, final boolean parameterNames) {
     @NonNls final StringBuilder sb = new StringBuilder();
     final StringTokenizer st = new StringTokenizer(signature, "(,)");
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i = 0; st.hasMoreTokens(); i++) {
       final String token = st.nextToken().trim();
       if (i > 1) sb.append(", ");
@@ -185,7 +187,7 @@ public class MethodParameterInjection extends BaseInjection {
           sb.append(token);
         }
         else {
-          sb.append(token.substring(0, idx));
+          sb.append(token, 0, idx);
         }
       }
       else {
@@ -215,7 +217,6 @@ public class MethodParameterInjection extends BaseInjection {
     if (type instanceof PsiPrimitiveType) return false;
     if (project.isDefault()) {
       @NonNls final String text = type.getPresentableText();
-      if (text == null) return false;
       return text.equals("java.lang.String") || text.equals("java.lang.String...") || text.equals("java.lang.String[]");
     }
     else {
@@ -239,7 +240,6 @@ public class MethodParameterInjection extends BaseInjection {
   public static String getParameterTypesString(final String signature) {
     @NonNls final StringBuilder sb = new StringBuilder();
     final StringTokenizer st = new StringTokenizer(signature, "(,)");
-    //noinspection ForLoopThatDoesntUseLoopVariable
     for (int i = 0; st.hasMoreTokens(); i++) {
       final String token = st.nextToken().trim();
       if (i > 1) sb.append(", ");
@@ -250,7 +250,7 @@ public class MethodParameterInjection extends BaseInjection {
       else {
         sb.append('\"');
         if ((idx = token.indexOf(' ')) > -1) {
-          sb.append(token.substring(0, idx));
+          sb.append(token, 0, idx);
         }
         else {
           sb.append(token);

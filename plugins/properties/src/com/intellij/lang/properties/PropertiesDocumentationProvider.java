@@ -34,6 +34,7 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 
 public class PropertiesDocumentationProvider extends AbstractDocumentationProvider {
+  @Override
   @Nullable
   public String getQuickNavigateInfo(PsiElement element, PsiElement originalElement) {
     if (element instanceof IProperty) {
@@ -53,9 +54,10 @@ public class PropertiesDocumentationProvider extends AbstractDocumentationProvid
     if (raw == null) {
       return "<i>empty</i>";
     }
-    return StringUtil.escapeXml(raw);
+    return StringUtil.escapeXmlEntities(raw);
   }
 
+  @Override
   public String generateDoc(final PsiElement element, @Nullable final PsiElement originalElement) {
     if (element instanceof IProperty) {
       IProperty property = (IProperty)element;
@@ -68,8 +70,14 @@ public class PropertiesDocumentationProvider extends AbstractDocumentationProvid
         if (background != null) {
           info +="<div bgcolor=#"+ GuiUtils.colorToHex(background)+">";
         }
-        String doc = StringUtil.join(ContainerUtil.map(StringUtil.split(text, "\n"), s -> StringUtil.trimStart(StringUtil.trimStart(s, "#"), "!").trim()), "<br>");
-        info += "<font color=#" + GuiUtils.colorToHex(attributes.getForegroundColor()) + ">" + doc + "</font>\n<br>";
+        String doc = StringUtil.join(ContainerUtil.map(StringUtil.split(text, "\n"), s -> {
+          final String trimHash = StringUtil.trimStart(s, PropertiesCommenter.HASH_COMMENT_PREFIX);
+          final String trimExclamation = StringUtil.trimStart(trimHash, PropertiesCommenter.EXCLAMATION_COMMENT_PREFIX);
+          return trimExclamation.trim();
+        }), "<br>");
+        final Color foreground = attributes.getForegroundColor();
+        info += foreground != null ? "<font color=#" + GuiUtils.colorToHex(foreground) + ">" + doc + "</font>" : doc;
+        info += "\n<br>";
         if (background != null) {
           info += "</div>";
         }

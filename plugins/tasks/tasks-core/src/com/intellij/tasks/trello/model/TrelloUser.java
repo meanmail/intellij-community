@@ -21,15 +21,15 @@ import com.intellij.util.xmlb.annotations.Tag;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * @author Mikhail Golubev
+ * This is a stub definition intended to be used with Google GSON. Its fields are initialized reflectively.
  */
-
 @Tag("TrelloUser")
 public class TrelloUser extends TrelloModel {
 
   public static final String REQUIRED_FIELDS = "username";
 
-  private String username;
+  @NotNull
+  private String username = "";
 
   /**
    * Serialization constructor

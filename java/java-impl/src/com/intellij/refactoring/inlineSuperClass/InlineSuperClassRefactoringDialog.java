@@ -14,14 +14,12 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Aug-2008
- */
 package com.intellij.refactoring.inlineSuperClass;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiDocCommentOwner;
+import com.intellij.psi.PsiMember;
 import com.intellij.refactoring.JavaRefactoringSettings;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.inline.InlineOptionsDialog;
@@ -49,6 +47,7 @@ public class InlineSuperClassRefactoringDialog extends InlineOptionsDialog {
     setTitle(InlineSuperClassRefactoringHandler.REFACTORING_NAME);
   }
 
+  @Override
   protected void doAction() {
     JavaRefactoringSettings settings = JavaRefactoringSettings.getInstance();
     if(myRbInlineThisOnly.isEnabled() && myRbInlineAll.isEnabled()) {
@@ -68,14 +67,23 @@ public class InlineSuperClassRefactoringDialog extends InlineOptionsDialog {
     return "Inline_Super_Class";
   }
 
+  @Override
   @NotNull
   protected JComponent createCenterPanel() {
     final JPanel panel = new JPanel(new GridBagLayout());
     final GridBagConstraints gc =
       new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1, 0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
                              JBUI.emptyInsets(), 0, 0);
-    panel.add(myDocPanel, gc);
     panel.add(super.createCenterPanel(), gc);
+    panel.add(myDocPanel, gc);
+    if (mySuperClass.getDocComment() == null) {
+      boolean hasJavadoc =
+        InlineSuperClassRefactoringProcessor.getClassMembersToPush(mySuperClass).stream().anyMatch(memberInfo -> {
+          PsiMember member = memberInfo.getMember();
+          return member instanceof PsiDocCommentOwner && ((PsiDocCommentOwner)member).getDocComment() != null;
+        });
+      myDocPanel.setVisible(hasJavadoc);
+    }
     gc.weighty = 1;
     gc.fill = GridBagConstraints.BOTH;
     panel.add(Box.createVerticalGlue(), gc);

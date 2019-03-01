@@ -22,11 +22,9 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class Attribute extends Tag{
   public Attribute(@NonNls String name, String value) {
-    //noinspection HardCodedStringLiteral
     super("attribute", Couple.of("name", name), Couple.of("value", value));
   }
 }

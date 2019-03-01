@@ -41,7 +41,6 @@ import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.util.PsiUtilCore;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -86,7 +85,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
     PsiElement psiChild = getFirstChild();
     if (psiChild == null) return PsiElement.EMPTY_ARRAY;
 
-    List<PsiElement> result = new ArrayList<PsiElement>();
+    List<PsiElement> result = new ArrayList<>();
     while (psiChild != null) {
       if (psiChild.getNode() instanceof CompositeElement) {
         result.add(psiChild);
@@ -202,7 +201,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
 
   @NotNull
   protected <T extends PsiElement> T findNotNullChildByType(IElementType type) {
-    return notNullChild(this.<T>findChildByType(type));
+    return notNullChild(findChildByType(type));
   }
 
   @Nullable
@@ -213,7 +212,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
 
   @NotNull
   protected <T extends PsiElement> T findNotNullChildByType(TokenSet type) {
-    return notNullChild(this.<T>findChildByType(type));
+    return notNullChild(findChildByType(type));
   }
 
   @Nullable
@@ -222,13 +221,9 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
     return nodes.length == 0 ? null : nodes[0].getPsi();
   }
 
+  @NotNull
   protected <T extends PsiElement> T[] findChildrenByType(IElementType elementType, Class<T> arrayClass) {
-    return ContainerUtil.map2Array(SharedImplUtil.getChildrenOfType(getNode(), elementType), arrayClass, new Function<ASTNode, T>() {
-      @Override
-      public T fun(final ASTNode s) {
-        return (T)s.getPsi();
-      }
-    });
+    return ContainerUtil.map2Array(SharedImplUtil.getChildrenOfType(getNode(), elementType), arrayClass, s -> (T)s.getPsi());
   }
 
   protected <T extends PsiElement> List<T> findChildrenByType(TokenSet elementType) {
@@ -238,7 +233,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
       final IElementType tt = child.getElementType();
       if (elementType.contains(tt)) {
         if (result == EMPTY) {
-          result = new ArrayList<T>();
+          result = new ArrayList<>();
         }
         result.add((T)child.getPsi());
       }
@@ -253,7 +248,7 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
     while (child != null) {
       if (elementType == child.getElementType()) {
         if (result == EMPTY) {
-          result = new ArrayList<T>();
+          result = new ArrayList<>();
         }
         result.add((T)child.getPsi());
       }
@@ -262,13 +257,9 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
     return result;
   }
 
+  @NotNull
   protected <T extends PsiElement> T[] findChildrenByType(TokenSet elementType, Class<T> arrayClass) {
-    return ContainerUtil.map2Array(getNode().getChildren(elementType), arrayClass, new Function<ASTNode, T>() {
-      @Override
-      public T fun(final ASTNode s) {
-        return (T)s.getPsi();
-      }
-    });
+    return ContainerUtil.map2Array(getNode().getChildren(elementType), arrayClass, s -> (T)s.getPsi());
   }
 
   @Override
@@ -408,5 +399,11 @@ public abstract class ASTDelegatePsiElement extends PsiElementBase {
       }
     }
     return anchorBefore;
+  }
+
+  @Override
+  public boolean textMatches(@NotNull CharSequence text) {
+    ASTNode node = getNode();
+    return node instanceof TreeElement ? ((TreeElement)node).textMatches(text) : super.textMatches(text);
   }
 }

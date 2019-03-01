@@ -34,7 +34,7 @@ import java.awt.image.BufferedImage;
 public class ImageComponentUI extends ComponentUI {
     private BufferedImage pattern;
 
-    private ImageComponentUI(JComponent c) {
+    public ImageComponentUI(JComponent c) {
         c.addPropertyChangeListener(evt -> {
             String name = evt.getPropertyName();
             if (ImageComponent.TRANSPARENCY_CHESSBOARD_BLACK_COLOR_PROP.equals(name) ||
@@ -50,12 +50,12 @@ public class ImageComponentUI extends ComponentUI {
         ImageComponent ic = (ImageComponent)c;
         if (ic != null) {
             ImageDocument document = ic.getDocument();
-            BufferedImage image = document.getValue();
+            BufferedImage image = document.getValue(ic.getZoomFactor());
             if (image != null) {
-                paintBorder(g, ic);
+                if (ic.isFileSizeVisible()) paintBorder(g, ic);
 
                 Dimension size = ic.getCanvasSize();
-                Graphics igc = g.create(2, 2, size.width, size.height);
+                Graphics igc = g.create(ImageComponent.IMAGE_INSETS, ImageComponent.IMAGE_INSETS, size.width, size.height);
 
                 // Transparency chessboard
                 if (ic.isTransparencyChessboardVisible() && image.getTransparency() != Transparency.OPAQUE) {
@@ -87,7 +87,7 @@ public class ImageComponentUI extends ComponentUI {
         int patternSize = 2 * cellSize;
 
         if (pattern == null) {
-            pattern = UIUtil.createImage(patternSize, patternSize, BufferedImage.TYPE_INT_ARGB);
+            pattern = UIUtil.createImage(g, patternSize, patternSize, BufferedImage.TYPE_INT_ARGB);
             Graphics imageGraphics = pattern.getGraphics();
             imageGraphics.setColor(ic.getTransparencyChessboardWhiteColor());
             imageGraphics.fillRect(0, 0, patternSize, patternSize);
@@ -107,8 +107,8 @@ public class ImageComponentUI extends ComponentUI {
         Graphics2D g2d = (Graphics2D)g;
         RenderingHints oldHints = g2d.getRenderingHints();
 
-        BufferedImage image = ic.getDocument().getValue();
-        Image renderer = document.getValue();
+        BufferedImage image = document.getValue(ic.getZoomFactor());
+        if (image == null) return;
 
         if (size.width > image.getWidth() && size.height > image.getHeight()) {
             // disable any kind of source image manipulation when resizing
@@ -118,7 +118,7 @@ public class ImageComponentUI extends ComponentUI {
             g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2d.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
         }
-        g.drawImage(renderer, 0, 0, size.width, size.height, ic);
+        UIUtil.drawImage(g, image, new Rectangle(0, 0, size.width, size.height), ic);
 
         g2d.setRenderingHints(oldHints);
     }

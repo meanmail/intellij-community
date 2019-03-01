@@ -1,7 +1,7 @@
 package com.siyeh.igtest.abstraction;
 
 public class StaticMethodOnlyUsedInOneClass {
-    public static void <warning descr="static method 'methodWithSomePrettyUniqueName()' is only used from class 'OneClass'">methodWithSomePrettyUniqueName</warning>() {
+    public static void <warning descr="Static method 'methodWithSomePrettyUniqueName()' is only used from class 'OneClass'">methodWithSomePrettyUniqueName</warning>() {
 
     }
 
@@ -49,5 +49,19 @@ class Class2 {
 
     public static void main(String[] args) {
         System.out.println(getSomeText());
+    }
+}
+class PrivateConstructor {
+
+    private PrivateConstructor() {}
+
+    public static PrivateConstructor build123() {
+        return new PrivateConstructor();
+    }
+}
+class User {
+
+    void m() {
+        PrivateConstructor.build123();
     }
 }

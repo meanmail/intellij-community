@@ -36,7 +36,6 @@ import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -66,8 +65,9 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
     }
   }
 
+  @NotNull
   @Override
-  public PsiFieldStub createStub(final LighterAST tree, final LighterASTNode node, final StubElement parentStub) {
+  public PsiFieldStub createStub(@NotNull final LighterAST tree, @NotNull final LighterASTNode node, @NotNull final StubElement parentStub) {
     final TypeInfo typeInfo = TypeInfo.create(tree, node, parentStub);
 
     boolean isDeprecatedByComment = false;
@@ -128,17 +128,16 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
   @NotNull
   @Override
   public PsiFieldStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-    StringRef name = dataStream.readName();
+    String name = dataStream.readNameString();
     TypeInfo type = TypeInfo.readTYPE(dataStream);
-    StringRef initializerText = dataStream.readName();
+    String initializerText = dataStream.readNameString();
     byte flags = dataStream.readByte();
-    return new PsiFieldStubImpl(parentStub, StringRef.toString(name), type, StringRef.toString(initializerText), flags);
+    return new PsiFieldStubImpl(parentStub, name, type, initializerText, flags);
   }
 
   @Override
   public void indexStub(@NotNull PsiFieldStub stub, @NotNull IndexSink sink) {
     String name = stub.getName();
-    //noinspection Duplicates
     if (name != null) {
       sink.occurrence(JavaStubIndexKeys.FIELDS, name);
       if (RecordUtil.isStaticNonPrivateMember(stub)) {
@@ -148,9 +147,4 @@ public abstract class JavaFieldStubElementType extends JavaStubElementType<PsiFi
     }
   }
 
-  @Override
-  public String getId(@NotNull PsiFieldStub stub) {
-    String name = stub.getName();
-    return name != null ? name : super.getId(stub);
-  }
 }

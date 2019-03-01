@@ -16,7 +16,6 @@
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.TextRange;
@@ -27,7 +26,6 @@ import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.events.DomEvent;
-import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Type;
 import java.util.Arrays;
@@ -38,9 +36,9 @@ import java.util.List;
  */
 public class TreeIncrementalUpdateTest extends DomTestCase {
 
-  public void testRenameCollectionTag() throws Throwable {
+  public void testRenameCollectionTag() {
     final MyElement rootElement = createPhysicalElement(
-        "<?xml version='1.0' encoding='UTF-8'?>\n" + "<a>\n" + " <boy>\n" + " </boy>\n" + " <girl/>\n" + "</a>");
+      "<?xml version='1.0' encoding='UTF-8'?>\n" + "<a>\n" + " <boy>\n" + " </boy>\n" + " <girl/>\n" + "</a>");
     myCallRegistry.clear();
     assertEquals(1, rootElement.getBoys().size());
     assertEquals(1, rootElement.getGirls().size());
@@ -48,28 +46,22 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     final XmlTag tag = oldBoy.getXmlTag();
     assertNotNull(tag);
     final int offset = tag.getTextOffset();
-    final int endoffset = offset+tag.getTextLength();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        rootElement.getGirls().get(0).undefine();
-        final Document document = getDocument(DomUtil.getFile(rootElement));
-        PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
-        document.replaceString(offset+1, offset+1+"boy".length(), "girl");
-        commitDocument(document);
-      }
-    }.execute();
+    final int endoffset = offset + tag.getTextLength();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      rootElement.getGirls().get(0).undefine();
+      final Document document = getDocument(DomUtil.getFile(rootElement));
+      PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
+      document.replaceString(offset + 1, offset + 1 + "boy".length(), "girl");
+      commitDocument(document);
+    });
     assertFalse(oldBoy.isValid());
     assertEquals(0, rootElement.getBoys().size());
     assertEquals(1, rootElement.getGirls().size());
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = getDocument(DomUtil.getFile(rootElement));
-        document.replaceString(endoffset - "boy".length(), endoffset, "girl");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = getDocument(DomUtil.getFile(rootElement));
+      document.replaceString(endoffset - "boy".length(), endoffset, "girl");
+      commitDocument(document);
+    });
     assertEquals(0, rootElement.getBoys().size());
     assertEquals(1, rootElement.getGirls().size());
   }
@@ -81,7 +73,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     return rootElement;
   }
 
-  public void testRenameFixedTag() throws Throwable {
+  public void testRenameFixedTag() {
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
                                                          "<a>\n" +
                                                          " <aboy>\n" +
@@ -97,33 +89,27 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     final XmlTag tag = oldBoy.getXmlTag();
     assertNotNull(tag);
     final int offset = tag.getTextOffset();
-    final int endoffset = offset+tag.getTextLength();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        rootElement.getAgirl().undefine();
-        final Document document = getDocument(file);
-        PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
-        document.replaceString(offset+1, offset+1+"aboy".length(), "agirl");
-        commitDocument(document);
-      }
-    }.execute();
+    final int endoffset = offset + tag.getTextLength();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      rootElement.getAgirl().undefine();
+      final Document document = getDocument(file);
+      PsiDocumentManager.getInstance(getProject()).doPostponedOperationsAndUnblockDocument(document);
+      document.replaceString(offset + 1, offset + 1 + "aboy".length(), "agirl");
+      commitDocument(document);
+    });
     assertFalse(oldBoy.isValid());
     assertNull(rootElement.getAboy().getXmlElement());
     assertNotNull(rootElement.getAgirl().getXmlElement());
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = getDocument(file);
-        document.replaceString(endoffset - "aboy".length(), endoffset, "agirl");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = getDocument(file);
+      document.replaceString(endoffset - "aboy".length(), endoffset, "agirl");
+      commitDocument(document);
+    });
     assertNull(rootElement.getAboy().getXmlElement());
     assertNotNull(rootElement.getAgirl().getXmlElement());
   }
 
-  public void testDocumentChange() throws Throwable {
+  public void testDocumentChange() {
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
                                                          "<a>\n" +
                                                          " <child>\n" +
@@ -137,14 +123,11 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     final MyElement oldLeaf = rootElement.getChild().getChild();
     final XmlTag oldLeafTag = oldLeaf.getXmlTag();
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = getDocument(file);
-        document.replaceString(0, document.getText().length(), "<a/>");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = getDocument(file);
+      document.replaceString(0, document.getText().length(), "<a/>");
+      commitDocument(document);
+    });
     assertFalse(oldLeafTag.isValid());
 
     putExpected(new DomEvent(fileElement, false));
@@ -160,7 +143,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertNull(rootElement.getChild().getChild().getXmlTag());
   }
 
-  public void testDocumentChange2() throws Throwable {
+  public void testDocumentChange2() {
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
                                                          "<!DOCTYPE ejb-jar PUBLIC \"-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN\" \"http://java.sun.com/dtd/ejb-jar_2_0.dtd\">\n" +
                                                          "<a>\n" +
@@ -175,15 +158,12 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     final MyElement oldLeaf = rootElement.getChild().getChild();
     final XmlTag oldLeafTag = oldLeaf.getXmlTag();
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        file.getDocument().getProlog().delete();
-        final XmlTag tag = file.getDocument().getRootTag();
-        tag.setAttribute("xmlns", "something");
-        tag.setAttribute("xmlns:xsi", "something");
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      file.getDocument().getProlog().delete();
+      final XmlTag tag = file.getDocument().getRootTag();
+      tag.setAttribute("xmlns", "something");
+      tag.setAttribute("xmlns:xsi", "something");
+    });
 
     assertTrue(oldLeafTag.isValid());
 
@@ -200,7 +180,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertTrue(rootElement.getChild().getChild().getXmlTag().isValid());
   }
 
-  public void testMoveUp() throws Throwable {
+  public void testMoveUp() {
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
                                                          "<a>\n" +
                                                          " <child>\n" +
@@ -216,16 +196,13 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
 
     final Document document = getDocument(file);
     final int len = "<agirl/>".length();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final int agirl = document.getText().indexOf("<agirl/>");
-        final int boy = document.getText().indexOf("<aboy />");
-        document.replaceString(agirl, agirl + len, "<aboy />");
-        document.replaceString(boy, boy + len, "<agirl/>");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final int agirl = document.getText().indexOf("<agirl/>");
+      final int boy = document.getText().indexOf("<aboy />");
+      document.replaceString(agirl, agirl + len, "<aboy />");
+      document.replaceString(boy, boy + len, "<agirl/>");
+      commitDocument(document);
+    });
 
     assertTrue(rootElement.isValid());
     final XmlTag tag1 = rootElement.getXmlTag().getSubTags()[0];
@@ -233,7 +210,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertEquals(getDomManager().getDomElement(tag1.findFirstSubTag("aboy")), rootElement.getChild().getAboy());
   }
 
-  public void testRemoveAttributeParent() throws Throwable {
+  public void testRemoveAttributeParent() {
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
                                                          "<!DOCTYPE ejb-jar PUBLIC \"-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN\" \"http://java.sun.com/dtd/ejb-jar_2_0.dtd\">\n" +
                                                          "<a>\n" +
@@ -247,18 +224,13 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     final GenericAttributeValue<String> xxx = oldLeaf.getXxx();
     final XmlTag oldLeafTag = oldLeaf.getXmlTag();
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        oldLeafTag.delete();
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> oldLeafTag.delete());
 
     assertFalse(oldLeaf.isValid());
     assertFalse(xxx.isValid());
   }
 
-  public void testTypeBeforeRootTag() throws Throwable {
+  public void testTypeBeforeRootTag() {
     getDomManager().registerFileDescription(new DomFileDescription<>(MyElement.class, "a"), getTestRootDisposable());
 
     final XmlFile file = (XmlFile)createFile("file.xml", "<?xml version='1.0' encoding='UTF-8'?>\n" +
@@ -271,15 +243,12 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
 
     putExpected(new DomEvent(fileElement, false));
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = getDocument(file);
-        final int i = document.getText().indexOf("<a");
-        document.insertString(i, "a");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = getDocument(file);
+      final int i = document.getText().indexOf("<a");
+      document.insertString(i, "a");
+      commitDocument(document);
+    });
 
     assertFalse(getDomManager().isDomFile(file));
     assertFalse(fileElement.isValid());
@@ -299,7 +268,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     return createElement(xml, MyElement.class);
   }
 
-  public void testAddCollectionElement() throws Throwable {
+  public void testAddCollectionElement() {
     final MyElement element = createElement("<a><child/><child/><child-element/></a>");
     final MyElement child = element.getChild();
     final MyElement child2 = element.getChild2();
@@ -314,21 +283,18 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testAddFixedElement() throws Throwable {
+  public void testAddFixedElement() {
     final MyElement element = createPhysicalElement("<a>" +
-                                            "<child/>" +
-                                            "<child><child/></child>" +
-                                            "<child/></a>");
+                                                    "<child/>" +
+                                                    "<child><child/></child>" +
+                                                    "<child/></a>");
     final MyElement child = element.getChild();
     final MyElement child2 = element.getChild2();
     final XmlTag leafTag = child2.getChild().getXmlTag();
 
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        element.getXmlTag().addAfter(createTag("<child/>"), child.getXmlTag());
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      element.getXmlTag().addAfter(createTag("<child/>"), child.getXmlTag());
+    });
 
     assertNoCache(leafTag);
 
@@ -347,7 +313,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testAddFixedElementCanDefineIt() throws Throwable {
+  public void testAddFixedElementCanDefineIt() {
     final MyElement element = createElement("<a></a>");
     final MyElement child = element.getChild();
 
@@ -364,7 +330,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testActuallyRemoveCollectionElement() throws Throwable {
+  public void testActuallyRemoveCollectionElement() {
     final MyElement element = createElement("<a><child-element><child/></child-element><child-element/></a>");
     final MyElement child = element.getChild();
     final MyElement child2 = element.getChild2();
@@ -384,7 +350,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertCached(lastChild, tag.getSubTags()[0]);
   }
 
-  public void testCustomChildrenEvents() throws Throwable {
+  public void testCustomChildrenEvents() {
     final Sepulka element = createElement("<a><foo/><bar/></a>", Sepulka.class);
     final List<MyElement> list = element.getCustomChildren();
     final XmlTag tag = element.getXmlTag();
@@ -402,7 +368,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertEquals(1, element.getCustomChildren().size());
   }
 
-  public void testRemoveFixedElement() throws Throwable {
+  public void testRemoveFixedElement() {
     final MyElement element = createElement("<a>" +
                                             "<child/>" +
                                             "<child><child/></child>" +
@@ -433,7 +399,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testRootTagAppearsLater() throws Throwable {
+  public void testRootTagAppearsLater() {
     final XmlFile file = createXmlFile("");
     final DomFileElementImpl<MyElement> fileElement = getDomManager().getFileElement(file, MyElement.class, "root");
     myCallRegistry.clear();
@@ -447,7 +413,7 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testAnotherChildren() throws Throwable {
+  public void testAnotherChildren() {
     final MyElement element = createElement("<a><child/></a>");
     element.getXmlTag().add(createTag("<another-child/>"));
     assertEquals(1, element.getAnotherChildren().size());
@@ -456,63 +422,49 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     assertResultsAndClear();
   }
 
-  public void testInvalidateParent() throws Throwable {
+  public void testInvalidateParent() {
     final MyElement root = getDomManager().createMockElement(MyElement.class, null, true);
-    new WriteCommandAction<MyElement>(getProject()) {
-      @Override
-      protected void run(@NotNull Result<MyElement> result) throws Throwable {
-        root.getChild().ensureTagExists();
-        root.getChild2().ensureTagExists();
-        final MyElement element = root.addChildElement().getChild();
-        result.setResult(element);
-        element.ensureTagExists().getValue().setText("abc");
-        root.addChildElement();
-        root.addChildElement();
-      }
-    }.execute().getResultObject();
+    WriteCommandAction.writeCommandAction(getProject()).compute(() -> {
+      root.getChild().ensureTagExists();
+      root.getChild2().ensureTagExists();
+      final MyElement element = root.addChildElement().getChild();
+      element.ensureTagExists().getValue().setText("abc");
+      root.addChildElement();
+      root.addChildElement();
+      return element;
+    });
     assertTrue(root.isValid());
     final MyElement element = root.getChildElements().get(0).getChild();
     assertTrue(element.isValid());
     final MyElement child = element.getChild();
     final MyElement genericValue = child.getChild();
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = getDocument(DomUtil.getFile(element));
-        final TextRange range = element.getXmlTag().getTextRange();
-        document.replaceString(range.getStartOffset(), range.getEndOffset(), "");
-        commitDocument(document);
-      }
-    }.execute();
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = getDocument(DomUtil.getFile(element));
+      final TextRange range = element.getXmlTag().getTextRange();
+      document.replaceString(range.getStartOffset(), range.getEndOffset(), "");
+      commitDocument(document);
+    });
     assertFalse(genericValue.isValid());
     assertFalse(child.isValid());
     assertFalse(element.isValid());
   }
 
-  public void testCollectionChildValidAfterFormattingReparse() throws Throwable {
+  public void testCollectionChildValidAfterFormattingReparse() {
     final MyElement root = getDomManager().createMockElement(MyElement.class, null, true);
-    final MyElement element = new WriteCommandAction<MyElement>(getProject()) {
-      @Override
-      protected void run(@NotNull Result<MyElement> result) throws Throwable {
-        result.setResult(root.addChildElement());
-      }
-    }.execute().getResultObject();
+    final MyElement element = WriteCommandAction.writeCommandAction(getProject()).compute(() -> root.addChildElement());
     assertTrue(root.isValid());
     assertNotNull(element.getXmlElement());
   }
 
-  public void testChangeImplementationClass() throws Throwable {
+  public void testChangeImplementationClass() {
     getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
     try {
       final MyElement element = getDomManager().createMockElement(MyElement.class, getModule(), true);
       final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
-      
-      new WriteCommandAction(getProject()) {
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          element.addChildElement().addChildElement();
-        }
-      }.execute();
+
+      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+        element.addChildElement().addChildElement();
+      });
 
       final MyElement child = element.getChildElements().get(0);
       MyElement grandChild = child.getChildElements().get(0);
@@ -530,12 +482,9 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
 
       myCallRegistry.clear();
 
-      new WriteCommandAction(getProject()) {
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
-        }
-      }.execute();
+      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+        tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
+      });
 
       assertTrue(root.isValid());
       assertTrue(element.isValid());
@@ -555,17 +504,14 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
     }
   }
 
-  public void testChangeImplementationClass_InCollection() throws Throwable {
+  public void testChangeImplementationClass_InCollection() {
     getTypeChooserManager().registerTypeChooser(MyElement.class, createClassChooser());
     try {
       final MyElement element = getDomManager().createMockElement(MyElement.class, getModule(), true);
       final DomFileElement<MyElement> root = DomUtil.getFileElement(element);
-      new WriteCommandAction<MyElement>(getProject()) {
-        @Override
-        protected void run(@NotNull Result<MyElement> result) throws Throwable {
-          element.addChildElement().addChildElement();
-        }
-      }.execute().getResultObject();
+      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+        element.addChildElement().addChildElement();
+      });
       final MyElement child = element.getChildElements().get(0);
       final MyElement grandChild = child.getChildElements().get(0);
       assertTrue(child instanceof BarInterface);
@@ -583,12 +529,9 @@ public class TreeIncrementalUpdateTest extends DomTestCase {
 
       myCallRegistry.clear();
 
-      new WriteCommandAction(getProject()) {
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
-        }
-      }.execute();
+      WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+        tag.add(XmlElementFactory.getInstance(getProject()).createTagFromText("<foo/>"));
+      });
 
       assertTrue(root.isValid());
       assertTrue(element.isValid());

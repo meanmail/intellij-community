@@ -1,27 +1,15 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.graphInference.InferenceBound;
-import com.intellij.psi.impl.source.resolve.graphInference.InferenceSession;
 import com.intellij.psi.impl.source.resolve.graphInference.InferenceVariable;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.util.JavaClassSupers;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.search.PsiSearchScopeUtil;
+import com.intellij.psi.util.*;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,7 +23,9 @@ import java.util.Set;
  * @author peter
  */
 public class JavaClassSupersImpl extends JavaClassSupers {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.JavaClassSupersImpl");
 
+  @Override
   @Nullable
   public PsiSubstitutor getSuperClassSubstitutor(@NotNull PsiClass superClass,
                                                  @NotNull PsiClass derivedClass,
@@ -47,7 +37,7 @@ public class JavaClassSupersImpl extends JavaClassSupers {
       bounds = ((InferenceVariable)superClass).getBounds(InferenceBound.LOWER);
     }
     else if (superClass instanceof PsiTypeParameter) {
-      final PsiType lowerBound = InferenceSession.getLowerBound(superClass);
+      final PsiType lowerBound = TypeConversionUtil.getInferredLowerBoundForSynthetic((PsiTypeParameter)superClass);
       if (lowerBound != null) {
         bounds = Collections.singletonList(lowerBound);
       }
@@ -64,11 +54,11 @@ public class JavaClassSupersImpl extends JavaClassSupers {
     }
 
     return derivedClass instanceof PsiTypeParameter
-           ? processTypeParameter((PsiTypeParameter)derivedClass, scope, superClass, ContainerUtil.<PsiTypeParameter>newTroveSet(), derivedSubstitutor)
+           ? processTypeParameter((PsiTypeParameter)derivedClass, scope, superClass, ContainerUtil.newTroveSet(), derivedSubstitutor)
            : getSuperSubstitutorWithCaching(superClass, derivedClass, scope, derivedSubstitutor);
   }
-  
-  private static PsiSubstitutor processLowerBound(@NotNull PsiType lowerBound, 
+
+  private static PsiSubstitutor processLowerBound(@NotNull PsiType lowerBound,
                                                   @NotNull PsiClass derivedClass,
                                                   @NotNull GlobalSearchScope scope,
                                                   @NotNull PsiSubstitutor derivedSubstitutor) {
@@ -124,21 +114,40 @@ public class JavaClassSupersImpl extends JavaClassSupers {
     Map<PsiTypeParameter, PsiType> innerMap = inner.getSubstitutionMap();
     for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(onClass)) {
       if (outerMap.containsKey(parameter) || innerMap.containsKey(parameter)) {
-        answer = answer.put(parameter, outer.substitute(inner.substitute(parameter)));
+        PsiType innerType = inner.substitute(parameter);
+        PsiClass paramCandidate = PsiCapturedWildcardType.isCapture() ? PsiUtil.resolveClassInClassTypeOnly(innerType) : null;
+        PsiType targetType;
+        if (paramCandidate instanceof PsiTypeParameter && paramCandidate != parameter) {
+          targetType = outer.substituteWithBoundsPromotion((PsiTypeParameter)paramCandidate);
+          if (targetType != null && innerType.getAnnotations().length > 0) {
+            PsiAnnotation[] typeAnnotations = targetType.getAnnotations();
+            targetType = targetType.annotate(new TypeAnnotationProvider() {
+              @NotNull
+              @Override
+              public PsiAnnotation[] getAnnotations() {
+                return ArrayUtil.mergeArrays(innerType.getAnnotations(), typeAnnotations);
+              }
+            });
+          }
+        }
+        else {
+          targetType = outer.substitute(innerType);
+        }
+        answer = answer.put(parameter, targetType);
       }
     }
     return answer;
   }
 
   /**
-   * Some type parameters (e.g. {@link com.intellij.psi.impl.source.resolve.graphInference.InferenceVariable} change their supers at will,
-   * so caching the hierarchy is impossible. 
+   * Some type parameters (e.g. {@link InferenceVariable} change their supers at will,
+   * so caching the hierarchy is impossible.
    */
   @Nullable
   private static PsiSubstitutor processTypeParameter(PsiTypeParameter parameter,
                                                      GlobalSearchScope scope,
                                                      PsiClass superClass,
-                                                     Set<PsiTypeParameter> visited, 
+                                                     Set<? super PsiTypeParameter> visited,
                                                      PsiSubstitutor derivedSubstitutor) {
     if (parameter.getManager().areElementsEquivalent(parameter, superClass)) return PsiSubstitutor.EMPTY;
     if (!visited.add(parameter)) return null;
@@ -165,5 +174,55 @@ public class JavaClassSupersImpl extends JavaClassSupers {
 
     return null;
   }
+
+  private static final Set<String> ourReportedInconsistencies = ContainerUtil.newConcurrentSet();
+
+  @SuppressWarnings("StringConcatenationInsideStringBufferAppend")
+  @Override
+  public void reportHierarchyInconsistency(@NotNull PsiClass superClass, @NotNull PsiClass derivedClass) {
+    if (!ourReportedInconsistencies.add(derivedClass.getQualifiedName() + "/" + superClass.getQualifiedName()) &&
+        !ApplicationManager.getApplication().isUnitTestMode()) {
+      return;
+    }
+
+    StringBuilder msg = new StringBuilder("superClassSubstitutor requested when derived doesn't extend super:\n");
+    msg.append("Super: " + classInfo(superClass));
+    msg.append("Derived: " + classInfo(derivedClass));
+    msg.append("isInheritor: " +
+               InheritanceUtil.isInheritorOrSelf(derivedClass, superClass, true) +
+               " " +
+               derivedClass.isInheritor(superClass, true) + "\n");
+    msg.append("Super in derived's scope: " + PsiSearchScopeUtil.isInScope(derivedClass.getResolveScope(), superClass) + "\n");
+    if (!InheritanceUtil.processSupers(derivedClass, false, s -> s != superClass)) {
+      msg.append("Plain derived's supers contain Super:\n");
+    }
+    msg.append("Hierarchy:\n");
+    new ScopedClassHierarchy(derivedClass, derivedClass.getResolveScope()) {
+      @Override
+      void visitType(@NotNull PsiClassType type, Map<PsiClass, PsiClassType.ClassResolveResult> map) {
+        PsiClass eachClass = type.resolve();
+        msg.append("  each: ");
+        msg.append(eachClass == null ? "unresolved " + type : classInfo(eachClass));
+        super.visitType(type, map);
+      }
+    };
+    LOG.error(msg);
+  }
+
+  @SuppressWarnings("StringConcatenationInLoop")
+  @NotNull
+  private static String classInfo(@NotNull PsiClass aClass) {
+    String s = aClass.getQualifiedName() + "(" + aClass.getClass().getName() + "; " + PsiUtilCore.getVirtualFile(aClass) + ");\n";
+    s += "extends: ";
+    for (PsiClassType type : aClass.getExtendsListTypes()) {
+      s += type + " (" + type.getClass().getName() + "; " + type.resolve() + ") ";
+    }
+    s += "\nimplements: ";
+    for (PsiClassType type : aClass.getImplementsListTypes()) {
+      s += type + " (" + type.getClass().getName() + "; " + type.resolve() + ") ";
+    }
+    return s + "\n";
+  }
+
 
 }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.io.socketConnection.impl;
 
 import com.intellij.openapi.application.ApplicationManager;
@@ -9,7 +10,6 @@ import com.intellij.util.SmartList;
 import com.intellij.util.io.socketConnection.*;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TIntObjectProcedure;
-import gnu.trove.TObjectProcedure;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
@@ -34,7 +34,7 @@ public class ResponseProcessor<R extends AbstractResponse> {
     myTimeoutAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, connection);
   }
 
-  public void startReading(final ResponseReader<R> reader) {
+  public void startReading(final ResponseReader<? extends R> reader) {
     ApplicationManager.getApplication().executeOnPooledThread(() -> {
       myThread = Thread.currentThread();
       try {
@@ -111,7 +111,7 @@ public class ResponseProcessor<R extends AbstractResponse> {
     }
   }
 
-  public <T extends R> void registerHandler(@NotNull Class<T> responseClass, @NotNull AbstractResponseHandler<T> handler) {
+  public <T extends R> void registerHandler(@NotNull Class<? extends T> responseClass, @NotNull AbstractResponseHandler<T> handler) {
     synchronized (myLock) {
       myClassHandlers.put(responseClass, handler);
     }
@@ -129,6 +129,7 @@ public class ResponseProcessor<R extends AbstractResponse> {
     synchronized (myLock) {
       final long time = System.currentTimeMillis();
       myTimeoutHandlers.retainEntries(new TIntObjectProcedure<TimeoutHandler>() {
+        @Override
         public boolean execute(int a, TimeoutHandler b) {
           if (time > b.myLastTime) {
             timedOut.add(b);
@@ -149,11 +150,9 @@ public class ResponseProcessor<R extends AbstractResponse> {
     final Ref<Long> nextTime = Ref.create(Long.MAX_VALUE);
     synchronized (myLock) {
       if (myTimeoutHandlers.isEmpty()) return;
-      myTimeoutHandlers.forEachValue(new TObjectProcedure<TimeoutHandler>() {
-        public boolean execute(TimeoutHandler handler) {
-          nextTime.set(Math.min(nextTime.get(), handler.myLastTime));
-          return true;
-        }
+      myTimeoutHandlers.forEachValue(handler -> {
+        nextTime.set(Math.min(nextTime.get(), handler.myLastTime));
+        return true;
       });
     }
     final int delay = (int)(nextTime.get() - System.currentTimeMillis() + 100);

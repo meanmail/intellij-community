@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.gradle.model.impl;
 
 import com.intellij.openapi.util.io.FileUtil;
@@ -38,7 +24,6 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
 public class GradleResourcesTarget extends ModuleBasedTarget<GradleResourceRootDescriptor> {
 
@@ -64,7 +49,7 @@ public class GradleResourcesTarget extends ModuleBasedTarget<GradleResourceRootD
   @NotNull
   @Override
   public List<GradleResourceRootDescriptor> computeRootDescriptors(JpsModel model, ModuleExcludeIndex index, IgnoredFileIndex ignoredFileIndex, BuildDataPaths dataPaths) {
-    final List<GradleResourceRootDescriptor> result = new ArrayList<GradleResourceRootDescriptor>();
+    final List<GradleResourceRootDescriptor> result = new ArrayList<>();
 
     GradleProjectConfiguration projectConfig = JpsGradleExtensionService.getInstance().getGradleProjectConfiguration(dataPaths);
     GradleModuleResourceConfiguration moduleConfig = projectConfig.moduleConfigurations.get(myModule.getName());
@@ -90,6 +75,7 @@ public class GradleResourcesTarget extends ModuleBasedTarget<GradleResourceRootD
     return projectConfig.moduleConfigurations.get(myModule.getName());
   }
 
+  @Override
   public boolean isTests() {
     return ((GradleResourcesTargetType)getTargetType()).isTests();
   }
@@ -116,7 +102,7 @@ public class GradleResourcesTarget extends ModuleBasedTarget<GradleResourceRootD
   public Collection<File> getOutputRoots(CompileContext context) {
     GradleModuleResourceConfiguration configuration =
       getModuleResourcesConfiguration(context.getProjectDescriptor().dataManager.getDataPaths());
-    final Set<File> result = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> result = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
     final File moduleOutput = getModuleOutputDir();
     for (ResourceRootConfiguration resConfig : getRootConfigurations(configuration)) {
       final File output = getOutputDir(moduleOutput, resConfig, configuration.outputDirectory);

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.formatting;
 
+import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.openapi.util.TextRange;
 import org.jetbrains.annotations.NotNull;
 
@@ -26,13 +13,8 @@ import java.util.List;
  *
  * @see Block#getSpacing(Block, Block)
  */
-
 public abstract class Spacing {
-  private static SpacingFactory myFactory;
-
-  static void setFactory(SpacingFactory factory) {
-    myFactory = factory;
-  }
+  private static final NotNullLazyValue<Formatter> FORMATTER = NotNullLazyValue.createValue(() -> Formatter.getInstance());
 
   /**
    * Creates a regular spacing setting instance.
@@ -41,7 +23,7 @@ public abstract class Spacing {
    *                       to which the spacing setting instance is related. Spaces are inserted
    *                       if there are less than this amount of spaces in the document.
    * @param maxSpaces      The maximum number of spaces that should be present between the blocks
-   *                       to which the spacing setting instance is related, or <code>Integer.MAX_VALUE</code>
+   *                       to which the spacing setting instance is related, or {@code Integer.MAX_VALUE}
    *                       if the number of spaces is not limited. Spaces are deleted if there are
    *                       more than this amount of spaces in the document.
    * @param minLineFeeds   The minimum number of line breaks that should be present between the blocks
@@ -55,7 +37,7 @@ public abstract class Spacing {
                                       int minLineFeeds,
                                       boolean keepLineBreaks,
                                       int keepBlankLines) {
-    return myFactory.createSpacing(minSpaces, maxSpaces, minLineFeeds, keepLineBreaks, keepBlankLines);
+    return FORMATTER.getValue().createSpacing(minSpaces, maxSpaces, minLineFeeds, keepLineBreaks, keepBlankLines);
   }
 
   /**
@@ -65,7 +47,7 @@ public abstract class Spacing {
    *                       to which the spacing setting instance is related. Spaces are inserted
    *                       if there are less than this amount of spaces in the document.
    * @param maxSpaces      The maximum number of spaces that should be present between the blocks
-   *                       to which the spacing setting instance is related, or <code>Integer.MAX_VALUE</code>
+   *                       to which the spacing setting instance is related, or {@code Integer.MAX_VALUE}
    *                       if the number of spaces is not limited. Spaces are deleted if there are
    *                       more than this amount of spaces in the document.
    * @param minLineFeeds   The minimum number of line breaks that should be present between the blocks
@@ -80,7 +62,7 @@ public abstract class Spacing {
                                       boolean keepLineBreaks,
                                       int keepBlankLines,
                                       int prefLineFeeds) {
-    return myFactory.createSpacing(minSpaces, maxSpaces, minLineFeeds, keepLineBreaks, keepBlankLines, prefLineFeeds);
+    return FORMATTER.getValue().createSpacing(minSpaces, maxSpaces, minLineFeeds, keepLineBreaks, keepBlankLines, prefLineFeeds);
   }
 
   /**
@@ -89,7 +71,7 @@ public abstract class Spacing {
    * @return the spacing setting instance.
    */
   public static Spacing getReadOnlySpacing() {
-    return myFactory.getReadOnlySpacing();
+    return FORMATTER.getValue().getReadOnlySpacing();
   }
 
   /**
@@ -100,7 +82,7 @@ public abstract class Spacing {
    *                       to which the spacing setting instance is related. Spaces are inserted
    *                       if there are less than this amount of spaces in the document.
    * @param maxSpaces      The maximum number of spaces that should be present between the blocks
-   *                       to which the spacing setting instance is related, or <code>Integer.MAX_VALUE</code>
+   *                       to which the spacing setting instance is related, or {@code Integer.MAX_VALUE}
    *                       if the number of spaces is not limited. Spaces are deleted if there are
    *                       more than this amount of spaces in the document.
    * @param dependency     The text range checked for the presence of line breaks.
@@ -110,7 +92,7 @@ public abstract class Spacing {
    */
   public static Spacing createDependentLFSpacing(int minSpaces,
                                                  int maxSpaces,
-                                                 TextRange dependency,
+                                                 @NotNull TextRange dependency,
                                                  boolean keepLineBreaks,
                                                  int keepBlankLines)
   {
@@ -127,11 +109,12 @@ public abstract class Spacing {
    */
   public static Spacing createDependentLFSpacing(int minSpaces,
                                                  int maxSpaces,
-                                                 List<TextRange> dependency,
+                                                 @NotNull List<TextRange> dependency,
                                                  boolean keepLineBreaks,
                                                  int keepBlankLines)
   {
-    return myFactory.createDependentLFSpacing(minSpaces, maxSpaces, dependency, keepLineBreaks, keepBlankLines, DependentSpacingRule.DEFAULT);
+    return FORMATTER
+      .getValue().createDependentLFSpacing(minSpaces, maxSpaces, dependency, keepLineBreaks, keepBlankLines, DependentSpacingRule.DEFAULT);
   }
 
   /**
@@ -140,12 +123,12 @@ public abstract class Spacing {
    * or it contained line feed(s) and it was removed during formatting).
    * <p/>
    * Used for formatting rules like the "next line if wrapped" brace placement.
-   * 
+   *
    * @param minSpaces        The minimum number of spaces that should be present between the blocks
    *                         to which the spacing setting instance is related. Spaces are inserted
    *                         if there are less than this amount of spaces in the document.
    * @param maxSpaces        The maximum number of spaces that should be present between the blocks
-   *                         to which the spacing setting instance is related, or <code>Integer.MAX_VALUE</code>
+   *                         to which the spacing setting instance is related, or {@code Integer.MAX_VALUE}
    *                         if the number of spaces is not limited. Spaces are deleted if there are
    *                         more than this amount of spaces in the document.
    * @param dependencyRange  The text range checked for the presence of line breaks.
@@ -161,9 +144,9 @@ public abstract class Spacing {
                                                  int keepBlankLines,
                                                  @NotNull DependentSpacingRule rule)
   {
-    return myFactory.createDependentLFSpacing(minSpaces, maxSpaces, dependencyRange, keepLineBreaks, keepBlankLines, rule);
+    return FORMATTER.getValue().createDependentLFSpacing(minSpaces, maxSpaces, dependencyRange, keepLineBreaks, keepBlankLines, rule);
   }
-  
+
   /**
    * Creates a spacing setting instance which preserves the presence of spaces between the blocks but,
    * if spaces are present, may insert or delete the spaces. Used, for example, for HTML formatting
@@ -176,7 +159,7 @@ public abstract class Spacing {
    */
   public static Spacing createSafeSpacing(boolean keepLineBreaks,
                                           int keepBlankLines) {
-    return myFactory.createSafeSpacing(keepLineBreaks, keepBlankLines);
+    return FORMATTER.getValue().createSafeSpacing(keepLineBreaks, keepBlankLines);
   }
 
   /**
@@ -188,7 +171,7 @@ public abstract class Spacing {
    *                       to which the spacing setting instance is related. Spaces are inserted
    *                       if there are less than this amount of spaces in the document.
    * @param maxSpaces      The maximum number of spaces that should be present between the blocks
-   *                       to which the spacing setting instance is related, or <code>Integer.MAX_VALUE</code>
+   *                       to which the spacing setting instance is related, or {@code Integer.MAX_VALUE}
    *                       if the number of spaces is not limited. Spaces are deleted if there are
    *                       more than this amount of spaces in the document.
    * @param keepLineBreaks Whether the existing line breaks between the blocks should be preserved.
@@ -199,6 +182,6 @@ public abstract class Spacing {
                                                         final int maxSpaces,
                                                         final boolean keepLineBreaks,
                                                         final int keepBlankLines) {
-    return myFactory.createKeepingFirstColumnSpacing(minSpaces, maxSpaces, keepLineBreaks, keepBlankLines);
+    return FORMATTER.getValue().createKeepingFirstColumnSpacing(minSpaces, maxSpaces, keepLineBreaks, keepBlankLines);
   }
 }

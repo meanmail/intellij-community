@@ -17,7 +17,7 @@
 package com.intellij.openapi.actionSystem;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.concurrency.SequentialTaskExecutor;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -31,11 +31,12 @@ import java.util.concurrent.ExecutorService;
 public abstract class AsyncUpdateAction<T> extends AnAction {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.actionSystem.AsyncUpdateAction");
 
-  private static final ExecutorService ourUpdaterService = AppExecutorUtil.createBoundedApplicationPoolExecutor("AsyncUpdateAction pool", 1);
+  private static final ExecutorService ourUpdaterService = SequentialTaskExecutor.createSequentialApplicationPoolExecutor(
+    "AsyncUpdateAction Pool");
 
   // Async update
   @Override
-  public final void update(AnActionEvent e) {
+  public final void update(@NotNull AnActionEvent e) {
     final T data = prepareDataFromContext(e);
     final Presentation originalPresentation = e.getPresentation();
     if (!forceSyncUpdate(e) && isDumbAware()) {
@@ -67,11 +68,11 @@ public abstract class AsyncUpdateAction<T> extends AnAction {
   }
 
   /**
-   * Get all necessary data from event's DataContext to be used in <code>performUpdate()</code>, which is called asynchronously.
+   * Get all necessary data from event's DataContext to be used in {@code performUpdate()}, which is called asynchronously.
    * @param e action event original update() method have been called with.
    * @return prepared data for {@link #performUpdate} method.
    */
-  protected abstract T prepareDataFromContext(final AnActionEvent e);
+  protected abstract T prepareDataFromContext(@NotNull AnActionEvent e);
 
   /**
    * Perform real presentation tweaking here. Be aware of the fact this method may be called in thread other than Swing UI thread thus
@@ -79,14 +80,14 @@ public abstract class AsyncUpdateAction<T> extends AnAction {
    * @param presentation Presentation object to be tweaked.
    * @param data necessary data calculated by {@link #prepareDataFromContext(AnActionEvent)}.
    */
-  protected abstract void performUpdate(Presentation presentation, T data);
+  protected abstract void performUpdate(@NotNull Presentation presentation, T data);
 
   /**
-   * Override this method to return <code>true</code> value if update method cannot be called asynchronously for whatever reason.
+   * Override this method to return {@code true} value if update method cannot be called asynchronously for whatever reason.
    * @param e action event original update() method have been called with.
-   * @return <code>false</code> if async update is possible and <code>false</code> otherwise.
+   * @return {@code false} if async update is possible and {@code false} otherwise.
    */
-  protected boolean forceSyncUpdate(AnActionEvent e) {
+  protected boolean forceSyncUpdate(@NotNull AnActionEvent e) {
     return false;
   }
 }

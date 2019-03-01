@@ -19,6 +19,7 @@ import com.intellij.openapi.project.Project;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 
 public class RegexpFilterTest {
   private static final String FILE = RegexpFilter.FILE_PATH_MACROS;
@@ -79,6 +80,20 @@ public class RegexpFilterTest {
     info.checkInfo("C:\\d ir\\file.ext", 0, 1);
   }
 
+  @Test
+  public void testNonAbsolutePath() {
+    createFilter("$FILE_PATH$ def");
+    String line = "abc def";
+    assertNull(applyFilter(line));
+  }
+
+  @Test
+  public void testUnixPathWithSemicolonPrefix() {
+    createFilter("$FILE_PATH$");
+    HLInfo info = (HLInfo)applyFilter("error:/usr/local/bar").hyperlinkInfo;
+    info.checkInfo("/usr/local/bar", 0, 0);
+  }
+
   private Filter.Result applyFilter(String line) {
     return myFilter.applyFilter(line, line.length());
   }
@@ -101,7 +116,7 @@ public class RegexpFilterTest {
     public int myLine;
     public int myColumn;
 
-    public HLInfo(String fileName, int line, int column) {
+    HLInfo(String fileName, int line, int column) {
       myColumn = column;
       myFileName = fileName;
       myLine = line;

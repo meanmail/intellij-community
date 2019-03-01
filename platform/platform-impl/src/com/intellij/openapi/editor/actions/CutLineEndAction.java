@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 14, 2002
- * Time: 6:29:03 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
@@ -45,12 +37,7 @@ public class CutLineEndAction extends TextComponentEditorAction {
     @Override
     public void executeWriteAction(final Editor editor, @Nullable Caret caret, DataContext dataContext) {
       if (caret == null && editor.getCaretModel().getCaretCount() > 1) {
-        editor.getCaretModel().runForEachCaret(new CaretAction() {
-          @Override
-          public void perform(Caret caret) {
-            caret.setSelection(caret.getOffset(), getEndOffset(caret));
-          }
-        });
+        editor.getCaretModel().runForEachCaret(c -> c.setSelection(c.getOffset(), getEndOffset(c)));
         // We don't support kill-ring operations for multiple carets currently
         EditorCopyPasteHelper.getInstance().copySelectionToClipboard(editor);
         EditorModificationUtil.deleteSelectedTextForAllCarets(editor);

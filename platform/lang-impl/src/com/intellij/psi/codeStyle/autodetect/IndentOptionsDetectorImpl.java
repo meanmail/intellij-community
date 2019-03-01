@@ -15,12 +15,15 @@
  */
 package com.intellij.psi.codeStyle.autodetect;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.formatting.Block;
 import com.intellij.formatting.FormattingModel;
 import com.intellij.formatting.FormattingModelBuilder;
 import com.intellij.lang.LanguageFormatting;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -60,11 +63,13 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
   @Override
   @Nullable
   public IndentOptionsAdjuster getIndentOptionsAdjuster() {
-    List<LineIndentInfo> linesInfo = calcLineIndentInfo(myProgressIndicator);
-    if (linesInfo != null) {
-      IndentUsageStatistics stats = new IndentUsageStatisticsImpl(linesInfo);
-      return new IndentOptionsAdjusterImpl(stats);
+    try {
+      List<LineIndentInfo> linesInfo = calcLineIndentInfo(myProgressIndicator);
+      if (linesInfo != null) {
+        return new IndentOptionsAdjusterImpl(new IndentUsageStatisticsImpl(linesInfo));
+      }
     }
+    catch (IndexNotReadyException ignore) { }
     return null;
   }
   
@@ -72,7 +77,7 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
   @NotNull
   public IndentOptions getIndentOptions() {
     IndentOptions indentOptions =
-      (IndentOptions)CodeStyleSettingsManager.getSettings(myProject).getIndentOptions(myFile.getFileType()).clone();
+      (IndentOptions)CodeStyle.getSettings(myFile).getIndentOptions(myFile.getFileType()).clone();
 
     IndentOptionsAdjuster adjuster = getIndentOptionsAdjuster();
     if (adjuster != null) {
@@ -88,7 +93,7 @@ public class IndentOptionsDetectorImpl implements IndentOptionsDetector {
       return null;
     }
 
-    CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(myProject);
+    CodeStyleSettings settings = CodeStyle.getSettings(myFile);
     FormattingModelBuilder modelBuilder = LanguageFormatting.INSTANCE.forContext(myFile);
     if (modelBuilder == null) return null;
 

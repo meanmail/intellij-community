@@ -18,7 +18,6 @@ import java.awt.*;
  * </pre>
  *
  * @author Denis Zhdanov
- * @since 8/1/11 4:15 PM
  */
 public class SelectExternalProjectStep extends AbstractImportFromExternalSystemWizardStep {
 
@@ -26,7 +25,7 @@ public class SelectExternalProjectStep extends AbstractImportFromExternalSystemW
 
   @NotNull private AbstractImportFromExternalSystemControl myControl;
 
-  private boolean myGradleSettingsInitialised;
+  private boolean myExternalSystemSettingsInitialised;
 
   public SelectExternalProjectStep(@NotNull WizardContext context) {
     super(context);
@@ -39,7 +38,7 @@ public class SelectExternalProjectStep extends AbstractImportFromExternalSystemW
 
   @Override
   public void updateStep() {
-    if (!myGradleSettingsInitialised) {
+    if (!myExternalSystemSettingsInitialised) {
       initExternalProjectSettingsControl();
     }
   }
@@ -56,15 +55,21 @@ public class SelectExternalProjectStep extends AbstractImportFromExternalSystemW
 
   @Override
   public boolean validate() throws ConfigurationException {
-    myControl.apply();
+    WizardContext wizardContext = getWizardContext();
+    boolean isDefaultFormat = true;
     if (myControl.getProjectFormatPanel() != null) {
-      myControl.getProjectFormatPanel().updateData(getWizardContext());
+      isDefaultFormat = myControl.getProjectFormatPanel().isDefault();
     }
+    if (!myControl.validate(wizardContext, isDefaultFormat)) return false;
     AbstractExternalProjectImportBuilder builder = getBuilder();
     if (builder == null) {
       return false;
     }
-    builder.ensureProjectIsDefined(getWizardContext());
+    myControl.apply();
+    if (myControl.getProjectFormatPanel() != null) {
+      myControl.getProjectFormatPanel().updateData(wizardContext);
+    }
+    builder.ensureProjectIsDefined(wizardContext);
     return true;
   }
 
@@ -76,6 +81,6 @@ public class SelectExternalProjectStep extends AbstractImportFromExternalSystemW
     builder.prepare(getWizardContext());
     myControl = builder.getControl(getWizardContext().getProject());
     myComponent.add(myControl.getComponent());
-    myGradleSettingsInitialised = true;
+    myExternalSystemSettingsInitialised = true;
   }
 }

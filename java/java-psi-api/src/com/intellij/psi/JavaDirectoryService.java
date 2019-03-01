@@ -41,6 +41,14 @@ public abstract class JavaDirectoryService {
   public abstract PsiPackage getPackage(@NotNull PsiDirectory dir);
 
   /**
+   * Returns the package corresponding to the directory.
+   *
+   * @return the package instance, or null if the directory does not correspond to any package or package is under resource roots
+   */
+  @Nullable
+  public abstract PsiPackage getPackageInSources(@NotNull PsiDirectory dir);
+
+  /**
    * Returns the list of Java classes contained in the directory.
    *
    * @return the array of classes.
@@ -65,7 +73,6 @@ public abstract class JavaDirectoryService {
    * @param templateName custom file template to create class text based on.
    * @return the created class instance.
    * @throws IncorrectOperationException if the operation failed for some reason.
-   * @since 5.1
    */
   @NotNull
   public abstract PsiClass createClass(@NotNull PsiDirectory dir, @NotNull String name, @NotNull String templateName) throws IncorrectOperationException;

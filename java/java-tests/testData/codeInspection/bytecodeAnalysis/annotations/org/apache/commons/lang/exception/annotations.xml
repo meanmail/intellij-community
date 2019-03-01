@@ -132,10 +132,23 @@
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='org.apache.commons.lang.exception.ExceptionUtils java.util.ArrayList getCauseMethodNameList()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='org.apache.commons.lang.exception.ExceptionUtils java.util.List getStackFrameList(java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;new&quot;"/>
+        </annotation>
     </item>
     <item name='org.apache.commons.lang.exception.ExceptionUtils java.util.List getStackFrameList(java.lang.Throwable) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
+    </item>
+    <item name='org.apache.commons.lang.exception.ExceptionUtils java.util.List getThrowableList(java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;_-&gt;new&quot;"/>
+        </annotation>
     </item>
     <item name='org.apache.commons.lang.exception.ExceptionUtils java.util.List getThrowableList(java.lang.Throwable) 0'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
@@ -152,6 +165,11 @@
     <item name='org.apache.commons.lang.exception.ExceptionUtils void removeCommonFrames(java.util.List, java.util.List) 1'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
+    <item name='org.apache.commons.lang.exception.NestableDelegate NestableDelegate(org.apache.commons.lang.exception.Nestable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
     <item name='org.apache.commons.lang.exception.NestableDelegate NestableDelegate(org.apache.commons.lang.exception.Nestable) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -163,6 +181,11 @@
             <val val="&quot;!null-&gt;!null&quot;"/>
         </annotation>
     </item>
+    <item name='org.apache.commons.lang.exception.NestableDelegate java.lang.String[] getMessages()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val val="&quot;-&gt;new&quot;"/>
+        </annotation>
+    </item>
     <item name='org.apache.commons.lang.exception.NestableDelegate java.lang.String[] getStackFrames(java.lang.Throwable) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
@@ -172,6 +195,26 @@
     <item name='org.apache.commons.lang.exception.NestableDelegate void trimStackFrames(java.util.List) 0'>
         <annotation name='org.jetbrains.annotations.NotNull'/>
     </item>
+    <item name='org.apache.commons.lang.exception.NestableError NestableError()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableError NestableError(java.lang.String)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableError NestableError(java.lang.String, java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableError NestableError(java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
     <item name='org.apache.commons.lang.exception.NestableError java.lang.String getMessage()'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
@@ -180,10 +223,50 @@
             <val name="pure" val="true"/>
         </annotation>
     </item>
+    <item name='org.apache.commons.lang.exception.NestableException NestableException()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableException NestableException(java.lang.String)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableException NestableException(java.lang.String, java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableException NestableException(java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
     <item name='org.apache.commons.lang.exception.NestableException java.lang.String getMessage()'>
         <annotation name='org.jetbrains.annotations.Nullable'/>
     </item>
     <item name='org.apache.commons.lang.exception.NestableException java.lang.Throwable getCause()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableRuntimeException NestableRuntimeException()'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableRuntimeException NestableRuntimeException(java.lang.String)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableRuntimeException NestableRuntimeException(java.lang.String, java.lang.Throwable)'>
+        <annotation name='org.jetbrains.annotations.Contract'>
+            <val name="pure" val="true"/>
+        </annotation>
+    </item>
+    <item name='org.apache.commons.lang.exception.NestableRuntimeException NestableRuntimeException(java.lang.Throwable)'>
         <annotation name='org.jetbrains.annotations.Contract'>
             <val name="pure" val="true"/>
         </annotation>

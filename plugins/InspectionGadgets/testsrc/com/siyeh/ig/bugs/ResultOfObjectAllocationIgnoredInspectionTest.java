@@ -16,7 +16,9 @@
 package com.siyeh.ig.bugs;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.siyeh.ig.LightInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -24,13 +26,21 @@ import org.jetbrains.annotations.Nullable;
  */
 public class ResultOfObjectAllocationIgnoredInspectionTest extends LightInspectionTestCase {
 
-  public void testResultOfObjectAllocationIgnored() throws Exception {
+  public void testResultOfObjectAllocationIgnored() {
     doTest();
   }
 
   @Nullable
   @Override
   protected InspectionProfileEntry getInspection() {
-    return new ResultOfObjectAllocationIgnoredInspection();
+    final ResultOfObjectAllocationIgnoredInspection inspection = new ResultOfObjectAllocationIgnoredInspection();
+    inspection.ignoredClasses.add("java.util.ArrayList");
+    return inspection;
+  }
+
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_12;
   }
 }

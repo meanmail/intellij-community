@@ -15,22 +15,17 @@
  */
 package com.intellij.lang.properties;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.Nullable;
 
 public interface BundleNameEvaluator {
   BundleNameEvaluator DEFAULT = new BundleNameEvaluator() {
+    @Override
     @Nullable
     public String evaluateBundleName(final PsiFile psiFile) {
-      PsiDirectory directory = ApplicationManager.getApplication().runReadAction(new Computable<PsiDirectory>() {
-        @Override
-        public PsiDirectory compute() {
-          return psiFile.getParent();
-        }
-      });
+      PsiDirectory directory = ReadAction.compute(() -> psiFile.getParent());
       if (directory == null) return null;
 
       String packageQualifiedName = PropertiesUtil.getPackageQualifiedName(directory);
@@ -44,6 +39,7 @@ public interface BundleNameEvaluator {
   };
 
   BundleNameEvaluator BASE_NAME = new BundleNameEvaluator() {
+    @Override
     @Nullable
     public String evaluateBundleName(final PsiFile psiFile) {
       return ResourceBundleManager.getInstance(psiFile.getProject()).getBaseName(psiFile);

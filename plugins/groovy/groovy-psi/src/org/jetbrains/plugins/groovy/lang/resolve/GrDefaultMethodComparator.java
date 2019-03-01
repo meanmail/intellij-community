@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve;
 
 import com.intellij.psi.*;
@@ -20,10 +6,13 @@ import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.plugins.groovy.lang.psi.api.GroovyMethodResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrGdkMethod;
-import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyMethodResult;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames;
+import org.jetbrains.plugins.groovy.lang.resolve.api.Argument;
+
+import java.util.List;
 
 public class GrDefaultMethodComparator extends GrMethodComparator {
 
@@ -31,45 +20,29 @@ public class GrDefaultMethodComparator extends GrMethodComparator {
   public Boolean dominated(@NotNull GroovyMethodResult result1,
                            @NotNull GroovyMethodResult result2,
                            @NotNull Context context) {
-    PsiMethod method1 = result1.getElement();
-    final PsiSubstitutor substitutor1 = result1.getSubstitutor(false);
+    final PsiMethod method1 = result1.getElement();
+    final PsiSubstitutor substitutor1 = result1.getContextSubstitutor();
     final PsiElement resolveContext1 = result1.getCurrentFileResolveContext();
-    PsiMethod method2 = result2.getElement();
-    final PsiSubstitutor substitutor2 = result2.getSubstitutor(false);
+
+    final PsiMethod method2 = result2.getElement();
+    final PsiSubstitutor substitutor2 = result2.getContextSubstitutor();
     final PsiElement resolveContext2 = result2.getCurrentFileResolveContext();
 
-    final PsiType[] argTypes;
-    if (method1 instanceof GrGdkMethod && method2 instanceof GrGdkMethod) {
-      method1 = ((GrGdkMethod)method1).getStaticMethod();
-      method2 = ((GrGdkMethod)method2).getStaticMethod();
-      final PsiType[] contextArgumentTypes = context.getArgumentTypes();
-      if (contextArgumentTypes == null) {
-        argTypes = null;
-      }
-      else {
-        argTypes = PsiType.createArray(contextArgumentTypes.length + 1);
-        System.arraycopy(contextArgumentTypes, 0, argTypes, 1, contextArgumentTypes.length);
-        argTypes[0] = context.getThisType();
-      }
-    }
-    else if (method1 instanceof GrGdkMethod) {
-      return true;
-    }
-    else if (method2 instanceof GrGdkMethod) {
-      return false;
-    }
-    else {
-      argTypes = context.getArgumentTypes();
-    }
+    final List<Argument> arguments = context.getArguments();
 
-    if (context.isConstructor() && argTypes != null && argTypes.length == 1) {
-      if (method1.getParameterList().getParametersCount() == 0) return true;
-      if (method2.getParameterList().getParametersCount() == 0) return false;
+    if (context.isConstructor() && arguments != null && arguments.size() == 1) {
+      if (method1.getParameterList().isEmpty()) return true;
+      if (method2.getParameterList().isEmpty()) return false;
     }
 
     PsiParameter[] params1 = method1.getParameterList().getParameters();
     PsiParameter[] params2 = method2.getParameterList().getParameters();
-    if (argTypes == null && params1.length != params2.length) return false;
+
+    if (arguments != null && arguments.size() == 0) {
+      if (params2.length == 1 && params2[0].getType() instanceof PsiArrayType) return true;
+    }
+
+    if (arguments == null && params1.length != params2.length) return false;
 
     if (params1.length < params2.length) {
       PsiParameter last = ArrayUtil.getLastElement(params1);
@@ -87,11 +60,11 @@ public class GrDefaultMethodComparator extends GrMethodComparator {
       PsiType type1 = substitutor1.substitute(pType1);
       PsiType type2 = substitutor2.substitute(pType2);
 
-      if (argTypes != null && argTypes.length > i) {
-        PsiType argType = argTypes[i];
+      if (arguments != null && arguments.size() > i) {
+        PsiType argType = arguments.get(i).getType();
         if (argType != null) {
-          final boolean converts1 = TypesUtil.isAssignableWithoutConversions(TypeConversionUtil.erasure(type1), argType, myPlace);
-          final boolean converts2 = TypesUtil.isAssignableWithoutConversions(TypeConversionUtil.erasure(type2), argType, myPlace);
+          final boolean converts1 = TypesUtil.isAssignableWithoutConversions(TypeConversionUtil.erasure(type1), argType);
+          final boolean converts2 = TypesUtil.isAssignableWithoutConversions(TypeConversionUtil.erasure(type2), argType);
           if (converts1 != converts2) {
             return converts2;
           }
@@ -120,22 +93,25 @@ public class GrDefaultMethodComparator extends GrMethodComparator {
       final PsiType returnType1 = substitutor1.substitute(method1.getReturnType());
       final PsiType returnType2 = substitutor2.substitute(method2.getReturnType());
 
-      if (!TypesUtil.isAssignableWithoutConversions(returnType1, returnType2, myPlace) &&
-          TypesUtil.isAssignableWithoutConversions(returnType2, returnType1, myPlace)) {
+      if (!TypesUtil.isAssignableWithoutConversions(returnType1, returnType2) &&
+          TypesUtil.isAssignableWithoutConversions(returnType2, returnType1)) {
         return false;
       }
+    }
+
+    if (method1 instanceof GrGdkMethod && method2 instanceof GrGdkMethod) {
+      PsiType firstReceiverType = ((GrGdkMethod)method1).getReceiverType();
+      PsiType secondReceiverType = ((GrGdkMethod)method2).getReceiverType();
+      if (!typesAgree(TypeConversionUtil.erasure(firstReceiverType), TypeConversionUtil.erasure(secondReceiverType), context)) return false;
     }
 
     return true;
   }
 
   private static boolean typesAgree(@NotNull PsiType type1, @NotNull PsiType type2, @NotNull Context context) {
-    final boolean hasArguments = context.getArgumentTypes() != null;
-    if (hasArguments && type1 instanceof PsiArrayType && !(type2 instanceof PsiArrayType)) {
-      type1 = ((PsiArrayType)type1).getComponentType();
-    }
+    final boolean hasArguments = context.getArguments() != null;
     return hasArguments ? //resolve, otherwise same_name_variants
-           TypesUtil.isAssignableWithoutConversions(type1, type2, context.getPlace()) :
+           TypesUtil.isAssignableWithoutConversions(type1, type2) :
            type1.equals(type2);
   }
 }

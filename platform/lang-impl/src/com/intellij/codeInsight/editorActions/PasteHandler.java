@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.editorActions;
 
 import com.intellij.codeInsight.CodeInsightSettings;
-import com.intellij.codeInsight.CodeInsightUtilBase;
 import com.intellij.ide.PasteProvider;
 import com.intellij.lang.LanguageFormatting;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -26,10 +11,10 @@ import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.EditorTextInsertHandler;
+import com.intellij.openapi.editor.actions.BasePasteHandler;
 import com.intellij.openapi.editor.actions.PasteAction;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
@@ -44,23 +29,18 @@ import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.Producer;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.text.CharArrayUtil;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class PasteHandler extends EditorActionHandler implements EditorTextInsertHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.editorActions.PasteHandler");
   private static final ExtensionPointName<PasteProvider> EP_NAME = ExtensionPointName.create("com.intellij.customPasteProvider");
-  
+
   private static final int LINE_LIMIT_FOR_BULK_CHANGE = 5000;
 
   private final EditorActionHandler myOriginalHandler;
@@ -70,7 +50,7 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
   }
 
   @Override
-  public void doExecute(final Editor editor, Caret caret, final DataContext dataContext) {
+  public void doExecute(@NotNull final Editor editor, Caret caret, final DataContext dataContext) {
     assert caret == null : "Invocation of 'paste' operation for specific caret is not supported";
     execute(editor, dataContext, null);
   }
@@ -79,20 +59,16 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
   public void execute(final Editor editor, final DataContext dataContext, @Nullable final Producer<Transferable> producer) {
     final Transferable transferable = EditorModificationUtil.getContentsToPasteToEditor(producer);
     if (transferable == null) return;
-    
-    if (!CodeInsightUtilBase.prepareEditorForWrite(editor)) return;
+
+    if (!EditorModificationUtil.checkModificationAllowed(editor)) return;
 
     final Document document = editor.getDocument();
     if (!EditorModificationUtil.requestWriting(editor)) {
       return;
     }
 
-    DataContext context = new DataContext() {
-      @Override
-      public Object getData(@NonNls String dataId) {
-        return PasteAction.TRANSFERABLE_PROVIDER.is(dataId) ? (Producer<Transferable>)() -> transferable : dataContext.getData(dataId);
-      }
-    };
+    DataContext context =
+      dataId -> PasteAction.TRANSFERABLE_PROVIDER.is(dataId) ? (Producer<Transferable>)() -> transferable : dataContext.getData(dataId);
 
     final Project project = editor.getProject();
     if (project == null || editor.isColumnMode() || editor.getCaretModel().getCaretCount() > 1) {
@@ -113,7 +89,7 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
     DumbService.getInstance(project).setAlternativeResolveEnabled(true);
     document.startGuardedBlockChecking();
     try {
-      for (PasteProvider provider : Extensions.getExtensions(EP_NAME)) {
+      for (PasteProvider provider : EP_NAME.getExtensionList()) {
         if (provider.isPasteEnabled(context)) {
           provider.performPaste(context);
           return;
@@ -136,7 +112,7 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
                               final Document document,
                               @NotNull final Transferable content) {
     CopyPasteManager.getInstance().stopKillRings();
-    
+
     String text = null;
     try {
       text = (String)content.getTransferData(DataFlavor.stringFlavor);
@@ -145,13 +121,18 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
       editor.getComponent().getToolkit().beep();
     }
     if (text == null) return;
+    int textLength = text.length();
+    if (BasePasteHandler.isContentTooLarge(textLength)) {
+      BasePasteHandler.contentLengthLimitExceededMessage(textLength);
+      return;
+    }
 
     final CodeInsightSettings settings = CodeInsightSettings.getInstance();
 
     final Map<CopyPastePostProcessor, List<? extends TextBlockTransferableData>> extraData = new HashMap<>();
     final Collection<TextBlockTransferableData> allValues = new ArrayList<>();
 
-    for (CopyPastePostProcessor<? extends TextBlockTransferableData> processor : Extensions.getExtensions(CopyPastePostProcessor.EP_NAME)) {
+    for (CopyPastePostProcessor<? extends TextBlockTransferableData> processor : CopyPastePostProcessor.EP_NAME.getExtensionList()) {
       List<? extends TextBlockTransferableData> data = processor.extractTransferableData(content);
       if (!data.isEmpty()) {
         extraData.put(processor, data);
@@ -181,7 +162,7 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
 
     RawText rawText = RawText.fromTransferable(content);
     String newText = text;
-    for (CopyPastePreProcessor preProcessor : Extensions.getExtensions(CopyPastePreProcessor.EP_NAME)) {
+    for (CopyPastePreProcessor preProcessor : CopyPastePreProcessor.EP_NAME.getExtensionList()) {
       newText = preProcessor.preprocessOnPaste(project, file, editor, newText, rawText);
     }
     int indentOptions = text.equals(newText) ? settings.REFORMAT_ON_PASTE : CodeInsightSettings.REFORMAT_BLOCK;
@@ -313,25 +294,15 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
 
   private static void reformatBlock(final Project project, final Editor editor, final int startOffset, final int endOffset) {
     PsiDocumentManager.getInstance(project).commitAllDocuments();
-    Runnable task = () -> {
-      PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
-      try {
-        CodeStyleManager.getInstance(project).reformatRange(file, startOffset, endOffset, true);
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-      }
-    };
-
-    if (endOffset - startOffset > 1000) {
-      DocumentUtil.executeInBulk(editor.getDocument(), true, task);
+    PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(editor.getDocument());
+    try {
+      CodeStyleManager.getInstance(project).reformatRange(file, startOffset, endOffset, true);
     }
-    else {
-      task.run();
+    catch (IncorrectOperationException e) {
+      LOG.error(e);
     }
   }
 
-  @SuppressWarnings("ForLoopThatDoesntUseLoopVariable")
   private static void indentPlainTextBlock(final Document document, final int startOffset, final int endOffset, final int indentLevel) {
     CharSequence chars = document.getCharsSequence();
     int spaceEnd = CharArrayUtil.shiftForward(chars, startOffset, " \t");
@@ -526,9 +497,9 @@ public class PasteHandler extends EditorActionHandler implements EditorTextInser
   }
 
   /**
-   * Inserts specified string at the beginning of lines from <code>startLine</code> to <code>endLine</code> inclusive.
+   * Inserts specified string at the beginning of lines from {@code startLine} to {@code endLine} inclusive.
    */
-  private static void indentLines(final @NotNull Document document, 
+  private static void indentLines(final @NotNull Document document,
                                   final int startLine, final int endLine, final @NotNull CharSequence indentString) {
     Runnable indentTask = () -> {
       for (int line = startLine; line <= endLine; line++) {

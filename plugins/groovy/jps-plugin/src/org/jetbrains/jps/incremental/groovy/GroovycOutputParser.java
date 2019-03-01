@@ -21,7 +21,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -32,6 +31,10 @@ import org.jetbrains.jps.incremental.CompileContext;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.incremental.messages.ProgressMessage;
+import org.jetbrains.jps.model.JpsDummyElement;
+import org.jetbrains.jps.model.java.JpsJavaSdkType;
+import org.jetbrains.jps.model.library.sdk.JpsSdk;
+import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -46,8 +49,8 @@ import java.util.Map;
 public class GroovycOutputParser {
   private static final String GROOVY_COMPILER_IN_OPERATION = "Groovy compiler in operation...";
   public static final String GRAPE_ROOT = "grape.root";
-  private final List<OutputItem> myCompiledItems = new ArrayList<OutputItem>();
-  private final List<CompilerMessage> compilerMessages = new ArrayList<CompilerMessage>();
+  private final List<OutputItem> myCompiledItems = new ArrayList<>();
+  private final List<CompilerMessage> compilerMessages = new ArrayList<>();
   private final StringBuffer stdErr = new StringBuffer();
   private final ModuleChunk myChunk;
   private final CompileContext myContext;
@@ -191,11 +194,7 @@ public class GroovycOutputParser {
   }
 
   private static List<String> splitAndTrim(String compiled) {
-    return ContainerUtil.map(StringUtil.split(compiled, GroovyRtConstants.SEPARATOR), new Function<String, String>() {
-      public String fun(String s) {
-        return s.trim();
-      }
-    });
+    return ContainerUtil.map(StringUtil.split(compiled, GroovyRtConstants.SEPARATOR), s -> s.trim());
   }
 
   public List<OutputItem> getSuccessfullyCompiled() {
@@ -205,7 +204,7 @@ public class GroovycOutputParser {
   public boolean shouldRetry() {
     for (CompilerMessage message : compilerMessages) {
       String text = message.getMessageText();
-      if (text.contains("java.lang.NoClassDefFoundError") || text.contains("unable to resolve class")) {
+      if (text.contains("java.lang.NoClassDefFoundError") || text.contains("java.lang.TypeNotPresentException") || text.contains("unable to resolve class")) {
         LOG.debug("Resolve issue: " + message);
         return true;
       }
@@ -214,12 +213,12 @@ public class GroovycOutputParser {
   }
 
   public List<CompilerMessage> getCompilerMessages() {
-    ArrayList<CompilerMessage> messages = new ArrayList<CompilerMessage>(compilerMessages);
+    ArrayList<CompilerMessage> messages = new ArrayList<>(compilerMessages);
     final StringBuffer unparsedBuffer = getStdErr();
     if (unparsedBuffer.length() != 0) {
       String msg = unparsedBuffer.toString();
       if (msg.contains(GroovyRtConstants.NO_GROOVY)) {
-        messages.add(reportNoGroovy());
+        messages.add(reportNoGroovy(msg));
       } else {
         messages.add(new CompilerMessage("Groovyc", BuildMessage.Kind.INFO, "While compiling " + myChunk.getPresentableShortName() + ":" + msg));
       }
@@ -239,8 +238,16 @@ public class GroovycOutputParser {
   }
 
   @NotNull
-  CompilerMessage reportNoGroovy() {
-    String moduleName = myChunk.representativeTarget().getModule().getName();
+  CompilerMessage reportNoGroovy(@Nullable String fullOutput) {
+    JpsModule module = myChunk.representativeTarget().getModule();
+    String moduleName = module.getName();
+    JpsSdk<JpsDummyElement> sdk = module.getSdk(JpsJavaSdkType.INSTANCE);
+    if (fullOutput != null && fullOutput.contains("Bad version number")) {
+      return new CompilerMessage("", BuildMessage.Kind.ERROR,
+                                 "Cannot load Groovy compiler for module '" + moduleName + "': " +
+                                 "Groovy jars from dependencies contain class files of a version higher than the one supported by the module JDK" +
+                                 (sdk == null ? "" : " (" + sdk.getVersionString() + ")"));
+    }
     return new CompilerMessage("", BuildMessage.Kind.ERROR,
                                "Cannot compile Groovy files: no Groovy library is defined for module '" + moduleName + "'");
   }
@@ -313,7 +320,7 @@ public class GroovycOutputParser {
     public final String outputPath;
     public final String sourcePath;
 
-    public OutputItem(String outputPath, String sourceFileName) {
+    OutputItem(String outputPath, String sourceFileName) {
       this.outputPath = outputPath;
       sourcePath = sourceFileName;
     }

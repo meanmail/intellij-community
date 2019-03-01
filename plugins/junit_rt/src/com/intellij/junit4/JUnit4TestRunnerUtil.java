@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,23 +16,20 @@
 package com.intellij.junit4;
 
 import com.intellij.junit3.TestRunnerUtil;
+import junit.framework.TestCase;
 import org.junit.Ignore;
-import org.junit.internal.AssumptionViolatedException;
-import org.junit.internal.requests.ClassRequest;
-import org.junit.internal.runners.model.EachTestNotifier;
+import org.junit.Test;
 import org.junit.runner.Description;
 import org.junit.runner.Request;
 import org.junit.runner.RunWith;
 import org.junit.runner.Runner;
 import org.junit.runner.manipulation.Filter;
-import org.junit.runner.notification.RunNotifier;
-import org.junit.runners.BlockJUnit4ClassRunner;
 import org.junit.runners.Parameterized;
-import org.junit.runners.model.FrameworkMethod;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.text.MessageFormat;
@@ -55,13 +52,15 @@ public class JUnit4TestRunnerUtil {
         // all tests in the package specified
         try {
           final Map classMethods = new HashMap();
-          BufferedReader reader = new BufferedReader(new FileReader(suiteClassName.substring(1)));
+          BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(suiteClassName.substring(1)), "UTF-8"));
           try {
             final String packageName = reader.readLine();
             if (packageName == null) return null;
 
             final String categoryName = reader.readLine();
             final Class category = categoryName != null && categoryName.length() > 0 ? loadTestClass(categoryName) : null;
+            final String filters = reader.readLine();
+
             String line;
 
             while ((line = reader.readLine()) != null) {
@@ -153,7 +152,7 @@ public class JUnit4TestRunnerUtil {
             try {
               final Method method = clazz.getMethod(methodName, null);
               if (method != null && notForked && (method.getAnnotation(Ignore.class) != null || clazz.getAnnotation(Ignore.class) != null)) { //override ignored case only
-                final Request classRequest = createIgnoreIgnoredClassRequest(clazz, true);
+                final Request classRequest = JUnit45ClassesRequestBuilder.createIgnoreIgnoredClassRequest(clazz, true);
                 final Filter ignoredTestFilter = Filter.matchMethodDescription(testMethodDescription);
                 return classRequest.filterWith(new Filter() {
                   public boolean shouldRun(Description description) {
@@ -166,7 +165,7 @@ public class JUnit4TestRunnerUtil {
                 });
               }
             }
-            catch (Exception ignored) {
+            catch (Throwable ignored) {
               //return simple method runner
             }
           } else {
@@ -222,7 +221,7 @@ public class JUnit4TestRunnerUtil {
       final Class clazz = (Class)result.get(0);
       try {
         if (clazz.getAnnotation(Ignore.class) != null) { //override ignored case only
-          return createIgnoreIgnoredClassRequest(clazz, false);
+          return JUnit45ClassesRequestBuilder.createIgnoreIgnoredClassRequest(clazz, false);
         }
       }
       catch (ClassNotFoundException e) {
@@ -242,6 +241,12 @@ public class JUnit4TestRunnerUtil {
     final Class runnerClass = clazzAnnotation.value();
     if (Parameterized.class.isAssignableFrom(runnerClass)) {
       try {
+        if (methodName != null) {
+          final Method method = clazz.getMethod(methodName, new Class[0]);
+          if (method != null && !method.isAnnotationPresent(Test.class) && TestCase.class.isAssignableFrom(clazz)) {
+            return Request.runner(JUnit45ClassesRequestBuilder.createIgnoreAnnotationAndJUnit4ClassRunner(clazz));
+          }
+        }
         Class.forName("org.junit.runners.BlockJUnit4ClassRunner"); //ignore for junit4.4 and <
         final Constructor runnerConstructor = runnerClass.getConstructor(new Class[]{Class.class});
         return Request.runner((Runner)runnerConstructor.newInstance(new Object[] {clazz})).filterWith(new Filter() {
@@ -277,21 +282,6 @@ public class JUnit4TestRunnerUtil {
       }
     }
     return null;
-  }
-
-  private static Request createIgnoreIgnoredClassRequest(final Class clazz, final boolean recursively) throws ClassNotFoundException {
-    Class.forName("org.junit.runners.BlockJUnit4ClassRunner"); //ignore IgnoreIgnored for junit4.4 and <
-    return new ClassRequest(clazz) {
-      public Runner getRunner() {
-        try {
-          return new IgnoreIgnoredTestJUnit4ClassRunner(clazz, recursively);
-        }
-        catch (Exception ignored) {
-          //return super runner
-        }
-        return super.getRunner();
-      }
-    };
   }
 
   private static Request getClassRequestsUsing44API(String suiteName, Class[] classes) {
@@ -342,37 +332,5 @@ public class JUnit4TestRunnerUtil {
 
   public static String testsFoundInPackageMesage(int testCount, String name) {
     return MessageFormat.format(ourBundle.getString("tests.found.in.package"), new Object[]{new Integer(testCount), name});
-  }
-
-
-  private static class IgnoreIgnoredTestJUnit4ClassRunner extends BlockJUnit4ClassRunner {
-    private final boolean myRecursively;
-
-    public IgnoreIgnoredTestJUnit4ClassRunner(Class clazz, boolean recursively) throws Exception {
-      super(clazz);
-      myRecursively = recursively;
-    }
-
-    protected void runChild(FrameworkMethod method, RunNotifier notifier) {
-      if (!myRecursively){
-        super.runChild(method, notifier);
-        return;
-      }
-      final Description description = describeChild(method);
-      final EachTestNotifier eachNotifier = new EachTestNotifier(notifier, description);
-      eachNotifier.fireTestStarted();
-      try {
-        methodBlock(method).evaluate();
-      }
-      catch (AssumptionViolatedException e) {
-        eachNotifier.addFailedAssumption(e);
-      }
-      catch (Throwable e) {
-        eachNotifier.addFailure(e);
-      }
-      finally {
-        eachNotifier.fireTestFinished();
-      }
-    }
   }
 }

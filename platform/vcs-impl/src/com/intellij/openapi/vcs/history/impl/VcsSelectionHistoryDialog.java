@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.history.impl;
 
 import com.intellij.diff.Block;
@@ -20,16 +6,20 @@ import com.intellij.diff.DiffContentFactory;
 import com.intellij.diff.DiffManager;
 import com.intellij.diff.DiffRequestPanel;
 import com.intellij.diff.contents.DiffContent;
+import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.requests.LoadingDiffRequest;
 import com.intellij.diff.requests.MessageDiffRequest;
 import com.intellij.diff.requests.NoDiffRequest;
 import com.intellij.diff.requests.SimpleDiffRequest;
+import com.intellij.diff.util.DiffUserDataKeysEx;
 import com.intellij.diff.util.IntPair;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.util.BackgroundTaskUtil;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
@@ -70,7 +60,6 @@ import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 import static com.intellij.util.ObjectUtils.notNull;
@@ -142,7 +131,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     myHelpId = notNull(vcsHistoryProvider.getHelpId(), "reference.dialogs.vcs.selection.history");
 
     myComments = new JEditorPane(UIUtil.HTML_MIME, "");
-    myComments.setPreferredSize(new Dimension(150, 100));
+    myComments.setPreferredSize(new JBDimension(150, 100));
     myComments.setEditable(false);
     myComments.addHyperlinkListener(BrowserHyperlinkListener.INSTANCE);
 
@@ -208,7 +197,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
 
     final DefaultActionGroup popupActions = new DefaultActionGroup();
     popupActions.add(new MyDiffAction());
-    popupActions.add(new MyDiffLocalAction());
+    popupActions.add(new MyDiffAfterWithLocalAction());
     popupActions.add(ShowAllAffectedGenericAction.getInstance());
     popupActions.add(ActionManager.getInstance().getAction(VcsActions.ACTION_COPY_REVISION_NUMBER));
     PopupHandler.installPopupHandler(myList, popupActions, ActionPlaces.UPDATE_POPUP, ActionManager.getInstance());
@@ -248,7 +237,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     myBlockLoader.start(this);
 
     updateRevisionsList();
-    myList.getSelectionModel().setSelectionInterval(0, 0);
+    if (myList.getRowCount() != 0) myList.getSelectionModel().setSelectionInterval(0, 0);
   }
 
   @NotNull
@@ -277,7 +266,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
       myList.setSelection(oldSelection);
       if (myList.getSelectedRowCount() == 0) {
         int index = getNearestVisibleRevision(ContainerUtil.getFirstItem(oldSelection));
-        myList.getSelectionModel().setSelectionInterval(index, index);
+        if (myList.getRowCount() != 0) myList.getSelectionModel().setSelectionInterval(index, index);
       }
     }
     finally {
@@ -292,12 +281,10 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
 
     if (data.isLoading()) {
       VcsFileRevision revision = data.getCurrentLoadingRevision();
-      if (revision != null) {
-        myStatusLabel.setText("<html>Loading revision <tt>" + revision.getRevisionNumber() + "</tt></html>");
-      }
-      else {
-        myStatusLabel.setText("Loading...");
-      }
+      String loadingString = revision != null
+                             ? String.format("Loading revision <tt>%s</tt>...", VcsUtil.getShortRevisionString(revision.getRevisionNumber()))
+                             : "Loading...";
+      myStatusLabel.setText(String.format("<html>%s (%s/%s)</html>", loadingString, data.myBlocks.size(), myRevisions.size()));
 
       myStatusSpinner.resume();
       myStatusSpinner.setVisible(true);
@@ -333,26 +320,22 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     ArrayList<VcsFileRevision> result = new ArrayList<>();
     BlockData data = myBlockLoader.getLoadedData();
 
-    int firstRevision;
-    boolean foundInitialRevision = false;
-    for (firstRevision = myRevisions.size() - 1; firstRevision > 0; firstRevision--) {
-      Block block = data.getBlock(firstRevision);
-      if (block == EMPTY_BLOCK) foundInitialRevision = true;
-      if (block != null && block != EMPTY_BLOCK) break;
-    }
-    if (!foundInitialRevision && data.isLoading()) firstRevision = myRevisions.size() - 1;
-
-    result.add(myRevisions.get(firstRevision));
-
-    for (int i = firstRevision - 1; i >= 0; i--) {
-      Block block1 = data.getBlock(i + 1);
+    for (int i = 1; i < myRevisions.size(); i++) {
+      Block block1 = data.getBlock(i - 1);
       Block block2 = data.getBlock(i);
-      if (block1 == null || block2 == null) continue;
-      if (block1.getLines().equals(block2.getLines())) continue;
-      result.add(myRevisions.get(i));
+      if (block1 == null || block2 == null) break;
+      if (!block1.getLines().equals(block2.getLines())) {
+        result.add(myRevisions.get(i - 1));
+      }
+      if (block2 == EMPTY_BLOCK) break;
     }
 
-    Collections.reverse(result);
+    int initialCommit = myRevisions.size() - 1;
+    Block initialCommitBlock = data.getBlock(initialCommit);
+    if (initialCommitBlock != null && initialCommitBlock != EMPTY_BLOCK) {
+      result.add(myRevisions.get(initialCommit));
+    }
+
     return result;
   }
 
@@ -404,7 +387,9 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     Block block = data.getBlock(index);
     if (block == null) return null;
     if (block == EMPTY_BLOCK) return DiffContentFactory.getInstance().createEmpty();
-    return DiffContentFactory.getInstance().create(block.getBlockContent(), myFile.getFileType());
+    DocumentContent documentContent = DiffContentFactory.getInstance().create(block.getBlockContent(), myFile.getFileType());
+    documentContent.putUserData(DiffUserDataKeysEx.LINE_NUMBER_CONVERTOR, value -> value + block.getStart());
+    return documentContent;
   }
 
   @Override
@@ -448,7 +433,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
   }
 
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (CommonDataKeys.PROJECT.is(dataId)) {
       return myProject;
     }
@@ -461,7 +446,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     }
     else if (VcsDataKeys.VCS_FILE_REVISIONS.is(dataId)) {
       List<VcsFileRevision> revisions = ContainerUtil.filter(myList.getSelectedObjects(), Conditions.notEqualTo(myLocalRevision));
-      return ArrayUtil.toObjectArray(revisions, VcsFileRevision.class);
+      return revisions.toArray(new VcsFileRevision[0]);
     }
     else if (VcsDataKeys.VCS.is(dataId)) {
       return myActiveVcs.getKeyInstanceMethod();
@@ -473,17 +458,19 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
   }
 
   private class MyDiffAction extends DumbAwareAction {
-    public MyDiffAction() {
+    MyDiffAction() {
       super(VcsBundle.message("action.name.compare"), VcsBundle.message("action.description.compare"), AllIcons.Actions.Diff);
       setShortcutSet(CommonShortcuts.getDiff());
     }
 
-    public void update(final AnActionEvent e) {
+    @Override
+    public void update(@NotNull final AnActionEvent e) {
       e.getPresentation().setEnabled(myList.getSelectedRowCount() > 1 ||
                                      myList.getSelectedRowCount() == 1 && myList.getSelectedObject() != myLocalRevision);
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       IntPair range = getSelectedRevisionsRange();
 
       VcsFileRevision beforeRevision = range.val2 < myRevisions.size() ? myRevisions.get(range.val2) : VcsFileRevision.NULL;
@@ -500,19 +487,18 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     }
   }
 
-  private class MyDiffLocalAction extends DumbAwareAction {
-    public MyDiffLocalAction() {
-      super(VcsBundle.message("show.diff.with.local.action.text"),
-            VcsBundle.message("show.diff.with.local.action.description"),
-            AllIcons.Actions.DiffWithCurrent);
-      setShortcutSet(ActionManager.getInstance().getAction("Vcs.ShowDiffWithLocal").getShortcutSet());
+  private class MyDiffAfterWithLocalAction extends DumbAwareAction {
+    MyDiffAfterWithLocalAction() {
+      ActionUtil.copyFrom(this, "Vcs.ShowDiffWithLocal");
     }
 
-    public void update(final AnActionEvent e) {
+    @Override
+    public void update(@NotNull final AnActionEvent e) {
       e.getPresentation().setEnabled(myList.getSelectedRowCount() == 1 && myList.getSelectedObject() != myLocalRevision);
     }
 
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       VcsFileRevision revision = myList.getSelectedObject();
       if (revision == null) return;
 
@@ -532,7 +518,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
   private abstract static class BlockLoader {
     @NotNull private final Object LOCK = new Object();
 
-    @NotNull private final List<VcsFileRevision> myRevisions;
+    @NotNull private final List<? extends VcsFileRevision> myRevisions;
     @NotNull private final Charset myCharset;
 
     @NotNull private final List<Block> myBlocks = new ArrayList<>();
@@ -540,7 +526,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     private boolean myIsLoading = true;
     private VcsFileRevision myCurrentLoadingRevision;
 
-    public BlockLoader(@NotNull List<VcsFileRevision> revisions,
+    BlockLoader(@NotNull List<? extends VcsFileRevision> revisions,
                        @NotNull VirtualFile file,
                        @NotNull Document document,
                        int selectionStart,
@@ -560,11 +546,11 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
     }
 
     public void start(@NotNull Disposable disposable) {
-      BackgroundTaskUtil.executeOnPooledThread((indicator) -> {
+      BackgroundTaskUtil.executeOnPooledThread(disposable, () -> {
         try {
           // first block is loaded in constructor
           for (int index = 1; index < myRevisions.size(); index++) {
-            indicator.checkCanceled();
+            ProgressManager.checkCanceled();
 
             Block block = myBlocks.get(index - 1);
             VcsFileRevision revision = myRevisions.get(index);
@@ -595,7 +581,7 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
           }
           notifyUpdate();
         }
-      }, disposable);
+      });
     }
 
     @CalledInBackground
@@ -628,12 +614,12 @@ public class VcsSelectionHistoryDialog extends FrameWrapper implements DataProvi
 
   private static class BlockData {
     private final boolean myIsLoading;
-    @NotNull private final List<Block> myBlocks;
+    @NotNull private final List<? extends Block> myBlocks;
     @Nullable private final VcsException myException;
     @Nullable private final VcsFileRevision myCurrentLoadingRevision;
 
-    public BlockData(boolean isLoading,
-                     @NotNull List<Block> blocks,
+    BlockData(boolean isLoading,
+                     @NotNull List<? extends Block> blocks,
                      @Nullable VcsException exception,
                      @Nullable VcsFileRevision currentLoadingRevision) {
       myIsLoading = isLoading;

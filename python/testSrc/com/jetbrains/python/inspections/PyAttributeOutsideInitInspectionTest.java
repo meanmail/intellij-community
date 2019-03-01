@@ -15,12 +15,10 @@
  */
 package com.jetbrains.python.inspections;
 
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
+import org.jetbrains.annotations.NotNull;
 
-/**
- * User: ktisha
- */
-public class PyAttributeOutsideInitInspectionTest extends PyTestCase {
+public class PyAttributeOutsideInitInspectionTest extends PyInspectionTestCase {
 
   public void testTruePositive() {
     doTest();
@@ -35,10 +33,12 @@ public class PyAttributeOutsideInitInspectionTest extends PyTestCase {
   }
 
   public void testTestClass() {
+    myFixture.configureByFile("unittest.py");
     doTest();
   }
 
   public void testUnitTest() {
+    myFixture.configureByFile("unittest.py");
     doTest();
   }
 
@@ -70,9 +70,58 @@ public class PyAttributeOutsideInitInspectionTest extends PyTestCase {
     doTest();
   }
 
-  private void doTest() {
-    myFixture.configureByFile("inspections/PyAttributeOutsideInitInspection/" + getTestName(true) + ".py");
-    myFixture.enableInspections(PyAttributeOutsideInitInspection.class);
-    myFixture.checkHighlighting(false, false, true);
+  // PY-25263
+  public void testProperty() {
+    doTest();
+  }
+
+  // PY-25263
+  public void testPropertyAnnotation() {
+    doTest();
+  }
+
+  // PY-25263
+  public void testPropertyNotSetInInit() {
+    doTest();
+  }
+
+  // PY-32585
+  public void testUpdatingInheritedProperty() {
+    doTestByText("class Foo:\n" +
+                 "    def __init__(self):\n" +
+                 "        self._test = None\n" +
+                 "\n" +
+                 "    @property\n" +
+                 "    def test(self):\n" +
+                 "        return self._test\n" +
+                 "\n" +
+                 "    @test.setter\n" +
+                 "    def test(self, value):\n" +
+                 "        self._test = value\n" +
+                 "\n" +
+                 "class Bar(Foo):\n" +
+                 "    @property\n" +
+                 "    def another_test(self):\n" +
+                 "        return self.test\n" +
+                 "\n" +
+                 "    @another_test.setter\n" +
+                 "    def another_test(self, value):\n" +
+                 "        self.test = value");
+  }
+
+  // PY-31049
+  public void testAttributesOfProperty() {
+    doTest();
+  }
+
+  // PY-31376
+  public void testLocalVarInProperty() {
+    doTest();
+  }
+
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyAttributeOutsideInitInspection.class;
   }
 }

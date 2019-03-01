@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.intellij.codeInsight.daemon.impl.quickfix;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.template.TemplateBuilderImpl;
@@ -33,6 +32,7 @@ import gnu.trove.TObjectIntHashMap;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
@@ -81,11 +81,8 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
     final PsiNameValuePair[] addedParameters = myAnnotation.getParameterList().getAttributes();
 
     final TObjectIntHashMap<String> annotationsOrderMap = getAnnotationsOrderMap();
-    final SortedSet<Pair<String, PsiAnnotationMemberValue>>
-      newParameters = new TreeSet<>(
-      (o1, o2) -> annotationsOrderMap.get(o1.getFirst()) - annotationsOrderMap.get(o2.getFirst()));
-
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
+    final SortedSet<Pair<String, PsiAnnotationMemberValue>> newParameters =
+      new TreeSet<>(Comparator.comparingInt(o -> annotationsOrderMap.get(o.getFirst())));
 
     final boolean order = isAlreadyAddedOrdered(annotationsOrderMap, addedParameters);
     if (order) {
@@ -93,9 +90,12 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
         final PsiAnnotationParameterList parameterList = myAnnotation.getParameterList();
         parameterList.deleteChildRange(addedParameters[0], addedParameters[addedParameters.length - 1]);
         for (final PsiNameValuePair addedParameter : addedParameters) {
-          final String name = addedParameter.getName();
+          String name = addedParameter.getName();
           final PsiAnnotationMemberValue value = addedParameter.getValue();
-          if (name == null || value == null) {
+          if (name == null) {
+            name = "value";
+          }
+          if (value == null) {
             LOG.error(String.format("Invalid annotation parameter name = %s, value = %s", name, value));
             continue;
           }
@@ -105,8 +105,8 @@ public class AddMissingRequiredAnnotationParametersFix implements IntentionActio
     }
 
     final PsiExpression nullValue = JavaPsiFacade.getElementFactory(project).createExpressionFromText(PsiKeyword.NULL, null);
-    for (final String misssedParameter : myMissedElements) {
-      newParameters.add(Pair.<String, PsiAnnotationMemberValue>create(misssedParameter, nullValue));
+    for (final String missedParameter : myMissedElements) {
+      newParameters.add(Pair.create(missedParameter, nullValue));
     }
 
     TemplateBuilderImpl builder = null;

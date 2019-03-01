@@ -1,0 +1,36 @@
+{
+  "name": "start-up-visualizer",
+  "private": true,
+  "dependencies": {
+    "@amcharts/amcharts4": "4.1.13"
+  },
+  "devDependencies": {
+    "@types/jest": "^24.0.9",
+    "@types/webpack-env": "^1.13.7",
+    "clean-webpack-plugin": "^1.0.1",
+    "copy-webpack-plugin": "^5.0.0",
+    "fork-ts-checker-notifier-webpack-plugin": "^1.0.0-alpha.1",
+    "fork-ts-checker-webpack-plugin": "^1.0.0-alpha.8",
+    "html-webpack-plugin": "^3.2.0",
+    "jest": "^24.1.0",
+    "ts-jest": "^24.0.0",
+    "ts-loader": "^5.3.3",
+    "typescript": "^3.3.3333",
+    "webpack": "^4.29.5",
+    "webpack-cli": "^3.2.3",
+    "webpack-dev-server": "^3.2.1",
+    "webpack-subresource-integrity": "^1.3.2"
+  },
+  "scripts": {
+    "//": "chrome://flags/#allow-insecure-localhost to tell Chrome to ignore cert warnings on localhost",
+    "dist": "webpack --mode=production",
+    "dist-ij": "webpack --mode=production --optimize-minimize=false",
+    "dev": "webpack-dev-server",
+    "dev-one": "webpack-dev-server",
+    "test": "jest"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node"
+  }
+}

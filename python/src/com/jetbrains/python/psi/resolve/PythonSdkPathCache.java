@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,11 +21,12 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.RootProvider;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.VirtualFileManager;
-import com.intellij.util.containers.WeakHashMap;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBusConnection;
+import com.jetbrains.python.packaging.PyPackageManager;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import org.jetbrains.annotations.NotNull;
 
@@ -42,7 +43,7 @@ public class PythonSdkPathCache extends PythonPathCache implements Disposable {
     synchronized (KEY) {
       Map<Project, PythonSdkPathCache> cacheMap = sdk.getUserData(KEY);
       if (cacheMap == null) {
-        cacheMap = new WeakHashMap<>();
+        cacheMap = ContainerUtil.createWeakMap();
         sdk.putUserData(KEY, cacheMap);
       }
       PythonSdkPathCache cache = cacheMap.get(project);
@@ -61,31 +62,35 @@ public class PythonSdkPathCache extends PythonPathCache implements Disposable {
   public PythonSdkPathCache(@NotNull final Project project, @NotNull final Sdk sdk) {
     myProject = project;
     mySdk = sdk;
-    sdk.getRootProvider().addRootSetChangedListener(new RootProvider.RootSetChangedListener() {
-      @Override
-      public void rootSetChanged(RootProvider wrapper) {
-        clearCache();
-        if (!project.isDisposed()) {
-          final Module[] modules = ModuleManager.getInstance(project).getModules();
-          for (Module module : modules) {
-            PythonModulePathCache.getInstance(module).clearCache();
-          }
-        }
-        myBuiltins.set(null);
-      }
-    }, this);
-    VirtualFileManager.getInstance().addVirtualFileListener(new MyVirtualFileAdapter(), this);
-    if (!project.isDisposed()) {
-      project.getMessageBus().connect(this).subscribe(ProjectJdkTable.JDK_TABLE_TOPIC, new ProjectJdkTable.Adapter() {
-        @Override
-        public void jdkRemoved(Sdk jdk) {
-          if (jdk == sdk) {
-            Disposer.dispose(PythonSdkPathCache.this);
-          }
-        }
-      });
-      Disposer.register(project, this);
+    if (project.isDisposed()) {
+      return;
     }
+    Disposer.register(project, this);
+    final MessageBusConnection connection = project.getMessageBus().connect(this);
+    connection.subscribe(ProjectJdkTable.JDK_TABLE_TOPIC, new ProjectJdkTable.Adapter() {
+      @Override
+      public void jdkRemoved(@NotNull Sdk jdk) {
+        if (jdk == sdk) {
+          Disposer.dispose(PythonSdkPathCache.this);
+        }
+      }
+    });
+    connection.subscribe(PyPackageManager.PACKAGE_MANAGER_TOPIC, eventSdk -> {
+      if (eventSdk == sdk) {
+        clearCache();
+      }
+    });
+    sdk.getRootProvider().addRootSetChangedListener(wrapper -> {
+      clearCache();
+      if (!project.isDisposed()) {
+        final Module[] modules = ModuleManager.getInstance(project).getModules();
+        for (Module module : modules) {
+          PythonModulePathCache.getInstance(module).clearCache();
+        }
+      }
+      myBuiltins.set(null);
+    }, this);
+    VirtualFileManager.getInstance().addVirtualFileListener(new MyVirtualFileListener(), this);
   }
 
   @Override
@@ -106,7 +111,7 @@ public class PythonSdkPathCache extends PythonPathCache implements Disposable {
       PyBuiltinCache pyBuiltinCache = myBuiltins.get();
       if (pyBuiltinCache == null || !pyBuiltinCache.isValid()) {
         PyBuiltinCache newCache = new PyBuiltinCache(PyBuiltinCache.getBuiltinsForSdk(myProject, mySdk),
-                                                     PyBuiltinCache.getSkeletonFile(myProject, mySdk, PyBuiltinCache.EXCEPTIONS_FILE));
+                                                     PyBuiltinCache.getExceptionsForSdk(myProject, mySdk));
         if (myBuiltins.compareAndSet(pyBuiltinCache, newCache)) {
           return newCache;
         }

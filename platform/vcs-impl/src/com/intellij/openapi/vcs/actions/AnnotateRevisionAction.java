@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -28,7 +29,7 @@ abstract class AnnotateRevisionAction extends AnnotateRevisionActionBase impleme
 
   private int currentLine;
 
-  public AnnotateRevisionAction(@Nullable String text, @Nullable String description, @Nullable Icon icon,
+  AnnotateRevisionAction(@Nullable String text, @Nullable String description, @Nullable Icon icon,
                                 @NotNull FileAnnotation annotation, @NotNull AbstractVcs vcs) {
     super(text, description, icon);
     myAnnotation = annotation;
@@ -54,6 +55,7 @@ abstract class AnnotateRevisionAction extends AnnotateRevisionActionBase impleme
   @Nullable
   protected abstract VcsFileRevision getRevision(int lineNumber);
 
+  @Override
   @Nullable
   protected AbstractVcs getVcs(@NotNull AnActionEvent e) {
     return myVcs;
@@ -68,16 +70,7 @@ abstract class AnnotateRevisionAction extends AnnotateRevisionActionBase impleme
     final FileType currentFileType = myAnnotation.getFile().getFileType();
     FilePath filePath =
       (revision instanceof VcsFileRevisionEx ? ((VcsFileRevisionEx)revision).getPath() : VcsUtil.getFilePath(myAnnotation.getFile()));
-    return new VcsVirtualFile(filePath.getPath(), revision, VcsFileSystem.getInstance()) {
-      @NotNull
-      @Override
-      public FileType getFileType() {
-        FileType type = super.getFileType();
-        if (!type.isBinary()) return type;
-        if (!currentFileType.isBinary()) return currentFileType;
-        return PlainTextFileType.INSTANCE;
-      }
-    };
+    return new MyVcsVirtualFile(filePath, revision, currentFileType);
   }
 
   @Nullable
@@ -101,5 +94,23 @@ abstract class AnnotateRevisionAction extends AnnotateRevisionActionBase impleme
   @Override
   public void consume(Integer integer) {
     currentLine = integer;
+  }
+
+  private static class MyVcsVirtualFile extends VcsVirtualFile {
+    @NotNull private final FileType myCurrentFileType;
+
+    MyVcsVirtualFile(@NotNull FilePath filePath, @NotNull VcsFileRevision revision, @NotNull FileType currentFileType) {
+      super(filePath.getPath(), revision, VcsFileSystem.getInstance());
+      myCurrentFileType = currentFileType;
+    }
+
+    @NotNull
+    @Override
+    public FileType getFileType() {
+      FileType type = super.getFileType();
+      if (!type.isBinary()) return type;
+      if (!myCurrentFileType.isBinary()) return myCurrentFileType;
+      return PlainTextFileType.INSTANCE;
+    }
   }
 }

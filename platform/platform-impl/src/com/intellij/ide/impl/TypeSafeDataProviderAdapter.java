@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 25.10.2006
- * Time: 17:24:41
- */
 package com.intellij.ide.impl;
 
 import com.intellij.openapi.actionSystem.DataKey;
@@ -41,7 +35,7 @@ public class TypeSafeDataProviderAdapter implements DataProvider, DataSink {
 
   @Override
   @Nullable
-  public synchronized Object getData(@NonNls String dataId) {
+  public synchronized Object getData(@NotNull @NonNls String dataId) {
     myValue = null;
     myLastKey = DataKey.create(dataId);
     myProvider.calcData(myLastKey, this);

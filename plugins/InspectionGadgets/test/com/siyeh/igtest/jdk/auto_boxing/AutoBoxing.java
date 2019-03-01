@@ -1,6 +1,6 @@
 package com.siyeh.igtest.jdk.auto_boxing;
 
-
+import java.util.Arrays;
 
 
 public class AutoBoxing {
@@ -8,7 +8,7 @@ public class AutoBoxing {
     static {
         Long someNumber = <warning descr="Auto-boxing '0L'">0L</warning>;
         Long aLong = <warning descr="Auto-boxing 'someNumber << 2'">someNumber << 2</warning>;
-        Long other = someNumber++;
+        Long other = <warning descr="Auto-boxing 'someNumber'">someNumber</warning>++;
         someNumber = <warning descr="Auto-boxing '~someNumber'">~someNumber</warning>;
         someNumber = <warning descr="Auto-boxing '-someNumber'">-someNumber</warning>;
         someNumber = <warning descr="Auto-boxing '+someNumber'">+someNumber</warning>;
@@ -86,5 +86,24 @@ public class AutoBoxing {
     A(<warning descr="Auto-boxing '3'">3</warning>);
     NumberedLetter(Integer i) {
     }
+  }
+
+  void varargs() {
+      Arrays.asList(<warning descr="Auto-boxing ''a''">'a'</warning>, <warning descr="Auto-boxing ''b''">'b'</warning>, <warning descr="Auto-boxing ''c''">'c'</warning>);
+  }
+
+  enum E {
+      A,B,C
+  }
+
+  void switchExpressions(E e) {
+    Integer integer = (Integer)<warning descr="Auto-boxing 'switch (e) { case A -> 1; case B,C -> 2; }'">switch (e) {
+      case A -> 1;
+      case B,C -> 2;
+    }</warning>;
+    Integer two = switch (e) {
+      case A -> <warning descr="Auto-boxing '1'">1</warning>;
+      case B,C -> <warning descr="Auto-boxing '2'">2</warning>;
+    };
   }
 }

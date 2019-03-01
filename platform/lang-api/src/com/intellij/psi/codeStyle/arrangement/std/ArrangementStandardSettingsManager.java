@@ -33,7 +33,6 @@ import java.util.*;
  * Wraps {@link ArrangementStandardSettingsAware} for the common arrangement UI managing code.
  * 
  * @author Denis Zhdanov
- * @since 3/7/13 3:11 PM
  */
 public class ArrangementStandardSettingsManager {
 
@@ -71,7 +70,7 @@ public class ArrangementStandardSettingsManager {
 
   public ArrangementStandardSettingsManager(@NotNull ArrangementStandardSettingsAware delegate,
                                             @NotNull ArrangementColorsProvider colorsProvider) {
-    this(delegate, colorsProvider, ContainerUtil.<StdArrangementRuleAliasToken>emptyList());
+    this(delegate, colorsProvider, ContainerUtil.emptyList());
   }
 
   public ArrangementStandardSettingsManager(@NotNull ArrangementStandardSettingsAware delegate,
@@ -222,7 +221,7 @@ public class ArrangementStandardSettingsManager {
     return token.getRepresentationValue();
   }
   
-  public List<ArrangementSettingsToken> sort(@NotNull Collection<ArrangementSettingsToken> tokens) {
+  public List<ArrangementSettingsToken> sort(@NotNull Collection<? extends ArrangementSettingsToken> tokens) {
     List<ArrangementSettingsToken> result = ContainerUtilRt.newArrayList(tokens);
     Collections.sort(result, myComparator);
     return result;

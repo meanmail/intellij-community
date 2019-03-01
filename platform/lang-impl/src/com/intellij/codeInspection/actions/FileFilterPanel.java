@@ -27,12 +27,10 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 10/11/11
  */
 class FileFilterPanel {
   private JCheckBox myUseFileMask;
@@ -44,12 +42,7 @@ class FileFilterPanel {
     myUseFileMask.setSelected(StringUtil.isNotEmpty(options.FILE_MASK));
     myFileMask.setEnabled(StringUtil.isNotEmpty(options.FILE_MASK));
     myFileMask.setSelectedItem(options.FILE_MASK);
-    ActionListener listener = new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        options.FILE_MASK = myUseFileMask.isSelected() ? (String)myFileMask.getSelectedItem() : null;
-      }
-    };
+    ActionListener listener = __ -> options.FILE_MASK = myUseFileMask.isSelected() ? (String)myFileMask.getSelectedItem() : null;
     myUseFileMask.addActionListener(listener);
     myFileMask.addActionListener(listener);
   }
@@ -60,16 +53,11 @@ class FileFilterPanel {
     String text = (String)myFileMask.getSelectedItem();
     if (text == null) return null;
 
-    final Condition<String> patternCondition = FindInProjectUtil.createFileMaskCondition(text);
+    final Condition<CharSequence> patternCondition = FindInProjectUtil.createFileMaskCondition(text);
     return new GlobalSearchScope() {
       @Override
       public boolean contains(@NotNull VirtualFile file) {
-        return patternCondition.value(file.getName());
-      }
-
-      @Override
-      public int compare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
-        return 0;
+        return patternCondition.value(file.getNameSequence());
       }
 
       @Override

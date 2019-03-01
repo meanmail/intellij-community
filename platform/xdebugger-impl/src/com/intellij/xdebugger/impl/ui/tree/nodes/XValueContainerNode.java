@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree.nodes;
 
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.SmartList;
@@ -42,6 +29,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   private List<XValueNodeImpl> myValueChildren;
   private List<MessageTreeNode> myMessageChildren;
   private List<MessageTreeNode> myTemporaryMessageChildren;
+  private MessageTreeNode myTemporaryEditorNode;
   private List<XValueGroupNodeImpl> myTopGroups;
   private List<XValueGroupNodeImpl> myBottomGroups;
   private List<TreeNode> myCachedAllChildren;
@@ -49,9 +37,14 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   private volatile boolean myObsolete;
   private volatile boolean myAlreadySorted;
 
-  protected XValueContainerNode(XDebuggerTree tree, final XDebuggerTreeNode parent, @NotNull ValueContainer valueContainer) {
-    super(tree, parent, true);
+  protected XValueContainerNode(XDebuggerTree tree, XDebuggerTreeNode parent, boolean leaf, @NotNull ValueContainer valueContainer) {
+    super(tree, parent, leaf);
     myValueContainer = valueContainer;
+  }
+
+  @Deprecated
+  protected XValueContainerNode(XDebuggerTree tree, XDebuggerTreeNode parent, @NotNull ValueContainer valueContainer) {
+    this(tree, parent, true, valueContainer);
   }
 
   private void loadChildren() {
@@ -115,7 +108,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
       fireNodesInserted(newChildren);
       if (last && myTemporaryMessageChildren != null) {
         final int[] ints = getNodesIndices(myTemporaryMessageChildren);
-        final TreeNode[] removed = myTemporaryMessageChildren.toArray(new TreeNode[myTemporaryMessageChildren.size()]);
+        final TreeNode[] removed = myTemporaryMessageChildren.toArray(new TreeNode[0]);
         myCachedAllChildren = null;
         myTemporaryMessageChildren = null;
         fireNodesRemoved(ints, removed);
@@ -158,6 +151,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
     myCachedAllChildren = null;
     myMessageChildren = null;
     myTemporaryMessageChildren = null;
+    myTemporaryEditorNode = null;
     myValueChildren = null;
     myTopGroups = null;
     myBottomGroups = null;
@@ -172,6 +166,7 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
   @Override
   public void setErrorMessage(@NotNull final String errorMessage, @Nullable final XDebuggerTreeNodeHyperlink link) {
     setMessage(errorMessage, XDebuggerUIConstants.ERROR_MESSAGE_ICON, XDebuggerUIConstants.ERROR_MESSAGE_ATTRIBUTES, link);
+    invokeNodeUpdate(() -> setMessageNodes(Collections.emptyList(), true)); // clear temporary nodes
   }
 
   @Override
@@ -192,45 +187,46 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
 
   private void setMessageNodes(final List<MessageTreeNode> messages, boolean temporary) {
     myCachedAllChildren = null;
-    List<MessageTreeNode> allMessageChildren = ContainerUtil.concat(myMessageChildren != null ? myMessageChildren : Collections.emptyList(),
-                                                                    myTemporaryMessageChildren != null ? myTemporaryMessageChildren : Collections.emptyList());
-    final int[] indices = getNodesIndices(allMessageChildren);
-    final TreeNode[] nodes = allMessageChildren.toArray(new TreeNode[allMessageChildren.size()]);
-    fireNodesRemoved(indices, nodes);
-    if (!temporary) {
-      myMessageChildren = messages;
-      myTemporaryMessageChildren = null;
+    List<MessageTreeNode> toDelete = temporary ? myTemporaryMessageChildren : myMessageChildren;
+    if (toDelete != null) {
+      fireNodesRemoved(getNodesIndices(toDelete), toDelete.toArray(new TreeNode[0]));
+    }
+    if (temporary) {
+      myTemporaryMessageChildren = messages;
     }
     else {
-      myTemporaryMessageChildren = messages;
-      myMessageChildren = null;
+      myMessageChildren = messages;
     }
     myCachedAllChildren = null;
     fireNodesInserted(messages);
   }
 
-  public XDebuggerTreeNode addTemporaryEditorNode() {
+  @NotNull
+  public XDebuggerTreeNode addTemporaryEditorNode(@Nullable Icon icon, @Nullable String text) {
     if (isLeaf()) {
       setLeaf(false);
     }
     myTree.expandPath(getPath());
     MessageTreeNode node = new MessageTreeNode(myTree, this, true);
-    if (myMessageChildren == null) {
-      myMessageChildren = ContainerUtil.newSmartList();
+    node.setIcon(icon);
+    if (!StringUtil.isEmpty(text)) {
+      node.getText().append(text, SimpleTextAttributes.REGULAR_ATTRIBUTES);
     }
-    myMessageChildren.add(0, node);
+    myTemporaryEditorNode = node;
     myCachedAllChildren = null;
     fireNodesInserted(Collections.singleton(node));
     return node;
   }
 
   public void removeTemporaryEditorNode(XDebuggerTreeNode node) {
-    if (myMessageChildren != null) {
-      removeChildNode(myMessageChildren, node);
+    if (myTemporaryEditorNode != null) {
+      int index = getIndex(myTemporaryEditorNode);
+      myTemporaryEditorNode = null;
+      myCachedAllChildren = null;
+      fireNodesRemoved(new int[]{index}, new TreeNode[]{node});
     }
   }
 
-  @SuppressWarnings("SuspiciousMethodCalls")
   protected int removeChildNode(List children, XDebuggerTreeNode node) {
     int index = children.indexOf(node);
     if (index != -1) {
@@ -247,6 +243,9 @@ public abstract class XValueContainerNode<ValueContainer extends XValueContainer
 
     if (myCachedAllChildren == null) {
       myCachedAllChildren = new ArrayList<>();
+      if (myTemporaryEditorNode != null) {
+        myCachedAllChildren.add(myTemporaryEditorNode);
+      }
       if (myMessageChildren != null) {
         myCachedAllChildren.addAll(myMessageChildren);
       }

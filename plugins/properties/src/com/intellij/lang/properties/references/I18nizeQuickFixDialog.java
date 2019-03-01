@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /**
  * @author cdr
@@ -35,7 +21,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.StdFileTypes;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
@@ -48,6 +33,7 @@ import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import com.intellij.psi.impl.source.resolve.FileContextUtil;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.GuiUtils;
 import com.intellij.ui.TextFieldWithHistory;
@@ -62,7 +48,9 @@ import java.awt.event.ActionListener;
 import java.io.File;
 import java.io.IOException;
 import java.text.Normalizer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -126,7 +114,7 @@ public class I18nizeQuickFixDialog extends DialogWrapper implements I18nizeQuick
                                boolean ancestorResponsible) {
     super(false);
     myProject = project;
-    myContext = context;
+    myContext = FileContextUtil.getContextFile(context);
 
     myDefaultPropertyValue = defaultPropertyValue;
     myCustomization = customization != null ? customization:new DialogCustomization();
@@ -150,7 +138,7 @@ public class I18nizeQuickFixDialog extends DialogWrapper implements I18nizeQuick
 
     myPropertiesFile.addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         propertiesFileChanged();
         somethingChanged();
       }
@@ -158,14 +146,14 @@ public class I18nizeQuickFixDialog extends DialogWrapper implements I18nizeQuick
 
     getKeyTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         somethingChanged();
       }
     });
 
     myValue.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         somethingChanged();
       }
     });
@@ -457,16 +445,9 @@ public class I18nizeQuickFixDialog extends DialogWrapper implements I18nizeQuick
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
+  protected String getHelpId() {
+    return "editing.propertyFile.i18nInspection";
   }
-
-  @Override
-  public void doHelpAction() {
-    HelpManager.getInstance().invokeHelp("editing.propertyFile.i18nInspection");
-  }
-
 
   public JComponent getValueComponent() {
     return myValue;

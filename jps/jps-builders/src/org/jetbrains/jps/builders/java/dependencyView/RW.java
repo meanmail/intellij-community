@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.util.io.DataExternalizer;
 import com.intellij.util.io.DataInputOutputUtil;
 import com.intellij.util.io.IOUtil;
 import gnu.trove.TIntHashSet;
-import gnu.trove.TIntProcedure;
 import org.jetbrains.jps.builders.storage.BuildDataCorruptedException;
 
 import java.io.*;
@@ -27,7 +12,6 @@ import java.util.Collection;
 
 /**
  * @author: db
- * Date: 29.01.11
  */
 public class RW {
   private RW() {
@@ -61,16 +45,13 @@ public class RW {
   public static <X> void save(final TIntHashSet x, final DataOutput out) {
     try {
       DataInputOutputUtil.writeINT(out, x.size());
-      x.forEach(new TIntProcedure() {
-        @Override
-        public boolean execute(int value) {
-          try {
-            DataInputOutputUtil.writeINT(out, value);
-            return true;
-          }
-          catch (IOException e) {
-            throw new BuildDataCorruptedException(e);
-          }
+      x.forEach(value -> {
+        try {
+          DataInputOutputUtil.writeINT(out, value);
+          return true;
+        }
+        catch (IOException e) {
+          throw new BuildDataCorruptedException(e);
         }
       });
     }
@@ -79,7 +60,7 @@ public class RW {
     }
   }
 
-  public static <X> void save(final Collection<X> x, final DataExternalizer<X> e, final DataOutput out) {
+  public static <X> void save(final Collection<? extends X> x, final DataExternalizer<X> e, final DataOutput out) {
     try {
       DataInputOutputUtil.writeINT(out, x.size());
 
@@ -135,7 +116,7 @@ public class RW {
     }
   }
 
-  public static <X> Collection<X> read(final DataExternalizer<X> e, final Collection<X> acc, final DataInput in) {
+  public static <X,C extends Collection<X>> C read(final DataExternalizer<X> e, final C acc, final DataInput in) {
     try {
       final int size = DataInputOutputUtil.readINT(in);
 
@@ -178,8 +159,10 @@ public class RW {
   }
 
   public static ToWritable<String> fromString = new ToWritable<String>() {
+    @Override
     public Writable convert(final String s) {
       return new Writable() {
+        @Override
         public void write(BufferedWriter w) {
           writeln(w, s);
         }

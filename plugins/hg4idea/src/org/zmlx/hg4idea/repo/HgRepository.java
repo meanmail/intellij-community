@@ -16,6 +16,7 @@
 
 package org.zmlx.hg4idea.repo;
 
+import com.intellij.dvcs.ignore.VcsRepositoryIgnoredFilesHolder;
 import com.intellij.dvcs.repo.Repository;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcs.log.Hash;
@@ -84,4 +85,7 @@ public interface HgRepository extends Repository {
   List<String> getUnappliedPatchNames();
 
   void updateConfig();
+
+  @NotNull
+  VcsRepositoryIgnoredFilesHolder getIgnoredFilesHolder();
 }

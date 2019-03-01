@@ -19,7 +19,6 @@ import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.ToggleAction;
-import com.intellij.openapi.editor.ex.EditorGutterComponentEx;
 import com.intellij.openapi.project.DumbAware;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,26 +28,22 @@ import java.util.ArrayList;
 /**
  * @author Konstantin Bulenkov
  */
-public class ShowShortenNames extends ActionGroup {
+public class ShowShortenNames extends ActionGroup implements DumbAware {
   private final AnAction[] myChildren;
 
-  public ShowShortenNames(final EditorGutterComponentEx gutter) {
+  public ShowShortenNames() {
     super("Names", true);
     final ArrayList<AnAction> kids = new ArrayList<>(ShortNameType.values().length);
     for (ShortNameType type : ShortNameType.values()) {
-      kids.add(new SetShortNameTypeAction(type, gutter));
+      kids.add(new SetShortNameTypeAction(type));
     }
-    myChildren = kids.toArray(new AnAction[kids.size()]);
+    myChildren = kids.toArray(AnAction.EMPTY_ARRAY);
   }
 
   @NotNull
   @Override
   public AnAction[] getChildren(@Nullable AnActionEvent e) {
     return myChildren;
-  }
-
-  public static boolean isSet() {
-    return getType() != ShortNameType.NONE;
   }
 
   public static ShortNameType getType() {
@@ -60,27 +55,26 @@ public class ShowShortenNames extends ActionGroup {
     return ShortNameType.LASTNAME;
   }
 
-  public static class SetShortNameTypeAction extends ToggleAction implements DumbAware {
+  private static class SetShortNameTypeAction extends ToggleAction implements DumbAware {
     private final ShortNameType myType;
-    private final EditorGutterComponentEx myGutter;
 
-    public SetShortNameTypeAction(ShortNameType type, EditorGutterComponentEx gutter) {
+    SetShortNameTypeAction(ShortNameType type) {
       super(type.getDescription());
       myType = type;
-      myGutter = gutter;
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return myType == getType();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean enabled) {
+    public void setSelected(@NotNull AnActionEvent e, boolean enabled) {
       if (enabled) {
         myType.set();
       }
-      myGutter.revalidateMarkup();
+
+      AnnotateActionGroup.revalidateMarkupInAllEditors();
     }
   }
 }

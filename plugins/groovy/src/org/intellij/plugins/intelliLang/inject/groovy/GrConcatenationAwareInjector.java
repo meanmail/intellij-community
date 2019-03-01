@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.intellij.plugins.intelliLang.inject.groovy;
 
 import com.intellij.lang.Language;
@@ -52,20 +38,17 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrReturnState
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.literals.GrStringInjection;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
+import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrBindingVariable;
 
 import java.util.Collection;
 import java.util.LinkedList;
 import java.util.List;
 
-/**
- * Created by Max Medvedev on 9/9/13
- */
 public class GrConcatenationAwareInjector implements ConcatenationAwareInjector {
   private final LanguageInjectionSupport mySupport;
   private final Configuration myConfiguration;
   private final Project myProject;
 
-  @SuppressWarnings("UnusedParameters")
   public GrConcatenationAwareInjector(Configuration configuration, Project project, TemporaryPlacesRegistry temporaryPlacesRegistry) {
     myConfiguration = configuration;
     myProject = project;
@@ -87,8 +70,8 @@ public class GrConcatenationAwareInjector implements ConcatenationAwareInjector 
                                       boolean settingsAvailable,
                                       boolean unparsable) {
         InjectorUtils.registerInjection(language, list, file, registrar);
-        InjectorUtils.registerSupport(mySupport, settingsAvailable, registrar);
-        InjectorUtils.putInjectedFileUserData(registrar, InjectedLanguageUtil.FRANKENSTEIN_INJECTION, unparsable);
+        InjectorUtils.registerSupport(mySupport, settingsAvailable, list.get(0).getFirst(), language);
+        InjectorUtils.putInjectedFileUserData(list.get(0).getFirst(), language, InjectedLanguageUtil.FRANKENSTEIN_INJECTION, unparsable);
       }
 
       @Override
@@ -121,7 +104,7 @@ public class GrConcatenationAwareInjector implements ConcatenationAwareInjector 
     private boolean myShouldStop;
     private boolean myUnparsable;
 
-    public InjectionProcessor(@NotNull Configuration configuration, @NotNull LanguageInjectionSupport support, @NotNull PsiElement... operands) {
+    InjectionProcessor(@NotNull Configuration configuration, @NotNull LanguageInjectionSupport support, @NotNull PsiElement... operands) {
       myConfiguration = configuration;
       mySupport = support;
       myOperands = operands;
@@ -226,7 +209,7 @@ public class GrConcatenationAwareInjector implements ConcatenationAwareInjector 
         public boolean visitReference(GrReferenceExpression expression) {
           if (myConfiguration.getAdvancedConfiguration().getDfaOption() == Configuration.DfaOption.OFF) return true;
           final PsiElement e = expression.resolve();
-          if (e instanceof PsiVariable) {
+          if (e instanceof PsiVariable && !(e instanceof GrBindingVariable)) {
             if (e instanceof PsiParameter) {
               final PsiParameter p = (PsiParameter)e;
               final PsiElement declarationScope = p.getDeclarationScope();

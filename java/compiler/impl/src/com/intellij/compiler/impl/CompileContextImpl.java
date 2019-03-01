@@ -16,8 +16,6 @@
 
 /*
  * @author: Eugene Zhuravlev
- * Date: Jan 21, 2003
- * Time: 4:19:03 PM
  */
 package com.intellij.compiler.impl;
 
@@ -27,10 +25,7 @@ import com.intellij.compiler.ProblemsView;
 import com.intellij.compiler.progress.CompilerTask;
 import com.intellij.execution.impl.ExecutionManagerImpl;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.compiler.CompileScope;
-import com.intellij.openapi.compiler.CompilerMessage;
-import com.intellij.openapi.compiler.CompilerMessageCategory;
-import com.intellij.openapi.compiler.CompilerPaths;
+import com.intellij.openapi.compiler.*;
 import com.intellij.openapi.compiler.ex.CompileContextEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
@@ -38,6 +33,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
@@ -47,6 +43,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.UUID;
 
 public class CompileContextImpl extends UserDataHolderBase implements CompileContextEx {
+  public static final Key<CompileContext> CONTEXT_KEY = Key.create("jps_compile_context");
   private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.impl.CompileContextImpl");
   private final Project myProject;
   private final CompilerTask myBuildSession;
@@ -108,18 +105,19 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
     return myProject;
   }
 
+  @NotNull
   @Override
-  public CompilerMessage[] getMessages(CompilerMessageCategory category) {
+  public CompilerMessage[] getMessages(@NotNull CompilerMessageCategory category) {
     return myMessages.getMessages(category).toArray(CompilerMessage.EMPTY_ARRAY);
   }
 
   @Override
-  public void addMessage(CompilerMessageCategory category, String message, String url, int lineNum, int columnNum) {
+  public void addMessage(@NotNull CompilerMessageCategory category, String message, String url, int lineNum, int columnNum) {
     addMessage(category, message, url, lineNum, columnNum, null);
   }
 
   @Override
-  public void addMessage(CompilerMessageCategory category, String message, String url, int lineNum, int columnNum, Navigatable navigatable) {
+  public void addMessage(@NotNull CompilerMessageCategory category, String message, String url, int lineNum, int columnNum, Navigatable navigatable) {
     final CompilerMessage msg = myMessages.addMessage(category, message, url, lineNum, columnNum, navigatable);
     if (msg != null) {
       addToProblemsView(msg);
@@ -184,7 +182,7 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
   }
 
   @Override
-  public Module getModuleByFile(VirtualFile file) {
+  public Module getModuleByFile(@NotNull VirtualFile file) {
     final Module module = myProjectFileIndex.getModuleForFile(file);
     if (module != null) {
       LOG.assertTrue(!module.isDisposed());
@@ -194,7 +192,7 @@ public class CompileContextImpl extends UserDataHolderBase implements CompileCon
   }
 
   @Override
-  public VirtualFile getModuleOutputDirectory(Module module) {
+  public VirtualFile getModuleOutputDirectory(@NotNull Module module) {
     return CompilerPaths.getModuleOutputDirectory(module, false);
   }
 

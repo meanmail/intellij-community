@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,7 +28,6 @@ import java.util.StringTokenizer;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 9/27/13
  */
 public class Launcher {
 
@@ -39,16 +38,16 @@ public class Launcher {
     System.arraycopy(args, 2, jpsArgs, 0, jpsArgs.length);
     
     final StringTokenizer tokenizer = new StringTokenizer(jpsClasspath, File.pathSeparator, false);
-    final List<URL> urls = new ArrayList<URL>();
+    final List<URL> urls = new ArrayList<>();
     while (tokenizer.hasMoreTokens()) {
       final String path = tokenizer.nextToken();
       urls.add(new File(path).toURI().toURL());
     }
-    final URLClassLoader jpsLoader = new URLClassLoader(urls.toArray(new URL[urls.size()]), Launcher.class.getClassLoader());
+    final URLClassLoader jpsLoader = new URLClassLoader(urls.toArray(new URL[0]), Launcher.class.getClassLoader());
     
     // IDEA-120811; speeding up DefaultChannelIDd calculation for netty
     //if (Boolean.parseBoolean(System.getProperty("io.netty.random.id"))) {
-      System.setProperty("io.netty.machineId", "9e43d860");
+      System.setProperty("io.netty.machineId", "28:f0:76:ff:fe:16:65:0e");
       System.setProperty("io.netty.processId", Integer.toString(new Random().nextInt(65535)));
       System.setProperty("io.netty.serviceThreadPrefix", "Netty");
     //}

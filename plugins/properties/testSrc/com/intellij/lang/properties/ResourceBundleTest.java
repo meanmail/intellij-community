@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties;
 
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.lang.properties.refactoring.rename.ResourceBundleRenamerFactory;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.psi.PsiFile;
 import com.intellij.refactoring.rename.RenameProcessor;
 import com.intellij.refactoring.rename.naming.AutomaticRenamerFactory;
@@ -59,6 +44,23 @@ public class ResourceBundleTest extends LightPlatformCodeInsightFixtureTestCase 
     assertEquals(toCheckFile.getText(), "new_key=value");
   }
 
+  public void testDifferentPropertiesDontCombinedToResourceBundle() {
+    final PsiFile xmlFile = myFixture.addFileToProject("p.xml", "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
+                                                             "<!DOCTYPE properties SYSTEM \"http://java.sun.com/dtd/properties.dtd\">\n" +
+                                                             "<properties>\n" +
+                                                             "</properties>");
+    final PsiFile propFile = myFixture.addFileToProject("p.properties", "");
+
+    final PropertiesFile xmlPropFile = PropertiesImplUtil.getPropertiesFile(xmlFile);
+    final PropertiesFile propertiesFile = PropertiesImplUtil.getPropertiesFile(propFile);
+
+    assertNotNull(xmlPropFile);
+    assertNotNull(propertiesFile);
+
+    assertEquals(xmlPropFile, assertOneElement(xmlPropFile.getResourceBundle().getPropertiesFiles()));
+    assertEquals(propertiesFile, assertOneElement(propertiesFile.getResourceBundle().getPropertiesFiles()));
+  }
+
   private void doTestRenameResourceBundleEntryFile(String fileNameToRenameBefore,
                                                    String fileNameToCheckBefore,
                                                    String fileNameToRenameAfter,
@@ -67,7 +69,7 @@ public class ResourceBundleTest extends LightPlatformCodeInsightFixtureTestCase 
     final PsiFile toCheck = myFixture.addFileToProject(fileNameToCheckBefore, "");
 
     final RenameProcessor processor = new RenameProcessor(getProject(), toRenameFile, fileNameToRenameAfter, true, true);
-    for (AutomaticRenamerFactory factory : Extensions.getExtensions(AutomaticRenamerFactory.EP_NAME)) {
+    for (AutomaticRenamerFactory factory : AutomaticRenamerFactory.EP_NAME.getExtensionList()) {
       if (factory instanceof ResourceBundleRenamerFactory) {
         processor.addRenamerFactory(factory);
       }

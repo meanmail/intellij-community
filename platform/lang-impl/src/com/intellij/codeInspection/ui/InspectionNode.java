@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,37 +16,37 @@
 
 package com.intellij.codeInspection.ui;
 
-import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
-import com.intellij.codeInspection.ex.ToolsImpl;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * @author max
- */
 public class InspectionNode extends InspectionTreeNode {
+  @NotNull private final InspectionToolWrapper myToolWrapper;
   @NotNull private final InspectionProfileImpl myProfile;
 
-  public InspectionNode(@NotNull InspectionToolWrapper toolWrapper, @NotNull InspectionProfile profile) {
-    super(toolWrapper);
-    myProfile = (InspectionProfileImpl)profile;
-  }
-
-  public String toString() {
-    return getToolWrapper().getDisplayName();
+  public InspectionNode(@NotNull InspectionToolWrapper toolWrapper,
+                        @NotNull InspectionProfileImpl profile,
+                        @NotNull InspectionTreeNode parent) {
+    super(parent);
+    myToolWrapper = toolWrapper;
+    myProfile = profile;
   }
 
   @NotNull
   public InspectionToolWrapper getToolWrapper() {
-    return (InspectionToolWrapper)getUserObject();
+    return myToolWrapper;
   }
 
   @Nullable
   @Override
-  public String getCustomizedTailText() {
-    final ToolsImpl tools = myProfile.getTools(getToolWrapper().getShortName(), null);
-    return tools.isEnabled() ? null : "Disabled";
+  public String getTailText() {
+    final String shortName = getToolWrapper().getShortName();
+    return myProfile.getTools(shortName, null).isEnabled() ? null : "Disabled";
+  }
+
+  @Override
+  public String getPresentableText() {
+    return getToolWrapper().getDisplayName();
   }
 }

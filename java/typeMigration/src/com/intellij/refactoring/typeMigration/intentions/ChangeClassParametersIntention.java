@@ -1,6 +1,8 @@
+// Copyright 2000-2017 JetBrains s.r.o.
+// Use of this source code is governed by the Apache 2.0 license that can be
+// found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.intentions;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.JavaErrorMessages;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
@@ -60,8 +62,6 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, @NotNull final PsiElement element) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().preparePsiElementsForWrite(element)) return;
-
     final PsiTypeElement typeElement = PsiTreeUtil.getTopmostParentOfType(element, PsiTypeElement.class);
     final PsiReferenceParameterList parameterList = PsiTreeUtil.getParentOfType(typeElement, PsiReferenceParameterList.class);
     if (parameterList != null) {
@@ -87,7 +87,7 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
           private String myNewType;
 
           @Override
-          public void beforeTemplateFinished(TemplateState state, Template template) {
+          public void beforeTemplateFinished(@NotNull TemplateState state, Template template) {
             final TextResult value = state.getVariableValue(varName);
             myNewType = value != null ? value.getText() : "";
             final int segmentsCount = state.getSegmentsCount();
@@ -101,7 +101,7 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
           }
 
           @Override
-          public void templateFinished(Template template, boolean brokenOff) {
+          public void templateFinished(@NotNull Template template, boolean brokenOff) {
             if (!brokenOff) {
               final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
               try {
@@ -118,7 +118,7 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
                                                                                             classType.getPresentableText()));
                   return;
                 }
-                final TypeMigrationRules myRules = new TypeMigrationRules();
+                final TypeMigrationRules myRules = new TypeMigrationRules(project);
                 final PsiSubstitutor substitutor = result.getSubstitutor().put(typeParameter, targetParam);
                 final PsiType targetClassType = elementFactory.createType(baseClass, substitutor);
                 myRules.setBoundScope(new LocalSearchScope(aClass));
@@ -133,10 +133,5 @@ public class ChangeClassParametersIntention extends PsiElementBaseIntentionActio
         });
       }
     }
-  }
-
-  @Override
-  public boolean startInWriteAction() {
-    return true;
   }
 }

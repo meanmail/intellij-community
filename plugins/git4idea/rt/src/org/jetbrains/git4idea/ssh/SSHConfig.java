@@ -22,6 +22,7 @@ import org.jetbrains.annotations.Nullable;
 import java.io.*;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.regex.Pattern;
 
@@ -110,8 +111,7 @@ public class SSHConfig {
       // no config file = empty config file
       return rc;
     }
-    BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(configFile), "ISO-8859-1"));
-    try {
+    try (BufferedReader in = new BufferedReader(new InputStreamReader(new FileInputStream(configFile), StandardCharsets.ISO_8859_1))) {
       Host host = null;
       String line;
       while ((line = in.readLine()) != null) {
@@ -171,9 +171,6 @@ public class SSHConfig {
           host.myUser = argument;
         }
       }
-    }
-    finally {
-      in.close();
     }
     return rc;
   }
@@ -305,7 +302,7 @@ public class SSHConfig {
      *
      * @param patterns a patterns to match
      */
-    public HostEntry(final String patterns) {
+    HostEntry(final String patterns) {
       for (String pattern : patterns.split("[\t ,]+")) {
         if (pattern.length() == 0) {
           continue;
@@ -420,7 +417,6 @@ public class SSHConfig {
     /**
      * @return port number
      */
-    @SuppressWarnings({"NullableProblems"})
     public int getPort() {
       return notNull(myPort).intValue();
     }
@@ -447,7 +443,6 @@ public class SSHConfig {
     /**
      * @return true if the host should be use in the batch mode
      */
-    @SuppressWarnings({"NullableProblems"})
     public boolean isBatchMode() {
       return notNull(myBatchMode).booleanValue();
     }
@@ -463,7 +458,6 @@ public class SSHConfig {
     /**
      * @return the number of the password prompts
      */
-    @SuppressWarnings({"NullableProblems"})
     public int getNumberOfPasswordPrompts() {
       return notNull(myNumberOfPasswordPrompts).intValue();
     }
@@ -493,7 +487,6 @@ public class SSHConfig {
     /**
      * Set defaults for unspecified fields
      */
-    @SuppressWarnings({"HardCodedStringLiteral"})
     private void setDefaults() {
       if (myUser == null) {
         myUser = System.getProperty("user.name");

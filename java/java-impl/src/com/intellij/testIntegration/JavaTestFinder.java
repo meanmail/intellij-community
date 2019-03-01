@@ -30,7 +30,7 @@ import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.Processor;
 import com.intellij.util.Processors;
-import com.intellij.util.containers.HashSet;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -41,10 +41,12 @@ import java.util.List;
 import java.util.regex.Pattern;
 
 public class JavaTestFinder implements TestFinder {
+  @Override
   public PsiClass findSourceElement(@NotNull PsiElement element) {
     return TestIntegrationUtils.findOuterClass(element);
   }
 
+  @Override
   @NotNull
   public Collection<PsiElement> findClassesForTest(@NotNull PsiElement element) {
     PsiClass klass = findSourceElement(element);
@@ -66,17 +68,10 @@ public class JavaTestFinder implements TestFinder {
     return TestFinderHelper.getSortedElements(classesWithWeights, false);
   }
 
-  /**
-   * @deprecated {@link JavaTestFinder#getSearchScope(com.intellij.psi.PsiElement, boolean)}
-   */
-  protected GlobalSearchScope getSearchScope(PsiElement element) {
-    return getSearchScope(element, true);
-  }
-
   protected GlobalSearchScope getSearchScope(PsiElement element, boolean dependencies) {
     final Module module = getModule(element);
     if (module != null) {
-      return dependencies ? GlobalSearchScope.moduleWithDependenciesScope(module) 
+      return dependencies ? GlobalSearchScope.moduleWithDependenciesScope(module)
                           : GlobalSearchScope.moduleWithDependentsScope(module);
     }
     else {
@@ -85,7 +80,7 @@ public class JavaTestFinder implements TestFinder {
   }
 
   protected boolean isTestSubjectClass(PsiClass klass) {
-    if (klass.isAnnotationType() || 
+    if (klass.isAnnotationType() ||
         TestFrameworks.getInstance().isTestClass(klass) ||
         !klass.isPhysical()) {
       return false;
@@ -93,6 +88,7 @@ public class JavaTestFinder implements TestFinder {
     return true;
   }
 
+  @Override
   @NotNull
   public Collection<PsiElement> findTestsForClass(@NotNull PsiElement element) {
     PsiClass klass = findSourceElement(element);
@@ -114,9 +110,7 @@ public class JavaTestFinder implements TestFinder {
     String klassName = klass.getName();
     Pattern pattern = Pattern.compile(".*" + StringUtil.escapeToRegexp(klassName) + ".*", Pattern.CASE_INSENSITIVE);
 
-    HashSet<String> names = new HashSet<>();
-    cache.getAllClassNames(names);
-    for (String eachName : names) {
+    for (String eachName : ContainerUtil.newHashSet(cache.getAllClassNames())) {
       if (pattern.matcher(eachName).matches()) {
         for (PsiClass eachClass : cache.getClassesByName(eachName, scope)) {
           if (isTestClass(eachClass, klass)) {
@@ -142,6 +136,7 @@ public class JavaTestFinder implements TestFinder {
     return file == null ? null : index.getModuleForFile(file);
   }
 
+  @Override
   public boolean isTest(@NotNull PsiElement element) {
     return TestIntegrationUtils.isTest(element);
   }

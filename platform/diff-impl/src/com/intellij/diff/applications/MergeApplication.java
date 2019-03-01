@@ -31,16 +31,9 @@ import org.jetbrains.annotations.Nullable;
 import java.util.Arrays;
 import java.util.List;
 
-@SuppressWarnings({"UseOfSystemOutOrSystemErr", "CallToPrintStackTrace"})
-public class MergeApplication extends ApplicationStarterBase {
-  @Override
-  protected boolean checkArguments(@NotNull String[] args) {
-    return (args.length == 4 || args.length == 5) && "merge".equals(args[0]);
-  }
-
-  @Override
-  public String getCommandName() {
-    return "merge";
+public class MergeApplication extends DiffApplicationBase {
+  public MergeApplication() {
+    super("merge", 3, 4);
   }
 
   @NotNull
@@ -52,13 +45,15 @@ public class MergeApplication extends ApplicationStarterBase {
 
   @Override
   public void processCommand(@NotNull String[] args, @Nullable String currentDirectory) throws Exception {
-    Project project = getProject();
-
     List<String> filePaths = Arrays.asList(args).subList(1, args.length);
     List<VirtualFile> files = findFiles(filePaths, currentDirectory);
+    Project project = guessProject(files);
 
     List<VirtualFile> contents = ContainerUtil.list(files.get(0), files.get(2), files.get(1)); // left, base, right
     VirtualFile outputFile = files.get(files.size() - 1);
+
+    if (outputFile == null) throw new Exception("Can't find output file: " + ContainerUtil.getLastItem(filePaths));
+    contents = replaceNullsWithEmptyFile(contents);
 
     MergeRequest request = DiffRequestFactory.getInstance().createMergeRequestFromFiles(project, outputFile, contents, null);
 

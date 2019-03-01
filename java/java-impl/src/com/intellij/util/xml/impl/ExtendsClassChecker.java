@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.resolve.reference.impl.providers.JavaClassReference;
-import com.intellij.psi.impl.source.resolve.reference.impl.providers.JavaClassReferenceProvider;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
@@ -26,6 +11,8 @@ import com.intellij.psi.xml.XmlElement;
 import com.intellij.util.ProcessingContext;
 import com.intellij.util.ReflectionUtil;
 import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.JBIterable;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.highlighting.DomCustomAnnotationChecker;
 import com.intellij.util.xml.highlighting.DomElementAnnotationHolder;
@@ -42,13 +29,15 @@ import java.util.List;
 public class ExtendsClassChecker extends DomCustomAnnotationChecker<ExtendClass>{
   private static final GenericValueReferenceProvider ourProvider = new GenericValueReferenceProvider();
 
+  @Override
   @NotNull
   public Class<ExtendClass> getAnnotationClass() {
     return ExtendClass.class;
   }
 
+  @Override
   public List<DomElementProblemDescriptor> checkForProblems(@NotNull final ExtendClass extend, @NotNull final DomElement _element, @NotNull final DomElementAnnotationHolder holder,
-                            @NotNull final DomHighlightingHelper helper) {
+                                                            @NotNull final DomHighlightingHelper helper) {
     if (!(_element instanceof GenericDomValue)) return Collections.emptyList();
     GenericDomValue element = (GenericDomValue)_element;
 
@@ -79,11 +68,11 @@ public class ExtendsClassChecker extends DomCustomAnnotationChecker<ExtendClass>
                                                                    final boolean allowEnum,
                                                                    final DomElementAnnotationHolder holder) {
     final Project project = element.getManager().getProject();
-    PsiClass extendClass = JavaPsiFacade.getInstance(project).findClass(name, GlobalSearchScope.allScope(project));
+    PsiClass[] extendClasses = JavaPsiFacade.getInstance(project).findClasses(name, GlobalSearchScope.allScope(project));
     final SmartList<DomElementProblemDescriptor> list = new SmartList<>();
-    if (extendClass != null) {
-      if (!name.equals(value.getQualifiedName()) && !value.isInheritor(extendClass, true)) {
-        String message = DomBundle.message("class.is.not.a.subclass", value.getQualifiedName(), extendClass.getQualifiedName());
+    if (extendClasses.length > 0) {
+      if (!name.equals(value.getQualifiedName()) && ContainerUtil.find(extendClasses, aClass -> value.isInheritor(aClass, true)) == null) {
+        String message = DomBundle.message("class.is.not.a.subclass", value.getQualifiedName(), name);
         list.add(holder.createProblem(element, message));
       }
     }
@@ -95,7 +84,7 @@ public class ExtendsClassChecker extends DomCustomAnnotationChecker<ExtendClass>
       else if (!allowNonPublic && !value.hasModifierProperty(PsiModifier.PUBLIC)) {
         list.add(holder.createProblem(element, DomBundle.message("class.is.not.public", value.getQualifiedName())));
       }
-      else if (!PsiUtil.hasDefaultConstructor(value, true)) {
+      else if (!PsiUtil.hasDefaultConstructor(value, true, false)) {
         if (canBeDecorator) {
           boolean hasConstructor = false;
 
@@ -107,7 +96,7 @@ public class ExtendsClassChecker extends DomCustomAnnotationChecker<ExtendClass>
               final PsiType psiType = typeElement.getType();
               if (psiType instanceof PsiClassType) {
                 final PsiClass psiClass = ((PsiClassType)psiType).resolve();
-                if (psiClass != null && InheritanceUtil.isInheritorOrSelf(psiClass, extendClass, true)) {
+                if (psiClass != null && ContainerUtil.find(extendClasses, aClass -> InheritanceUtil.isInheritorOrSelf(psiClass, aClass, true)) != null) {
                   hasConstructor = true;
                   break;
                 }
@@ -146,21 +135,17 @@ public class ExtendsClassChecker extends DomCustomAnnotationChecker<ExtendClass>
     final XmlElement valueElement = DomUtil.getValueElement(element);
     if (valueElement == null) return Collections.emptyList();
 
-    final PsiReference[] references = ourProvider.getReferencesByElement(valueElement, new ProcessingContext());
-    for (PsiReference reference : references) {
-      if (reference instanceof JavaClassReference) {
-        final PsiReferenceProvider psiReferenceProvider = ((JavaClassReference)reference).getProvider();
-        final String[] value = psiReferenceProvider instanceof JavaClassReferenceProvider ? JavaClassReferenceProvider.EXTEND_CLASS_NAMES
-          .getValue(((JavaClassReferenceProvider)psiReferenceProvider).getOptions()) : null;
-        if (value != null && value.length != 0) {
-          for (String className : value) {
-            final List<DomElementProblemDescriptor> problemDescriptors =
-              checkExtendClass(element, ((PsiClass)valueObject), className, false, false, true, false, true, true, holder);
-            if (!problemDescriptors.isEmpty()) {
-              return problemDescriptors;
-            }
-          }
-        }
+    PsiReference[] references = ourProvider.getReferencesByElement(valueElement, new ProcessingContext());
+    JBIterable<String> superClasses = JBIterable.of(references)
+      .filter(JavaClassReference.class)
+      .unique(o -> o.getProvider())
+      .flatten(o -> o.getSuperClasses())
+      .unique();
+    for (String className : superClasses) {
+      final List<DomElementProblemDescriptor> problemDescriptors =
+        checkExtendClass(element, ((PsiClass)valueObject), className, false, false, true, false, true, true, holder);
+      if (!problemDescriptors.isEmpty()) {
+        return problemDescriptors;
       }
     }
     return Collections.emptyList();

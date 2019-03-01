@@ -40,8 +40,9 @@ public class XHtmlFilterLexer extends BaseFilterLexer {
       advanceTodoItemCountsInToken();
     } else if (tokenType == XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN ||
         tokenType == XmlTokenType.XML_NAME ||
-        tokenType == XmlTokenType.XML_TAG_NAME
-       ) {
+        tokenType == XmlTokenType.XML_TAG_NAME ||
+        tokenType == XmlTokenType.XML_DATA_CHARACTERS
+      ) {
       scanWordsInToken(UsageSearchContext.IN_PLAIN_TEXT | UsageSearchContext.IN_FOREIGN_LANGUAGES, tokenType ==
                                                                                                    XmlTokenType.XML_ATTRIBUTE_VALUE_TOKEN,
                        false);
@@ -54,7 +55,7 @@ public class XHtmlFilterLexer extends BaseFilterLexer {
       
       if (inComments) advanceTodoItemCountsInToken();
     }
-    else if (!XmlFilterLexer.ourNoWordsTokenSet.contains(tokenType)) {
+    else if (!XmlFilterLexer.NO_WORDS_TOKEN_SET.contains(tokenType)) {
       scanWordsInToken(UsageSearchContext.IN_PLAIN_TEXT, false, false);
     }
 

@@ -20,8 +20,11 @@ import com.intellij.lexer.FlexLexer;
 import com.intellij.lexer.MergingLexerAdapter;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.Stack;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.PythonDialectsTokenSetProvider;
+import com.jetbrains.python.psi.PyStringLiteralUtil;
 import gnu.trove.TIntStack;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,6 +38,12 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
   protected boolean myLineHasSignificantTokens;
   protected int myLastNewLineIndent = -1;
   private int myCurrentNewLineIndent = 0;
+  
+  protected List<PendingToken> myTokenQueue = new ArrayList<>();
+  private int myLineBreakBeforeFirstCommentIndex = -1;
+  protected boolean myProcessSpecialTokensPending = false;
+
+  private final Stack<String> myFStringStack = new Stack<>();
 
   private static final boolean DUMP_TOKENS = false;
   private final TokenSet RECOVERY_TOKENS = PythonDialectsTokenSetProvider.INSTANCE.getUnbalancedBracesRecoveryTokens();
@@ -79,7 +88,7 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
   private static class PendingCommentToken extends PendingToken {
     private final int myIndent;
 
-    public PendingCommentToken(IElementType type, int start, int end, int indent) {
+    PendingCommentToken(IElementType type, int start, int end, int indent) {
       super(type, start, end);
       myIndent = indent;
     }
@@ -88,10 +97,6 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
       return myIndent;
     }
   }
-
-  protected List<PendingToken> myTokenQueue = new ArrayList<>();
-
-  protected boolean myProcessSpecialTokensPending = false;
 
   @Nullable
   protected IElementType getBaseTokenType() {
@@ -104,6 +109,11 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
 
   protected int getBaseTokenEnd() {
     return super.getTokenEnd();
+  }
+
+  @NotNull
+  private String getBaseTokenText() {
+    return getBufferSequence().subSequence(getBaseTokenStart(), getBaseTokenEnd()).toString();
   }
 
   private boolean isBaseAt(IElementType tokenType) {
@@ -180,6 +190,25 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
   protected void advanceBase() {
     super.advance();
     checkSignificantTokens();
+    checkFString();
+  }
+
+  private void checkFString() {
+    final String tokenText = getBaseTokenText();
+    if (isBaseAt(PyTokenTypes.FSTRING_START)) {
+      final int prefixLength = PyStringLiteralUtil.getPrefixLength(tokenText);
+      final String openingQuotes = tokenText.substring(prefixLength);
+      assert !openingQuotes.isEmpty();
+      myFStringStack.push(openingQuotes);
+    }
+    else if (isBaseAt(PyTokenTypes.FSTRING_END)) {
+      while (!myFStringStack.isEmpty()) {
+        final String lastOpeningQuotes = myFStringStack.pop();
+        if (lastOpeningQuotes.equals(tokenText)) {
+          break;
+        }
+      }
+    }
   }
 
   protected void pushToken(IElementType type, int start, int end) {
@@ -206,6 +235,7 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
     adjustBraceLevel();
     myLineHasSignificantTokens = false;
     checkSignificantTokens();
+    checkFString();
     if (isBaseAt(PyTokenTypes.SPACE)) {
       processIndent(0, PyTokenTypes.SPACE);
     }
@@ -249,14 +279,25 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
     int tokenStart = getBaseTokenStart();
     if (isBaseAt(PyTokenTypes.LINE_BREAK)) {
       processLineBreak(tokenStart);
-      while (isBaseAt(getCommentTokenType())) {
-        // comment at start of line; maybe we need to generate dedent before the comments
-        myTokenQueue.add(new PendingCommentToken(getBaseTokenType(), getBaseTokenStart(), getBaseTokenEnd(), myLastNewLineIndent));
-        advanceBase();
-        if (!isBaseAt(PyTokenTypes.LINE_BREAK)) {
-          break;
+      if (isBaseAt(getCommentTokenType())) {
+        myLineBreakBeforeFirstCommentIndex = myTokenQueue.size() - 1;
+        while (isBaseAt(getCommentTokenType())) {
+          // comment at start of line; maybe we need to generate dedent before the comments
+          final int commentEnd = getBaseTokenEnd();
+          myTokenQueue.add(new PendingCommentToken(getBaseTokenType(), getBaseTokenStart(), commentEnd, myLastNewLineIndent));
+          advanceBase();
+          if (isBaseAt(PyTokenTypes.LINE_BREAK)) {
+            processLineBreak(getBaseTokenStart());
+          }
+          // Treat EOF as an indent of size 0
+          else if (getBaseTokenType() == null) {
+            closeDanglingSuitesWithComments(0, commentEnd);
+          }
+          else {
+            break;
+          }
         }
-        processLineBreak(getBaseTokenStart());
+        myLineBreakBeforeFirstCommentIndex = -1;
       }
     }
     else if (isBaseAt(PyTokenTypes.BACKSLASH)) {
@@ -301,9 +342,14 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
   }
 
   protected void processLineBreak(int startPos) {
-    if (myBraceLevel == 0) {
-      if (myLineHasSignificantTokens) {
+    // See https://www.python.org/dev/peps/pep-0498/#expression-evaluation
+    final boolean allFStringsAreTripleQuoted = ContainerUtil.and(myFStringStack, quotes -> quotes.length() == 3);
+    final boolean insideImplicitFragmentParentheses = !myFStringStack.isEmpty() && allFStringsAreTripleQuoted;
+    final boolean shouldTerminateFStrings = !myFStringStack.isEmpty() && !allFStringsAreTripleQuoted;
+    if ((myBraceLevel == 0 && !insideImplicitFragmentParentheses) || shouldTerminateFStrings) {
+      if (myLineHasSignificantTokens || shouldTerminateFStrings) {
         pushToken(PyTokenTypes.STATEMENT_BREAK, startPos, startPos);
+        myFStringStack.clear();
       }
       myLineHasSignificantTokens = false;
       advanceBase();
@@ -346,27 +392,35 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
       myTokenQueue.add(insertIndex, new PendingToken(PyTokenTypes.INDENT, indentOffset, indentOffset));
     }
     else if (indent < lastIndent) {
-      while (indent < lastIndent) {
-        myIndentStack.pop();
-        lastIndent = myIndentStack.peek();
-        int insertIndex = myTokenQueue.size();
-        int dedentOffset = whiteSpaceStart;
-        if (indent > lastIndent) {
-          myTokenQueue.add(new PendingToken(PyTokenTypes.INCONSISTENT_DEDENT, whiteSpaceStart, whiteSpaceStart));
-          insertIndex++;
-        }
-        else {
-          insertIndex = skipPrecedingCommentsWithIndent(indent, insertIndex);
-        }
-        if (insertIndex != myTokenQueue.size()) {
-          dedentOffset = myTokenQueue.get(insertIndex).getStart();
-        }
-        myTokenQueue.add(insertIndex, new PendingToken(PyTokenTypes.DEDENT, dedentOffset, dedentOffset));
-      }
+      closeDanglingSuitesWithComments(indent, whiteSpaceStart);
       myTokenQueue.add(new PendingToken(whitespaceTokenType, whiteSpaceStart, whiteSpaceEnd));
     }
     else {
       myTokenQueue.add(new PendingToken(whitespaceTokenType, whiteSpaceStart, whiteSpaceEnd));
+    }
+  }
+
+  private void closeDanglingSuitesWithComments(int indent, int whiteSpaceStart) {
+    int lastIndent = myIndentStack.peek();
+
+    int insertIndex = myLineBreakBeforeFirstCommentIndex == -1 ? myTokenQueue.size() : myLineBreakBeforeFirstCommentIndex;
+    int lastSuiteIndent;
+    while (indent < lastIndent) {
+      lastSuiteIndent = myIndentStack.pop();
+      lastIndent = myIndentStack.peek();
+      int dedentOffset = whiteSpaceStart;
+      if (indent > lastIndent) {
+        myTokenQueue.add(new PendingToken(PyTokenTypes.INCONSISTENT_DEDENT, whiteSpaceStart, whiteSpaceStart));
+        insertIndex = myTokenQueue.size();
+      }
+      else {
+        insertIndex = skipPrecedingCommentsWithSameIndentOnSuiteClose(lastSuiteIndent, insertIndex);
+      }
+      if (insertIndex != myTokenQueue.size()) {
+        dedentOffset = myTokenQueue.get(insertIndex).getStart();
+      }
+      myTokenQueue.add(insertIndex, new PendingToken(PyTokenTypes.DEDENT, dedentOffset, dedentOffset));
+      insertIndex++;
     }
   }
 
@@ -387,6 +441,20 @@ public class PythonIndentingProcessor extends MergingLexerAdapter {
       }
     }
     return foundComment ? index : myTokenQueue.size();
+  }
+
+  protected int skipPrecedingCommentsWithSameIndentOnSuiteClose(int indent, int anchorIndex) {
+    int result = anchorIndex;
+    for (int i = anchorIndex; i < myTokenQueue.size(); i++) {
+      final PendingToken token = myTokenQueue.get(i);
+      if (token instanceof PendingCommentToken) {
+        if (((PendingCommentToken)token).getIndent() < indent) {
+          break;
+        }
+        result = i + 1;
+      }
+    }
+    return result;
   }
 
   protected int getNextLineIndent() {

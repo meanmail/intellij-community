@@ -1,29 +1,18 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler.modules.decompiler;
 
 import org.jetbrains.java.decompiler.modules.decompiler.exps.Exprent;
 import org.jetbrains.java.decompiler.modules.decompiler.stats.Statement;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 
 public class DecHelper {
 
-  public static boolean checkStatementExceptions(List<Statement> lst) {
+  public static boolean checkStatementExceptions(List<? extends Statement> lst) {
 
     Set<Statement> all = new HashSet<>(lst);
 
@@ -66,7 +55,7 @@ public class DecHelper {
     return true;
   }
 
-  public static boolean isChoiceStatement(Statement head, List<Statement> lst) {
+  public static boolean isChoiceStatement(Statement head, List<? super Statement> lst) {
 
     Statement post = null;
 
@@ -159,7 +148,7 @@ public class DecHelper {
             if (head == statd) {
               return false;
             }
-            if (!setDest.contains(statd) && post != statd) {
+            if (post != statd && !setDest.contains(statd)) {
               if (post != null) {
                 return false;
               }
@@ -194,21 +183,13 @@ public class DecHelper {
     return true;
   }
 
-
-  public static HashSet<Statement> getUniquePredExceptions(Statement head) {
-
-    HashSet<Statement> setHandlers = new HashSet<>(head.getNeighbours(StatEdge.TYPE_EXCEPTION, Statement.DIRECTION_FORWARD));
-
-    Iterator<Statement> it = setHandlers.iterator();
-    while (it.hasNext()) {
-      if (it.next().getPredecessorEdges(StatEdge.TYPE_EXCEPTION).size() > 1) {
-        it.remove();
-      }
-    }
+  public static Set<Statement> getUniquePredExceptions(Statement head) {
+    Set<Statement> setHandlers = new HashSet<>(head.getNeighbours(StatEdge.TYPE_EXCEPTION, Statement.DIRECTION_FORWARD));
+    setHandlers.removeIf(statement -> statement.getPredecessorEdges(StatEdge.TYPE_EXCEPTION).size() > 1);
     return setHandlers;
   }
 
-  public static List<Exprent> copyExprentList(List<Exprent> lst) {
+  public static List<Exprent> copyExprentList(List<? extends Exprent> lst) {
     List<Exprent> ret = new ArrayList<>();
     for (Exprent expr : lst) {
       ret.add(expr.copy());

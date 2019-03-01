@@ -17,6 +17,7 @@ package com.intellij.find;
 
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.util.PatternUtil;
@@ -33,9 +34,14 @@ import java.util.regex.PatternSyntaxException;
  * operations.
  */
 public class FindModel extends UserDataHolderBase implements Cloneable {
+  @Deprecated
   public static void initStringToFindNoMultiline(FindModel findModel, String s) {
+    initStringToFind(findModel, s);
+  }
+
+  public static void initStringToFind(FindModel findModel, String s) {
     if (!StringUtil.isEmpty(s)) {
-      if (!s.contains("\r") && !s.contains("\n")) {
+      if (findModel.isMultiline() || (!s.contains("\r") && !s.contains("\n"))) {
         findModel.setStringToFind(s);
       }
       else {
@@ -45,17 +51,18 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
     }
   }
 
+  @FunctionalInterface
   public interface FindModelObserver {
     void findModelChanged(FindModel findModel);
   }
 
   private final List<FindModelObserver> myObservers = ContainerUtil.createLockFreeCopyOnWriteList();
 
-  public void addObserver(FindModelObserver observer) {
+  public void addObserver(@NotNull FindModelObserver observer) {
     myObservers.add(observer);
   }
 
-  public void removeObserver(FindModelObserver observer) {
+  public void removeObserver(@NotNull FindModelObserver observer) {
     myObservers.remove(observer);
   }
 
@@ -67,32 +74,29 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
 
   private String myStringToFind = "";
   private String myStringToReplace = "";
-  private boolean isSearchHighlighters = false;
-  private boolean isReplaceState = false;
-  private boolean isWholeWordsOnly = false;
+  private boolean isSearchHighlighters;
+  private boolean isReplaceState;
+  private boolean isWholeWordsOnly;
   private SearchContext searchContext = SearchContext.ANY;
   private boolean isFromCursor = true;
   private boolean isForward = true;
   private boolean isGlobal = true;
-  private boolean isRegularExpressions = false;
-  private boolean isCaseSensitive = false;
-  private boolean isMultipleFiles = false;
+  private boolean isRegularExpressions;
+  private boolean isCaseSensitive;
+  private boolean isMultipleFiles;
   private boolean isPromptOnReplace = true;
-  private boolean isReplaceAll = false;
-  private boolean isOpenNewTab = false;
-  private boolean isOpenInNewTabEnabled = false;
-  private boolean isOpenNewTabVisible = false;
+  private boolean isReplaceAll;
   private boolean isProjectScope = true;
-  private boolean isFindAll = false;
-  private boolean isFindAllEnabled = false;
+  private boolean isFindAll;
+  private boolean isFindAllEnabled;
   private String moduleName;
-  private String directoryName = null;
+  private String directoryName;
   private boolean isWithSubdirectories = true;
   private String fileFilter;
   private String customScopeName;
   private SearchScope customScope;
-  private boolean isCustomScope = false;
-  private boolean isMultiline = false;
+  private boolean isCustomScope;
+  private boolean isMultiline;
   private boolean mySearchInProjectFiles;
 
   public boolean isMultiline() {
@@ -101,10 +105,8 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
 
   public void setMultiline(boolean multiline) {
     if (multiline != isMultiline) {
-      if (!multiline) {
-        initStringToFindNoMultiline(this, getStringToFind());
-      }
       isMultiline = multiline;
+      initStringToFind(this, getStringToFind());
       notifyObservers();
     }
   }
@@ -131,7 +133,7 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
     }
   }
 
-  private boolean isPreserveCase = false;
+  private boolean isPreserveCase;
 
   /**
    * Copies all the settings from the specified model.
@@ -152,9 +154,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
     isMultipleFiles = model.isMultipleFiles;
     isPromptOnReplace = model.isPromptOnReplace;
     isReplaceAll = model.isReplaceAll;
-    isOpenNewTab = model.isOpenNewTab;
-    isOpenInNewTabEnabled = model.isOpenInNewTabEnabled;
-    isOpenNewTabVisible = model.isOpenNewTabVisible;
     isProjectScope = model.isProjectScope;
     directoryName = model.directoryName;
     isWithSubdirectories = model.isWithSubdirectories;
@@ -167,6 +166,7 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
     isFindAll = model.isFindAll;
     searchContext = model.searchContext;
     isMultiline = model.isMultiline;
+    mySearchInProjectFiles = model.mySearchInProjectFiles;
     if (changed) {
       notifyObservers();
     }
@@ -190,9 +190,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
 
     if (isMultiline != findModel.isMultiline) return false;
     if (isMultipleFiles != findModel.isMultipleFiles) return false;
-    if (isOpenInNewTabEnabled != findModel.isOpenInNewTabEnabled) return false;
-    if (isOpenNewTab != findModel.isOpenNewTab) return false;
-    if (isOpenNewTabVisible != findModel.isOpenNewTabVisible) return false;
     if (isPreserveCase != findModel.isPreserveCase) return false;
     if (isProjectScope != findModel.isProjectScope) return false;
     if (isPromptOnReplace != findModel.isPromptOnReplace) return false;
@@ -233,9 +230,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
     result = 31 * result + (isMultipleFiles ? 1 : 0);
     result = 31 * result + (isPromptOnReplace ? 1 : 0);
     result = 31 * result + (isReplaceAll ? 1 : 0);
-    result = 31 * result + (isOpenNewTab ? 1 : 0);
-    result = 31 * result + (isOpenInNewTabEnabled ? 1 : 0);
-    result = 31 * result + (isOpenNewTabVisible ? 1 : 0);
     result = 31 * result + (isProjectScope ? 1 : 0);
     result = 31 * result + (isFindAll ? 1 : 0);
     result = 31 * result + (isFindAllEnabled ? 1 : 0);
@@ -522,66 +516,53 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    * Gets the Open in New Tab flag.
    *
    * @return the value of the Open in New Tab flag.
+   * @deprecated and not used anymore
    */
   public boolean isOpenInNewTab() {
-    return isOpenNewTab;
+    return true;
   }
 
   /**
    * Sets the Open in New Tab flag.
    *
    * @param showInNewTab the value of the Open in New Tab flag.
+   * @deprecated and not used anymore
    */
   public void setOpenInNewTab(boolean showInNewTab) {
-    boolean changed = showInNewTab != isOpenNewTab;
-    isOpenNewTab = showInNewTab;
-    if (changed) {
-      notifyObservers();
-    }
   }
 
   /**
    * Gets the value indicating whether the Open in New Tab flag is enabled for the operation.
    *
    * @return true if Open in New Tab is enabled, false otherwise.
+   * @deprecated and not used anymore
    */
   public boolean isOpenInNewTabEnabled() {
-    return isOpenInNewTabEnabled;
+    return true;
   }
 
   /**
    * Sets the value indicating whether the Open in New Tab flag is enabled for the operation.
    *
    * @param showInNewTabEnabled true if Open in New Tab is enabled, false otherwise.
+   * @deprecated and not used anymore
    */
   public void setOpenInNewTabEnabled(boolean showInNewTabEnabled) {
-    boolean changed = isOpenInNewTabEnabled != showInNewTabEnabled;
-    isOpenInNewTabEnabled = showInNewTabEnabled;
-    if (changed) {
-      notifyObservers();
-    }
   }
 
   /**
-   * Gets the value indicating whether the Open in New Tab flag is visible for the operation.
-   *
-   * @return true if Open in New Tab is visible, false otherwise.
+   * @deprecated and not used anymore
    */
+  @Deprecated
   public boolean isOpenInNewTabVisible() {
-    return isOpenNewTabVisible;
+    return true;
   }
 
   /**
-   * Sets the value indicating whether the Open in New Tab flag is enabled for the operation.
-   *
-   * @param showInNewTabVisible true if Open in New Tab is visible, false otherwise.
+   * @deprecated and not used anymore
    */
+  @Deprecated
   public void setOpenInNewTabVisible(boolean showInNewTabVisible) {
-    boolean changed = showInNewTabVisible != isOpenNewTabVisible;
-    isOpenNewTabVisible = showInNewTabVisible;
-    if (changed) {
-      notifyObservers();
-    }
   }
 
   /**
@@ -682,9 +663,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
            "isMultipleFiles =" + isMultipleFiles + "\n" +
            "isPromptOnReplace =" + isPromptOnReplace + "\n" +
            "isReplaceAll =" + isReplaceAll + "\n" +
-           "isOpenNewTab =" + isOpenNewTab + "\n" +
-           "isOpenInNewTabEnabled =" + isOpenInNewTabEnabled + "\n" +
-           "isOpenNewTabVisible =" + isOpenNewTabVisible + "\n" +
            "isProjectScope =" + isProjectScope + "\n" +
            "directoryName =" + directoryName + "\n" +
            "isWithSubdirectories =" + isWithSubdirectories + "\n" +
@@ -732,11 +710,17 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    *
    * @param fileFilter the file name filter text.
    */
-  public void setFileFilter(String fileFilter) {
+  public void setFileFilter(@Nullable String fileFilter) {
     boolean changed = !StringUtil.equals(fileFilter, this.fileFilter);
     this.fileFilter = fileFilter;
     if (changed) {
       notifyObservers();
+    }
+    if (fileFilter != null) {
+      List<String> split = StringUtil.split(fileFilter, ",");
+      if (ContainerUtil.exists(split, s -> s.endsWith("*.iml") || s.endsWith("*.ipr") || s.endsWith("*.iws"))) {
+        setSearchInProjectFiles(true);
+      }
     }
   }
 
@@ -770,7 +754,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    * operation.
    *
    * @return true if the operation is a "Find All", false otherwise.
-   * @since 5.1
    */
   public boolean isFindAll() {
     return isFindAll;
@@ -781,7 +764,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    * operation.
    *
    * @param findAll true if the operation is a "Find All", false otherwise.
-   * @since 5.1
    */
   public void setFindAll(final boolean findAll) {
     boolean changed = isFindAll != findAll;
@@ -795,7 +777,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    * Gets the flag indicating whether "Find All" button is allowed for the operation.
    *
    * @return true if "Find All" is enabled, false otherwise.
-   * @since 5.1
    */
   public boolean isFindAllEnabled() {
     return isFindAllEnabled;
@@ -805,7 +786,6 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
    * Sets the flag indicating whether "Find All" button is allowed for the operation.
    *
    * @param findAllEnabled true if "Find All" is enabled, false otherwise.
-   * @since 5.1
    */
   public void setFindAllEnabled(final boolean findAllEnabled) {
     boolean changed = isFindAllEnabled != findAllEnabled;
@@ -936,8 +916,23 @@ public class FindModel extends UserDataHolderBase implements Cloneable {
 
     Pattern pattern = myPattern;
     if (pattern == PatternUtil.NOTHING) {
+      int flags = isCaseSensitive() ? Pattern.MULTILINE : Pattern.MULTILINE | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
+
+      // SOE during matching regular expressions is considered to be feature 
+      // http://bugs.java.com/view_bug.do?bug_id=6882582
+      // http://bugs.java.com/view_bug.do?bug_id=5050507
+      // IDEA-175066 / https://stackoverflow.com/questions/31676277/stackoverflowerror-in-regular-expression
+      if (toFind.contains("\\n") && Registry.is("jdk.regex.soe.workaround")) { // if needed use DOT_ALL for modified pattern to avoid SOE
+        String modifiedStringToFind = StringUtil.replace(toFind, "\\n|.", ".");
+        modifiedStringToFind = StringUtil.replace(modifiedStringToFind, ".|\\n", ".");
+        
+        if (!modifiedStringToFind.equals(toFind)) {
+          flags |= Pattern.DOTALL;
+          toFind = modifiedStringToFind;
+        }
+      }
       try {
-        myPattern = pattern = Pattern.compile(toFind, isCaseSensitive() ? Pattern.MULTILINE : Pattern.MULTILINE | Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+        myPattern = pattern = Pattern.compile(toFind, flags);
       }
       catch (PatternSyntaxException e) {
         myPattern = pattern = null;

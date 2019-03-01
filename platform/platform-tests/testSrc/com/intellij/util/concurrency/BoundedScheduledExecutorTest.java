@@ -15,8 +15,13 @@
  */
 package com.intellij.util.concurrency;
 
+import com.intellij.diagnostic.ThreadDumper;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.EmptyRunnable;
+import com.intellij.util.ConcurrencyUtil;
+import com.intellij.util.IntIntFunction;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.TripleFunction;
 import junit.framework.TestCase;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.ide.PooledThreadExecutor;
@@ -26,12 +31,14 @@ import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
 public class BoundedScheduledExecutorTest extends TestCase {
+  private static final Logger LOG = Logger.getInstance(BoundedScheduledExecutorTest.class);
   public void testSchedulesAreReallyBound() throws InterruptedException, ExecutionException {
     ExecutorService backendExecutor = AppExecutorUtil.getAppExecutorService();
     for (int maxTasks=1; maxTasks<5;maxTasks++) {
-      System.out.println("maxTasks = " + maxTasks);
+      LOG.debug("maxTasks = " + maxTasks);
       BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(backendExecutor, maxTasks);
       AtomicInteger running = new AtomicInteger();
       AtomicInteger max = new AtomicInteger();
@@ -69,7 +76,7 @@ public class BoundedScheduledExecutorTest extends TestCase {
   public void testSubmitsAreReallyBound() throws InterruptedException, ExecutionException {
     ExecutorService backendExecutor = AppExecutorUtil.getAppExecutorService();
     for (int maxTasks=1; maxTasks<5;maxTasks++) {
-      System.out.println("maxTasks = " + maxTasks);
+      LOG.debug("maxTasks = " + maxTasks);
       BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(backendExecutor, maxTasks);
       AtomicInteger running = new AtomicInteger();
       AtomicInteger max = new AtomicInteger();
@@ -109,7 +116,7 @@ public class BoundedScheduledExecutorTest extends TestCase {
     assertTrue(executor.awaitTermination(100, TimeUnit.SECONDS));
   }
 
-  public void testEarlyCancelPreventsRunning() throws ExecutionException, InterruptedException {
+  public void testEarlyCancelPreventsRunning() throws InterruptedException {
     AtomicBoolean run = new AtomicBoolean();
     BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(AppExecutorUtil.getAppExecutorService(), 1);
 
@@ -129,27 +136,39 @@ public class BoundedScheduledExecutorTest extends TestCase {
     assertTrue(executor.awaitTermination(100, TimeUnit.SECONDS));
   }
 
-  public void testStressWhenSomeTasksCallOtherTasksGet() throws ExecutionException, InterruptedException {
-    ExecutorService backendExecutor = AppExecutorUtil.getAppExecutorService();
-    for (int maxSimultaneousTasks = 1; maxSimultaneousTasks<20; maxSimultaneousTasks++) {
-      System.out.println("maxSimultaneousTasks = " + maxSimultaneousTasks);
-      BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(backendExecutor, maxSimultaneousTasks);
+  public void testStressWhenSomeTasksCallOtherTasksGet() throws Exception {
+    doTestBoundedExecutor(
+      getName(),
+      (backendExecutor, maxSimultaneousTasks) -> createBoundedScheduledExecutor(backendExecutor, maxSimultaneousTasks),
+      maxSimultaneousTasks -> 1000,
+      (executor, runnable, i)-> ((BoundedScheduledExecutorService)executor).schedule(runnable, i % 10, TimeUnit.MILLISECONDS));
+  }
+
+  static void doTestBoundedExecutor(String testName,
+                                    BiFunction<ExecutorService, Integer, ? extends ExecutorService> executorCreator,
+                                    IntIntFunction numberOfFuturesComputer,
+                                    TripleFunction<ExecutorService, Runnable, Integer, Future<?>> executorScheduler) throws Exception {
+    ExecutorService backendExecutor = Executors.newCachedThreadPool(ConcurrencyUtil.newNamedThreadFactory(testName));
+    for (int maxSimultaneousTasks = 1; maxSimultaneousTasks < 20; maxSimultaneousTasks++) {
+      LOG.debug("maxSimultaneousTasks = " + maxSimultaneousTasks);
+      ExecutorService executor = executorCreator.apply(backendExecutor, maxSimultaneousTasks);
       AtomicInteger running = new AtomicInteger();
       AtomicInteger maxThreads = new AtomicInteger();
-      AtomicInteger availableThreads = new AtomicInteger(maxSimultaneousTasks); // to avoid deadlocks when trying to wait inside the pool thread
+      AtomicInteger availableThreads =
+        new AtomicInteger(maxSimultaneousTasks); // to avoid deadlocks when trying to wait inside the pool thread
 
       try {
-        int N = 1000;
+        int N = numberOfFuturesComputer.fun(maxSimultaneousTasks);
         Future[] futures = new Future[N];
         Random random = new Random();
         for (int i = 0; i < N; i++) {
           final int finalI = i;
-          final int finalMaxSimultaneousTasks = maxSimultaneousTasks;
-          futures[i] = executor.schedule(() -> {
+          int maxDelayMs = Math.min(5, maxSimultaneousTasks);
+          Runnable runnable = () -> {
             maxThreads.accumulateAndGet(running.incrementAndGet(), Math::max);
 
             try {
-              int r = random.nextInt(finalMaxSimultaneousTasks);
+              int r = random.nextInt(maxDelayMs);
               int prev = finalI - r;
               if (prev < finalI && prev >= 0) {
                 if (availableThreads.decrementAndGet() > 0) {
@@ -167,7 +186,8 @@ public class BoundedScheduledExecutorTest extends TestCase {
             finally {
               running.decrementAndGet();
             }
-          }, i % 10, TimeUnit.MILLISECONDS);
+          };
+          futures[i] = executorScheduler.fun(executor, runnable, i);
         }
         for (Future future : futures) {
           future.get();
@@ -175,10 +195,10 @@ public class BoundedScheduledExecutorTest extends TestCase {
       }
       finally {
         executor.shutdownNow();
-        assertTrue(executor.awaitTermination(100, TimeUnit.SECONDS));
+        if (!executor.awaitTermination(100, TimeUnit.SECONDS)) fail(ThreadDumper.dumpThreadsToString());
       }
 
-      assertTrue("Max threads was: "+maxThreads+" but bound was: "+maxSimultaneousTasks, maxThreads.get() <= maxSimultaneousTasks);
+      assertTrue("Max threads was: " + maxThreads + " but bound was: " + maxSimultaneousTasks, maxThreads.get() <= maxSimultaneousTasks);
     }
   }
 
@@ -206,7 +226,7 @@ public class BoundedScheduledExecutorTest extends TestCase {
   }
 
 
-  public void testShutdownNowMustCancel() throws ExecutionException, InterruptedException {
+  public void testShutdownNowMustCancel() throws InterruptedException {
     BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(AppExecutorUtil.getAppExecutorService(), 1);
     int N = 100000;
     StringBuffer log = new StringBuffer(N*4);
@@ -241,7 +261,7 @@ public class BoundedScheduledExecutorTest extends TestCase {
     assertTrue(executor.awaitTermination(100, TimeUnit.SECONDS));
   }
 
-  public void testShutdownMustDisableSubmit() throws ExecutionException, InterruptedException {
+  public void testShutdownMustDisableSubmit() throws InterruptedException {
     BoundedScheduledExecutorService executor = createBoundedScheduledExecutor(AppExecutorUtil.getAppExecutorService(), 1);
     int N = 100000;
     StringBuffer log = new StringBuffer(N*4);
@@ -266,8 +286,7 @@ public class BoundedScheduledExecutorTest extends TestCase {
     }
 
     for (int i = 0; i < N; i++) {
-      assertFalse(futures[i].isCancelled());
-      futures[i].cancel(false);
+      assertTrue(futures[i].isCancelled());
     }
 
     String logs = log.toString();
@@ -307,5 +326,16 @@ public class BoundedScheduledExecutorTest extends TestCase {
     assertTrue(executor2.awaitTermination(100, TimeUnit.SECONDS));
     assertTrue(future.isDone());
     assertFalse(future.isCancelled());
+  }
+
+  public void testAwaitTerminationOfScheduledTask() throws InterruptedException {
+    ScheduledExecutorService executor = createBoundedScheduledExecutor(PooledThreadExecutor.INSTANCE, 1);
+    Future<?> future = executor.schedule(() -> TimeoutUtil.sleep(10000), 100, TimeUnit.MILLISECONDS);
+    executor.shutdown();
+    assertTrue(future.isDone());
+    assertTrue(future.isCancelled());
+    assertTrue(executor.awaitTermination(100, TimeUnit.SECONDS));
+    assertTrue(future.isDone());
+    assertTrue(future.isCancelled());
   }
 }

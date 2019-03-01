@@ -1,31 +1,23 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve.processors;
 
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.NotNullLazyValue;
+import com.intellij.openapi.util.VolatileNotNullLazyValue;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
-import com.intellij.psi.util.*;
-import com.intellij.util.containers.hash.HashSet;
+import com.intellij.psi.PsiClassType.ClassResolveResult;
+import com.intellij.psi.util.InheritanceUtil;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiTypesUtil;
+import kotlin.Lazy;
+import kotlin.LazyKt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.utils.ControlFlowUtils;
 import org.jetbrains.plugins.groovy.lang.psi.GrControlFlowOwner;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
-import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrClosureSignature;
+import org.jetbrains.plugins.groovy.lang.psi.api.signatures.GrSignature;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrClassInitializer;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
@@ -38,14 +30,20 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefini
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrGdkMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrClosureParameter;
+import org.jetbrains.plugins.groovy.lang.psi.impl.GrClosureType;
+import org.jetbrains.plugins.groovy.lang.psi.impl.GrTupleType;
 import org.jetbrains.plugins.groovy.lang.psi.impl.signatures.GrClosureSignatureUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
-import org.jetbrains.plugins.groovy.lang.psi.typeEnhancers.ClosureToSamConverter;
 import org.jetbrains.plugins.groovy.lang.psi.util.GdkMethodUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-import java.util.Set;
+import java.util.*;
+
+import static com.intellij.util.containers.ContainerUtil.emptyList;
+import static com.intellij.util.containers.ContainerUtil.newHashSet;
+import static org.jetbrains.plugins.groovy.lang.sam.SamConversionKt.findSingleAbstractMethod;
+import static org.jetbrains.plugins.groovy.lang.sam.SamConversionKt.isSamConversionAllowed;
 
 /**
  * @author Max Medvedev
@@ -55,18 +53,26 @@ public class SubstitutorComputer {
 
   protected final PsiElement myPlace;
 
-  private final PsiType myThisType;
-  @Nullable private final PsiType[] myArgumentTypes;
+  private final Lazy<PsiType> myThisType;
+  @Nullable
+  private final PsiType[] myArgumentTypes;
+  @Nullable
   private final PsiType[] myTypeArguments;
-
-  private final GrControlFlowOwner myFlowOwner;
   private final PsiElement myPlaceToInferContext;
+  private final NotNullLazyValue<Collection<PsiElement>> myExitPoints;
   private final PsiResolveHelper myHelper;
 
-
-  public SubstitutorComputer(PsiType thisType,
+  public SubstitutorComputer(@Nullable PsiType thisType,
                              @Nullable PsiType[] argumentTypes,
-                             PsiType[] typeArguments,
+                             @Nullable PsiType[] typeArguments,
+                             PsiElement place,
+                             PsiElement placeToInferContext) {
+    this(LazyKt.lazyOf(thisType), argumentTypes, typeArguments, place, placeToInferContext);
+  }
+
+  public SubstitutorComputer(@NotNull Lazy<PsiType> thisType,
+                             @Nullable PsiType[] argumentTypes,
+                             @Nullable PsiType[] typeArguments,
                              PsiElement place,
                              PsiElement placeToInferContext) {
     myThisType = thisType;
@@ -74,22 +80,23 @@ public class SubstitutorComputer {
     myTypeArguments = typeArguments;
     myPlace = place;
     myPlaceToInferContext = placeToInferContext;
-
-    if (canBeExitPoint(place)) {
-      myFlowOwner = ControlFlowUtils.findControlFlowOwner(place);
-    }
-    else {
-      myFlowOwner = null;
-    }
+    myExitPoints = VolatileNotNullLazyValue.createValue(() -> {
+      if (canBeExitPoint(place)) {
+        GrControlFlowOwner flowOwner = ControlFlowUtils.findControlFlowOwner(place);
+        return newHashSet(ControlFlowUtils.collectReturns(flowOwner));
+      }
+      else {
+        return emptyList();
+      }
+    });
 
     myHelper = JavaPsiFacade.getInstance(myPlace.getProject()).getResolveHelper();
-
   }
 
   @Nullable
   protected PsiType inferContextType() {
     final PsiElement parent = myPlaceToInferContext.getParent();
-    if (parent instanceof GrReturnStatement || exitsContains(myPlaceToInferContext)) {
+    if (parent instanceof GrReturnStatement || myExitPoints.getValue().contains(myPlaceToInferContext)) {
       final GrMethod method = PsiTreeUtil.getParentOfType(parent, GrMethod.class, true, GrClosableBlock.class);
       if (method != null) {
         return method.getReturnType();
@@ -98,7 +105,7 @@ public class SubstitutorComputer {
     else if (parent instanceof GrAssignmentExpression && myPlaceToInferContext.equals(((GrAssignmentExpression)parent).getRValue())) {
       PsiElement lValue = PsiUtil.skipParentheses(((GrAssignmentExpression)parent).getLValue(), false);
       if ((lValue instanceof GrExpression) && !(lValue instanceof GrIndexProperty)) {
-        return ((GrExpression)lValue).getType();
+        return ((GrExpression)lValue).getNominalType();
       }
       else {
         return null;
@@ -123,7 +130,7 @@ public class SubstitutorComputer {
                                           @NotNull PsiMethod method,
                                           @Nullable PsiElement resolveContext) {
     final PsiTypeParameter[] typeParameters = method.getTypeParameters();
-    if (myTypeArguments.length == typeParameters.length) {
+    if (myTypeArguments != null && myTypeArguments.length == typeParameters.length) {
       for (int i = 0; i < typeParameters.length; i++) {
         PsiTypeParameter typeParameter = typeParameters[i];
         final PsiType typeArgument = myTypeArguments[i];
@@ -141,7 +148,7 @@ public class SubstitutorComputer {
           newArgTypes[0] = ((GrExpression)resolveContext).getType();
         }
         else {
-          newArgTypes[0] = myThisType;
+          newArgTypes[0] = myThisType.getValue();
         }
         System.arraycopy(argTypes, 0, newArgTypes, 1, argTypes.length);
         argTypes = newArgTypes;
@@ -162,40 +169,23 @@ public class SubstitutorComputer {
                                                    @NotNull PsiType[] argTypes) {
     if (typeParameters.length == 0 || myArgumentTypes == null) return partialSubstitutor;
 
-    final GrClosureSignature erasedSignature = GrClosureSignatureUtil.createSignature(method, partialSubstitutor, true);
+    final GrSignature erasedSignature = GrClosureSignatureUtil.createSignature(method, partialSubstitutor, true);
 
-    final GrClosureSignature signature = GrClosureSignatureUtil.createSignature(method, partialSubstitutor);
+    final GrSignature signature = GrClosureSignatureUtil.createSignature(method, partialSubstitutor);
     final GrClosureParameter[] params = signature.getParameters();
 
-    final GrClosureSignatureUtil.ArgInfo<PsiType>[] argInfos = GrClosureSignatureUtil.mapArgTypesToParameters(erasedSignature, argTypes, myPlace, true);
-    if (argInfos == null) return partialSubstitutor;
+    final GrClosureSignatureUtil.ArgInfo<PsiType>[] argInfos =
+      GrClosureSignatureUtil.mapArgTypesToParameters(erasedSignature, argTypes, myPlace, true);
 
-    int max = Math.max(params.length, argTypes.length);
+    if (argInfos == null || params.length > argInfos.length) return partialSubstitutor;
 
-    PsiType[] parameterTypes = PsiType.createArray(max);
-    PsiType[] argumentTypes = PsiType.createArray(max);
-    int i = 0;
-    for (int paramIndex = 0; paramIndex < argInfos.length; paramIndex++) {
-      PsiType paramType = params[paramIndex].getType();
+    Deque<InferenceStep> inferenceQueue = buildInferenceQueue(method, typeParameters, params, argInfos);
 
-      GrClosureSignatureUtil.ArgInfo<PsiType> argInfo = argInfos[paramIndex];
-      if (argInfo != null) {
-        if (argInfo.isMultiArg) {
-          if (paramType instanceof PsiArrayType) paramType = ((PsiArrayType)paramType).getComponentType();
-        }
-        for (PsiType type : argInfo.args) {
-          argumentTypes[i] = handleConversion(paramType, type);
-          parameterTypes[i] = paramType;
-          i++;
-        }
-      }
-      else {
-        parameterTypes[i] = paramType;
-        argumentTypes[i] = PsiType.NULL;
-        i++;
-      }
+    PsiSubstitutor substitutor = partialSubstitutor;
+    while (!inferenceQueue.isEmpty()) {
+      substitutor = inferenceQueue.pollFirst().doInfer(substitutor);
     }
-    PsiSubstitutor substitutor = myHelper.inferTypeArguments(typeParameters, parameterTypes, argumentTypes, LanguageLevel.JDK_1_7);
+
     for (PsiTypeParameter typeParameter : typeParameters) {
       if (!substitutor.getSubstitutionMap().containsKey(typeParameter)) {
         substitutor = inferFromContext(typeParameter, PsiUtil.getSmartReturnType(method), substitutor);
@@ -208,81 +198,146 @@ public class SubstitutorComputer {
     return partialSubstitutor.putAll(substitutor);
   }
 
-  @Nullable
-  private PsiType handleConversion(@Nullable PsiType paramType, @Nullable PsiType argType) {
-    if (ClosureToSamConverter.isSamConversionAllowed(myPlace) &&
-        InheritanceUtil.isInheritor(argType, GroovyCommonClassNames.GROOVY_LANG_CLOSURE) &&
-        !TypesUtil.isClassType(paramType, GroovyCommonClassNames.GROOVY_LANG_CLOSURE)) {
-      PsiType converted = handleConversionOfSAMType(paramType, (PsiClassType)argType);
-      if (converted != null) {
-        return converted;
-      }
+  @NotNull
+  private Deque<InferenceStep> buildInferenceQueue(@NotNull PsiMethod method,
+                                                   @NotNull PsiTypeParameter[] typeParameters,
+                                                   GrClosureParameter[] params,
+                                                   GrClosureSignatureUtil.ArgInfo<PsiType>[] argInfos) {
+    Deque<InferenceStep> inferenceQueue = new ArrayDeque<>();
 
-      return argType;
-    }
+    List<PsiType> parameterTypes = new ArrayList<>();
+    List<PsiType> argumentTypes = new ArrayList<>();
+    for (int paramIndex = 0; paramIndex < params.length; paramIndex++) {
+      PsiType paramType = params[paramIndex].getType();
 
-    if (!TypesUtil.isAssignable(TypeConversionUtil.erasure(paramType), argType, myPlace) &&
-        TypesUtil.isAssignableByMethodCallConversion(paramType, argType, myPlace)) {
-      return paramType;
-    }
-    return argType;
-  }
-
-  @Nullable
-  private PsiType handleConversionOfSAMType(@Nullable PsiType samType, @NotNull PsiClassType closure) {
-    if (samType instanceof PsiClassType) {
-      PsiClassType.ClassResolveResult resolveResult = ((PsiClassType)samType).resolveGenerics();
-      PsiClass samClass = resolveResult.getElement();
-
-      if (samClass != null && samClass.getTypeParameters().length != 0) {
-        MethodSignature samSignature = ClosureToSamConverter.findSingleAbstractMethod(samClass, PsiSubstitutor.EMPTY);
-        if (samSignature != null) {
-
-          PsiMethod samMethod = MethodSignatureUtil.findMethodBySignature(samClass, samSignature, true);
-          if (samMethod != null) {
-            PsiType[] closureArgs = closure.getParameters();
-            if (closureArgs.length == 1 && samMethod.getReturnType() != null) {
-              PsiSubstitutor substitutor = myHelper.inferTypeArguments(samClass.getTypeParameters(),
-                                                                       new PsiType[]{samMethod.getReturnType()},
-                                                                       closureArgs,
-                                                                       LanguageLevel.JDK_1_7);
-
-              if (!substitutor.getSubstitutionMap().isEmpty()) {
-                return JavaPsiFacade.getElementFactory(myPlace.getProject()).createType(samClass, substitutor);
-              }
-            }
+      GrClosureSignatureUtil.ArgInfo<PsiType> argInfo = argInfos[paramIndex];
+      if (argInfo != null) {
+        if (argInfo.isMultiArg) {
+          if (paramType instanceof PsiArrayType) paramType = ((PsiArrayType)paramType).getComponentType();
+        }
+        for (PsiType type : argInfo.args) {
+          PsiType argType = type;
+          if (InheritanceUtil.isInheritor(argType, GroovyCommonClassNames.GROOVY_LANG_CLOSURE)) {
+            inferenceQueue.add(handleClosure(paramType, argType, typeParameters));
+            continue;
           }
+
+
+          if (argType instanceof GrTupleType) {
+            PsiType rawWildcardType = TypesUtil.rawWildcard(argType, method);
+            argType = rawWildcardType != null ? rawWildcardType : argType;
+          }
+
+          if (argType != null) {
+            argType = com.intellij.psi.util.PsiUtil.captureToplevelWildcards(argType, method);
+          }
+          parameterTypes.add(paramType);
+          argumentTypes.add(argType);
         }
       }
+      else {
+        parameterTypes.add(paramType);
+        argumentTypes.add(PsiType.NULL);
+      }
     }
-
-    return null;
+    PsiType[] parameterArray = parameterTypes.toArray(PsiType.EMPTY_ARRAY);
+    PsiType[] argumentArray = argumentTypes.toArray(PsiType.EMPTY_ARRAY);
+    inferenceQueue.addFirst(buildStep(parameterArray, argumentArray, typeParameters));
+    return inferenceQueue;
   }
 
+  InferenceStep buildStep(PsiType[] parameterTypes, PsiType[] argumentTypes, PsiTypeParameter[] typeParameters) {
+    return (ps) -> myHelper.inferTypeArguments(collectTypeParams(typeParameters, parameterTypes),
+                                               parameterTypes,
+                                               argumentTypes,
+                                               ps,
+                                               LanguageLevel.JDK_1_8);
+  }
+
+  private InferenceStep handleClosure(PsiType targetType, PsiType argType, @NotNull PsiTypeParameter[] typeParameters) {
+    if (targetType instanceof PsiClassType && TypesUtil.isClassType(targetType, GroovyCommonClassNames.GROOVY_LANG_CLOSURE)) {
+      PsiType[] parameters = ((PsiClassType)targetType).getParameters();
+      if (parameters.length != 1) return InferenceStep.EMPTY;
+      return buildReturnTypeClosureStep(argType, parameters[0], typeParameters);
+    }
+
+    if (isSamConversionAllowed(myPlace)) {
+      return handleConversionOfSAMType(targetType, argType, typeParameters);
+    }
+
+    return InferenceStep.EMPTY;
+  }
+
+
+  @NotNull
+  private InferenceStep handleConversionOfSAMType(@Nullable PsiType targetType,
+                                                  @NotNull PsiType closure,
+                                                  PsiTypeParameter[] typeParameters) {
+    if (!(closure instanceof PsiClassType)) return InferenceStep.EMPTY;
+    if (!(targetType instanceof PsiClassType)) return InferenceStep.EMPTY;
+
+    ClassResolveResult resolveResult = ((PsiClassType)targetType).resolveGenerics();
+
+    PsiClass samClass = resolveResult.getElement();
+    if (samClass == null) return InferenceStep.EMPTY;
+
+    PsiMethod sam = findSingleAbstractMethod(samClass);
+    if (sam == null) return InferenceStep.EMPTY;
+
+    PsiType samReturnType = resolveResult.getSubstitutor().substitute(sam.getReturnType());
+    if (samReturnType == null) return InferenceStep.EMPTY;
+
+    return buildReturnTypeClosureStep(closure, samReturnType, typeParameters);
+  }
+
+  private InferenceStep buildReturnTypeClosureStep(@NotNull PsiType closure,
+                                                   @Nullable PsiType returnType,
+                                                   PsiTypeParameter[] typeParameters) {
+    PsiType[] parameters = ((PsiClassType)closure).getParameters();
+    if (parameters.length != 1) return InferenceStep.EMPTY;
+    PsiType[] rightTypes = closure instanceof GrClosureType ? ((GrClosureType)closure).inferParameters() : parameters;
+
+    return buildStep(new PsiType[]{returnType}, rightTypes, typeParameters);
+  }
+
+  private static PsiTypeParameter[] collectTypeParams(PsiTypeParameter[] parameters, PsiType[] types) {
+    Set<PsiTypeParameter> visited = new HashSet<>();
+    collectTypeParams(parameters, visited, types);
+
+    return visited.toArray(PsiTypeParameter.EMPTY_ARRAY);
+  }
+
+  private static void collectTypeParams(PsiTypeParameter[] parameters,
+                                        Set<PsiTypeParameter> visited,
+                                        PsiType... type) {
+    PsiTypeParameter[] typeParameters = PsiTypesUtil.filterUnusedTypeParameters(parameters, type);
+    for (PsiTypeParameter parameter : typeParameters) {
+      if (visited.add(parameter)) {
+        collectTypeParams(parameters, visited, parameter.getExtendsListTypes());
+      }
+    }
+  }
 
   private PsiSubstitutor inferFromContext(@NotNull PsiTypeParameter typeParameter,
                                           @Nullable PsiType lType,
                                           @NotNull PsiSubstitutor substitutor) {
     if (myPlace == null) return substitutor;
 
-    final PsiType inferred = myHelper.getSubstitutionForTypeParameter(typeParameter, lType, inferContextType(), false, LanguageLevel.JDK_1_7);
+    final PsiType inferred =
+      myHelper.getSubstitutionForTypeParameter(typeParameter, lType, inferContextType(), false, LanguageLevel.JDK_1_8);
     if (inferred != PsiType.NULL) {
       return substitutor.put(typeParameter, inferred);
     }
     return substitutor;
   }
 
-  private Set<PsiElement> myExitPoints;
-  protected boolean exitsContains(PsiElement place) {
-    if (myFlowOwner == null) return false;
-    if (myExitPoints == null) {
-      myExitPoints = new HashSet<>();
-      myExitPoints.addAll(ControlFlowUtils.collectReturns(myFlowOwner));
-    }
-    return myExitPoints.contains(place);
-  }
-
   public PsiType[] getTypeArguments() {
     return myTypeArguments;
+  }
+
+  private interface InferenceStep {
+    InferenceStep EMPTY = (ps) -> ps;
+
+    PsiSubstitutor doInfer(@NotNull PsiSubstitutor partialSubstitutor);
   }
 }

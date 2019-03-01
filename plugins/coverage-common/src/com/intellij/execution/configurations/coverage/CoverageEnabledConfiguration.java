@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations.coverage;
 
 import com.intellij.coverage.CoverageEngine;
@@ -6,7 +7,6 @@ import com.intellij.coverage.CoverageSuite;
 import com.intellij.execution.configurations.RunConfigurationBase;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.io.FileUtil;
@@ -166,18 +166,17 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     return myCoverageFilePath;
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     // is enabled
-    final String coverageEnabledValueStr = element.getAttributeValue(COVERAGE_ENABLED_ATTRIBUTE_NAME);
-    myIsCoverageEnabled = Boolean.valueOf(coverageEnabledValueStr).booleanValue();
+    myIsCoverageEnabled = Boolean.parseBoolean(element.getAttributeValue(COVERAGE_ENABLED_ATTRIBUTE_NAME));
 
     // track per test coverage
     final String collectLineInfoAttribute = element.getAttributeValue(TRACK_PER_TEST_COVERAGE_ATTRIBUTE_NAME);
     myTrackPerTestCoverage = collectLineInfoAttribute == null || Boolean.valueOf(collectLineInfoAttribute).booleanValue();
 
     // sampling
-    final String sampling = element.getAttributeValue(SAMPLING_COVERAGE_ATTRIBUTE_NAME);
-    mySampling = sampling != null && Boolean.valueOf(sampling).booleanValue();
+    mySampling = Boolean.parseBoolean(element.getAttributeValue(SAMPLING_COVERAGE_ATTRIBUTE_NAME, "true"));
 
     // track test folders
     final String trackTestFolders = element.getAttributeValue(TRACK_TEST_FOLDERS);
@@ -188,7 +187,7 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     if (runnerId != null) {
       myRunnerId = runnerId;
       myCoverageRunner = null;
-      for (CoverageRunner coverageRunner : Extensions.getExtensions(CoverageRunner.EP_NAME)) {
+      for (CoverageRunner coverageRunner : CoverageRunner.EP_NAME.getExtensionList()) {
         if (Comparing.strEqual(coverageRunner.getId(), myRunnerId)) {
           myCoverageRunner = coverageRunner;
           break;
@@ -197,23 +196,26 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     }
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     // enabled
-    element.setAttribute(COVERAGE_ENABLED_ATTRIBUTE_NAME, String.valueOf(myIsCoverageEnabled));
+    if (myIsCoverageEnabled) {
+      element.setAttribute(COVERAGE_ENABLED_ATTRIBUTE_NAME, String.valueOf(true));
+    }
 
     // per test
     if (!myTrackPerTestCoverage) {
-      element.setAttribute(TRACK_PER_TEST_COVERAGE_ATTRIBUTE_NAME, String.valueOf(myTrackPerTestCoverage));
+      element.setAttribute(TRACK_PER_TEST_COVERAGE_ATTRIBUTE_NAME, String.valueOf(false));
     }
 
     // sampling
-    if (mySampling) {
-      element.setAttribute(SAMPLING_COVERAGE_ATTRIBUTE_NAME, String.valueOf(mySampling));
+    if (!mySampling) {
+      element.setAttribute(SAMPLING_COVERAGE_ATTRIBUTE_NAME, String.valueOf(false));
     }
 
     // test folders
     if (myTrackTestFolders) {
-      element.setAttribute(TRACK_TEST_FOLDERS, String.valueOf(myTrackTestFolders));
+      element.setAttribute(TRACK_TEST_FOLDERS, String.valueOf(true));
     }
 
     // runner
@@ -233,8 +235,8 @@ public abstract class CoverageEnabledConfiguration implements JDOMExternalizable
     }
 
     @NonNls final String coverageRootPath = PathManager.getSystemPath() + File.separator + "coverage";
-    final String path = coverageRootPath + File.separator + myProject.getName() + coverageFileNameSeparator()
-                        + FileUtil.sanitizeFileName(myConfiguration.getName()) + ".coverage";
+    final String path = coverageRootPath + File.separator + FileUtil.sanitizeFileName(myProject.getName()) + coverageFileNameSeparator()
+                        + FileUtil.sanitizeFileName(myConfiguration.getName()) + "." + myCoverageRunner.getDataFileExtension();
 
     new File(coverageRootPath).mkdirs();
     return path;

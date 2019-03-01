@@ -16,6 +16,7 @@
 package git4idea.remote;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
+import com.intellij.openapi.project.Project;
 import com.intellij.util.AuthData;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -23,16 +24,34 @@ import org.jetbrains.annotations.Nullable;
 /**
  * Provides authentication information to the {@link git4idea.commands.GitHttpAuthenticator} on attempt to connect an HTTP remote.
  * Useful for reusing Github credentials stored in the settings to connect the github remote (IDEA-87530).
- *
- * @author Kirill Likhodedov
+ * <p>
+ * {@link AuthData} with null password will be ignored
  */
 public interface GitHttpAuthDataProvider {
 
   ExtensionPointName<GitHttpAuthDataProvider> EP_NAME = ExtensionPointName.create("Git4Idea.GitHttpAuthDataProvider");
 
   @Nullable
-  AuthData getAuthData(@NotNull String url);
+  default AuthData getAuthData(@NotNull Project project, @NotNull String url, @NotNull String login) {
+    return getAuthData(project, url);
+  }
 
-  void forgetPassword(@NotNull String url);
+  @Nullable
+  default AuthData getAuthData(@NotNull Project project, @NotNull String url) {
+    return getAuthData(url);
+  }
 
+  @Deprecated
+  @Nullable
+  default AuthData getAuthData(@NotNull String url) {
+    return null;
+  }
+
+  default void forgetPassword(@NotNull Project project, @NotNull String url, @NotNull AuthData authData) {
+    //noinspection deprecation
+    forgetPassword(url);
+  }
+
+  @Deprecated
+  default void forgetPassword(@NotNull String url) {}
 }

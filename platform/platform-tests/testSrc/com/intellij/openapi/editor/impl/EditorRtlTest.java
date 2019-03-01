@@ -1,39 +1,13 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
 import com.intellij.openapi.actionSystem.IdeActions;
-import com.intellij.openapi.editor.Caret;
-import com.intellij.openapi.editor.LogicalPosition;
-import com.intellij.openapi.editor.VisualPosition;
-import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.openapi.editor.ex.BidiTextDirection;
+import com.intellij.openapi.editor.ex.EditorSettingsExternalizable;
 import com.intellij.testFramework.TestFileType;
 
-import java.awt.*;
-import java.io.IOException;
-
-/**
- * To simplify the representation of input text, 'R' character in these tests represents an RTL character.
- */
-public class EditorRtlTest extends AbstractEditorTest {
-  private static final char RTL_CHAR_REPRESENTATION = 'R';
-  private static final char RTL_CHAR = '\u05d0'; // Hebrew 'aleph' letter
-
-  public void testPositionCalculations() throws IOException {
+public class EditorRtlTest extends AbstractRtlTest {
+  public void testPositionCalculations() {
     prepareText("LLRR");
     
     checkOffsetConversions(0, lB(0), vL(0), vR(0), xy(0));
@@ -61,10 +35,10 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkVPConversions(vR(3), lB(3), xy(30));
     checkVPConversions(vL(4), lF(2), xy(40));
     checkVPConversions(vR(4), lF(4), xy(40));
-    checkVPConversions(vL(5), lF(5), xy(50));
+    checkVPConversions(vL(5), lB(5), xy(50));
     checkVPConversions(vR(5), lF(5), xy(50));
-    checkVPConversions(vL(1, 0), lB(1, 0), xy(0, 10));
-    checkVPConversions(vR(1, 0), lF(1, 0), xy(0, 10));
+    checkVPConversions(vL(1, 0), lB(1, 0), xy(0, ls(10)));
+    checkVPConversions(vR(1, 0), lF(1, 0), xy(0, ls(10)));
     
     checkXYConversion(xy(0),  vL(0));
     checkXYConversion(xy(12), vR(1));
@@ -76,7 +50,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkXYConversion(xy(51), vR(5));
   }
   
-  public void testNumberInsideRtlText() throws IOException {
+  public void testNumberInsideRtlText() {
     prepareText("RR12RR");
 
     checkOffsetConversions(0, lB(0), vL(0), vL(6), xy(0), xy(60));
@@ -122,7 +96,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkXYConversion(xy(61), vR(6));
   }
   
-  public void testFolding() throws IOException {
+  public void testFolding() {
     prepareText("RRRRRR");
     addCollapsedFoldRegion(2, 4, "...");
     
@@ -159,7 +133,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkVPConversions(vR(6), lB(5), xy(60));
     checkVPConversions(vL(7), lF(4), xy(70));
     checkVPConversions(vR(7), lF(6), xy(70));
-    checkVPConversions(vL(8), lF(7), xy(80));
+    checkVPConversions(vL(8), lB(7), xy(80));
     checkVPConversions(vR(8), lF(7), xy(80));
     
     checkXYConversion(xy(1), vR(0));
@@ -176,7 +150,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkXYConversion(xy(81), vR(8));
   }
   
-  public void testFoldingWhenLineContainsSeveralFragments() throws IOException {
+  public void testFoldingWhenLineContainsSeveralFragments() {
     prepareText("R R");
     addCollapsedFoldRegion(1, 2, "...");
     
@@ -186,7 +160,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkOffsetConversions(3, lB(3), vR(4), vR(5), xy(40), xy(50));
   }
   
-  public void testFoldingInInnerBidiRun() throws IOException {
+  public void testFoldingInInnerBidiRun() {
     prepareText("LRRL");
     addCollapsedFoldRegion(1, 2, "...");
     
@@ -197,17 +171,17 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkLPConversions(4, 4, vL(6), vR(6));
   }
 
-  public void testPositionCalculationsWithSoftWraps() throws Exception {
+  public void testPositionCalculationsWithSoftWraps() {
     prepareText("RR RR");
     configureSoftWraps(3);
 
     checkOffsetConversions(0, lB(0), vL(0), vL(3), xy(0), xy(30));
     checkOffsetConversions(1, lB(1), vR(2), vL(2), xy(20));
     checkOffsetConversions(2, lB(2), vR(1), vL(1), xy(10));
-    checkOffsetConversions(3, lB(3), vL(1, 1), vL(1, 3),  xy(10, 10), xy(30, 10));
-    checkOffsetConversions(4, lB(4), vR(1, 2), vL(1, 2),  xy(20, 10));
-    checkOffsetConversions(5, lB(5), vR(1, 1), vR(1, 3),  xy(10, 10), xy(30, 10));
-    checkOffsetConversions(6, lB(5), vR(1, 1), vR(1, 3),  xy(10, 10), xy(30, 10));
+    checkOffsetConversions(3, lB(3), vL(1, 1), vL(1, 3),  xy(10, ls(10)), xy(30, ls(10)));
+    checkOffsetConversions(4, lB(4), vR(1, 2), vL(1, 2),  xy(20, ls(10)));
+    checkOffsetConversions(5, lB(5), vR(1, 1), vR(1, 3),  xy(10, ls(10)), xy(30, ls(10)));
+    checkOffsetConversions(6, lB(5), vR(1, 1), vR(1, 3),  xy(10, ls(10)), xy(30, ls(10)));
 
     checkLPConversions(0, 0, vL(0), vL(3));
     checkLPConversions(1, 1, vR(2), vL(2));
@@ -227,16 +201,16 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkVPConversions(3, lF(0), lF(3), xy(30));
     checkVPConversions(4, lF(3), lF(3), xy(40));
     checkVPConversions(5, lF(3), lF(3), xy(50));
-    checkVPConversions(vL(1, 0), lB(3), xy(0, 10));
-    checkVPConversions(vR(1, 0), lB(3), xy(0, 10));
-    checkVPConversions(vL(1, 1), lB(3), xy(10, 10));
-    checkVPConversions(vR(1, 1), lB(5), xy(10, 10));
-    checkVPConversions(vL(1, 2), lF(4), xy(20, 10));
-    checkVPConversions(vR(1, 2), lB(4), xy(20, 10));
-    checkVPConversions(vL(1, 3), lF(3), xy(30, 10));
-    checkVPConversions(vR(1, 3), lF(5), xy(30, 10));
-    checkVPConversions(vL(1, 4), lF(6), xy(40, 10));
-    checkVPConversions(vR(1, 4), lF(6), xy(40, 10));
+    checkVPConversions(vL(1, 0), lB(3), xy(0, ls(10)));
+    checkVPConversions(vR(1, 0), lB(3), xy(0, ls(10)));
+    checkVPConversions(vL(1, 1), lB(3), xy(10, ls(10)));
+    checkVPConversions(vR(1, 1), lB(5), xy(10, ls(10)));
+    checkVPConversions(vL(1, 2), lF(4), xy(20, ls(10)));
+    checkVPConversions(vR(1, 2), lB(4), xy(20, ls(10)));
+    checkVPConversions(vL(1, 3), lF(3), xy(30, ls(10)));
+    checkVPConversions(vR(1, 3), lF(5), xy(30, ls(10)));
+    checkVPConversions(vL(1, 4), lB(6), xy(40, ls(10)));
+    checkVPConversions(vR(1, 4), lF(6), xy(40, ls(10)));
 
     checkXYConversion(xy(0), vL(0));
     checkXYConversion(xy(2), vR(0));
@@ -250,19 +224,19 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkXYConversion(xy(42), vR(4));
     checkXYConversion(xy(47), vL(5));
     checkXYConversion(xy(54), vR(5));
-    checkXYConversion(xy(0, 10), vL(1, 0));
-    checkXYConversion(xy(2, 10), vR(1, 0));
-    checkXYConversion(xy(9, 10), vL(1, 1));
-    checkXYConversion(xy(11, 10), vR(1, 1));
-    checkXYConversion(xy(18, 10), vL(1, 2));
-    checkXYConversion(xy(23, 10), vR(1, 2));
-    checkXYConversion(xy(30, 10), vL(1, 3));
-    checkXYConversion(xy(34, 10), vR(1, 3));
-    checkXYConversion(xy(37, 10), vL(1, 4));
-    checkXYConversion(xy(41, 10), vR(1, 4));
+    checkXYConversion(xy(0, ls(10)), vL(1, 0));
+    checkXYConversion(xy(2, ls(10)), vR(1, 0));
+    checkXYConversion(xy(9, ls(10)), vL(1, 1));
+    checkXYConversion(xy(11, ls(10)), vR(1, 1));
+    checkXYConversion(xy(18, ls(10)), vL(1, 2));
+    checkXYConversion(xy(23, ls(10)), vR(1, 2));
+    checkXYConversion(xy(30, ls(10)), vL(1, 3));
+    checkXYConversion(xy(34, ls(10)), vR(1, 3));
+    checkXYConversion(xy(37, ls(10)), vL(1, 4));
+    checkXYConversion(xy(41, ls(10)), vR(1, 4));
   }
   
-  public void testSelectingRtlLineByDraggingMouseFromLeftToRight() throws IOException {
+  public void testSelectingRtlLineByDraggingMouseFromLeftToRight() {
     prepareText("R");
     setEditorVisibleSize(1000, 1000);
     mouse().pressAtXY(0, 5).dragToXY(15, 5).release();
@@ -270,7 +244,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("<selection>R</selection>");
   }
   
-  public void testSelectingRtlLineByDraggingMouseFromRightToLeft() throws IOException {
+  public void testSelectingRtlLineByDraggingMouseFromRightToLeft() {
     prepareText("R");
     setEditorVisibleSize(1000, 1000);
     mouse().pressAtXY(15, 5).dragToXY(0, 5).release();
@@ -278,19 +252,19 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("<selection>R</selection>");
   }
   
-  public void testMovingCaretToLogicalLineEnd() throws IOException {
+  public void testMovingCaretToLogicalLineEnd() {
     prepareText("R");
     myEditor.getCaretModel().moveToLogicalPosition(lF(1));
     assertVisualPositionsEqual("Wrong visual position", vR(1), myEditor.getCaretModel().getVisualPosition());
   }
 
-  public void testMovingCaretToVisualLineEnd() throws IOException {
+  public void testMovingCaretToVisualLineEnd() {
     prepareText("R");
     myEditor.getCaretModel().moveToVisualPosition(vR(1));
     assertLogicalPositionsEqual("Wrong logical position", lF(1), myEditor.getCaretModel().getLogicalPosition());
   }
 
-  public void testNavigationWithArrowKeys() throws Exception {
+  public void testNavigationWithArrowKeys() {
     prepareText("LLRRLL\nLLRRLL");
     assertCaretPosition(vL(0));
     right();
@@ -313,7 +287,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertCaretPosition(vR(2));
   }
   
-  public void testMovingIntoVirtualSpace() throws Exception {
+  public void testMovingIntoVirtualSpace() {
     prepareText("R");
     myEditor.getSettings().setVirtualSpace(true);
     assertVisualCaretLocation(0, false);
@@ -329,7 +303,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(3, false);
   }
   
-  public void testMovingThroughFoldedRegion() throws Exception {
+  public void testMovingThroughFoldedRegion() {
     prepareText("RRR");
     addCollapsedFoldRegion(1, 2, "..");
     assertVisualCaretLocation(0, false);
@@ -349,7 +323,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(4, true);
   }
   
-  public void testMovingCaretWhenSelectionExists() throws Exception {
+  public void testMovingCaretWhenSelectionExists() {
     prepareText("RRR");
     right();
     right();
@@ -359,7 +333,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(2, true);
   }
   
-  public void testMovingCaretWhenSelectionStartsOnDirectionBoundary() throws Exception {
+  public void testMovingCaretWhenSelectionStartsOnDirectionBoundary() {
     prepareText("LR");
     right();
     right();
@@ -368,14 +342,14 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(2, true);
   }
   
-  public void testMoveCaretWithSelection() throws Exception {
+  public void testMoveCaretWithSelection() {
     prepareText("LR");
     executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT_WITH_SELECTION);
     executeAction(IdeActions.ACTION_EDITOR_MOVE_CARET_RIGHT_WITH_SELECTION);
     checkResult("<selection>LR</selection>");
   }
   
-  public void testNextPrevWord() throws Exception {
+  public void testNextPrevWord() {
     prepareText("LL RR RR LL");
     nextWord();
     assertVisualCaretLocation(3, false);
@@ -407,7 +381,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(0, false);
   }
 
-  public void testNextPrevWordWithSelection() throws Exception {
+  public void testNextPrevWordWithSelection() {
     prepareText("LL RR RR LL");
     moveCaretToNextWordWithSelection();
     checkResult("<selection>LL </selection>RR RR LL");
@@ -439,7 +413,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("<selection></selection>LL RR RR LL");
   }
   
-  public void testHomeEnd() throws Exception {
+  public void testHomeEnd() {
     prepareText("RR");
     myEditor.getCaretModel().moveToOffset(1);
     home();
@@ -448,7 +422,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(2, false);
   }
   
-  public void testHomeEndWithSelection() throws Exception {
+  public void testHomeEndWithSelection() {
     prepareText("RR");
     myEditor.getCaretModel().moveToOffset(1);
     homeWithSelection();
@@ -459,7 +433,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("R<selection>R</selection>");
   }
   
-  public void testTextStartEnd() throws Exception {
+  public void testTextStartEnd() {
     prepareText("RR");
     myEditor.getCaretModel().moveToOffset(1);
     executeAction(IdeActions.ACTION_EDITOR_TEXT_START);
@@ -468,7 +442,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(2, false);
   }
   
-  public void testTextStartEndWithSelection() throws Exception {
+  public void testTextStartEndWithSelection() {
     prepareText("RR");
     myEditor.getCaretModel().moveToOffset(1);
     executeAction(IdeActions.ACTION_EDITOR_TEXT_START_WITH_SELECTION);
@@ -479,7 +453,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("R<selection>R</selection>");
   }
 
-  public void testUsingLexerForBidiLayout() throws Exception {
+  public void testUsingLexerForBidiLayout() {
     prepare("class Foo {\n  int<caret> R = 1;\n}", TestFileType.JAVA);
     right();
     right();
@@ -487,7 +461,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("class Foo {\n  int R<caret> = 1;\n}");
   }
   
-  public void testJavadocTokensAreMergedForBidiLayoutPurposes() throws Exception {
+  public void testJavadocTokensAreMergedForBidiLayoutPurposes() {
     prepare("<caret>/**R R*/ class Foo {}", TestFileType.JAVA);
     for (int i = 0; i < 4; i++) {
       right();
@@ -496,7 +470,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("/**R R<caret>*/ class Foo {}");
   }
   
-  public void testXmlTextIsLaidOutCorrectly() throws Exception {
+  public void testXmlTextIsLaidOutCorrectly() {
     prepare("<caret><L>R R</L>", TestFileType.XML);
     for (int i = 0; i < 4; i++) {
       right();
@@ -505,7 +479,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("<L>R R<caret></L>");
   }
   
-  public void testMovingThroughBoundaryBetweenRunsWithNonadjacentLevels() throws Exception {
+  public void testMovingThroughBoundaryBetweenRunsWithNonadjacentLevels() {
     prepareText("R=1");
     right();
     assertVisualCaretLocation(0, false);
@@ -518,7 +492,7 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertEquals(2, myEditor.getCaretModel().getOffset());
   }
   
-  public void testMovingCaretThroughSoftWrap() throws Exception {
+  public void testMovingCaretThroughSoftWrap() {
     prepareText("RR RR");
     configureSoftWraps(3);
     
@@ -542,13 +516,13 @@ public class EditorRtlTest extends AbstractEditorTest {
     assertVisualCaretLocation(1, 3, true);
   }
   
-  public void testLineGeneralDirectionAutodetection() throws Exception {
+  public void testLineGeneralDirectionAutodetection() {
     prepareText("<caret>RLR");
     right();
     checkResult("RLR<caret>");
   }
   
-  public void testTabInsideRtlText() throws Exception {
+  public void testTabInsideRtlText() {
     prepareText("<caret>R\tRR");
     right();
     checkResult("R<caret>\tRR");
@@ -568,21 +542,21 @@ public class EditorRtlTest extends AbstractEditorTest {
     checkResult("R\tRR<caret>");
   }
   
-  public void testEscapedBackslashInStringLiteral() throws Exception {
+  public void testEscapedBackslashInStringLiteral() {
     prepare("class C {\n  String s = \"R\\<caret>\\R\";\n}", TestFileType.JAVA);
     right();
     right();
     checkResult("class C {\n  String s = \"<caret>R\\\\R\";\n}");
   }
 
-  public void testRtlLayoutPersistsAfterEditing() throws Exception {
+  public void testRtlLayoutPersistsAfterEditing() {
     prepare("<caret>\nRR", TestFileType.TEXT);
     delete();
     checkResult("<caret>RR");
     assertTrue(myEditor.getCaretModel().getPrimaryCaret().isAtBidiRunBoundary());
   }
 
-  public void testTokenOrderIsAlwaysLtr() throws Exception {
+  public void testTokenOrderIsAlwaysLtr() {
     BidiTextDirection savedValue = EditorSettingsExternalizable.getInstance().getBidiTextDirection();
     try {
       EditorSettingsExternalizable.getInstance().setBidiTextDirection(BidiTextDirection.RTL);
@@ -595,150 +569,13 @@ public class EditorRtlTest extends AbstractEditorTest {
     }
   }
 
-  public void testLineCommentLayout() throws Exception {
+  public void testLineCommentLayout() {
     prepare("<caret>// R", TestFileType.JAVA);
     right();
     checkResult("/<caret>/ R");
   }
-  
-  private void prepareText(String text) throws IOException {
-    prepare(text, TestFileType.TEXT);
-  }
-  
-  private void prepare(String text, TestFileType fileType) throws IOException {
-    init(text.replace(RTL_CHAR_REPRESENTATION, RTL_CHAR), fileType);
-  }
-  
-  private void checkResult(String text) {
-    checkResultByText(text.replace(RTL_CHAR_REPRESENTATION, RTL_CHAR));
-  }
-  
-  private static void checkOffsetConversions(int offset,
-                                             LogicalPosition logicalPosition,
-                                             VisualPosition visualPositionTowardsSmallerOffsets,
-                                             VisualPosition visualPositionTowardsLargerOffsets,
-                                             Point xy) {
-    checkOffsetConversions(offset, logicalPosition, visualPositionTowardsSmallerOffsets, visualPositionTowardsLargerOffsets, xy, xy);
-  }
 
-  private static void checkOffsetConversions(int offset, 
-                                             LogicalPosition logicalPosition, 
-                                             VisualPosition visualPositionTowardsSmallerOffsets, 
-                                             VisualPosition visualPositionTowardsLargerOffsets, 
-                                             Point xyTowardsSmallerOffsets, 
-                                             Point xyTowardsLargerOffsets) {
-    assertLogicalPositionsEqual("Wrong offset->logicalPosition calculation", logicalPosition, myEditor.offsetToLogicalPosition(offset));
-    assertVisualPositionsEqual("Wrong beforeOffset->visualPosition calculation",
-                               visualPositionTowardsSmallerOffsets, myEditor.offsetToVisualPosition(offset, false, false));
-    assertVisualPositionsEqual("Wrong afterOffset->visualPosition calculation",
-                               visualPositionTowardsLargerOffsets, myEditor.offsetToVisualPosition(offset, true, false));
-    assertEquals("Wrong afterOffset->visualLine calculation", 
-                 visualPositionTowardsLargerOffsets.line, ((EditorImpl)myEditor).offsetToVisualLine(offset));
-    assertEquals("Wrong beforeOffset->xy calculation", xyTowardsSmallerOffsets, ((EditorImpl)myEditor).offsetToXY(offset, false));
-    assertEquals("Wrong afterOffset->xy calculation", xyTowardsLargerOffsets, ((EditorImpl)myEditor).offsetToXY(offset, true));
-  }
-
-  private static void checkLPConversions(int logicalColumn, int offset, 
-                                         VisualPosition visualPositionForPrecedingLp, VisualPosition visualPositionForSucceedingLp) {
-    checkLPConversions(lB(logicalColumn), offset, visualPositionForPrecedingLp);
-    checkLPConversions(lF(logicalColumn), offset, visualPositionForSucceedingLp);
-    
-  }
-  
-  private static void checkLPConversions(LogicalPosition logicalPosition, int offset, VisualPosition visualPosition) {
-    assertEquals("Wrong logicalPosition->offset calculation", offset, myEditor.logicalPositionToOffset(logicalPosition));
-    assertVisualPositionsEqual("Wrong logicalPosition->visualPosition calculation",
-                               visualPosition, myEditor.logicalToVisualPosition(logicalPosition));
-  }
-
-  private static void checkVPConversions(int visualColumn, LogicalPosition logicalPositionForLeftLeaningVp,
-                                         LogicalPosition logicalPositionForRightLeaningVp, Point xy) {
-    checkVPConversions(vL(visualColumn), logicalPositionForLeftLeaningVp, xy);
-    checkVPConversions(vR(visualColumn), logicalPositionForRightLeaningVp, xy);
-  }
-
-  private static void checkVPConversions(VisualPosition visualPosition, LogicalPosition logicalPosition, Point xy) {
-    assertLogicalPositionsEqual("Wrong visualPosition->logicalPosition calculation",
-                                logicalPosition, myEditor.visualToLogicalPosition(visualPosition));
-    assertEquals("Wrong visualPosition->xy calculation", xy, myEditor.visualPositionToXY(visualPosition));
-  }
-  
-  private static void checkXYConversion(Point xy,
-                                       VisualPosition visualPosition) {
-    assertVisualPositionsEqual("Wrong xy->visualPosition calculation", visualPosition, myEditor.xyToVisualPosition(xy));
-  }
-
-  private static void assertLogicalPositionsEqual(String message, LogicalPosition expectedPosition, LogicalPosition actualPosition) {
-    assertEquals(message, expectedPosition, actualPosition);
-    assertEquals(message + " (direction flag)", expectedPosition.leansForward, actualPosition.leansForward);
-  }
-
-  private static void assertVisualPositionsEqual(String message, VisualPosition expectedPosition, VisualPosition actualPosition) {
-    assertEquals(message, expectedPosition, actualPosition);
-    assertEquals(message + " (direction flag)", expectedPosition.leansRight, actualPosition.leansRight);
-  }
-
-  private static void assertCaretPosition(VisualPosition visualPosition) {
-    assertVisualPositionsEqual("Wrong caret position", visualPosition, myEditor.getCaretModel().getVisualPosition());
-  }
-
-  private static void assertVisualCaretLocation(int visualColumn, boolean reversedDirection) {
-    assertVisualCaretLocation(0, visualColumn, reversedDirection);
-  }
-  
-  private static void assertVisualCaretLocation(int visualLine, int visualColumn, boolean reversedDirection) {
-    assertEquals(1, myEditor.getCaretModel().getCaretCount());
-    Caret caret = myEditor.getCaretModel().getPrimaryCaret();
-    assertEquals(visualLine, caret.getVisualPosition().line);
-    assertEquals(visualColumn, caret.getVisualPosition().column);
-    assertEquals(reversedDirection, caret.isAtRtlLocation());
-  }
-  
-  // logical position leaning backward
-  private static LogicalPosition lB(int column) {
-    return new LogicalPosition(0, column);
-  }
-  
-  // logical position leaning backward
-  private static LogicalPosition lB(int line, int column) {
-    return new LogicalPosition(line, column);
-  }
-
-  // logical position leaning forward
-  private static LogicalPosition lF(int column) {
-    return new LogicalPosition(0, column, true);
-  }
-  
-  // logical position leaning forward
-  private static LogicalPosition lF(int line, int column) {
-    return new LogicalPosition(line, column, true);
-  }
- 
-  // visual position leaning to the left
-  private static VisualPosition vL(int column) {
-    return new VisualPosition(0, column);
-  }
-
-  // visual position leaning to the left
-  private static VisualPosition vL(int line, int column) {
-    return new VisualPosition(line, column);
-  }
-
-  // visual position leaning to the right
-  private static VisualPosition vR(int column) {
-    return new VisualPosition(0, column, true);
-  }
-
-  // visual position leaning to the right
-  private static VisualPosition vR(int line, int column) {
-    return new VisualPosition(line, column, true);
-  }
-
-  private static Point xy(int x) {
-    return new Point(x, 0);
-  }
-  
-  private static Point xy(int x, int y) {
-    return new Point(x, y);
+  public void testIndentIsTreatedSeparately() {
+    checkBidiRunBoundaries(" |R", "txt");
   }
 }

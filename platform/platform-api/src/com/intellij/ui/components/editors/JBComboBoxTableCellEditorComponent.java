@@ -20,7 +20,6 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupAdapter;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.TableUtil;
 import com.intellij.ui.awt.RelativePoint;
@@ -32,9 +31,13 @@ import com.intellij.util.Function;
 import com.intellij.util.PlatformIcons;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.EmptyIcon;
-import sun.swing.SwingUtilities2;
+import com.intellij.util.ui.GraphicsUtil;
+import org.jetbrains.annotations.NotNull;
 
-import javax.accessibility.*;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.accessibility.AccessibleState;
+import javax.accessibility.AccessibleStateSet;
 import javax.swing.*;
 import javax.swing.event.TableModelEvent;
 import java.awt.*;
@@ -49,10 +52,10 @@ import java.util.List;
  *   <p>2. Truncated strings in the combobox popup if column width is less than text value width
  *   <p>
  *   <b>How to use:</b>
- *   <p>1. In get <code>getTableCellEditorComponent</code> method create or use existent
- *   <code>JBComboBoxTableCellEditorComponent</code> instance<br/>
- *   <p>2. Init component by calling <code>setCell</code>, <code>setOptions</code>,
- *   <code>setDefaultValue</code> methods
+ *   <p>1. In get {@code getTableCellEditorComponent} method create or use existent
+ *   {@code JBComboBoxTableCellEditorComponent} instance<br/>
+ *   <p>2. Init component by calling {@code setCell}, {@code setOptions},
+ *   {@code setDefaultValue} methods
  *   <p>3. Return the instance
  *
  * @author Konstantin Bulenkov
@@ -69,7 +72,6 @@ public class JBComboBoxTableCellEditorComponent extends JBLabel {
   private Function<Object, String> myToString = StringUtil.createToStringFunction(Object.class);
   private final List<ActionListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
-  @SuppressWarnings({"GtkPreferredJComboBoxRenderer"})
   private ListCellRenderer myRenderer = new DefaultListCellRenderer() {
     private boolean myChecked;
     public Icon myEmptyIcon;
@@ -83,7 +85,7 @@ public class JBComboBoxTableCellEditorComponent extends JBLabel {
       } else {
         label.setIcon(getEmptyIcon());
       }
-      label.putClientProperty(SwingUtilities2.AA_TEXT_PROPERTY_KEY, AntialiasingType.getAAHintForSwingComponent());
+      GraphicsUtil.setAntialiasingType(label, AntialiasingType.getAAHintForSwingComponent());
       return label;
     }
 
@@ -193,13 +195,13 @@ public class JBComboBoxTableCellEditorComponent extends JBLabel {
       })
       .addListener(new JBPopupAdapter() {
         @Override
-        public void beforeShown(LightweightWindowEvent event) {
+        public void beforeShown(@NotNull LightweightWindowEvent event) {
           super.beforeShown(event);
           myTable.setSurrendersFocusOnKeystroke(false);
         }
 
         @Override
-        public void onClosed(LightweightWindowEvent event) {
+        public void onClosed(@NotNull LightweightWindowEvent event) {
           myTable.setSurrendersFocusOnKeystroke(surrendersFocusOnKeystrokeOldValue);
           super.onClosed(event);
         }
@@ -231,5 +233,9 @@ public class JBComboBoxTableCellEditorComponent extends JBLabel {
 
   public void addActionListener(ActionListener listener) {
     myListeners.add(listener);
+  }
+
+  public Function<Object, String> getToString() {
+    return myToString;
   }
 }

@@ -27,7 +27,6 @@ import java.io.PrintWriter;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class Tag extends CompositeGenerator {
   public static final Tag[] EMPTY_ARRAY = new Tag[0];
@@ -39,6 +38,7 @@ public class Tag extends CompositeGenerator {
     myTagOptions = tagOptions;
   }
 
+  @Override
   public void generate(PrintWriter out) throws IOException {
     out.print("<");
     out.print(myTagName);
@@ -54,7 +54,7 @@ public class Tag extends CompositeGenerator {
         }
         out.print((String)option.getFirst());
         out.print("=\"");
-        out.print(StringUtil.escapeXml((String)option.getSecond()));
+        out.print(StringUtil.escapeXmlEntities((String)option.getSecond()));
         out.print("\"");
         generated += 1;
       }

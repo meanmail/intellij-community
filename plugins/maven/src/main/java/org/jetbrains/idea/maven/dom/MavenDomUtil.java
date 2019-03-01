@@ -39,6 +39,7 @@ import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.testFramework.LightVirtualFile;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.*;
 import com.intellij.util.xml.reflect.DomCollectionChildDescription;
@@ -77,6 +78,15 @@ public class MavenDomUtil {
 
   public static boolean isProjectFile(PsiFile file) {
     if (!(file instanceof XmlFile)) return false;
+
+    XmlTag rootTag = ((XmlFile)file).getRootTag();
+    if (rootTag == null || !"project".equals(rootTag.getName())) return false;
+
+    String xmlns = rootTag.getAttributeValue("xmlns");
+    if (xmlns != null && xmlns.startsWith("http://maven.apache.org/POM/")) {
+      return true;
+    }
+
     return MavenUtil.isPomFileName(file.getName());
   }
 
@@ -149,14 +159,15 @@ public class MavenDomUtil {
     MavenDomParent result = mavenModel.getMavenParent();
 
     VirtualFile pomFile = DomUtil.getFile(mavenModel).getVirtualFile();
-    Project project = mavenModel.getXmlElement().getProject();
+    Project project = mavenModel.getManager().getProject();
 
     MavenId parentId = parentProject.getMavenId();
     result.getGroupId().setStringValue(parentId.getGroupId());
     result.getArtifactId().setStringValue(parentId.getArtifactId());
     result.getVersion().setStringValue(parentId.getVersion());
 
-    if (!Comparing.equal(pomFile.getParent().getParent(), parentProject.getDirectoryFile())) {
+    if (!Comparing.equal(pomFile.getParent().getParent(), parentProject.getDirectoryFile())
+        || !FileUtil.namesEqual(MavenConstants.POM_XML, parentProject.getFile().getName())) {
       result.getRelativePath().setValue(PsiManager.getInstance(project).findFile(parentProject.getFile()));
     }
 
@@ -186,7 +197,7 @@ public class MavenDomUtil {
     psiFile = psiFile.getOriginalFile();
     VirtualFile virtualFile = psiFile.getVirtualFile();
     if (virtualFile instanceof LightVirtualFile) {
-      virtualFile = psiFile.getUserData(MavenGroovyPomCompletionContributor.ORIGINAL_POM_FILE);
+      virtualFile = ObjectUtils.chooseNotNull(psiFile.getUserData(MavenGroovyPomCompletionContributor.ORIGINAL_POM_FILE), virtualFile);
     }
     return virtualFile;
   }
@@ -378,8 +389,13 @@ public class MavenDomUtil {
     return DomService.getInstance().getFileElements(MavenDomProjectModel.class, p, GlobalSearchScope.projectScope(p));
   }
 
+  @NotNull
   public static MavenId describe(PsiFile psiFile) {
     MavenDomProjectModel model = getMavenDomModel(psiFile, MavenDomProjectModel.class);
+
+    if (model == null) {
+      return new MavenId(null, null, null);
+    }
 
     String groupId = model.getGroupId().getStringValue();
     String artifactId = model.getArtifactId().getStringValue();
@@ -453,5 +469,22 @@ public class MavenDomUtil {
       }
     }
     return -1;
+  }
+
+  @NotNull
+  public static String getProjectName(MavenDomProjectModel model) {
+    MavenProject mavenProject = findProject(model);
+    if (mavenProject != null) {
+      return mavenProject.getDisplayName();
+    }
+    else {
+      String name = model.getName().getStringValue();
+      if (!StringUtil.isEmptyOrSpaces(name)) {
+        return name;
+      }
+      else {
+        return "pom.xml"; // ?
+      }
+    }
   }
 }

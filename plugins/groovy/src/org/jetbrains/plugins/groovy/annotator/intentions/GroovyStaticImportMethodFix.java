@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,25 +15,22 @@
  */
 package org.jetbrains.plugins.groovy.annotator.intentions;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.completion.JavaCompletionUtil;
 import com.intellij.codeInsight.daemon.QuickFixBundle;
 import com.intellij.ide.util.MethodCellRenderer;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiFormatUtil;
 import com.intellij.psi.util.PsiFormatUtilBase;
 import com.intellij.psi.util.proximity.PsiProximityComparator;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -45,7 +42,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrMethod
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -83,7 +79,14 @@ public class GroovyStaticImportMethodFix extends Intention {
   }
 
   @Nullable
-  private static GrReferenceExpression getMethodExpression(GrMethodCall call) {
+  private GrReferenceExpression getMethodExpression() {
+    GrMethodCall methodCall = myMethodCall.getElement();
+    if (methodCall == null) return null;
+    return getMethodExpression(methodCall);
+  }
+
+  @Nullable
+  private static GrReferenceExpression getMethodExpression(@NotNull GrMethodCall call) {
     GrExpression result = call.getInvokedExpression();
     return result instanceof GrReferenceExpression ? (GrReferenceExpression)result : null;
   }
@@ -91,12 +94,13 @@ public class GroovyStaticImportMethodFix extends Intention {
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     myCandidates = null;
-    return myMethodCall.getElement() != null &&
-           myMethodCall.getElement().isValid() &&
-           getMethodExpression(myMethodCall.getElement()) != null &&
-           getMethodExpression(myMethodCall.getElement()).getQualifierExpression() == null &&
-           file.getManager().isInProject(file) &&
-           !getCandidates().isEmpty();
+
+    if (!file.getManager().isInProject(file)) return false;
+
+    GrReferenceExpression invokedExpression = getMethodExpression();
+    if (invokedExpression == null || invokedExpression.getQualifierExpression() != null) return false;
+
+    return !getCandidates().isEmpty();
   }
 
   @NotNull
@@ -136,8 +140,6 @@ public class GroovyStaticImportMethodFix extends Intention {
 
   @Override
   protected void processIntention(@NotNull PsiElement element, @NotNull Project project, Editor editor) throws IncorrectOperationException {
-    final PsiFile file = element.getContainingFile();
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
     if (getCandidates().size() == 1) {
       final PsiMethod toImport = getCandidates().get(0);
       doImport(toImport);
@@ -152,58 +154,47 @@ public class GroovyStaticImportMethodFix extends Intention {
   protected PsiElementPredicate getElementPredicate() {
     return new PsiElementPredicate() {
       @Override
-      public boolean satisfiedBy(PsiElement element) {
+      public boolean satisfiedBy(@NotNull PsiElement element) {
         return true;
       }
     };
   }
 
   private void doImport(final PsiMethod toImport) {
-    CommandProcessor.getInstance().executeCommand(toImport.getProject(), () -> {
-      AccessToken accessToken = WriteAction.start();
-
+    CommandProcessor.getInstance().executeCommand(toImport.getProject(), () -> WriteAction.run(() -> {
       try {
-        try {
-          GrMethodCall element = myMethodCall.getElement();
-          if (element != null) {
-            getMethodExpression(element).bindToElementViaStaticImport(toImport);
-          }
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
+        GrReferenceExpression expression = getMethodExpression();
+        if (expression != null) {
+          expression.bindToElementViaStaticImport(toImport);
         }
       }
-      finally {
-        accessToken.finish();
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
       }
-    }, getText(), this);
-
+    }), getText(), this);
   }
 
   private void chooseAndImport(Editor editor) {
-    final JList list = new JBList(getCandidates().toArray(new PsiMethod[getCandidates().size()]));
-    list.setCellRenderer(new MethodCellRenderer(true));
-    new PopupChooserBuilder(list).
-      setTitle(QuickFixBundle.message("static.import.method.choose.method.to.import")).
-      setMovable(true).
-      setItemChoosenCallback(() -> {
-        PsiMethod selectedValue = (PsiMethod)list.getSelectedValue();
-        if (selectedValue == null) return;
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(getCandidates())
+      .setRenderer(new MethodCellRenderer(true))
+      .setTitle(QuickFixBundle.message("static.import.method.choose.method.to.import"))
+      .setMovable(true)
+      .setItemChosenCallback((selectedValue) -> {
         LOG.assertTrue(selectedValue.isValid());
         doImport(selectedValue);
-      }).createPopup().
-      showInBestPositionFor(editor);
+      })
+      .createPopup()
+      .showInBestPositionFor(editor);
   }
 
-  @Override
-  public boolean startInWriteAction() {
-    return true;
-  }
-
+  @NotNull
   private List<PsiMethod> getCandidates() {
-    if (myCandidates == null) {
-      myCandidates = getMethodsToImport();
+    List<PsiMethod> result = myCandidates;
+    if (result == null) {
+      result = getMethodsToImport();
+      myCandidates = result;
     }
-    return myCandidates;
+    return result;
   }
 }

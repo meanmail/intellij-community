@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.settings;
 
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -28,7 +14,6 @@ import java.util.Set;
  * Holds settings specific to a particular project imported from an external system.
  *
  * @author Denis Zhdanov
- * @since 4/24/13 11:41 AM
  */
 public abstract class ExternalProjectSettings implements Comparable<ExternalProjectSettings>, Cloneable {
 
@@ -37,7 +22,7 @@ public abstract class ExternalProjectSettings implements Comparable<ExternalProj
 
   @NotNull
   public Set<String> getModules() {
-    return myModules == null ? Collections.<String>emptySet() : myModules;
+    return myModules == null ? Collections.emptySet() : myModules;
   }
 
   public void setModules(@Nullable Set<String> modules) {
@@ -46,6 +31,7 @@ public abstract class ExternalProjectSettings implements Comparable<ExternalProj
 
   private boolean myUseAutoImport;
   private boolean myCreateEmptyContentRootDirectories;
+  private boolean myUseQualifiedModuleNames = !ExternalSystemApiUtil.isJavaCompatibleIde();
 
   public String getExternalProjectPath() {
     return myExternalProjectPath;
@@ -69,6 +55,14 @@ public abstract class ExternalProjectSettings implements Comparable<ExternalProj
 
   public void setCreateEmptyContentRootDirectories(boolean createEmptyContentRootDirectories) {
     myCreateEmptyContentRootDirectories = createEmptyContentRootDirectories;
+  }
+
+  public boolean isUseQualifiedModuleNames() {
+    return myUseQualifiedModuleNames;
+  }
+
+  public void setUseQualifiedModuleNames(boolean useQualifiedModuleNames) {
+    myUseQualifiedModuleNames = useQualifiedModuleNames;
   }
 
   @Override
@@ -96,13 +90,15 @@ public abstract class ExternalProjectSettings implements Comparable<ExternalProj
     return myExternalProjectPath;
   }
 
+  @Override
   @NotNull
   public abstract ExternalProjectSettings clone();
 
   protected void copyTo(@NotNull ExternalProjectSettings receiver) {
     receiver.myExternalProjectPath = myExternalProjectPath;
-    receiver.myModules = new HashSet<>(myModules);
+    receiver.myModules = myModules != null ? new HashSet<>(myModules) : new HashSet<>();
     receiver.myUseAutoImport = myUseAutoImport;
     receiver.myCreateEmptyContentRootDirectories = myCreateEmptyContentRootDirectories;
+    receiver.myUseQualifiedModuleNames = myUseQualifiedModuleNames;
   }
 }

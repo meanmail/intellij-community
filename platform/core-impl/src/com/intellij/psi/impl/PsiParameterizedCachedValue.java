@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: mike
- * Date: Jun 6, 2002
- * Time: 5:41:42 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.psi.impl;
 
 import com.intellij.psi.PsiManager;
@@ -30,11 +22,11 @@ import com.intellij.psi.util.ParameterizedCachedValue;
 import com.intellij.psi.util.ParameterizedCachedValueProvider;
 import org.jetbrains.annotations.NotNull;
 
-public abstract class PsiParameterizedCachedValue<T,P> extends PsiCachedValue<T> implements ParameterizedCachedValue<T,P> {
+public class PsiParameterizedCachedValue<T,P> extends PsiCachedValue<T> implements ParameterizedCachedValue<T,P> {
   private final ParameterizedCachedValueProvider<T,P> myProvider;
 
-  public PsiParameterizedCachedValue(@NotNull PsiManager manager, @NotNull ParameterizedCachedValueProvider<T, P> provider) {
-    super(manager);
+  PsiParameterizedCachedValue(@NotNull PsiManager manager, @NotNull ParameterizedCachedValueProvider<T, P> provider, boolean trackValue) {
+    super(manager, trackValue);
     myProvider = provider;
   }
 
@@ -43,6 +35,7 @@ public abstract class PsiParameterizedCachedValue<T,P> extends PsiCachedValue<T>
     return getValueWithLock(param);
   }
 
+  @NotNull
   @Override
   public ParameterizedCachedValueProvider<T,P> getValueProvider() {
     return myProvider;

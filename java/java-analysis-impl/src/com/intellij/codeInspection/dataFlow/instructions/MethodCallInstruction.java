@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,71 +14,71 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Jan 26, 2002
- * Time: 10:48:52 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow.instructions;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.dataFlow.*;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.psi.*;
-import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 
-public class MethodCallInstruction extends Instruction {
-  @Nullable private final PsiCall myCall;
+public class MethodCallInstruction extends Instruction implements ExpressionPushingInstruction {
+  private static final Nullability[] EMPTY_NULLABILITY_ARRAY = new Nullability[0];
+
   @Nullable private final PsiType myType;
-  @NotNull private final PsiExpression[] myArgs;
+  private final int myArgCount;
   private final boolean myShouldFlushFields;
-  @NotNull private final PsiElement myContext;
+  @NotNull private final PsiElement myContext; // PsiCall or PsiMethodReferenceExpression
   @Nullable private final PsiMethod myTargetMethod;
   private final List<MethodContract> myContracts;
-  private final MethodType myMethodType;
   @Nullable private final DfaValue myPrecalculatedReturnValue;
-  private final boolean myOfNullable;
   private final boolean myVarArgCall;
-  private final Map<PsiExpression, Nullness> myArgRequiredNullability;
-  private boolean myOnlyNullArgs = true;
-  private boolean myOnlyNotNullArgs = true;
+  private final Nullability[] myArgRequiredNullability;
+  private final Nullability myReturnNullability;
 
-  public enum MethodType {
-    BOXING, UNBOXING, REGULAR_METHOD_CALL, CAST
-  }
-
-  public MethodCallInstruction(@NotNull PsiExpression context, MethodType methodType, @Nullable PsiType resultType) {
-    myContext = context;
-    myContracts = Collections.emptyList();
-    myMethodType = methodType;
-    myCall = null;
-    myArgs = PsiExpression.EMPTY_ARRAY;
-    myType = resultType;
-    myShouldFlushFields = false;
+  public MethodCallInstruction(@NotNull PsiMethodReferenceExpression reference, @NotNull List<? extends MethodContract> contracts) {
+    myContext = reference;
+    JavaResolveResult resolveResult = reference.advancedResolve(false);
+    myTargetMethod = ObjectUtils.tryCast(resolveResult.getElement(), PsiMethod.class);
+    myContracts = Collections.unmodifiableList(contracts);
+    myArgCount = myTargetMethod == null ? 0 : myTargetMethod.getParameterList().getParametersCount();
+    if (myTargetMethod == null) {
+      myType = null;
+      myReturnNullability = Nullability.UNKNOWN;
+    }
+    else {
+      if (myTargetMethod.isConstructor()) {
+        PsiClass containingClass = myTargetMethod.getContainingClass();
+        myType = containingClass == null ? null : JavaPsiFacade.getElementFactory(myTargetMethod.getProject())
+          .createType(containingClass, resolveResult.getSubstitutor());
+        myReturnNullability = Nullability.NOT_NULL;
+      }
+      else {
+        myType = resolveResult.getSubstitutor().substitute(myTargetMethod.getReturnType());
+        myReturnNullability = DfaPsiUtil.getElementNullability(myType, myTargetMethod);
+      }
+    }
+    myVarArgCall = false; // vararg method reference calls are not supported now
     myPrecalculatedReturnValue = null;
-    myTargetMethod = null;
-    myVarArgCall = false;
-    myOfNullable = false;
-    myArgRequiredNullability = Collections.emptyMap();
+    myArgRequiredNullability = myTargetMethod == null
+                               ? EMPTY_NULLABILITY_ARRAY
+                               : calcArgRequiredNullability(resolveResult.getSubstitutor(),
+                                                            myTargetMethod.getParameterList().getParameters());
+    myShouldFlushFields = !isPureCall();
   }
 
-  public MethodCallInstruction(@NotNull PsiCall call, @Nullable DfaValue precalculatedReturnValue, List<MethodContract> contracts) {
+  public MethodCallInstruction(@NotNull PsiCall call, @Nullable DfaValue precalculatedReturnValue, List<? extends MethodContract> contracts) {
     myContext = call;
-    myContracts = contracts;
-    myMethodType = MethodType.REGULAR_METHOD_CALL;
-    myCall = call;
+    myContracts = Collections.unmodifiableList(contracts);
     final PsiExpressionList argList = call.getArgumentList();
-    myArgs = argList != null ? argList.getExpressions() : PsiExpression.EMPTY_ARRAY;
-    myType = myCall instanceof PsiCallExpression ? ((PsiCallExpression)myCall).getType() : null;
+    PsiExpression[] args = argList != null ? argList.getExpressions() : PsiExpression.EMPTY_ARRAY;
+    myArgCount = args.length;
+    myType = call instanceof PsiCallExpression ? ((PsiCallExpression)call).getType() : null;
 
     JavaResolveResult result = call.resolveMethodGenerics();
     myTargetMethod = (PsiMethod)result.getElement();
@@ -86,26 +86,67 @@ public class MethodCallInstruction extends Instruction {
     PsiSubstitutor substitutor = result.getSubstitutor();
     if (argList != null && myTargetMethod != null) {
       PsiParameter[] parameters = myTargetMethod.getParameterList().getParameters();
-      myVarArgCall = isVarArgCall(myTargetMethod, substitutor, myArgs, parameters);
+      myVarArgCall = isVarArgCall(myTargetMethod, substitutor, args, parameters);
       myArgRequiredNullability = calcArgRequiredNullability(substitutor, parameters);
     } else {
       myVarArgCall = false;
-      myArgRequiredNullability = Collections.emptyMap();
+      myArgRequiredNullability = EMPTY_NULLABILITY_ARRAY;
     }
 
-    myShouldFlushFields = !(call instanceof PsiNewExpression && myType != null && myType.getArrayDimensions() > 0) && !isPureCall();
+    myShouldFlushFields = !(call instanceof PsiNewExpression && myType != null && myType.getArrayDimensions() > 0 || isPureCall());
     myPrecalculatedReturnValue = precalculatedReturnValue;
-    myOfNullable = call instanceof PsiMethodCallExpression && DfaOptionalSupport.resolveOfNullable((PsiMethodCallExpression)call) != null;
+    myReturnNullability = call instanceof PsiNewExpression ? Nullability.NOT_NULL : DfaPsiUtil.getElementNullability(myType, myTargetMethod);
   }
 
-  private Map<PsiExpression, Nullness> calcArgRequiredNullability(PsiSubstitutor substitutor, PsiParameter[] parameters) {
-    int checkedCount = Math.min(myArgs.length, parameters.length) - (myVarArgCall ? 1 : 0);
+  @Nullable
+  @Override
+  public PsiExpression getExpression() {
+    return ObjectUtils.tryCast(myContext, PsiExpression.class);
+  }
 
-    Map<PsiExpression, Nullness> map = ContainerUtil.newHashMap();
-    for (int i = 0; i < checkedCount; i++) {
-      map.put(myArgs[i], DfaPsiUtil.getElementNullability(substitutor.substitute(parameters[i].getType()), parameters[i]));
+  /**
+   * Returns a PsiElement which at best represents an argument with given index
+   *
+   * @param index an argument index, must be from 0 to {@link #getArgCount()}-1.
+   * @return a PsiElement. Either argument expression or method reference if call is described by method reference
+   */
+  public PsiElement getArgumentAnchor(int index) {
+    if (myContext instanceof PsiCall) {
+      PsiExpressionList argumentList = ((PsiCall)myContext).getArgumentList();
+      if (argumentList != null) {
+        return argumentList.getExpressions()[index];
+      }
     }
-    return map;
+    if (myContext instanceof PsiMethodReferenceExpression) {
+      return ((PsiMethodReferenceExpression)myContext).getReferenceNameElement();
+    }
+    throw new AssertionError();
+  }
+
+  private Nullability[] calcArgRequiredNullability(PsiSubstitutor substitutor, PsiParameter[] parameters) {
+    if (myArgCount == 0) {
+      return EMPTY_NULLABILITY_ARRAY;
+    }
+
+    int checkedCount = Math.min(myArgCount, parameters.length - (myVarArgCall ? 1 : 0));
+
+    Nullability[] nullabilities = new Nullability[myArgCount];
+    for (int i = 0; i < checkedCount; i++) {
+      nullabilities[i] = DfaPsiUtil.getElementNullability(substitutor.substitute(parameters[i].getType()), parameters[i]);
+    }
+
+    if (myVarArgCall) {
+      PsiType lastParamType = substitutor.substitute(parameters[parameters.length - 1].getType());
+      if (isEllipsisWithNotNullElements(lastParamType)) {
+        Arrays.fill(nullabilities, parameters.length - 1, myArgCount, Nullability.NOT_NULL);
+      }
+    }
+    return nullabilities;
+  }
+
+  private static boolean isEllipsisWithNotNullElements(PsiType lastParamType) {
+    return lastParamType instanceof PsiEllipsisType &&
+           DfaPsiUtil.getElementNullability(((PsiEllipsisType)lastParamType).getComponentType(), null) == Nullability.NOT_NULL;
   }
 
   public static boolean isVarArgCall(PsiMethod method, PsiSubstitutor substitutor, PsiExpression[] args, PsiParameter[] parameters) {
@@ -115,7 +156,7 @@ public class MethodCallInstruction extends Instruction {
 
     int argCount = args.length;
     int paramCount = parameters.length;
-    if (argCount > paramCount) {
+    if (argCount > paramCount || argCount == paramCount - 1) {
       return true;
     }
 
@@ -129,8 +170,24 @@ public class MethodCallInstruction extends Instruction {
   }
 
   private boolean isPureCall() {
-    if (myTargetMethod == null) return false;
-    return ControlFlowAnalyzer.isPure(myTargetMethod);
+    if (myTargetMethod != null) {
+      return JavaMethodContractUtil.isPure(myTargetMethod) || SpecialField.findSpecialField(myTargetMethod) != null;
+    }
+    if (!(myContext instanceof PsiNewExpression)) return false;
+    PsiNewExpression newExpression = (PsiNewExpression)myContext;
+    if (newExpression.getArgumentList() == null || !newExpression.getArgumentList().isEmpty()) return false;
+    PsiJavaCodeReferenceElement classReference = newExpression.getClassReference();
+    if (classReference == null) return false;
+    PsiClass clazz = ObjectUtils.tryCast(classReference.resolve(), PsiClass.class);
+    if (clazz == null) return false;
+    Set<PsiClass> visited = new HashSet<>();
+    while (true) {
+      for (PsiMethod ctor : clazz.getConstructors()) {
+        if(ctor.getParameterList().isEmpty()) return JavaMethodContractUtil.isPure(ctor);
+      }
+      clazz = clazz.getSuperClass();
+      if (clazz == null || !visited.add(clazz)) return false;
+    }
   }
 
   @Nullable
@@ -138,13 +195,8 @@ public class MethodCallInstruction extends Instruction {
     return myType;
   }
 
-  @NotNull
-  public PsiExpression[] getArgs() {
-    return myArgs;
-  }
-
-  public MethodType getMethodType() {
-    return myMethodType;
+  public int getArgCount() {
+    return myArgCount;
   }
 
   public boolean shouldFlushFields() {
@@ -160,9 +212,9 @@ public class MethodCallInstruction extends Instruction {
     return myVarArgCall;
   }
 
-  @Nullable 
-  public Nullness getArgRequiredNullability(@NotNull PsiExpression arg) {
-    return myArgRequiredNullability.get(arg);
+  @Nullable
+  public Nullability getArgRequiredNullability(int index) {
+    return index >= myArgRequiredNullability.length ? null : myArgRequiredNullability[index];
   }
 
   public List<MethodContract> getContracts() {
@@ -176,7 +228,7 @@ public class MethodCallInstruction extends Instruction {
 
   @Nullable
   public PsiCall getCallExpression() {
-    return myCall;
+    return ObjectUtils.tryCast(myContext, PsiCall.class);
   }
 
   @NotNull
@@ -189,32 +241,16 @@ public class MethodCallInstruction extends Instruction {
     return myPrecalculatedReturnValue;
   }
 
+  @NotNull
+  public Nullability getReturnNullability() {
+    return myReturnNullability;
+  }
+
   public String toString() {
-    return myMethodType == MethodType.UNBOXING
-           ? "UNBOX"
-           : myMethodType == MethodType.BOXING
-             ? "BOX" :
-             "CALL_METHOD: " + (myCall == null ? "null" : myCall.getText());
-  }
-
-  public boolean updateOfNullable(DfaMemoryState memState, DfaValue arg) {
-    if (!myOfNullable) return false;
-    
-    if (!memState.isNotNull(arg)) {
-      myOnlyNotNullArgs = false;
-    } 
-    if (!memState.isNull(arg)) {
-      myOnlyNullArgs = false;
+    if (myContext instanceof PsiCall) {
+      return "CALL_METHOD: " + myContext.getText();
+    } else {
+      return "CALL_METHOD_REFERENCE: " + myContext.getText();
     }
-    return true;
   }
-
-  public boolean isOptionalAlwaysNullProblem() {
-    return myOfNullable && myOnlyNullArgs;
-  }
-
-  public boolean isOptionalAlwaysNotNullProblem() {
-    return myOfNullable && myOnlyNotNullArgs;
-  }
-
 }

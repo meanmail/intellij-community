@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,8 +17,6 @@ package com.intellij.refactoring.typeMigration.rules.guava;
 
 import com.intellij.codeInspection.java18StreamApi.StreamApiConstants;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTypesUtil;
-import com.intellij.refactoring.typeMigration.TypeConversionDescriptor;
 import com.intellij.refactoring.typeMigration.TypeConversionDescriptorBase;
 import com.intellij.refactoring.typeMigration.TypeMigrationLabeler;
 import com.intellij.refactoring.typeMigration.rules.TypeConversionRule;
@@ -39,7 +37,7 @@ public class IterableStreamConversionRule extends TypeConversionRule {
                                                to,
                                                CommonClassNames.JAVA_LANG_ITERABLE,
                                                StreamApiConstants.JAVA_UTIL_STREAM_STREAM)) {
-      return new GuavaTypeConversionDescriptor("$it$", "$it$").setConvertParameterAsLambda(false);
+      return new GuavaTypeConversionDescriptor("$it$", "$it$", context).setConvertParameterAsLambda(false);
     }
     return null;
   }

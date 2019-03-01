@@ -58,7 +58,7 @@ class XPathUsageSearcher implements UsageSearcher {
     private final boolean myMatchRecursively;
     private final XPathSupport mySupport;
 
-    public XPathUsageSearcher(Project project, HistoryElement expression, SearchScope scope, boolean matchRecursively) {
+    XPathUsageSearcher(Project project, HistoryElement expression, SearchScope scope, boolean matchRecursively) {
         myExpression = expression;
         myProject = project;
         myScope = scope;
@@ -68,6 +68,7 @@ class XPathUsageSearcher implements UsageSearcher {
         myManager = PsiManager.getInstance(myProject);
     }
 
+    @Override
     public void generate(@NotNull final Processor<Usage> processor) {
         Runnable runnable = () -> {
             myIndicator.setIndeterminate(true);
@@ -83,17 +84,18 @@ class XPathUsageSearcher implements UsageSearcher {
     }
 
     private class MyProcessor extends BaseProcessor {
-        private final Processor<Usage> myProcessor;
+        private final Processor<? super Usage> myProcessor;
         private final int myTotalFileCount;
 
         private int myFileCount;
         private int myMatchCount;
 
-        public MyProcessor(Processor<Usage> processor, int fileCount) {
+        MyProcessor(Processor<? super Usage> processor, int fileCount) {
             myProcessor = processor;
             myTotalFileCount = fileCount;
         }
 
+        @Override
         protected void processXmlFile(VirtualFile t) {
             myIndicator.setText(findBundleMessage("find.searching.for.string.in.file.progress", myExpression.expression, t.getPresentableUrl()));
 
@@ -194,6 +196,7 @@ class XPathUsageSearcher implements UsageSearcher {
     static class CountProcessor extends BaseProcessor {
         private int myFileCount;
 
+        @Override
         protected void processXmlFile(VirtualFile t) {
             myFileCount++;
         }

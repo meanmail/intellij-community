@@ -101,15 +101,6 @@ server.handle_request()
 # Written by Brian Quinlan (brian@sweetapp.com).
 # Based on code written by Fredrik Lundh.
 
-try:
-    True
-    False
-except:
-    import __builtin__
-    setattr(__builtin__, 'True', 1) #Python 3.0 does not accept __builtin__.True = 1 in its syntax
-    setattr(__builtin__, 'False', 0)
-
-
 from _pydev_imps import _pydev_xmlrpclib as xmlrpclib
 from _pydev_imps._pydev_xmlrpclib import Fault
 from _pydev_imps import _pydev_SocketServer as SocketServer
@@ -269,7 +260,7 @@ class SimpleXMLRPCDispatcher:
             response = (response,)
             response = xmlrpclib.dumps(response, methodresponse=1,
                                        allow_none=self.allow_none, encoding=self.encoding)
-        except Fault, fault:
+        except Fault as fault:
             response = xmlrpclib.dumps(fault, allow_none=self.allow_none,
                                        encoding=self.encoding)
         except:
@@ -372,7 +363,7 @@ class SimpleXMLRPCDispatcher:
                 # XXX A marshalling error in any response will fail the entire
                 # multicall. If someone cares they should fix this.
                 results.append([self._dispatch(method_name, params)])
-            except Fault, fault:
+            except Fault as fault:
                 results.append(
                     {'faultCode' : fault.faultCode,
                      'faultString' : fault.faultString}

@@ -1,442 +1,102 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.parser;
 
-import com.intellij.lang.ASTNode;
-import com.intellij.psi.impl.source.tree.SharedImplUtil;
-import com.intellij.psi.stubs.*;
-import com.intellij.util.io.StringRef;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.plugins.groovy.GroovyLanguage;
+import com.intellij.psi.tree.IElementType;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyElementType;
-import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrThrowsClause;
-import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
-import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.annotation.GrAnnotation;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrField;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameterList;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.*;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstant;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrEnumConstantList;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
-import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameter;
-import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameterList;
-import org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.GrThrowsClauseImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrVariableDeclarationImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.blocks.GrBlockImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.blocks.GrClosableBlockImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.blocks.GrOpenBlockImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.params.GrParameterImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.params.GrParameterListImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.*;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.enumConstant.GrEnumConstantListImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrAnnotationMethodImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrConstructorImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.statements.typedef.members.GrMethodImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.types.GrTypeParameterImpl;
-import org.jetbrains.plugins.groovy.lang.psi.impl.types.GrTypeParameterListImpl;
-import org.jetbrains.plugins.groovy.lang.psi.stubs.*;
-import org.jetbrains.plugins.groovy.lang.psi.stubs.elements.*;
-import org.jetbrains.plugins.groovy.lang.psi.stubs.index.GrAnnotationMethodNameIndex;
+import org.jetbrains.plugins.groovy.lang.psi.stubs.elements.GrMethodElementType;
 
-import java.io.IOException;
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.*;
 
 /**
  * Utility interface that contains all Groovy non-token element types
  *
  * @author Dmitry.Krasilschikov, ilyas
  */
-public interface GroovyElementTypes {
+public interface GroovyElementTypes extends GroovyStubElementTypes, GroovyEmptyStubElementTypes {
 
-  /*
-  Stub elements
-   */
-  GrStubElementType<GrTypeDefinitionStub, GrClassDefinition> CLASS_DEFINITION =
-    new GrTypeDefinitionElementType<GrClassDefinition>("class definition") {
-      @Override
-      public GrClassDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrClassDefinitionImpl(stub);
-      }
-    };
-  GrStubElementType<GrTypeDefinitionStub, GrInterfaceDefinition> INTERFACE_DEFINITION =
-    new GrTypeDefinitionElementType<GrInterfaceDefinition>("interface definition") {
-      @Override
-      public GrInterfaceDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrInterfaceDefinitionImpl(stub);
-      }
-    };
-  GrStubElementType<GrTypeDefinitionStub, GrEnumTypeDefinition> ENUM_DEFINITION =
-    new GrTypeDefinitionElementType<GrEnumTypeDefinition>("enumeration definition") {
-      @Override
-      public GrEnumTypeDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrEnumTypeDefinitionImpl(stub);
-      }
-    };
-  GrStubElementType<GrTypeDefinitionStub, GrAnnotationTypeDefinition> ANNOTATION_DEFINITION =
-    new GrTypeDefinitionElementType<GrAnnotationTypeDefinition>("annotation definition") {
-      @Override
-      public GrAnnotationTypeDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrAnnotationTypeDefinitionImpl(stub);
-      }
-    };
-  GrStubElementType<GrTypeDefinitionStub, GrAnonymousClassDefinition> ANONYMOUS_CLASS_DEFINITION =
-    new GrTypeDefinitionElementType<GrAnonymousClassDefinition>("Anonymous class") {
-      @Override
-      public GrAnonymousClassDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrAnonymousClassDefinitionImpl(stub);
-      }
-    };
-  GrStubElementType<GrTypeDefinitionStub, GrTraitTypeDefinition> TRAIT_DEFINITION =
-    new GrTypeDefinitionElementType<GrTraitTypeDefinition>("Trait definition") {
-      @Override
-      public GrTraitTypeDefinition createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrTraitTypeDefinitionImpl(stub);
-      }
-    };
+  @Deprecated
+  GrMethodElementType METHOD_DEFINITION = METHOD;
 
-  GrStubElementType<GrTypeDefinitionStub, GrEnumConstantInitializer> ENUM_CONSTANT_INITIALIZER =
-    new GrTypeDefinitionElementType<GrEnumConstantInitializer>("Enum constant initializer") {
-      @Override
-      public GrEnumConstantInitializer createPsi(@NotNull GrTypeDefinitionStub stub) {
-        return new GrEnumConstantInitializerImpl(stub);
-      }
-    };
+  GroovyElementType LITERAL = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.LITERAL;
 
-  GrStubElementType<GrFieldStub, GrEnumConstant> ENUM_CONSTANT = new GrEnumConstantElementType();
-  GrStubElementType<GrFieldStub, GrField> FIELD = new GrFieldElementType();
-  GrMethodElementType METHOD_DEFINITION = new GrMethodElementType("method definition") {
+  GrCodeBlockElementType CLOSABLE_BLOCK = CLOSURE;
+  GrCodeBlockElementType OPEN_BLOCK = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.OPEN_BLOCK;
+  GrCodeBlockElementType CONSTRUCTOR_BODY = CONSTRUCTOR_BLOCK;
 
-    @Override
-    public GrMethod createPsi(@NotNull GrMethodStub stub) {
-      return new GrMethodImpl(stub);
-    }
-  };
-  GrStubElementType<GrMethodStub, GrMethod> ANNOTATION_METHOD = new GrMethodElementType("annotation method") {
-    @Override
-    public GrMethod createPsi(@NotNull GrMethodStub stub) {
-      return new GrAnnotationMethodImpl(stub);
-    }
+  IElementType BLOCK_STATEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.BLOCK_STATEMENT;
 
-    @Override
-    public void indexStub(@NotNull GrMethodStub stub, @NotNull IndexSink sink) {
-      super.indexStub(stub, sink);
-      String name = stub.getName();
-      sink.occurrence(GrAnnotationMethodNameIndex.KEY, name);
-    }
-  };
-
-  GrReferenceListElementType<GrImplementsClause> IMPLEMENTS_CLAUSE = new GrReferenceListElementType<GrImplementsClause>("implements clause") {
-    @Override
-    public GrImplementsClause createPsi(@NotNull GrReferenceListStub stub) {
-      return new GrImplementsClauseImpl(stub);
-    }
-  };
-  GrReferenceListElementType<GrExtendsClause> EXTENDS_CLAUSE = new GrReferenceListElementType<GrExtendsClause>("super class clause") {
-    @Override
-    public GrExtendsClause createPsi(@NotNull GrReferenceListStub stub) {
-      return new GrExtendsClauseImpl(stub);
-    }
-  };
-
-
-  GroovyElementType NONE = new GroovyElementType("no token"); //not a node
-
-  // Indicates the wrongway of parsing
-  GroovyElementType WRONGWAY = new GroovyElementType("Wrong way!");
-  GroovyElementType LITERAL = new GroovyElementType("Literal");
-  //Packaging
-  GrPackageDefinitionElementType PACKAGE_DEFINITION = new GrPackageDefinitionElementType("Package definition");
-
-  GrCodeBlockElementType CLOSABLE_BLOCK = new GrCodeBlockElementType("Closable block") {
-    @NotNull
-    @Override
-    public GrBlockImpl createNode(CharSequence text) {
-      return new GrClosableBlockImpl(this, text);
-    }
-  };
-  GrCodeBlockElementType OPEN_BLOCK = new GrCodeBlockElementType("Open block") {
-    @NotNull
-    @Override
-    public GrBlockImpl createNode(CharSequence text) {
-      return new GrOpenBlockImpl(this, text);
-    }
-  };
-  GrCodeBlockElementType CONSTRUCTOR_BODY = new GrCodeBlockElementType("Constructor body") {
-    @NotNull
-    @Override
-    public GrBlockImpl createNode(CharSequence text) {
-      return new GrOpenBlockImpl(this, text);
-    }
-  };
-
-  GroovyElementType BLOCK_STATEMENT = new GroovyElementType("Block statement");
-
-  EmptyStubElementType<GrEnumConstantList> ENUM_CONSTANTS = new EmptyStubElementType<GrEnumConstantList>("Enumeration constants",
-                                                                                                         GroovyLanguage.INSTANCE) {
-    @Override
-    public GrEnumConstantList createPsi(@NotNull EmptyStub stub) {
-      return new GrEnumConstantListImpl(stub);
-    }
-  };
-  GrImportStatementElementType IMPORT_STATEMENT = new GrImportStatementElementType("Import statement");
-  //Branch statements
-  GroovyElementType BREAK_STATEMENT = new GroovyElementType("Break statement");
-  GroovyElementType CONTINUE_STATEMENT = new GroovyElementType("Continue statement");
-
-  GroovyElementType RETURN_STATEMENT = new GroovyElementType("Return statement");
-  GroovyElementType ASSERT_STATEMENT = new GroovyElementType("Assert statement");
-  GroovyElementType THROW_STATEMENT = new GroovyElementType("Throw statement");
+  IElementType ASSERT_STATEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.ASSERT_STATEMENT;
   // Expression statements
-  GroovyElementType LABELED_STATEMENT = new GroovyElementType("Labeled statement");
-  GroovyElementType CALL_EXPRESSION = new GroovyElementType("Expression statement");
-  GroovyElementType COMMAND_ARGUMENTS = new GroovyElementType("Command argument");
-  GroovyElementType CONDITIONAL_EXPRESSION = new GroovyElementType("Conditional expression");
-  GroovyElementType ELVIS_EXPRESSION = new GroovyElementType("Elvis expression");
-  GroovyElementType ASSIGNMENT_EXPRESSION = new GroovyElementType("Assignment expression");
-  GroovyElementType LOGICAL_OR_EXPRESSION = new GroovyElementType("Logical OR expression");
-  GroovyElementType LOGICAL_AND_EXPRESSION = new GroovyElementType("Logical AND expression");
-  GroovyElementType INCLUSIVE_OR_EXPRESSION = new GroovyElementType("Inclusive OR expression");
-  GroovyElementType EXCLUSIVE_OR_EXPRESSION = new GroovyElementType("Exclusive OR expression");
-  GroovyElementType AND_EXPRESSION = new GroovyElementType("AND expression");
-  GroovyElementType REGEX_FIND_EXPRESSION = new GroovyElementType("Regex Find expression");
-  GroovyElementType REGEX_MATCH_EXPRESSION = new GroovyElementType("Regex Match expression");
-  GroovyElementType EQUALITY_EXPRESSION = new GroovyElementType("Equality expression");
-  GroovyElementType RELATIONAL_EXPRESSION = new GroovyElementType("Relational expression");
-  GroovyElementType SHIFT_EXPRESSION = new GroovyElementType("Shift expression");
-  GroovyElementType RANGE_EXPRESSION = new GroovyElementType("Range expression");
-  GroovyElementType COMPOSITE_LSHIFT_SIGN = new GroovyElementType("Composite shift sign <<");
-  GroovyElementType COMPOSITE_RSHIFT_SIGN = new GroovyElementType("Composite shift sign >>");
-  GroovyElementType COMPOSITE_TRIPLE_SHIFT_SIGN = new GroovyElementType("Composite shift sign >>>");
-  GroovyElementType MORE_OR_EQUALS_SIGN = new GroovyElementType(">=");
-  GroovyElementType ADDITIVE_EXPRESSION = new GroovyElementType("Additive expression");
-  GroovyElementType MULTIPLICATIVE_EXPRESSION = new GroovyElementType("Multiplicative expression");
-  GroovyElementType POWER_EXPRESSION = new GroovyElementType("Power expression");
-  GroovyElementType POWER_EXPRESSION_SIMPLE = new GroovyElementType("Simple power expression");
-  GroovyElementType UNARY_EXPRESSION = new GroovyElementType("Unary expression");
-  GroovyElementType CAST_EXPRESSION = new GroovyElementType("cast expression");
-  GroovyElementType SAFE_CAST_EXPRESSION = new GroovyElementType("safe cast expression");
-  GroovyElementType INSTANCEOF_EXPRESSION = new GroovyElementType("instanceof expression");
-  GroovyElementType PATH_PROPERTY_REFERENCE = new GroovyElementType("Property reference");
+  IElementType LABELED_STATEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.LABELED_STATEMENT;
+  @Deprecated GroovyElementType CALL_EXPRESSION = APPLICATION_EXPRESSION;
+  IElementType COMMAND_ARGUMENTS = APPLICATION_ARGUMENT_LIST;
+  IElementType CONDITIONAL_EXPRESSION = TERNARY_EXPRESSION;
+  IElementType ELVIS_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.ELVIS_EXPRESSION;
+  IElementType ASSIGNMENT_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.ASSIGNMENT_EXPRESSION;
+  IElementType TUPLE_ASSIGNMENT_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.TUPLE_ASSIGNMENT_EXPRESSION;
+  IElementType LOGICAL_OR_EXPRESSION = LOR_EXPRESSION;
+  IElementType LOGICAL_AND_EXPRESSION = LAND_EXPRESSION;
+  IElementType INCLUSIVE_OR_EXPRESSION = BOR_EXPRESSION;
+  IElementType EXCLUSIVE_OR_EXPRESSION = XOR_EXPRESSION;
+  IElementType AND_EXPRESSION = BAND_EXPRESSION;
+  IElementType REGEX_FIND_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.REGEX_FIND_EXPRESSION;
+  IElementType REGEX_MATCH_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.REGEX_MATCH_EXPRESSION;
+  IElementType EQUALITY_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.EQUALITY_EXPRESSION;
+  IElementType RELATIONAL_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.RELATIONAL_EXPRESSION;
+  IElementType SHIFT_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.SHIFT_EXPRESSION;
+  IElementType RANGE_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.RANGE_EXPRESSION;
+  IElementType COMPOSITE_LSHIFT_SIGN = LEFT_SHIFT_SIGN;
+  IElementType COMPOSITE_RSHIFT_SIGN = RIGHT_SHIFT_SIGN;
+  IElementType COMPOSITE_TRIPLE_SHIFT_SIGN = RIGHT_SHIFT_UNSIGNED_SIGN;
+  IElementType ADDITIVE_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.ADDITIVE_EXPRESSION;
+  IElementType MULTIPLICATIVE_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.MULTIPLICATIVE_EXPRESSION;
+  IElementType POWER_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.POWER_EXPRESSION;
+  IElementType POWER_EXPRESSION_SIMPLE = new GroovyElementType("Simple power expression");
+  IElementType PATH_PROPERTY_REFERENCE = PROPERTY_EXPRESSION;
 
-  GroovyElementType PATH_METHOD_CALL = new GroovyElementType("Method call");
+  GroovyElementType PATH_METHOD_CALL = METHOD_CALL_EXPRESSION;
 
-  GroovyElementType PATH_INDEX_PROPERTY = new GroovyElementType("Index property");
-  GroovyElementType PARENTHESIZED_EXPRESSION = new GroovyElementType("Parenthesized expression");
+  IElementType PATH_INDEX_PROPERTY = INDEX_EXPRESSION;
 
   // Arguments
-  GroovyElementType ARGUMENTS = new GroovyElementType("Arguments");
-  GroovyElementType NAMED_ARGUMENT = new GroovyElementType("Compound argument");
-  GroovyElementType SPREAD_ARGUMENT = new GroovyElementType("Spread argument");
-  GroovyElementType ARGUMENT_LABEL = new GroovyElementType("Argument label");
-  GroovyElementType REFERENCE_EXPRESSION = new GroovyElementType("Reference expressions");
-
-  GroovyElementType NEW_EXPRESSION = new GroovyElementType("New expressions");
-
-  GroovyElementType BUILT_IN_TYPE_EXPRESSION = new GroovyElementType("Built in type expression");
+  IElementType ARGUMENTS = ARGUMENT_LIST;
+  GroovyElementType NAMED_ARGUMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.NAMED_ARGUMENT;
+  GroovyElementType ARGUMENT_LABEL = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.ARGUMENT_LABEL;
+  GroovyElementType REFERENCE_EXPRESSION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.REFERENCE_EXPRESSION;
 
   // Lists & maps
-  GroovyElementType LIST_OR_MAP = new GroovyElementType("Generalized list");
+  IElementType LIST_OR_MAP = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.LIST_OR_MAP;
   // Type Elements
-  GroovyElementType ARRAY_TYPE = new GroovyElementType("Array type");
-
-  GroovyElementType BUILT_IN_TYPE = new GroovyElementType("Built in type");
-
-  GroovyElementType DISJUNCTION_TYPE_ELEMENT = new GroovyElementType("Disjunction type element");
+  IElementType ARRAY_TYPE = ARRAY_TYPE_ELEMENT;
+  IElementType BUILT_IN_TYPE = PRIMITIVE_TYPE_ELEMENT;
+  IElementType DISJUNCTION_TYPE_ELEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.DISJUNCTION_TYPE_ELEMENT;
 
   // GStrings
-  GroovyElementType GSTRING = new GroovyElementType("GString");
-  GroovyElementType GSTRING_INJECTION =new GroovyElementType("Gstring injection");
-  GroovyElementType GSTRING_CONTENT = new GroovyElementType("GString content element");
+  IElementType GSTRING = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.GSTRING;
+  IElementType GSTRING_INJECTION = STRING_INJECTION;
+  IElementType GSTRING_CONTENT = STRING_CONTENT;
 
 
-  GroovyElementType REGEX = new GroovyElementType("Regular expression");
+  IElementType REGEX = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.REGEX;
   //types
-  GroovyElementType REFERENCE_ELEMENT = new GroovyElementType("reference element");
-  GroovyElementType ARRAY_DECLARATOR = new GroovyElementType("array declarator");
+  IElementType REFERENCE_ELEMENT = CODE_REFERENCE;
+  IElementType ARRAY_DECLARATOR = ARRAY_DECLARATION;
 
-  GroovyElementType TYPE_ARGUMENTS = new GroovyElementType("type arguments", true);
-  GroovyElementType TYPE_ARGUMENT = new GroovyElementType("type argument");
-  EmptyStubElementType<GrTypeParameterList> TYPE_PARAMETER_LIST = new EmptyStubElementType<GrTypeParameterList>("type parameter list",
-                                                                                                                GroovyLanguage.INSTANCE) {
-    @Override
-    public GrTypeParameterList createPsi(@NotNull EmptyStub stub) {
-      return new GrTypeParameterListImpl(stub);
-    }
-  };
+  IElementType TYPE_ARGUMENTS = TYPE_ARGUMENT_LIST;
+  IElementType TYPE_ARGUMENT = WILDCARD_TYPE_ELEMENT;
 
-  GrStubElementType<GrTypeParameterStub, GrTypeParameter> TYPE_PARAMETER = new GrStubElementType<GrTypeParameterStub, GrTypeParameter>("type parameter") {
-    @Override
-    public GrTypeParameter createPsi(@NotNull GrTypeParameterStub stub) {
-      return new GrTypeParameterImpl(stub);
-    }
-
-    @NotNull
-    @Override
-    public GrTypeParameterStub createStub(@NotNull GrTypeParameter psi, StubElement parentStub) {
-      return new GrTypeParameterStub(parentStub, StringRef.fromString(psi.getName()));
-    }
-
-    @Override
-    public void serialize(@NotNull GrTypeParameterStub stub, @NotNull StubOutputStream dataStream) throws IOException {
-      dataStream.writeName(stub.getName());
-    }
-
-    @NotNull
-    @Override
-    public GrTypeParameterStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-      return new GrTypeParameterStub(parentStub, dataStream.readName());
-    }
-  };
-  GroovyElementType TYPE_PARAMETER_EXTENDS_BOUND_LIST = new GroovyElementType("type extends list");
-
-  GroovyElementType DEFAULT_ANNOTATION_VALUE = new GroovyElementType("default annotation value");
-
-  GrMethodElementType CONSTRUCTOR_DEFINITION = new GrMethodElementType("constructor definition") {
-    @Override
-    public GrMethod createPsi(@NotNull GrMethodStub stub) {
-      return new GrConstructorImpl(stub);
-    }
-  };
-
-  GroovyElementType EXPLICIT_CONSTRUCTOR = new GroovyElementType("explicit constructor invokation");
-
-  GrReferenceListElementType<GrThrowsClause> THROW_CLAUSE = new GrReferenceListElementType<GrThrowsClause>("throw clause") {
-    @Override
-    public GrThrowsClause createPsi(@NotNull GrReferenceListStub stub) {
-      return new GrThrowsClauseImpl(stub);
-    }
-  };
-  //annotation
-  GroovyElementType ANNOTATION_ARRAY_INITIALIZER = new GroovyElementType("annotation array initializer");
-  GroovyElementType ANNOTATION_ARGUMENTS = new GroovyElementType("annotation arguments", true);
-  GroovyElementType ANNOTATION_MEMBER_VALUE_PAIR = new GroovyElementType("annotation member value pair");
-
-  GrStubElementType<GrAnnotationStub, GrAnnotation> ANNOTATION = new GrAnnotationElementType("annotation");
-  //parameters
-  EmptyStubElementType<GrParameterList> PARAMETERS_LIST = new EmptyStubElementType<GrParameterList>("parameters list",
-                                                                                                    GroovyLanguage.INSTANCE) {
-    @Override
-    public GrParameterList createPsi(@NotNull EmptyStub stub) {
-      return new GrParameterListImpl(stub);
-    }
-  };
-
-  GrStubElementType<GrParameterStub, GrParameter> PARAMETER = new GrStubElementType<GrParameterStub, GrParameter>("parameter") {
-    @Override
-    public GrParameter createPsi(@NotNull GrParameterStub stub) {
-      return new GrParameterImpl(stub);
-    }
-
-    @NotNull
-    @Override
-    public GrParameterStub createStub(@NotNull GrParameter psi, StubElement parentStub) {
-      return new GrParameterStub(parentStub, StringRef.fromString(psi.getName()), GrStubUtils.getAnnotationNames(psi), GrStubUtils.getTypeText(
-        psi.getTypeElementGroovy()), GrParameterStub.encodeFlags(psi.getInitializerGroovy() != null, psi.isVarArgs()));
-    }
-
-    @Override
-    public void serialize(@NotNull GrParameterStub stub, @NotNull StubOutputStream dataStream) throws IOException {
-      dataStream.writeName(stub.getName());
-      GrStubUtils.writeStringArray(dataStream, stub.getAnnotations());
-      GrStubUtils.writeNullableString(dataStream, stub.getTypeText());
-      dataStream.writeVarInt(stub.getFlags());
-    }
-
-    @NotNull
-    @Override
-    public GrParameterStub deserialize(@NotNull StubInputStream dataStream, StubElement parentStub) throws IOException {
-      final StringRef name = dataStream.readName();
-      final String[] annotations = GrStubUtils.readStringArray(dataStream);
-      final String typeText = GrStubUtils.readNullableString(dataStream);
-      final int flags = dataStream.readVarInt();
-      return new GrParameterStub(parentStub, name, annotations, typeText, flags);
-    }
-  };
-
-  EmptyStubElementType<GrTypeDefinitionBody> CLASS_BODY = new EmptyStubElementType<GrTypeDefinitionBody>("class block",
-                                                                                                         GroovyLanguage.INSTANCE) {
-      @Override
-      public GrTypeDefinitionBody createPsi(@NotNull EmptyStub stub) {
-        return new GrTypeDefinitionBodyBase.GrClassBody(stub);
-      }
-    };
-
-  EmptyStubElementType<GrEnumDefinitionBody> ENUM_BODY = new EmptyStubElementType<GrEnumDefinitionBody>("enum block",
-                                                                                                        GroovyLanguage.INSTANCE) {
-    @Override
-    public GrEnumDefinitionBody createPsi(@NotNull EmptyStub stub) {
-      return new GrTypeDefinitionBodyBase.GrEnumBody(stub);
-    }
-  };
   //statements
-  GroovyElementType IF_STATEMENT = new GroovyElementType("if statement");
-  GroovyElementType FOR_STATEMENT = new GroovyElementType("for statement");
+  IElementType IF_STATEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.IF_STATEMENT;
+  IElementType SWITCH_STATEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.SWITCH_STATEMENT;
+  IElementType CASE_SECTION = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.CASE_SECTION;
 
-  GroovyElementType WHILE_STATEMENT = new GroovyElementType("while statement");
-  // switch dtatement
-  GroovyElementType SWITCH_STATEMENT = new GroovyElementType("switch statement");
-  GroovyElementType CASE_SECTION = new GroovyElementType("case block");
-
-  GroovyElementType CASE_LABEL = new GroovyElementType("case label");
+  IElementType CASE_LABEL = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.CASE_LABEL;
   //for clauses
-  GroovyElementType FOR_IN_CLAUSE = new GroovyElementType("IN clause");
+  IElementType FOR_IN_CLAUSE = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.FOR_IN_CLAUSE;
+  IElementType FOR_TRADITIONAL_CLAUSE = TRADITIONAL_FOR_CLAUSE;
+  IElementType CATCH_CLAUSE = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.CATCH_CLAUSE;
+  IElementType FINALLY_CLAUSE = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.FINALLY_CLAUSE;
+  IElementType CLASS_INITIALIZER = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.CLASS_INITIALIZER;
 
-  GroovyElementType FOR_TRADITIONAL_CLAUSE = new GroovyElementType("Traditional clause");
-  GroovyElementType TRY_BLOCK_STATEMENT = new GroovyElementType("try block statement");
-  GroovyElementType CATCH_CLAUSE = new GroovyElementType("catch clause");
-  GroovyElementType FINALLY_CLAUSE = new GroovyElementType("finally clause");
-  GroovyElementType SYNCHRONIZED_STATEMENT = new GroovyElementType("synchronized block statement");
-  GroovyElementType CLASS_INITIALIZER = new GroovyElementType("static compound statement");
-
-  EmptyStubElementType<GrVariableDeclaration> VARIABLE_DEFINITION_ERROR = new EmptyStubElementType<GrVariableDeclaration>("variable definitions with errors",
-                                                                                                                          GroovyLanguage.INSTANCE) {
-    @Override
-    public boolean shouldCreateStub(ASTNode node) {
-      return false;
-    }
-
-    @Override
-    public GrVariableDeclaration createPsi(@NotNull EmptyStub stub) {
-      throw new UnsupportedOperationException("Not implemented");
-    }
-  };
-  EmptyStubElementType<GrVariableDeclaration> VARIABLE_DEFINITION =
-    new EmptyStubElementType<GrVariableDeclaration>("variable definitions", GroovyLanguage.INSTANCE) {
-      @Override
-      public GrVariableDeclaration createPsi(@NotNull EmptyStub stub) {
-        return new GrVariableDeclarationImpl(stub);
-      }
-
-      @Override
-      public boolean shouldCreateStub(ASTNode node) {
-        return SharedImplUtil.getParent(node) instanceof GrTypeDefinitionBody;
-      }
-    };
-  GroovyElementType TUPLE_DECLARATION = new GroovyElementType("tuple declaration");
-  GroovyElementType TUPLE_EXPRESSION = new GroovyElementType("tuple expression");
-
-  GroovyElementType VARIABLE = new GroovyElementType("assigned variable");
-
-  //modifiers
-  GrStubElementType<GrModifierListStub, GrModifierList> MODIFIERS = new GrModifierListElementType("modifier list");
-
-  GroovyElementType BALANCED_BRACKETS = new GroovyElementType("balanced brackets"); //node
-
-  //types
-  GroovyElementType CLASS_TYPE_ELEMENT = new GroovyElementType("class type element"); //node
+  IElementType CLASS_TYPE_ELEMENT = org.jetbrains.plugins.groovy.lang.psi.GroovyElementTypes.CLASS_TYPE_ELEMENT;
 }

@@ -21,6 +21,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
+import com.intellij.util.IncorrectOperationException;
 import com.theoryinpractice.testng.util.TestNGUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -36,6 +37,15 @@ public class DataProviderReference extends PsiReferenceBase<PsiLiteral> {
     super(element, false);
   }
 
+  @Override
+  public PsiElement bindToElement(@NotNull PsiElement element) throws IncorrectOperationException {
+    if (element instanceof PsiMethod) {
+      return handleElementRename(((PsiMethod)element).getName());
+    }
+    return super.bindToElement(element);
+  }
+
+  @Override
   @Nullable
   public PsiElement resolve() {
     final PsiClass cls = TestNGUtil.getProviderClass(getElement(), PsiUtil.getTopLevelClass(getElement()));
@@ -58,6 +68,7 @@ public class DataProviderReference extends PsiReferenceBase<PsiLiteral> {
     return null;
   }
 
+  @Override
   @NotNull
   public Object[] getVariants() {
     final List<Object> list = new ArrayList<>();

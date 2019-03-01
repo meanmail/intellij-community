@@ -23,7 +23,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.vfs.VfsBundle;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
-import com.intellij.util.concurrency.BoundedTaskExecutor;
+import com.intellij.util.concurrency.AppExecutorUtil;
 import com.intellij.util.io.storage.HeavyProcessLatch;
 import gnu.trove.TLongObjectHashMap;
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +31,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.ide.PooledThreadExecutor;
 
 import java.util.Collections;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executor;
 
 /**
  * @author max
@@ -39,14 +39,14 @@ import java.util.concurrent.ExecutorService;
 public class RefreshQueueImpl extends RefreshQueue implements Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.vfs.newvfs.RefreshQueueImpl");
 
-  private final ExecutorService myQueue = new BoundedTaskExecutor("RefreshQueue pool", PooledThreadExecutor.INSTANCE, 1, this);
+  private final Executor myQueue = AppExecutorUtil.createBoundedApplicationPoolExecutor("RefreshQueue Pool", PooledThreadExecutor.INSTANCE, 1, this);
   private final ProgressIndicator myRefreshIndicator = RefreshProgress.create(VfsBundle.message("file.synchronize.progress"));
   private final TLongObjectHashMap<RefreshSession> mySessions = new TLongObjectHashMap<>();
   private final FrequentEventDetector myEventCounter = new FrequentEventDetector(100, 100, FrequentEventDetector.Level.WARN);
 
   public void execute(@NotNull RefreshSessionImpl session) {
     if (session.isAsynchronous()) {
-      queueSession(session, session.getModalityState(), session.getTransaction());
+      queueSession(session, session.getTransaction());
     }
     else {
       Application app = ApplicationManager.getApplication();
@@ -61,25 +61,21 @@ public class RefreshQueueImpl extends RefreshQueue implements Disposable {
                     "this will cause a deadlock if there are any events to fire.");
           return;
         }
-        queueSession(session, ModalityState.defaultModalityState(), TransactionGuard.getInstance().getContextTransaction());
+        queueSession(session, TransactionGuard.getInstance().getContextTransaction());
         session.waitFor();
       }
     }
   }
 
-  private void queueSession(@NotNull final RefreshSessionImpl session, @NotNull final ModalityState modality, @Nullable TransactionId transaction) {
-    myQueue.submit(() -> {
+  private void queueSession(@NotNull RefreshSessionImpl session, @Nullable TransactionId transaction) {
+    myQueue.execute(() -> {
       myRefreshIndicator.start();
       try (AccessToken ignored = HeavyProcessLatch.INSTANCE.processStarted("Doing file refresh. " + session)) {
         doScan(session);
       }
       finally {
         myRefreshIndicator.stop();
-        Application app = ApplicationManager.getApplication();
-        // invokeLater might be not necessary once transactions are enforced
-        app.invokeLater(
-          () -> TransactionGuard.getInstance().submitTransaction(app, transaction, session::fireEvents),
-          modality);
+        TransactionGuard.getInstance().submitTransaction(ApplicationManager.getApplication(), transaction, session::fireEvents);
       }
     });
     myEventCounter.eventHappened(session);

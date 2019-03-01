@@ -23,18 +23,16 @@ import com.intellij.cvsSupport2.ui.MigrateRootDialog;
 import com.intellij.cvsSupport2.util.CvsVfsUtil;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.application.AccessToken;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.actions.VcsContext;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.StatusBar;
+import org.jetbrains.annotations.NotNull;
 import org.netbeans.lib.cvsclient.file.FileUtils;
 
 import java.io.File;
-import java.io.FileFilter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,12 +48,12 @@ public class MigrateCvsRootAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     myVisibility.applyToEvent(e);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent event) {
+  public void actionPerformed(@NotNull AnActionEvent event) {
     final VcsContext context = CvsContextWrapper.createInstance(event);
     final VirtualFile selectedFile = context.getSelectedFile();
     final Project project = context.getProject();
@@ -89,14 +87,8 @@ public class MigrateCvsRootAction extends AnAction implements DumbAware {
         break;
       }
     }
-    final AccessToken token = ApplicationManager.getApplication().acquireReadActionLock();
-    try {
-      for (File file : rootFiles) {
-        CvsVfsUtil.findFileByIoFile(file).refresh(true, false);
-      }
-    }
-    finally {
-      token.finish();
+    for (File file : rootFiles) {
+      CvsVfsUtil.findFileByIoFile(file).refresh(true, false);
     }
     StatusBar.Info.set("Finished migrating CVS root to " + cvsRoot, project);
   }

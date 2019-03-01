@@ -15,16 +15,12 @@
  */
 package com.siyeh.ig.threading;
 
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -59,39 +55,18 @@ public class ConditionSignalInspection extends BaseInspection {
     return new ConditionSignalFix();
   }
 
-  private static class ConditionSignalFix extends InspectionGadgetsFix {
+  private static class ConditionSignalFix extends AbstractReplaceWithAnotherMethodCallFix {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "condition.signal.replace.quickfix");
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiElement methodNameElement = descriptor.getPsiElement();
-      final PsiReferenceExpression methodExpression =
-        (PsiReferenceExpression)methodNameElement.getParent();
-      assert methodExpression != null;
-      final PsiExpression qualifier = methodExpression
-        .getQualifierExpression();
-      @NonNls final String signalAll = "signalAll";
-      if (qualifier == null) {
-        PsiReplacementUtil.replaceExpression(methodExpression, signalAll);
-      }
-      else {
-        final String qualifierText = qualifier.getText();
-        PsiReplacementUtil.replaceExpression(methodExpression,
-                                             qualifierText + '.' + signalAll);
-      }
+    protected String getMethodName() {
+      return "signalAll";
     }
   }
 
@@ -109,7 +84,7 @@ public class ConditionSignalInspection extends BaseInspection {
         return;
       }
       final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList.getExpressions().length != 0) {
+      if (!argumentList.isEmpty()) {
         return;
       }
       final PsiMethod method = expression.resolveMethod();

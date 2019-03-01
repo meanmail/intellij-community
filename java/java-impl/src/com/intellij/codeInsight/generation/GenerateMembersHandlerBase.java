@@ -16,7 +16,6 @@
 package com.intellij.codeInsight.generation;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
-import com.intellij.codeInsight.CodeInsightUtilBase;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateEditingAdapter;
@@ -26,14 +25,11 @@ import com.intellij.ide.util.MemberChooser;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.LogicalPosition;
-import com.intellij.openapi.editor.ScrollType;
-import com.intellij.openapi.editor.actions.EnterAction;
+import com.intellij.openapi.editor.*;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
@@ -48,6 +44,7 @@ import org.jetbrains.java.generate.exception.GenerateCodeException;
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public abstract class GenerateMembersHandlerBase implements CodeInsightActionHandler, ContextAwareActionHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.generation.GenerateMembersHandlerBase");
@@ -71,7 +68,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
 
   @Override
   public final void invoke(@NotNull final Project project, @NotNull final Editor editor, @NotNull PsiFile file) {
-    if (!CodeInsightUtilBase.prepareEditorForWrite(editor)) return;
+    if (!EditorModificationUtil.checkModificationAllowed(editor)) return;
     if (!FileDocumentManager.getInstance().requestWriting(editor.getDocument(), project)) {
       return;
     }
@@ -84,7 +81,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
       final ClassMember[] members = chooseOriginalMembers(aClass, project, editor);
       if (members == null) return;
 
-      WriteCommandAction.runWriteCommandAction(project, () -> {
+      CommandProcessor.getInstance().executeCommand(project, () -> {
         final int offset = editor.getCaretModel().getOffset();
         try {
           doGenerate(project, editor, aClass, members);
@@ -98,7 +95,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
             }
           }, project.getDisposed());
         }
-      });
+      }, null, null);
     }
     finally {
       cleanup();
@@ -121,7 +118,6 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     final PsiElement lBrace = aClass.getLBrace();
     if (textBeforeCaret.trim().length() > 0 && StringUtil.isEmptyOrSpaces(afterCaret) &&
         (lBrace == null || lBrace.getTextOffset() < offset) && !editor.getSelectionModel().hasSelection()) {
-      EnterAction.insertNewLineAtCaret(editor);
       PsiDocumentManager.getInstance(project).commitDocument(document);
       offset = editor.getCaretModel().getOffset();
       col = editor.getCaretModel().getLogicalPosition().column;
@@ -130,15 +126,9 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
 
     editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(0, 0));
 
-    List<? extends GenerationInfo> newMembers;
-    try{
-      List<? extends GenerationInfo> prototypes = generateMemberPrototypes(aClass, members);
-      newMembers = GenerateMembersUtil.insertMembersAtOffset(aClass.getContainingFile(), offset, prototypes);
-    }
-    catch(IncorrectOperationException e){
-      LOG.error(e);
-      return;
-    }
+    int finalOffset = offset;
+    List<? extends GenerationInfo> newMembers = WriteAction.compute(
+      () -> GenerateMembersUtil.insertMembersAtOffset(aClass, finalOffset, generateMemberPrototypes(aClass, members)));
 
     editor.getCaretModel().moveToLogicalPosition(new LogicalPosition(line, col));
 
@@ -152,14 +142,11 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
       final List<PsiElement> elements = new ArrayList<>();
       for (GenerationInfo member : newMembers) {
         if (!(member instanceof TemplateGenerationInfo)) {
-          final PsiMember psiMember = member.getPsiMember();
-          if (psiMember != null) {
-            elements.add(psiMember);
-          }
+          ContainerUtil.addIfNotNull(elements, member.getPsiMember());
         }
       }
 
-      GlobalInspectionContextBase.cleanupElements(project, null, elements.toArray(new PsiElement[elements.size()]));
+      GlobalInspectionContextBase.cleanupElements(project, null, elements.toArray(PsiElement.EMPTY_ARRAY));
     }
 
     final ArrayList<TemplateGenerationInfo> templates = new ArrayList<>();
@@ -170,12 +157,17 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     }
 
     if (!templates.isEmpty()){
-      PsiDocumentManager.getInstance(project).doPostponedOperationsAndUnblockDocument(document);
       runTemplates(project, editor, templates, 0);
     }
     else if (!newMembers.isEmpty()){
-      newMembers.get(0).positionCaret(editor, false);
+      notifyOnSuccess(editor, members, newMembers);
     }
+  }
+
+  protected void notifyOnSuccess(Editor editor,
+                                 ClassMember[] members,
+                                 List<? extends GenerationInfo> generatedMembers) {
+    generatedMembers.get(0).positionCaret(editor, false);
   }
 
   protected String getNothingFoundMessage() {
@@ -186,22 +178,19 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     TemplateGenerationInfo info = templates.get(index);
     final Template template = info.getTemplate();
 
-    final PsiElement element = info.getPsiMember();
+    PsiElement element = Objects.requireNonNull(info.getPsiMember());
     final TextRange range = element.getTextRange();
-    editor.getDocument().deleteString(range.getStartOffset(), range.getEndOffset());
+    WriteAction.run(() -> editor.getDocument().deleteString(range.getStartOffset(), range.getEndOffset()));
     int offset = range.getStartOffset();
     editor.getCaretModel().moveToOffset(offset);
     editor.getScrollingModel().scrollToCaret(ScrollType.CENTER);
     TemplateManager.getInstance(myProject).startTemplate(editor, template, new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
         if (index + 1 < templates.size()){
-          ApplicationManager.getApplication().invokeLater(() -> new WriteCommandAction(myProject) {
-            @Override
-            protected void run(@NotNull Result result) throws Throwable {
-              runTemplates(myProject, editor, templates, index + 1);
-            }
-          }.execute());
+          ApplicationManager.getApplication().invokeLater(() -> WriteCommandAction.runWriteCommandAction(myProject, ()->
+              runTemplates(myProject, editor, templates, index + 1)
+          ));
         }
       }
     });
@@ -250,7 +239,7 @@ public abstract class GenerateMembersHandlerBase implements CodeInsightActionHan
     chooser.show();
     myToCopyJavaDoc = chooser.isCopyJavadoc();
     final List<ClassMember> list = chooser.getSelectedElements();
-    return list == null ? null : list.toArray(new ClassMember[list.size()]);
+    return list == null ? null : list.toArray(ClassMember.EMPTY_ARRAY);
   }
 
   protected MemberChooser<ClassMember> createMembersChooser(ClassMember[] members,

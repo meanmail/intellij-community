@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.compiler.options;
 
@@ -20,10 +6,12 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.JDOMExternalizable;
-import com.intellij.openapi.vfs.VfsUtil;
+import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -38,31 +26,51 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
   @NonNls private static final String URL = "url";
   @NonNls private static final String INCLUDE_SUBDIRECTORIES = "includeSubdirectories";
   private final Collection<ExcludeEntryDescription> myExcludeEntryDescriptions = new LinkedHashSet<>();
+  @Nullable private final ExcludedEntriesListener myEventPublisher;
   private ExcludeEntryDescription[] myCachedDescriptions = null;
+
+  @SuppressWarnings("unused")
+  public ExcludedEntriesConfiguration() {
+    this(null);
+  }
+
+  public ExcludedEntriesConfiguration(@Nullable ExcludedEntriesListener eventPublisher) {
+    myEventPublisher = eventPublisher;
+  }
 
   @Override
   public synchronized ExcludeEntryDescription[] getExcludeEntryDescriptions() {
     if (myCachedDescriptions == null) {
-      myCachedDescriptions = myExcludeEntryDescriptions.toArray(new ExcludeEntryDescription[myExcludeEntryDescriptions.size()]);
+      myCachedDescriptions = myExcludeEntryDescriptions.toArray(new ExcludeEntryDescription[0]);
     }
     return myCachedDescriptions;
   }
 
   @Override
   public synchronized void addExcludeEntryDescription(ExcludeEntryDescription description) {
-    myExcludeEntryDescriptions.add(description);
+    if (myExcludeEntryDescriptions.add(description) && myEventPublisher != null) {
+      myEventPublisher.onEntryAdded(description);
+    }
     myCachedDescriptions = null;
   }
 
   @Override
   public synchronized void removeExcludeEntryDescription(ExcludeEntryDescription description) {
-    myExcludeEntryDescriptions.remove(description);
+    if (myExcludeEntryDescriptions.remove(description) && myEventPublisher != null) {
+      myEventPublisher.onEntryRemoved(description);
+    }
     myCachedDescriptions = null;
   }
 
   @Override
   public synchronized void removeAllExcludeEntryDescriptions() {
+    ExcludeEntryDescription[] oldDescriptions = getExcludeEntryDescriptions();
     myExcludeEntryDescriptions.clear();
+    if (myEventPublisher != null) {
+      for (ExcludeEntryDescription description : oldDescriptions) {
+        myEventPublisher.onEntryRemoved(description);
+      }
+    }
     myCachedDescriptions = null;
   }
 
@@ -71,10 +79,10 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     return myExcludeEntryDescriptions.contains(description);
   }
 
+  @Override
   public void readExternal(final Element node) {
     removeAllExcludeEntryDescriptions();
-    for (final Object o : node.getChildren()) {
-      Element element = (Element)o;
+    for (final Element element : node.getChildren()) {
       String url = element.getAttributeValue(URL);
       if (url == null) continue;
       if (FILE.equals(element.getName())) {
@@ -89,6 +97,7 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     }
   }
 
+  @Override
   public void writeExternal(final Element element) {
     for (final ExcludeEntryDescription description : getExcludeEntryDescriptions()) {
       if (description.isFile()) {
@@ -118,7 +127,7 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
         }
       }
       else if (entryDescription.isIncludeSubdirectories()) {
-        if (VfsUtil.isAncestor(descriptionFile, virtualFile, false)) {
+        if (VfsUtilCore.isAncestor(descriptionFile, virtualFile, false)) {
           return true;
         }
       }
@@ -134,17 +143,20 @@ public class ExcludedEntriesConfiguration implements PersistentStateComponent<Ex
     return false;
   }
 
+  @Override
   public void dispose() {
     for (ExcludeEntryDescription description : myExcludeEntryDescriptions) {
       Disposer.dispose(description);
     }
   }
 
+  @Override
   public ExcludedEntriesConfiguration getState() {
     return this;
   }
 
-  public void loadState(final ExcludedEntriesConfiguration state) {
+  @Override
+  public void loadState(@NotNull final ExcludedEntriesConfiguration state) {
     for (ExcludeEntryDescription description : state.getExcludeEntryDescriptions()) {
       addExcludeEntryDescription(description.copy(this));
     }

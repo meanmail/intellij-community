@@ -1,26 +1,44 @@
 /*
- * User: anna
- * Date: 18-Aug-2009
+ * Copyright 2000-2017 JetBrains s.r.o.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 package com.intellij.refactoring.typeMigration.rules;
 
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.impl.PsiDiamondTypeUtil;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.psi.util.TypeConversionUtil;
 import com.intellij.refactoring.typeMigration.TypeConversionDescriptor;
 import com.intellij.refactoring.typeMigration.TypeConversionDescriptorBase;
+import com.intellij.refactoring.typeMigration.TypeEvaluator;
 import com.intellij.refactoring.typeMigration.TypeMigrationLabeler;
+import com.siyeh.ig.psiutils.ExpressionUtils;
+import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.concurrent.atomic.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicIntegerArray;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicLongArray;
 
 public class AtomicConversionRule extends TypeConversionRule {
-  private static final Logger LOG = Logger.getInstance("#" + AtomicConversionRule.class.getName());
+  private static final Logger LOG = Logger.getInstance(AtomicConversionRule.class);
 
 
   @Override
@@ -29,63 +47,34 @@ public class AtomicConversionRule extends TypeConversionRule {
                                                  PsiMember member,
                                                  PsiExpression context,
                                                  TypeMigrationLabeler labeler) {
-    if (to instanceof PsiClassType && isAtomicTypeMigration(from, (PsiClassType)to, context)) {
-      return findDirectConversion(context, to, from);
+    if (to instanceof PsiClassType) {
+      AtomicConversionType type = AtomicConversionType.getConversionType(from, (PsiClassType)to, context);
+      if (type != null) {
+        return findDirectConversion(context, to, from, type);
+      }
     }
-    else if (from instanceof PsiClassType && isAtomicTypeMigration(to, (PsiClassType)from, context)) {
+    if (from instanceof PsiClassType && AtomicConversionType.getConversionType(to, (PsiClassType)from, context) != null) {
       return findReverseConversion(context);
     }
     return null;
   }
 
-  private static boolean isAtomicTypeMigration(PsiType from, PsiClassType to, PsiExpression context) {
-    if (PsiType.INT.equals(from) && to.getCanonicalText().equals(AtomicInteger.class.getName())) {
-      return true;
-    }
-    if (from.equals(PsiType.INT.createArrayType()) && to.getCanonicalText().equals(AtomicIntegerArray.class.getName())) {
-      return true;
-    }
-    if (PsiType.LONG.equals(from) && to.getCanonicalText().equals(AtomicLong.class.getName())) {
-      return true;
-    }
-    if (from.equals(PsiType.LONG.createArrayType()) && to.getCanonicalText().equals(AtomicLongArray.class.getName())) {
-      return true;
-    }
-    if (PsiType.BOOLEAN.equals(from) && to.getCanonicalText().equals(AtomicBoolean.class.getName())) {
-      return true;
-    }
-    final PsiClassType.ClassResolveResult resolveResult = PsiUtil.resolveGenericsClassInType(to);
-    final PsiClass atomicClass = resolveResult.getElement();
-
-    if (atomicClass != null) {
-      final String typeQualifiedName = atomicClass.getQualifiedName();
-      if (!Comparing.strEqual(typeQualifiedName, AtomicReference.class.getName()) &&
-          !Comparing.strEqual(typeQualifiedName, AtomicReferenceArray.class.getName())) {
-        return false;
-      }
-      final PsiTypeParameter[] typeParameters = atomicClass.getTypeParameters();
-      if (typeParameters.length != 1) return false;
-      final PsiType toTypeParameterValue = resolveResult.getSubstitutor().substitute(typeParameters[0]);
-      if (toTypeParameterValue != null) {
-        if (from.getDeepComponentType() instanceof PsiPrimitiveType) {
-          final PsiPrimitiveType unboxedInitialType = PsiPrimitiveType.getUnboxedType(toTypeParameterValue);
-          if (unboxedInitialType != null) {
-            return TypeConversionUtil.areTypesConvertible(from.getDeepComponentType(), unboxedInitialType);
-          }
-        }
-        else {
-          return TypeConversionUtil.isAssignable(from.getDeepComponentType(), PsiUtil.captureToplevelWildcards(toTypeParameterValue, context));
-        }
-      }
-    }
-    return false;
+  @Override
+  public boolean shouldConvertNullInitializer(PsiType from, PsiType to, PsiExpression context) {
+    return to instanceof PsiClassType && AtomicConversionType.getConversionType(from, (PsiClassType)to, context) != null;
   }
 
   @Nullable
-  public static TypeConversionDescriptor findDirectConversion(PsiElement context, PsiType to, PsiType from) {
+  public static TypeConversionDescriptor findDirectConversion(PsiElement context,
+                                                              PsiType to,
+                                                              PsiType from,
+                                                              AtomicConversionType type) {
     final PsiClass toTypeClass = PsiUtil.resolveClassInType(to);
     LOG.assertTrue(toTypeClass != null);
     final String qualifiedName = toTypeClass.getQualifiedName();
+    if (context instanceof PsiParenthesizedExpression) {
+      context = ParenthesesUtils.stripParentheses((PsiExpression)context);
+    }
     if (qualifiedName != null) {
       if (qualifiedName.equals(AtomicInteger.class.getName()) || qualifiedName.equals(AtomicLong.class.getName())) {
 
@@ -114,10 +103,26 @@ public class AtomicConversionRule extends TypeConversionRule {
           final IElementType operationSign = signToken.getTokenType();
           final String sign = signToken.getText();
           if (operationSign == JavaTokenType.PLUSEQ || operationSign == JavaTokenType.MINUSEQ) {
-            return new TypeConversionDescriptor("$qualifier$ " + sign + " $val$", "$qualifier$.getAndAdd(" +
-                                                                                  (operationSign == JavaTokenType.MINUSEQ ? "-" : "") +
-                                                                                  "($val$))");
+            return new TypeConversionDescriptor("$qualifier$ " + sign + " $val$",
+                                                "$qualifier$.addAndGet(" + (operationSign == JavaTokenType.MINUSEQ ? "-($val$))" : "$val$)")) {
+              @Override
+              public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) {
+                final PsiMethodCallExpression result = (PsiMethodCallExpression)super.replace(expression, evaluator);
+                final PsiExpression argument = result.getArgumentList().getExpressions()[0];
+                if (argument instanceof PsiPrefixExpression) {
+                  final PsiExpression operand = ((PsiPrefixExpression)argument).getOperand();
+                  final PsiExpression striped = ParenthesesUtils.stripParentheses(operand);
+                  if (striped != null && operand != striped) {
+                    operand.replace(striped);
+                  }
+                }
+                return result;
+              }
+            };
           }
+        }
+        else if (context instanceof PsiLiteralExpression && !(context.getParent() instanceof PsiAssignmentExpression)) {
+          return wrapWithNewExpression(to, from, (PsiExpression)context, context, type);
         }
       }
       else if (qualifiedName.equals(AtomicIntegerArray.class.getName()) || qualifiedName.equals(AtomicLongArray.class.getName())) {
@@ -161,17 +166,19 @@ public class AtomicConversionRule extends TypeConversionRule {
       }
     }
     return from instanceof PsiArrayType
-           ? findDirectConversionForAtomicReferenceArray(context, to, from)
-           : findDirectConversionForAtomicReference(context, to, from);
+           ? findDirectConversionForAtomicReferenceArray(context, to, from, type)
+           : findDirectConversionForAtomicReference(context, to, from, type);
   }
 
   @Nullable
-  private static TypeConversionDescriptor findDirectConversionForAtomicReference(PsiElement context, PsiType to, PsiType from) {
+  private static TypeConversionDescriptor findDirectConversionForAtomicReference(PsiElement context, PsiType to, PsiType from, AtomicConversionType type) {
     final PsiElement parent = context.getParent();
     if (parent instanceof PsiAssignmentExpression) {
       final IElementType operationSign = ((PsiAssignmentExpression)parent).getOperationTokenType();
       if (operationSign == JavaTokenType.EQ) {
-        return new TypeConversionDescriptor("$qualifier$ = $val$", "$qualifier$.set($val$)", (PsiAssignmentExpression)parent);
+        boolean rightInfected = ((PsiAssignmentExpression)parent).getLExpression() == context;
+        String replacement = rightInfected ? "$qualifier$ = $val$.get()" : "$qualifier$.set($val$)";
+        return new TypeConversionDescriptor("$qualifier$ = $val$", replacement, (PsiAssignmentExpression)parent);
       }
     }
 
@@ -183,28 +190,37 @@ public class AtomicConversionRule extends TypeConversionRule {
       return new TypeConversionDescriptor("$qualifier$", "$qualifier$.get()", expression);
     }
     else if (context instanceof PsiAssignmentExpression) {
-      final PsiJavaToken signToken = ((PsiAssignmentExpression)context).getOperationSign();
+      final PsiAssignmentExpression assignment = (PsiAssignmentExpression)context;
+      final PsiJavaToken signToken = assignment.getOperationSign();
       final IElementType operationSign = signToken.getTokenType();
       final String sign = signToken.getText();
-      if (parent instanceof PsiExpressionStatement) {
-        if (operationSign == JavaTokenType.EQ) {
-          final PsiExpression lExpression = ((PsiAssignmentExpression)context).getLExpression();
-          if (lExpression instanceof PsiReferenceExpression) {
-            final PsiElement element = ((PsiReferenceExpression)lExpression).resolve();
-            if (element instanceof PsiVariable && ((PsiVariable)element).hasModifierProperty(PsiModifier.FINAL)) {
-              return wrapWithNewExpression(to, from, ((PsiAssignmentExpression)context).getRExpression(), element);
-            }
+      boolean voidContext = ExpressionUtils.isVoidContext(assignment);
+      if (operationSign == JavaTokenType.EQ) {
+        if (!voidContext) return null;
+        final PsiExpression lExpression = assignment.getLExpression();
+        if (lExpression instanceof PsiReferenceExpression) {
+          final PsiElement element = ((PsiReferenceExpression)lExpression).resolve();
+          if (element instanceof PsiVariable && ((PsiVariable)element).hasModifierProperty(PsiModifier.FINAL)) {
+            return wrapWithNewExpression(to, from, assignment.getRExpression(), element, type);
           }
-          return new TypeConversionDescriptor("$qualifier$ = $val$", "$qualifier$.set($val$)");
         }
-        else {
-          return new TypeConversionDescriptor("$qualifier$" + sign + "$val$", "$qualifier$.set(" +
-                                                                              getBoxedWrapper(from, to, "$qualifier$.get() " +
-                                                                                                        sign.charAt(0) +
-                                                                                                        " $val$") +
-                                                                              ")");
-        }
-      } //else should be a conflict
+        return new TypeConversionDescriptor("$qualifier$ = $val$", "$qualifier$.set($val$)");
+      }
+      if (PsiUtil.isLanguageLevel8OrHigher(context)) {
+        final String name =
+          JavaCodeStyleManager.getInstance(context.getProject()).suggestUniqueVariableName("v", context, false);
+        return new TypeConversionDescriptor("$qualifier$" + sign + "$val$",
+                                            "$qualifier$.updateAndGet(" +
+                                            name +
+                                            " -> " +
+                                            getBoxedWrapper(from, to, name + " " + sign.charAt(0) + " $val$)"));
+      }
+      if (voidContext) {
+        return new TypeConversionDescriptor("$qualifier$" + sign + "$val$",
+                                            "$qualifier$.set(" +
+                                            getBoxedWrapper(from, to, "$qualifier$.get() " + sign.charAt(0) + " $val$") +
+                                            ")");
+      }
     }
     else if (context instanceof PsiPostfixExpression) {
       final String sign = ((PsiPostfixExpression)context).getOperationSign().getText();
@@ -221,18 +237,19 @@ public class AtomicConversionRule extends TypeConversionRule {
       return new TypeConversionDescriptor(sign + "$qualifier$", "$qualifier$.set(" +  //todo reject?
                                                                 getBoxedWrapper(from, to, "$qualifier$.get() " + sign.charAt(0) + " 1") +
                                                                 ")");
-    } else if (context instanceof PsiBinaryExpression) {
-      final String sign = ((PsiBinaryExpression)context).getOperationSign().getText();
-      return new TypeConversionDescriptor("$qualifier$" + sign + "$val$", "$qualifier$.get() " + sign + " $val$");
     }
 
     if (parent instanceof PsiVariable) {
-      return wrapWithNewExpression(to, from, null, parent);
+      return wrapWithNewExpression(to, from, null, parent, type);
     }
     return null;
   }
 
-  public static TypeConversionDescriptor wrapWithNewExpression(PsiType to, PsiType from, @Nullable PsiExpression expression, PsiElement context) {
+  public static TypeConversionDescriptor wrapWithNewExpression(PsiType to,
+                                                               PsiType from,
+                                                               @Nullable PsiExpression expression,
+                                                               PsiElement context,
+                                                               @NotNull AtomicConversionType type) {
     final String typeText = PsiDiamondTypeUtil.getCollapsedType(to, context);
     final PsiClassType.ClassResolveResult resolveResult = PsiUtil.resolveGenericsClassInType(to);
     final PsiClass atomicClass = resolveResult.getElement();
@@ -242,26 +259,34 @@ public class AtomicConversionRule extends TypeConversionRule {
       final PsiType initial = resolveResult.getSubstitutor().substitute(typeParameters[0]);
       final PsiPrimitiveType unboxedInitialType = PsiPrimitiveType.getUnboxedType(initial);
       if (unboxedInitialType != null) {
-        LOG.assertTrue(initial != null);
         if (from instanceof PsiPrimitiveType) {
           final PsiClassType boxedFromType = ((PsiPrimitiveType)from).getBoxedType(atomicClass);
           LOG.assertTrue(boxedFromType != null);
           if (!TypeConversionUtil.isAssignable(initial, boxedFromType)) {
-            return new TypeConversionDescriptor("$val$", "new " + typeText + "((" + unboxedInitialType.getCanonicalText() + ")$val$)", expression);
+            return new AtomicConstructorConversionDescriptor("$val$",
+                                                             "new " + typeText + "((" + unboxedInitialType.getCanonicalText() + ")$val$)",
+                                                             expression,
+                                                             type);
           }
         }
       }
     }
-    return new TypeConversionDescriptor("$val$", "new " + typeText + "($val$)", expression);
+    return new AtomicConstructorConversionDescriptor("$val$", "new " + typeText + "($val$)", expression, type);
   }
 
   @Nullable
-  private static TypeConversionDescriptor findDirectConversionForAtomicReferenceArray(PsiElement context, PsiType to, PsiType from) {
+  private static TypeConversionDescriptor findDirectConversionForAtomicReferenceArray(PsiElement context,
+                                                                                      PsiType to,
+                                                                                      PsiType from,
+                                                                                      AtomicConversionType type) {
     LOG.assertTrue(from instanceof PsiArrayType);
     from = ((PsiArrayType)from).getComponentType();
     final PsiElement parent = context.getParent();
     final PsiElement parentParent = parent.getParent();
 
+    if (context instanceof PsiReferenceExpression && ExpressionUtils.getArrayFromLengthExpression((PsiReferenceExpression)context) != null) {
+      return new TypeConversionDescriptor("$qualifier$.length", "$qualifier$.length()");
+    }
     if (parent instanceof PsiAssignmentExpression) {
       final PsiAssignmentExpression assignmentExpression = (PsiAssignmentExpression)parent;
       final IElementType operationSign = assignmentExpression.getOperationTokenType();
@@ -283,12 +308,12 @@ public class AtomicConversionRule extends TypeConversionRule {
       else {
         final PsiExpression rExpression = assignmentExpression.getRExpression();
         if (rExpression == context && operationSign == JavaTokenType.EQ) {   //array = new T[l];
-          return wrapWithNewExpression(to, from, rExpression, context);
+          return wrapWithNewExpression(to, from, rExpression, context, type);
         }
       }
     } else if (parent instanceof PsiVariable) {
       if (((PsiVariable)parent).getInitializer() == context) {
-        return wrapWithNewExpression(to, from, (PsiExpression)context, context);
+        return wrapWithNewExpression(to, from, (PsiExpression)context, context, type);
       }
     }
 
@@ -334,7 +359,6 @@ public class AtomicConversionRule extends TypeConversionRule {
       final PsiType initial = substitutor.substitute(typeParameters[0]);
       final PsiPrimitiveType unboxedInitialType = PsiPrimitiveType.getUnboxedType(initial);
       if (unboxedInitialType != null) {
-        LOG.assertTrue(initial != null);
         if (from instanceof PsiPrimitiveType) {
           final PsiClassType boxedFromType = ((PsiPrimitiveType)from).getBoxedType(atomicClass);
           LOG.assertTrue(boxedFromType != null);
@@ -416,5 +440,4 @@ public class AtomicConversionRule extends TypeConversionRule {
     }
     return null;
   }
-
 }

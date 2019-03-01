@@ -20,15 +20,14 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
-/**
- * @author Kirill Likhodedov
- */
 class GitHttpAuthServiceImpl extends GitHttpAuthService {
 
   @Override
   @NotNull
-  public GitHttpAuthenticator createAuthenticator(@NotNull Project project, @NotNull GitCommand command, @NotNull Collection<String> urls) {
-    return new GitHttpGuiAuthenticator(project, command, urls);
+  public GitHttpAuthenticator createAuthenticator(@NotNull Project project,
+                                                  @NotNull Collection<String> urls,
+                                                  @NotNull GitAuthenticationGate authenticationGate,
+                                                  @NotNull GitAuthenticationMode authenticationMode) {
+    return new GitHttpGuiAuthenticator(project, urls, authenticationGate, authenticationMode);
   }
-
 }

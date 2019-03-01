@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.stubs;
 
 import com.intellij.psi.impl.PsiImplUtil;
@@ -20,11 +6,14 @@ import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.stubs.NamedStub;
 import com.intellij.psi.stubs.StubBase;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.reference.SoftReference;
 import com.intellij.util.io.StringRef;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrAnonymousClassDefinition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
+import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 
 /**
  * @author ilyas
@@ -42,6 +31,8 @@ public class GrTypeDefinitionStub extends StubBase<GrTypeDefinition> implements 
   private final StringRef myQualifiedName;
   private final String[] myAnnotations;
   private final byte myFlags;
+
+  private volatile SoftReference<GrCodeReferenceElement> myStubBaseReference;
 
   public GrTypeDefinitionStub(StubElement parent,
                                   final String name,
@@ -61,6 +52,19 @@ public class GrTypeDefinitionStub extends StubBase<GrTypeDefinition> implements 
   @Nullable
   public String getBaseClassName() {
     return myBaseClassName;
+  }
+
+  @Nullable
+  public GrCodeReferenceElement getBaseClassReference() {
+    String baseClassName = getBaseClassName();
+    if (baseClassName == null) return null;
+
+    GrCodeReferenceElement reference = SoftReference.dereference(myStubBaseReference);
+    if (reference == null) {
+      reference = GroovyPsiElementFactory.getInstance(getProject()).createCodeReference(baseClassName, getPsi());
+      myStubBaseReference = new SoftReference<>(reference);
+    }
+    return reference;
   }
 
   @Override

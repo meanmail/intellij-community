@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2006 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,28 +15,25 @@
  */
 package com.siyeh.ipp.trivialif;
 
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiIfStatement;
-import com.intellij.psi.PsiJavaToken;
-import com.intellij.psi.PsiStatement;
-import com.intellij.util.IncorrectOperationException;
-import com.siyeh.ig.PsiReplacementUtil;
+import com.intellij.openapi.project.Project;
+import com.intellij.psi.*;
+import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.siyeh.ipp.base.Intention;
 import com.siyeh.ipp.base.PsiElementPredicate;
 import org.jetbrains.annotations.NotNull;
 
 public class SplitElseIfIntention extends Intention {
 
+  @Override
   @NotNull
   public PsiElementPredicate getElementPredicate() {
     return new SplitElseIfPredicate();
   }
 
-  public void processIntention(PsiElement element)
-    throws IncorrectOperationException {
+  @Override
+  public void processIntention(PsiElement element) {
     final PsiJavaToken token = (PsiJavaToken)element;
-    final PsiIfStatement parentStatement =
-      (PsiIfStatement)token.getParent();
+    final PsiIfStatement parentStatement = (PsiIfStatement)token.getParent();
     if (parentStatement == null) {
       return;
     }
@@ -44,7 +41,10 @@ public class SplitElseIfIntention extends Intention {
     if (elseBranch == null) {
       return;
     }
-    final String newStatement = '{' + elseBranch.getText() + '}';
-    PsiReplacementUtil.replaceStatement(elseBranch, newStatement);
+    Project project = element.getProject();
+    PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(project);
+    PsiBlockStatement blockStatement = (PsiBlockStatement)elementFactory.createStatementFromText("{}", elseBranch);
+    blockStatement.getCodeBlock().add(elseBranch);
+    CodeStyleManager.getInstance(project).reformat(elseBranch.replace(blockStatement));
   }
 }

@@ -1,9 +1,9 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.refs;
 
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.xml.XmlAttribute;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.ProcessingContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,9 +38,9 @@ public class JavaFxStaticPropertyReferenceProvider extends PsiReferenceProvider 
   }
 
   private static class JavaFxStaticPropertyClassReference extends PsiReferenceBase<XmlAttribute> {
-    private PsiClass myPsiClass;
+    private final PsiClass myPsiClass;
 
-    public JavaFxStaticPropertyClassReference(@NotNull XmlAttribute xmlAttribute, @NotNull String className) {
+    JavaFxStaticPropertyClassReference(@NotNull XmlAttribute xmlAttribute, @NotNull String className) {
       super(xmlAttribute);
       myPsiClass = JavaFxPsiUtil.findPsiClass(className, xmlAttribute);
     }
@@ -53,12 +53,6 @@ public class JavaFxStaticPropertyReferenceProvider extends PsiReferenceProvider 
     @Override
     public PsiElement resolve() {
       return myPsiClass;
-    }
-
-    @NotNull
-    @Override
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
     }
   }
 }

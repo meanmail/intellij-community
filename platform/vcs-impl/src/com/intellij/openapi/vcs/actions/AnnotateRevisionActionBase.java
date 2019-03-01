@@ -1,6 +1,6 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.actions;
 
-import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -10,6 +10,7 @@ import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.progress.util.ProgressWindow;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.AbstractVcsHelper;
@@ -18,6 +19,7 @@ import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.annotate.AnnotationProvider;
 import com.intellij.openapi.vcs.annotate.FileAnnotation;
 import com.intellij.openapi.vcs.history.VcsFileRevision;
+import com.intellij.openapi.vcs.history.VcsHistoryUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.diff.Diff;
 import com.intellij.util.diff.FilesTooBigForDiffException;
@@ -29,7 +31,9 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public abstract class AnnotateRevisionActionBase extends AnAction {
+import static com.intellij.util.ObjectUtils.notNull;
+
+public abstract class AnnotateRevisionActionBase extends DumbAwareAction {
   public AnnotateRevisionActionBase(@Nullable String text, @Nullable String description, @Nullable Icon icon) {
     super(text, description, icon);
   }
@@ -53,6 +57,7 @@ public abstract class AnnotateRevisionActionBase extends AnAction {
     return editor == null ? 0 : editor.getCaretModel().getLogicalPosition().line;
   }
 
+  @Override
   public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setEnabled(isEnabled(e));
   }
@@ -60,19 +65,20 @@ public abstract class AnnotateRevisionActionBase extends AnAction {
   public boolean isEnabled(@NotNull AnActionEvent e) {
     if (e.getProject() == null) return false;
 
-    VcsFileRevision fileRevision = getFileRevision(e);
-    if (fileRevision == null) return false;
+    return isEnabled(getVcs(e), getFile(e), getFileRevision(e));
+  }
 
-    VirtualFile file = getFile(e);
-    if (file == null) return false;
-
-    AbstractVcs vcs = getVcs(e);
-    if (vcs == null) return false;
-
+  public static boolean isEnabled(@Nullable AbstractVcs vcs,
+                                  @Nullable VirtualFile file,
+                                  @Nullable VcsFileRevision fileRevision) {
+    if (VcsHistoryUtil.isEmpty(fileRevision) || file == null || vcs == null) return false;
     AnnotationProvider provider = vcs.getAnnotationProvider();
-    if (provider == null || !provider.isAnnotationValid(fileRevision)) return false;
+    if (provider == null) return false;
+    if (!provider.isAnnotationValid(fileRevision)) return false;
 
-    if (VcsAnnotateUtil.getBackgroundableLock(vcs.getProject(), file).isLocked()) return false;
+    if (VcsAnnotateUtil.getBackgroundableLock(vcs.getProject(), file).isLocked()) {
+      return false;
+    }
 
     return true;
   }
@@ -82,13 +88,16 @@ public abstract class AnnotateRevisionActionBase extends AnAction {
     final VcsFileRevision fileRevision = getFileRevision(e);
     final VirtualFile file = getFile(e);
     final AbstractVcs vcs = getVcs(e);
-    assert vcs != null;
-    assert file != null;
-    assert fileRevision != null;
 
-    final Editor editor = getEditor(e);
+    annotate(notNull(file), notNull(fileRevision), notNull(vcs), getEditor(e), getAnnotatedLine(e));
+  }
+
+  public static void annotate(@NotNull VirtualFile file,
+                              @NotNull VcsFileRevision fileRevision,
+                              @NotNull AbstractVcs vcs,
+                              @Nullable Editor editor,
+                              int annotatedLine) {
     final CharSequence oldContent = editor == null ? null : editor.getDocument().getImmutableCharSequence();
-    final int oldLine = getAnnotatedLine(e);
 
     final AnnotationProvider annotationProvider = vcs.getAnnotationProvider();
     assert annotationProvider != null;
@@ -103,11 +112,12 @@ public abstract class AnnotateRevisionActionBase extends AnAction {
     AtomicBoolean shouldOpenEditorInSync = new AtomicBoolean(true);
 
     ProgressManager.getInstance().run(new Task.Backgroundable(vcs.getProject(), VcsBundle.message("retrieving.annotations"), true) {
+      @Override
       public void run(@NotNull ProgressIndicator indicator) {
         try {
           FileAnnotation fileAnnotation = annotationProvider.annotate(file, fileRevision);
 
-          int newLine = translateLine(oldContent, fileAnnotation.getAnnotatedContent(), oldLine);
+          int newLine = translateLine(oldContent, fileAnnotation.getAnnotatedContent(), annotatedLine);
 
           fileAnnotationRef.set(fileAnnotation);
           newLineRef.set(newLine);
@@ -143,7 +153,7 @@ public abstract class AnnotateRevisionActionBase extends AnAction {
       // This will remove blinking on editor opening (step 1 - editor opens, step 2 - annotations are shown).
       if (shouldOpenEditorInSync.get()) {
         CharSequence content = LoadTextUtil.loadText(file);
-        int newLine = translateLine(oldContent, content, oldLine);
+        int newLine = translateLine(oldContent, content, annotatedLine);
 
         OpenFileDescriptor openFileDescriptor = new OpenFileDescriptor(vcs.getProject(), file, newLine, 0);
         FileEditorManager.getInstance(vcs.getProject()).openTextEditor(openFileDescriptor, true);

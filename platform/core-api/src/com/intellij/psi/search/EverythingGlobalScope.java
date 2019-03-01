@@ -20,10 +20,18 @@
 package com.intellij.psi.search;
 
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.module.UnloadedModuleDescription;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.FileIndexFacade;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collection;
+import java.util.Collections;
+
+/**
+ * The biggest possible scope: every file on the planet belongs to this.
+ */
 public class EverythingGlobalScope extends GlobalSearchScope {
   public EverythingGlobalScope(Project project) {
     super(project);
@@ -32,9 +40,10 @@ public class EverythingGlobalScope extends GlobalSearchScope {
   public EverythingGlobalScope() {
   }
 
+  @NotNull
   @Override
-  public int compare(@NotNull final VirtualFile file1, @NotNull final VirtualFile file2) {
-    return 0;
+  public String getDisplayName() {
+    return "All Places";
   }
 
   @Override
@@ -60,6 +69,13 @@ public class EverythingGlobalScope extends GlobalSearchScope {
   @Override
   public boolean isSearchOutsideRootModel() {
     return true;
+  }
+
+  @NotNull
+  @Override
+  public Collection<UnloadedModuleDescription> getUnloadedModulesBelongingToScope() {
+    Project project = getProject();
+    return project != null ? FileIndexFacade.getInstance(project).getUnloadedModuleDescriptions() : Collections.emptySet();
   }
 
   @NotNull

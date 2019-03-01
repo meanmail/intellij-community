@@ -28,7 +28,6 @@ import java.util.List;
 
 /**
  * @author Denis Zhdanov
- * @since 3/14/13 5:53 PM
  */
 public class ExternalSystemTaskManagerWrapper<S extends ExternalSystemExecutionSettings>
   extends AbstractRemoteExternalSystemServiceWrapper<S, RemoteExternalSystemTaskManager<S>>
@@ -47,12 +46,10 @@ public class ExternalSystemTaskManagerWrapper<S extends ExternalSystemExecutionS
                            @NotNull List<String> taskNames,
                            @NotNull String projectPath,
                            @Nullable S settings,
-                           @NotNull List<String> vmOptions,
-                           @NotNull List<String> scriptParameters,
-                           @Nullable String debuggerSetup) throws RemoteException, ExternalSystemException {
-    myProgressManager.onQueued(id, projectPath);
+                           @Nullable String jvmAgentSetup) throws RemoteException, ExternalSystemException {
     try {
-      getDelegate().executeTasks(id, taskNames, projectPath, settings, vmOptions, scriptParameters, debuggerSetup);
+      getDelegate().executeTasks(id, taskNames, projectPath, settings, jvmAgentSetup);
+      myProgressManager.onSuccess(id);
     }
     catch (ExternalSystemException e) {
       myProgressManager.onFailure(id, e);

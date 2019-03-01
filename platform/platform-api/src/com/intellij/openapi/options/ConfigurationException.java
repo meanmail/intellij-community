@@ -22,6 +22,7 @@ public class ConfigurationException extends Exception {
   public static final String DEFAULT_TITLE = OptionsBundle.message("cannot.save.settings.default.dialog.title");
   private String myTitle = DEFAULT_TITLE;
   private Runnable myQuickFix;
+  private Configurable myOriginator;
 
   /**
    * @param message the detail message describing the problem
@@ -36,6 +37,11 @@ public class ConfigurationException extends Exception {
    */
   public ConfigurationException(String message, String title) {
     super(message);
+    myTitle = title;
+  }
+
+  public ConfigurationException(String message, Throwable cause, String title) {
+    super(message, cause);
     myTitle = title;
   }
 
@@ -60,4 +66,19 @@ public class ConfigurationException extends Exception {
     return myQuickFix;
   }
 
+  public Configurable getOriginator() {
+    return myOriginator;
+  }
+
+  public void setOriginator(Configurable originator) {
+    myOriginator = originator;
+  }
+
+  /**
+   * @return whether this error should be shown when index isn't complete. Override and return false for errors that
+   * might be caused by inability to find some PSI due to index absence.
+   */
+  public boolean shouldShowInDumbMode() {
+    return true;
+  }
 }

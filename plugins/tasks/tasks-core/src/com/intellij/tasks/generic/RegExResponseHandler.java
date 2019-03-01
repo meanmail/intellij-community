@@ -1,15 +1,11 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.generic;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.XmlElementFactory;
-import com.intellij.psi.xml.XmlTag;
 import com.intellij.tasks.Task;
 import com.intellij.ui.EditorTextField;
 import com.intellij.ui.LanguageTextField;
@@ -17,7 +13,6 @@ import com.intellij.ui.components.JBScrollPane;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.FormBuilder;
 import com.intellij.util.xmlb.annotations.Tag;
-import com.intellij.xml.util.XmlUtil;
 import org.intellij.lang.regexp.RegExpLanguage;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -74,9 +69,9 @@ public final class RegExResponseHandler extends ResponseHandler {
     FormBuilder builder = FormBuilder.createFormBuilder();
     final EditorTextField taskPatternText;
     taskPatternText = new LanguageTextField(RegExpLanguage.INSTANCE, project, myTaskRegex, false);
-    taskPatternText.addDocumentListener(new DocumentAdapter() {
+    taskPatternText.addDocumentListener(new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         myTaskRegex = taskPatternText.getText();
       }
     });
@@ -103,20 +98,9 @@ public final class RegExResponseHandler extends ResponseHandler {
     for (int i = 0; i < max && matcher.find(); i++) {
       String id = matcher.group(placeholders.indexOf(ID_PLACEHOLDER) + 1);
       String summary = matcher.group(placeholders.indexOf(SUMMARY_PLACEHOLDER) + 1);
-      // temporary workaround to make AssemblaIntegrationTestPass
-      final String finalSummary = summary;
-      summary = ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-        @Override
-        public String compute() {
-          XmlElementFactory factory = XmlElementFactory.getInstance(ProjectManager.getInstance().getDefaultProject());
-          XmlTag text = factory.createTagFromText("<a>" + finalSummary + "</a>");
-          String trimmedText = text.getValue().getTrimmedText();
-          return XmlUtil.decode(trimmedText);
-        }
-      });
       tasks.add(new GenericTask(id, summary, myRepository));
     }
-    return tasks.toArray(new Task[tasks.size()]);
+    return tasks.toArray(Task.EMPTY_ARRAY);
   }
 
   @Nullable

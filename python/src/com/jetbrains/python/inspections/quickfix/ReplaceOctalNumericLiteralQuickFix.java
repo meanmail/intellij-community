@@ -27,19 +27,12 @@ import org.jetbrains.annotations.NotNull;
 /**
  * Created by IntelliJ IDEA.
  * Author: Alexey.Ivanov
- * Date:   06.03.2010
- * Time:   16:50:53
  */
 public class ReplaceOctalNumericLiteralQuickFix implements LocalQuickFix {
   @NotNull
   @Override
-  public String getName() {
-    return PyBundle.message("INTN.replace.octal.numeric.literal");
-  }
-
-  @NotNull
   public String getFamilyName() {
-    return getName();
+    return PyBundle.message("INTN.replace.octal.numeric.literal");
   }
 
   @Override

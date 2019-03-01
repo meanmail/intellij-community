@@ -15,8 +15,20 @@
  */
 package com.intellij.settingsSummary;
 
+import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.Function;
+import org.jetbrains.annotations.NotNull;
 
+import javax.swing.*;
+
+/**
+ * @deprecated use {@link com.intellij.troubleshooting.TroubleInfoCollector}. To be removed in IDEA 2020.1.
+ */
+@Deprecated
 public interface ProblemType {
-  String collectInfo(Project project);
+  ExtensionPointName<ProblemType> EP_SETTINGS = ExtensionPointName.create("com.intellij.settingsSummaryFactory");
+
+  @NotNull
+  String collectInfo(@NotNull Project project);
 }

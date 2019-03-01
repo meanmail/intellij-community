@@ -16,6 +16,8 @@
 package com.intellij.refactoring.introduceParameter;
 
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.TransactionGuard;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -25,7 +27,6 @@ import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
@@ -39,7 +40,6 @@ import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import com.intellij.ui.JBColor;
 import com.intellij.util.ui.JBUI;
 import gnu.trove.TIntArrayList;
-import gnu.trove.TIntProcedure;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,12 +48,8 @@ import java.awt.*;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 2/25/11
- */
 public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroducer {
-  private static final Logger LOG = Logger.getInstance("#" + InplaceIntroduceParameterPopup.class.getName());
+  private static final Logger LOG = Logger.getInstance(InplaceIntroduceParameterPopup.class);
 
   private final PsiMethod myMethod;
   private final PsiMethod myMethodToSearchFor;
@@ -95,6 +91,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
         restartInplaceIntroduceTemplate();
       }
 
+      @Override
       protected TIntArrayList getParametersToRemove() {
         TIntArrayList parameters = new TIntArrayList();
         if (myCbReplaceAllOccurences == null || myCbReplaceAllOccurences.isSelected()) {
@@ -113,16 +110,13 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   @Override
   protected PsiVariable createFieldToStartTemplateOn(final String[] names, final PsiType defaultType) {
     final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myMethod.getProject());
-    return ApplicationManager.getApplication().runWriteAction(new Computable<PsiParameter>() {
-      @Override
-      public PsiParameter compute() {
-        final PsiParameter anchor = JavaIntroduceParameterMethodUsagesProcessor.getAnchorParameter(myMethod);
-        final PsiParameter psiParameter = (PsiParameter)myMethod.getParameterList()
-          .addAfter(elementFactory.createParameter(chooseName(names, myMethod.getLanguage()), defaultType), anchor);
-        PsiUtil.setModifierProperty(psiParameter, PsiModifier.FINAL, myPanel.hasFinalModifier());
-        myParameterIndex = myMethod.getParameterList().getParameterIndex(psiParameter);
-        return psiParameter;
-      }
+    return WriteAction.compute(() -> {
+      final PsiParameter anchor = JavaIntroduceParameterMethodUsagesProcessor.getAnchorParameter(myMethod);
+      final PsiParameter psiParameter = (PsiParameter)myMethod.getParameterList()
+        .addAfter(elementFactory.createParameter(chooseName(names, myMethod.getLanguage()), defaultType), anchor);
+      PsiUtil.setModifierProperty(psiParameter, PsiModifier.FINAL, myPanel.hasFinalModifier());
+      myParameterIndex = myMethod.getParameterList().getParameterIndex(psiParameter);
+      return psiParameter;
     });
   }
 
@@ -182,6 +176,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
     myPanel.saveSettings(JavaRefactoringSettings.getInstance());
   }
 
+  @Override
   protected void performIntroduce() {
     boolean isDeleteLocalVariable = false;
 
@@ -218,7 +213,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
       if (ApplicationManager.getApplication().isUnitTestMode()) {
         performRefactoring.run();
       } else {
-        ApplicationManager.getApplication().invokeLater(performRefactoring);
+        TransactionGuard.getInstance().submitTransactionLater(myProject, performRefactoring);
       }
     };
     CommandProcessor.getInstance().executeCommand(myProject, runnable, getCommandName(), null);
@@ -287,7 +282,7 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   private static TextAttributes getTestAttributesForRemoval() {
     final TextAttributes textAttributes = new TextAttributes();
     textAttributes.setEffectType(EffectType.STRIKEOUT);
-    textAttributes.setEffectColor(Color.BLACK);
+    textAttributes.setEffectColor(JBColor.BLACK);
     return textAttributes;
   }
 
@@ -297,17 +292,15 @@ public class InplaceIntroduceParameterPopup extends AbstractJavaInplaceIntroduce
   }
 
   private void normalizeParameterIdxAccordingToRemovedParams(TIntArrayList parametersToRemove) {
-    parametersToRemove.forEach(new TIntProcedure() {
-      @Override
-      public boolean execute(int value) {
-        if (myParameterIndex >= value) {
-          myParameterIndex--;
-        }
-        return true;
+    parametersToRemove.forEach(value -> {
+      if (myParameterIndex >= value) {
+        myParameterIndex--;
       }
+      return true;
     });
   }
 
+  @Override
   public void setReplaceAllOccurrences(boolean replaceAll) {
     myPanel.setReplaceAllOccurrences(replaceAll);
   }

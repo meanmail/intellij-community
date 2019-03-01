@@ -51,6 +51,8 @@ public class SuperTearDownInFinallyInspection extends BaseInspection {
 
     @Override
     public void visitMethodCallExpression(PsiMethodCallExpression expression) {
+      if (!MethodCallUtils.hasSuperQualifier(expression)) return;
+
       final PsiMethod method = PsiTreeUtil.getParentOfType(expression, PsiMethod.class, true, PsiMember.class, PsiLambdaExpression.class);
       if (method == null || !method.getName().equals("tearDown")) {
         return;
@@ -59,7 +61,7 @@ public class SuperTearDownInFinallyInspection extends BaseInspection {
         return;
       }
       final PsiClass containingClass = method.getContainingClass();
-      if (!InheritanceUtil.isInheritor(containingClass, "junit.framework.TestCase")) {
+      if (!InheritanceUtil.isInheritor(containingClass, JUnitCommonClassNames.JUNIT_FRAMEWORK_TEST_CASE)) {
         return;
       }
       final PsiTryStatement tryStatement =
@@ -87,7 +89,7 @@ public class SuperTearDownInFinallyInspection extends BaseInspection {
       private final PsiElement myIgnore;
       private boolean nonTrivialActivity = false;
 
-      public NonTrivialActivityVisitor(PsiElement ignore) {
+      NonTrivialActivityVisitor(PsiElement ignore) {
         myIgnore = ignore;
       }
 

@@ -18,8 +18,8 @@ package org.jetbrains.jps.maven.compiler;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.builders.BuildTargetType;
 import org.jetbrains.jps.incremental.BuilderService;
-import org.jetbrains.jps.incremental.ModuleLevelBuilder;
 import org.jetbrains.jps.incremental.TargetBuilder;
+import org.jetbrains.jps.maven.model.impl.MavenAnnotationProcessorTargetType;
 import org.jetbrains.jps.maven.model.impl.MavenResourcesTargetType;
 
 import java.util.Arrays;
@@ -28,23 +28,18 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 10/21/12
  */
 public class MavenBuilderService extends BuilderService{
   @NotNull
   @Override
   public List<? extends BuildTargetType<?>> getTargetTypes() {
-    return Arrays.asList(MavenResourcesTargetType.PRODUCTION, MavenResourcesTargetType.TEST);
+    return Arrays.asList(MavenResourcesTargetType.PRODUCTION, MavenResourcesTargetType.TEST,
+                         MavenAnnotationProcessorTargetType.PRODUCTION, MavenAnnotationProcessorTargetType.TESTS);
   }
 
   @NotNull
   @Override
   public List<? extends TargetBuilder<?, ?>> createBuilders() {
     return Collections.singletonList(new MavenResourcesBuilder());
-  }
-
-  @NotNull
-  public List<? extends ModuleLevelBuilder> createModuleLevelBuilders() {
-    return Collections.singletonList(new DependencyResolvingBuilder());
   }
 }

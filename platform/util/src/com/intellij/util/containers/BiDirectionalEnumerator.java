@@ -21,18 +21,19 @@ import gnu.trove.TObjectProcedure;
 import org.jetbrains.annotations.NotNull;
 
 public class BiDirectionalEnumerator<T> extends Enumerator<T> {
-  @NotNull private final TIntObjectHashMap<T> myIntToObjectMap;
+  @NotNull
+  private final TIntObjectHashMap<T> myIntToObjectMap;
 
   public BiDirectionalEnumerator(int expectNumber, @NotNull TObjectHashingStrategy<T> strategy) {
     super(expectNumber, strategy);
 
-    myIntToObjectMap = new TIntObjectHashMap<T>(expectNumber);
+    myIntToObjectMap = new TIntObjectHashMap<>(expectNumber);
   }
 
   @Override
   public int enumerateImpl(T object) {
     int index = super.enumerateImpl(object);
-    myIntToObjectMap.put(index, object);
+    myIntToObjectMap.put(Math.max(index, -index), object);
     return index;
   }
 
@@ -44,11 +45,11 @@ public class BiDirectionalEnumerator<T> extends Enumerator<T> {
 
   @NotNull
   public T getValue(int index) {
-    T hash = myIntToObjectMap.get(index);
-    if (hash == null) {
+    T value = myIntToObjectMap.get(index);
+    if (value == null) {
       throw new RuntimeException("Can not find value by index " + index);
     }
-    return hash;
+    return value;
   }
 
   public void forEachValue(@NotNull TObjectProcedure<T> procedure) {

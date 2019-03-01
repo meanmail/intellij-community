@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,11 +20,11 @@ import gnu.trove.TObjectIntProcedure;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.dataFlow.Semilattice;
 
-import java.util.ArrayList;
+import java.util.List;
 
 public class WritesCounterSemilattice<T> implements Semilattice<TObjectIntHashMap<T>> {
 
-  private static <T> void merge(final TObjectIntHashMap<T> to, TObjectIntHashMap<T> from) {
+  private static <T> void merge(final TObjectIntHashMap<? super T> to, TObjectIntHashMap<T> from) {
     from.forEachEntry(new TObjectIntProcedure<T>() {
       @Override
       public boolean execute(T key, int value) {
@@ -39,7 +39,7 @@ public class WritesCounterSemilattice<T> implements Semilattice<TObjectIntHashMa
 
   @NotNull
   @Override
-  public TObjectIntHashMap<T> join(@NotNull ArrayList<TObjectIntHashMap<T>> ins) {
+  public TObjectIntHashMap<T> join(@NotNull List<? extends TObjectIntHashMap<T>> ins) {
     final TObjectIntHashMap<T> result = new TObjectIntHashMap<>();
     for (TObjectIntHashMap<T> i : ins) {
       merge(result, i);
@@ -48,7 +48,7 @@ public class WritesCounterSemilattice<T> implements Semilattice<TObjectIntHashMa
   }
 
   @Override
-  public boolean eq(TObjectIntHashMap<T> e1, TObjectIntHashMap<T> e2) {
+  public boolean eq(@NotNull TObjectIntHashMap<T> e1, @NotNull TObjectIntHashMap<T> e2) {
     return e1.equals(e2);
   }
 }

@@ -17,6 +17,8 @@ package com.intellij.util;
 
 import com.intellij.openapi.util.Pair;
 
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -44,7 +46,10 @@ public class Functions {
     return Function.ID;
   }
 
-  public static <A, B, C> Function<A, C> compose(final Function<A, B> f1, final Function<B, ? extends C> f2) {
+  public static <A, B, C> Function<A, C> compose(final Function<? super A, ? extends B> f1, final Function<B, ? extends C> f2) {
+    if (f1 == Function.ID || f2 == Function.ID) {
+      return f1 == f2 ? Function.ID : f1 == Function.ID ? f2 : f1;
+    } 
     return new Function<A, C>() {
       public C fun(A a) {
         return f2.fun(f1.fun(a));
@@ -56,7 +61,7 @@ public class Functions {
     return Function.TO_STRING;
   }
 
-  public static <A, B> Function<A, B> fromMap(final Map<A, B> map) {
+  public static <A, B> Function<A, B> fromMap(final Map<? super A, ? extends B> map) {
     return new Function<A, B>() {
       public B fun(A a) {
         return map.get(a);
@@ -94,11 +99,13 @@ public class Functions {
     return (Function<Pair<?, B>, B>)PAIR_SECOND;
   }
 
-  public static Function.Mono<Integer> intIncrement() {
-    return new Function.Mono<Integer>() {
-      public Integer fun(Integer integer) {
-        return integer + 1;
-      }
-    };
+  private static final Function WRAP_ARRAY = new Function<Object[], Iterable<Object>>() {
+    public Iterable<Object> fun(Object[] t) {
+      return t == null ? Collections.emptyList() : Arrays.asList(t);
+    }
+  };
+
+  public static <T> Function<T[], Iterable<T>> wrapArray() {
+    return (Function<T[], Iterable<T>>)WRAP_ARRAY;
   }
 }

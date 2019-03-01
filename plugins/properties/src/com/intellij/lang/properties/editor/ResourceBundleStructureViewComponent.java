@@ -56,14 +56,15 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
 
   private final ResourceBundle myResourceBundle;
 
-  public ResourceBundleStructureViewComponent(final ResourceBundle resourceBundle,
-                                              final ResourceBundleEditor editor) {
+  public ResourceBundleStructureViewComponent(@NotNull final ResourceBundle resourceBundle,
+                                              @NotNull final ResourceBundleEditor editor) {
     super(resourceBundle.getProject(), editor, new ResourceBundleStructureViewModel(resourceBundle));
     myResourceBundle = resourceBundle;
     tunePopupActionGroup();
     getTree().setCellRenderer(new ResourceBundleEditorRenderer());
   }
 
+  @NotNull
   @Override
   protected ActionGroup createActionGroup() {
     final DefaultActionGroup result = (DefaultActionGroup) super.createActionGroup();
@@ -72,7 +73,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
   }
 
   @Override
-  protected void addGroupByActions(final DefaultActionGroup result) {
+  protected void addGroupByActions(@NotNull final DefaultActionGroup result) {
     super.addGroupByActions(result);
     result.add(new NewPropertyAction(true), Constraints.FIRST);
   }
@@ -95,7 +96,8 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
     return PsiFile.EMPTY_ARRAY;
   }
 
-  public Object getData(final String dataId) {
+  @Override
+  public Object getData(@NotNull final String dataId) {
     if (CommonDataKeys.VIRTUAL_FILE.is(dataId)) {
       return new ResourceBundleAsVirtualFile(myResourceBundle);
     } else if (PlatformDataKeys.FILE_EDITOR.is(dataId)) {
@@ -132,7 +134,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
           }
         }
       }
-      return elements.toArray(new PsiElement[elements.size()]);
+      return elements.toArray(PsiElement.EMPTY_ARRAY);
     }
     else if (PlatformDataKeys.DELETE_ELEMENT_PROVIDER.is(dataId)) {
       if (getSelectedPsiFiles().length != 0) {
@@ -183,6 +185,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
     return super.getData(dataId);
   }
 
+  @Override
   protected boolean showScrollToFromSourceActions() {
     return false;
   }
@@ -225,6 +228,7 @@ public class ResourceBundleStructureViewComponent extends PropertiesGroupingStru
     }
   }
 
+  @Override
   @NonNls
   public String getHelpID() {
     return "editing.propertyFile.bundleEditor";

@@ -20,7 +20,9 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.ContainerUtil;
+import git4idea.GitUtil;
 import git4idea.config.GitConfigUtil;
+import git4idea.config.GitVersionSpecialty;
 import git4idea.util.StringScanner;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -48,7 +50,7 @@ class GitInteractiveRebaseFile {
     final StringScanner s = new StringScanner(FileUtil.loadFile(new File(myFile), encoding));
     boolean noop = false;
     while (s.hasMoreData()) {
-      if (s.isEol() || s.startsWith('#')) {
+      if (s.isEol() || isComment(s)) {
         s.nextLine();
         continue;
       }
@@ -69,28 +71,26 @@ class GitInteractiveRebaseFile {
     return entries;
   }
 
+  private boolean isComment(@NotNull StringScanner s) {
+    String commentChar = GitVersionSpecialty.KNOWS_CORE_COMMENT_CHAR.existsIn(myProject) ?
+                         GitUtil.COMMENT_CHAR : "#";
+    return s.startsWith(commentChar);
+  }
+
   public void cancel() throws IOException {
-    PrintWriter out = new PrintWriter(new FileWriter(myFile));
-    try {
+    try (PrintWriter out = new PrintWriter(new FileWriter(myFile))) {
       out.println("# rebase is cancelled");
-    }
-    finally {
-      out.close();
     }
   }
 
   public void save(@NotNull List<GitRebaseEntry> entries) throws IOException {
     String encoding = GitConfigUtil.getLogEncoding(myProject, myRoot);
-    PrintWriter out = new PrintWriter(new OutputStreamWriter(new FileOutputStream(myFile), encoding));
-    try {
+    try (PrintWriter out = new PrintWriter(new OutputStreamWriter(new FileOutputStream(myFile), encoding))) {
       for (GitRebaseEntry e : entries) {
-        if (e.getAction() != GitRebaseEntry.Action.skip) {
+        if (e.getAction() != GitRebaseEntry.Action.SKIP) {
           out.println(e.getAction().toString() + " " + e.getCommit() + " " + e.getSubject());
         }
       }
-    }
-    finally {
-      out.close();
     }
   }
 

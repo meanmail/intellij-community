@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template;
 
 import com.intellij.codeInsight.template.impl.TemplateImpl;
@@ -24,6 +10,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
+import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiDocumentManager;
@@ -51,18 +38,19 @@ public class CustomTemplateCallback {
   private final int myOffset;
   @NotNull private final Project myProject;
   private final boolean myInInjectedFragment;
-  private Set<TemplateContextType> myApplicableContextTypes;
+  protected Set<TemplateContextType> myApplicableContextTypes;
 
   public CustomTemplateCallback(@NotNull Editor editor, @NotNull PsiFile file) {
     myProject = file.getProject();
     myTemplateManager = TemplateManager.getInstance(myProject);
 
-    myOffset = getOffset(editor);
-    PsiElement element = InjectedLanguageUtil.findInjectedElementNoCommit(file, myOffset);
+    int parentEditorOffset = getOffset(editor);
+    PsiElement element = InjectedLanguageManager.getInstance(file.getProject()).findInjectedElementAt(file, parentEditorOffset);
     myFile = element != null ? element.getContainingFile() : file;
 
     myInInjectedFragment = InjectedLanguageManager.getInstance(myProject).isInjectedFragment(myFile);
-    myEditor = myInInjectedFragment ? InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file, myOffset) : editor;
+    myEditor = myInInjectedFragment ? InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(editor, file, parentEditorOffset) : editor;
+    myOffset = myInInjectedFragment ? getOffset(myEditor) : parentEditorOffset;
   }
 
   public TemplateManager getTemplateManager() {
@@ -84,7 +72,8 @@ public class CustomTemplateCallback {
   }
 
   public static int getOffset(@NotNull Editor editor) {
-    return Math.max(editor.getSelectionModel().getSelectionStart() - 1, 0);
+    SelectionModel selectionModel = editor.getSelectionModel();
+    return selectionModel.hasSelection() ? selectionModel.getSelectionStart() : Math.max(editor.getCaretModel().getOffset() - 1, 0);
   }
 
   @Nullable
@@ -169,7 +158,7 @@ public class CustomTemplateCallback {
                      AttachmentFactory.createAttachment(file.getVirtualFile()));
       }
       else {
-        element = InjectedLanguageUtil.findInjectedElementNoCommit(file, offset);
+        element = InjectedLanguageManager.getInstance(file.getProject()).findInjectedElementAt(file, offset);
       }
     }
     if (element == null) {

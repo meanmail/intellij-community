@@ -42,6 +42,21 @@ public class CreateModuleLibraryFromFilesTest extends ModuleRootManagerTestCase 
     myModifiableModel = myModifiableRootModel.getModuleLibraryTable().getModifiableModel();
   }
 
+  @Override
+  protected void tearDown() throws Exception {
+    try {
+      myModifiableRootModel.dispose();
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      myModifiableModel = null;
+      myModifiableRootModel = null;
+      super.tearDown();
+    }
+  }
+
   public void testSingleJar() {
     Library library = assertOneElement(createLibraries(new OrderRoot(getJDomJar(), OrderRootType.CLASSES)));
     assertNull(library.getName());
@@ -102,15 +117,5 @@ public class CreateModuleLibraryFromFilesTest extends ModuleRootManagerTestCase 
   @NotNull
   private List<Library> createLibraries(OrderRoot... roots) {
     return CreateModuleLibraryChooser.createLibrariesFromRoots(Arrays.asList(roots), myModifiableModel);
-  }
-
-  @Override
-  protected void tearDown() throws Exception {
-    try {
-      myModifiableRootModel.dispose();
-    }
-    finally {
-      super.tearDown();
-    }
   }
 }

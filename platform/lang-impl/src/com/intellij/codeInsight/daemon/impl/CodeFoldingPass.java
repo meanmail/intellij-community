@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,7 @@ class CodeFoldingPass extends EditorBoundHighlightingPass implements PossiblyDum
     return file.getUserData(key) == null || editor.getUserData(key) == null;
   }
 
-  static void clearFirstTimeFlag(PsiFile file, Editor editor, Key<Boolean> key) {
+  static void clearFirstTimeFlag(PsiFile file, Editor editor, Key<? super Boolean> key) {
     file.putUserData(key, Boolean.FALSE);
     editor.putUserData(key, Boolean.FALSE);
   }

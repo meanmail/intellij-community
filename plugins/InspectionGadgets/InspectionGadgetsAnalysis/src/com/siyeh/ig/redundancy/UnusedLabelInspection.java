@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 public class UnusedLabelInspection extends BaseInspection {
@@ -56,15 +57,10 @@ public class UnusedLabelInspection extends BaseInspection {
   }
 
   private static class UnusedLabelFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "unused.label.remove.quickfix");
     }
@@ -81,8 +77,9 @@ public class UnusedLabelInspection extends BaseInspection {
       if (statement == null) {
         return;
       }
-      final String statementText = statement.getText();
-      PsiReplacementUtil.replaceStatement(labeledStatement, statementText);
+      CommentTracker commentTracker = new CommentTracker();
+      final String statementText = commentTracker.text(statement);
+      PsiReplacementUtil.replaceStatement(labeledStatement, statementText, commentTracker);
     }
   }
 

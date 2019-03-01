@@ -1,6 +1,6 @@
 /*
  * Copyright 2006 ProductiveMe Inc.
- * Copyright 2013 JetBrains s.r.o.
+ * Copyright 2013-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,15 +17,14 @@
 
 package com.pme.launcher;
 
-import org.apache.sanselan.ImageFormat;
-import org.apache.sanselan.Sanselan;
+import org.apache.commons.imaging.ImageFormats;
+import org.apache.commons.imaging.Imaging;
 import org.jdom.Document;
 import org.jdom.Element;
 import org.jdom.input.SAXBuilder;
 
 import java.awt.image.BufferedImage;
 import java.io.*;
-import java.nio.charset.Charset;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -69,7 +68,7 @@ public class LauncherGeneratorMain {
     }
 
     Element appInfoRoot = appInfo.getRootElement();
-    String splashUrl = appInfoRoot.getChild("logo").getAttributeValue("url");
+    String splashUrl = getChild(appInfoRoot, "logo").getAttributeValue("url");
     if (splashUrl.startsWith("/")) {
       splashUrl = splashUrl.substring(1);
     }
@@ -81,15 +80,15 @@ public class LauncherGeneratorMain {
 
     ByteArrayOutputStream splashBmpStream = new ByteArrayOutputStream();
     try {
-      BufferedImage bufferedImage = Sanselan.getBufferedImage(splashStream);
-      Sanselan.writeImage(bufferedImage, splashBmpStream, ImageFormat.IMAGE_FORMAT_BMP, new HashMap());
+      BufferedImage bufferedImage = Imaging.getBufferedImage(splashStream);
+      Imaging.writeImage(bufferedImage, splashBmpStream, ImageFormats.BMP, new HashMap());
     }
     catch (Exception e) {
       System.err.println("Error converting splash screen to BMP: " + e.getMessage());
       System.exit(6);
     }
 
-    String icoUrl = appInfoRoot.getChild("icon").getAttributeValue("ico");
+    String icoUrl = getChild(appInfoRoot, "icon").getAttributeValue("ico");
     if (icoUrl == null) {
       System.err.println(".ico file URL not specified in application info file " + appInfoFileName);
       System.exit(11);
@@ -125,11 +124,11 @@ public class LauncherGeneratorMain {
       System.exit(8);
     }
 
-    String companyName = appInfoRoot.getChild("company").getAttributeValue("name");
-    Element names = appInfoRoot.getChild("names");
+    String companyName = getChild(appInfoRoot, "company").getAttributeValue("name");
+    Element names = getChild(appInfoRoot, "names");
     String productShortName = names.getAttributeValue("product");
-    String productFullName = names.getAttributeValue("fullname");
-    Element versionElement = appInfoRoot.getChild("version");
+    String productFullName = names.getAttributeValue("fullname", productShortName);
+    Element versionElement = getChild(appInfoRoot, "version");
     int majorVersion = Integer.parseInt(versionElement.getAttributeValue("major"));
     String minorVersionString = versionElement.getAttributeValue("minor");
     Pattern p = Pattern.compile("(\\d+)(\\.(\\d+))?");
@@ -139,7 +138,7 @@ public class LauncherGeneratorMain {
     }
     int minorVersion = Integer.parseInt(matcher.group(1));
     int bugfixVersion = matcher.group(3) != null ? Integer.parseInt(matcher.group(3)) : 0;
-    String buildNumber = appInfoRoot.getChild("build").getAttributeValue("number");
+    String buildNumber = getChild(appInfoRoot, "build").getAttributeValue("number");
     String versionString = "" + majorVersion + "." + minorVersion + "." + bugfixVersion + "." + buildNumber;
 
     int year = new GregorianCalendar().get(Calendar.YEAR);
@@ -175,6 +174,10 @@ public class LauncherGeneratorMain {
       e.printStackTrace();
       System.exit(10);
     }
+  }
+
+  private static Element getChild(Element appInfoRoot, String logo) {
+    return appInfoRoot.getChild(logo, appInfoRoot.getNamespace());
   }
 
   private static Map<String, Integer> loadResourceIDs(String arg) throws IOException {

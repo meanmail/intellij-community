@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,7 +15,6 @@
  */
 package com.siyeh.ipp.base;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.BaseElementAtCaretIntentionAction;
 import com.intellij.lang.java.JavaLanguage;
 import com.intellij.openapi.editor.Editor;
@@ -24,8 +23,8 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.siyeh.IntentionPowerPackBundle;
 import com.siyeh.ig.psiutils.BoolUtils;
-import com.siyeh.ig.psiutils.ComparisonUtils;
-import com.siyeh.ig.psiutils.ParenthesesUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,7 +33,7 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
   private final PsiElementPredicate predicate;
 
   /**
-   * @noinspection AbstractMethodCallInConstructor, OverridableMethodCallInConstructor
+   * @noinspection AbstractMethodCallInConstructor
    */
   protected Intention() {
     predicate = getElementPredicate();
@@ -42,9 +41,6 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element){
-    if (prepareForWriting() && !FileModificationService.getInstance().preparePsiElementsForWrite(element)) {
-      return;
-    }
     final PsiElement matchingElement = findMatchingElement(element, editor);
     if (matchingElement == null) {
       return;
@@ -52,12 +48,8 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
     processIntention(editor, matchingElement);
   }
 
-  protected boolean prepareForWriting() {
-    return true;
-  }
-
   protected abstract void processIntention(@NotNull PsiElement element);
-  
+
   protected void processIntention(Editor editor, @NotNull PsiElement element) {
     processIntention(element);
   }
@@ -65,7 +57,7 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
   @NotNull
   protected abstract PsiElementPredicate getElementPredicate();
 
-  protected static void replaceExpressionWithNegatedExpressionString(@NotNull String newExpression, @NotNull PsiExpression expression) {
+  protected static void replaceExpressionWithNegatedExpressionString(@NotNull String newExpression, @NotNull PsiExpression expression, CommentTracker tracker) {
     final Project project = expression.getProject();
     final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
     final PsiElementFactory factory = psiFacade.getElementFactory();
@@ -83,12 +75,20 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
       }
       expString = "!(" + newExpression + ')';
     }
-    final PsiExpression newCall = factory.createExpressionFromText(expString, expression);
     assert expressionToReplace != null;
-    final PsiElement insertedElement = expressionToReplace.replace(newCall);
-    final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(project);
-    codeStyleManager.reformat(insertedElement);
+    PsiExpression newCall = factory.createExpressionFromText(expString, expression);
+    if (newCall instanceof PsiPolyadicExpression) {
+      PsiElement insertedElement = ExpressionUtils.replacePolyadicWithParent(expressionToReplace, newCall);
+      if (insertedElement != null) {
+        CodeStyleManager.getInstance(project).reformat(insertedElement);
+        return;
+      }
+    }
+
+    PsiElement insertedElement = tracker.replaceAndRestoreComments(expressionToReplace, newCall);
+    CodeStyleManager.getInstance(project).reformat(insertedElement);
   }
+
 
   @Nullable
   PsiElement findMatchingElement(@Nullable PsiElement element, Editor editor) {
@@ -117,11 +117,6 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
     return findMatchingElement(element, editor) != null;
   }
 
-  @Override
-  public boolean startInWriteAction() {
-    return true;
-  }
-
   private String getPrefix() {
     final Class<? extends Intention> aClass = getClass();
     final String name = aClass.getSimpleName();
@@ -143,13 +138,12 @@ public abstract class Intention extends BaseElementAtCaretIntentionAction {
   @Override
   @NotNull
   public String getText() {
-    //noinspection UnresolvedPropertyKey
     return IntentionPowerPackBundle.message(getPrefix() + ".name");
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
-    //noinspection UnresolvedPropertyKey
     return IntentionPowerPackBundle.defaultableMessage(getPrefix() + ".family.name");
   }
 }

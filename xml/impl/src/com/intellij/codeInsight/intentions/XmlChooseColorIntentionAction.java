@@ -18,7 +18,6 @@ package com.intellij.codeInsight.intentions;
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -60,11 +59,17 @@ public class XmlChooseColorIntentionAction extends PsiElementBaseIntentionAction
   }
 
   @Override
-  public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
-    chooseColor(editor.getComponent(), element, getText(), false);
+  public boolean startInWriteAction() {
+    return false;
   }
 
-  public static void chooseColor(JComponent editorComponent, PsiElement element, String caption, boolean startInWriteAction) {
+  @Override
+  public void invoke(@NotNull Project project, Editor editor, @NotNull PsiElement element) throws IncorrectOperationException {
+    chooseColor(editor.getComponent(), element);
+  }
+
+  public static void chooseColor(JComponent editorComponent, PsiElement element) {
+    String caption = CodeInsightBundle.message("intention.color.chooser.dialog");
     final XmlAttributeValue literal = PsiTreeUtil.getParentOfType(element, XmlAttributeValue.class, false);
     if (literal == null) return;
     final String text = StringUtil.unquoteString(literal.getValue());
@@ -76,7 +81,7 @@ public class XmlChooseColorIntentionAction extends PsiElementBaseIntentionAction
     catch (NumberFormatException e) {
       oldColor = JBColor.GRAY;
     }
-    Color color = ColorChooser.chooseColor(editorComponent, caption, oldColor, true);
+    Color color = ColorChooser.chooseColor(element.getProject(), editorComponent, caption, oldColor, true);
     if (color == null) return;
     if (!Comparing.equal(color, oldColor)) {
       if (!FileModificationService.getInstance().preparePsiElementForWrite(element)) return;
@@ -88,16 +93,7 @@ public class XmlChooseColorIntentionAction extends PsiElementBaseIntentionAction
         assert valueElement != null;
         literal.replace(valueElement);
       };
-      if (startInWriteAction) {
-        new WriteCommandAction(element.getProject(), caption) {
-          @Override
-          protected void run(@NotNull Result result) throws Throwable {
-            replaceRunnable.run();
-          }
-        }.execute();
-      } else {
-        replaceRunnable.run();
-      }
+      WriteCommandAction.writeCommandAction(element.getProject()).withName(caption).run(() -> replaceRunnable.run());
     }
   }
 }

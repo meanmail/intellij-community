@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser;
 
+import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.fileTypes.FileTypeManager;
-import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.openapi.vfs.JarFileSystem;
@@ -27,6 +13,7 @@ import com.intellij.ui.LayeredIcon;
 import com.intellij.ui.UIBundle;
 import com.intellij.util.IconUtil;
 import com.intellij.util.PlatformIcons;
+import gnu.trove.THashMap;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -54,8 +41,9 @@ public class FileChooserDescriptor implements Cloneable {
   private boolean myTreeRootVisible = false;
   private boolean myShowHiddenFiles = false;
   private Condition<VirtualFile> myFileFilter = null;
+  private boolean myForcedToUseIdeaFileChooser = false;
 
-  private final Map<String, Object> myUserData = new HashMap<>();
+  private final Map<String, Object> myUserData = new THashMap<>();
 
   /**
    * Creates new instance. Use methods from {@link FileChooserDescriptorFactory} for most used descriptors.
@@ -171,7 +159,8 @@ public class FileChooserDescriptor implements Cloneable {
     return withRoots(Arrays.asList(roots));
   }
 
-  public FileChooserDescriptor withRoots(@NotNull List<VirtualFile> roots) {
+  public FileChooserDescriptor withRoots(@NotNull List<? extends VirtualFile> roots) {
+    if (roots.contains(null)) throw new IllegalArgumentException("'null' in roots: " + roots);
     myRoots.clear();
     myRoots.addAll(roots);
     return this;
@@ -261,17 +250,12 @@ public class FileChooserDescriptor implements Cloneable {
     if (file.isDirectory() && myChooseFolders) {
       return true;
     }
-    if (acceptAsJarFile(file)) {
-      return true;
-    }
-    if (acceptAsGeneralFile(file)) {
-      return true;
-    }
-    if (myFileFilter != null && !file.isDirectory() && myFileFilter.value(file)) {
-      return true;
+
+    if (myFileFilter != null && !file.isDirectory()) {
+      return myFileFilter.value(file);
     }
 
-    return false;
+    return acceptAsJarFile(file) || acceptAsGeneralFile(file);
   }
 
   public Icon getIcon(final VirtualFile file) {
@@ -297,7 +281,15 @@ public class FileChooserDescriptor implements Cloneable {
    * @param files - selected files to be checked
    * @throws Exception if the the files cannot be accepted
    */
-  public void validateSelectedFiles(VirtualFile[] files) throws Exception {
+  public void validateSelectedFiles(@NotNull VirtualFile[] files) throws Exception {
+  }
+
+  public boolean isForcedToUseIdeaFileChooser() {
+    return myForcedToUseIdeaFileChooser;
+  }
+
+  public void setForcedToUseIdeaFileChooser(boolean forcedToUseIdeaFileChooser) {
+    myForcedToUseIdeaFileChooser = forcedToUseIdeaFileChooser;
   }
 
   private boolean acceptAsGeneralFile(VirtualFile file) {
@@ -314,7 +306,7 @@ public class FileChooserDescriptor implements Cloneable {
     if (file.isDirectory() && (myChooseFolders || isFileSelectable(file))) {
       return file;
     }
-    boolean isJar = file.getFileType() == FileTypes.ARCHIVE;
+    boolean isJar = file.getFileType() == ArchiveFileType.INSTANCE;
     if (!isJar) {
       return acceptAsGeneralFile(file) ? file : null;
     }
@@ -339,7 +331,7 @@ public class FileChooserDescriptor implements Cloneable {
   }
 
   @Nullable
-  public Object getUserData(String dataId) {
+  public Object getUserData(@NotNull String dataId) {
     return myUserData.get(dataId);
   }
 

@@ -27,7 +27,6 @@ import java.util.List;
  * Used to group ordered collections of {@link StdArrangementTokens} along with their {@link StdArrangementTokenUiRole roles}.
  * 
  * @author Denis Zhdanov
- * @since 3/6/13 8:01 PM
  */
 public class CompositeArrangementSettingsToken {
 
@@ -40,7 +39,7 @@ public class CompositeArrangementSettingsToken {
   @NotNull private final StdArrangementTokenUiRole myRole;
 
   /**
-   * Creates new <code>CompositeArrangementSettingsToken</code> object with no nested tokens.
+   * Creates new {@code CompositeArrangementSettingsToken} object with no nested tokens.
    * <p/>
    * <b>Note:</b> given token is expected to be one of {@link StdArrangementTokens standard tokens} because
    * {@link StdArrangementTokenUiRole its role} is deduced.
@@ -48,11 +47,11 @@ public class CompositeArrangementSettingsToken {
    * @param token  token to wrap
    */
   public CompositeArrangementSettingsToken(@NotNull ArrangementSettingsToken token) {
-    this(token, deduceRole(token), Collections.<CompositeArrangementSettingsToken>emptyList());
+    this(token, deduceRole(token), Collections.emptyList());
   }
 
   /**
-   * Creates new <code>CompositeArrangementSettingsToken</code> object with the given token and all given children
+   * Creates new {@code CompositeArrangementSettingsToken} object with the given token and all given children
    * assuming that every child {@link CompositeArrangementSettingsToken} will have no children.
    * <p/>
    * <b>Note:</b> given tokens are expected to be from {@link StdArrangementTokens standard tokens} because
@@ -68,14 +67,14 @@ public class CompositeArrangementSettingsToken {
   }
 
   public CompositeArrangementSettingsToken(@NotNull ArrangementSettingsToken token,
-                                           @NotNull Collection<ArrangementSettingsToken> children)
+                                           @NotNull Collection<? extends ArrangementSettingsToken> children)
   {
     this(token, deduceRole(token), ContainerUtilRt.map2List(children, WRAPPER));
   }
 
   public CompositeArrangementSettingsToken(@NotNull ArrangementSettingsToken token,
                                            @NotNull StdArrangementTokenUiRole role,
-                                           @NotNull List<CompositeArrangementSettingsToken> children)
+                                           @NotNull List<? extends CompositeArrangementSettingsToken> children)
   {
     myToken = token;
     myRole = role;

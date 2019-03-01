@@ -1,26 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.stubs;
 
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
-import com.intellij.util.io.StringRef;
-import com.jetbrains.python.psi.PyExpression;
-import com.jetbrains.python.psi.impl.PropertyBunch;
 import com.intellij.psi.util.QualifiedName;
+import com.jetbrains.python.PyNames;
+import com.jetbrains.python.psi.PyExpression;
+import com.jetbrains.python.psi.PyNoneLiteralExpression;
+import com.jetbrains.python.psi.impl.PropertyBunch;
 import com.jetbrains.python.psi.impl.stubs.CustomTargetExpressionStub;
 import com.jetbrains.python.psi.impl.stubs.CustomTargetExpressionStubType;
 import com.jetbrains.python.psi.impl.stubs.PropertyStubType;
@@ -33,14 +20,16 @@ import java.io.IOException;
 /**
  * Packs property description for storage in a stub.
  * User: dcheryasov
- * Date: Jun 3, 2010 6:46:01 AM
  */
 public class PropertyStubStorage extends PropertyBunch<String> implements CustomTargetExpressionStub {
 
   @NotNull
   @Override
   protected Maybe<String> translate(@Nullable PyExpression ref) {
-    if (ref != null) {
+    if (ref instanceof PyNoneLiteralExpression) {
+      return new Maybe<>(PyNames.NONE);
+    }
+    else if (ref != null) {
       final String name = ref.getName();
       return name != null ? new Maybe<>(name) : unknown;
     }
@@ -60,6 +49,7 @@ public class PropertyStubStorage extends PropertyBunch<String> implements Custom
     return PropertyStubType.class;
   }
 
+  @Override
   public void serialize(StubOutputStream stream) throws IOException {
     writeOne(myGetter, stream);
     writeOne(mySetter, stream);
@@ -78,8 +68,7 @@ public class PropertyStubStorage extends PropertyBunch<String> implements Custom
     me.mySetter  = readOne(stream);
     me.myDeleter = readOne(stream);
     //
-    StringRef ref = stream.readName();
-    me.myDoc = ref != null? ref.getString() : null;
+    me.myDoc = stream.readNameString();
     return me;
   }
 
@@ -88,10 +77,9 @@ public class PropertyStubStorage extends PropertyBunch<String> implements Custom
 
   @Nullable
   private static Maybe<String> readOne(StubInputStream stream) throws IOException {
-    StringRef ref = stream.readName();
-    if (ref == null) return none;
+    String s = stream.readNameString();
+    if (s == null) return none;
     else {
-      String s = ref.getString();
       if (IMPOSSIBLE_NAME.equals(s)) return unknown;
       else return new Maybe<>(s);
     }

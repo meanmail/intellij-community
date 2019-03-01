@@ -31,7 +31,7 @@ public final class GitRefNameValidator implements InputValidator {
   private static final GitRefNameValidator INSTANCE = new GitRefNameValidator();
 
   // illegal control characters - from 0 to 31 and 7F (DEL)
-  private static String CONTROL_CHARS;
+  private static final String CONTROL_CHARS;
   static {
     StringBuilder sb = new StringBuilder();
     sb.append("[");
@@ -69,6 +69,6 @@ public final class GitRefNameValidator implements InputValidator {
 
   @NotNull
   public String cleanUpBranchName(@NotNull String branchName) {
-    return branchName.replaceAll(ILLEGAL.pattern(), "_");
+    return branchName.replaceAll(ILLEGAL.pattern(), "_").replaceAll("\"", "");
   }
 }

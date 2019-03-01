@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl.watch;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -32,6 +18,7 @@ import com.intellij.psi.JavaPsiFacade;
 import com.intellij.psi.PsiElementFactory;
 import com.intellij.psi.PsiExpression;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.frame.XValueModifier;
 import com.sun.jdi.*;
 import org.jetbrains.annotations.NotNull;
@@ -47,18 +34,22 @@ public class ArrayElementDescriptorImpl extends ValueDescriptorImpl implements A
     setLvalue(true);
   }
 
+  @Override
   public int getIndex() {
     return myIndex;
   }
 
+  @Override
   public ArrayReference getArray() {
     return myArray;
   }
 
+  @Override
   public String getName() {
     return String.valueOf(myIndex);
   }
 
+  @Override
   public Value calcValue(EvaluationContextImpl evaluationContext) throws EvaluateException {
     return getArrayElement(myArray, myIndex);
   }
@@ -72,8 +63,9 @@ public class ArrayElementDescriptorImpl extends ValueDescriptorImpl implements A
     }
   }
 
+  @Override
   public PsiExpression getDescriptorEvaluation(DebuggerContext context) throws EvaluateException {
-    PsiElementFactory elementFactory = JavaPsiFacade.getInstance(myProject).getElementFactory();
+    PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(myProject);
     try {
       return elementFactory.createExpressionFromText("this[" + myIndex + "]", null);
     }
@@ -86,7 +78,7 @@ public class ArrayElementDescriptorImpl extends ValueDescriptorImpl implements A
   public XValueModifier getModifier(JavaValue value) {
     return new JavaValueModifier(value) {
       @Override
-      protected void setValueImpl(@NotNull String expression, @NotNull XModificationCallback callback) {
+      protected void setValueImpl(@NotNull XExpression expression, @NotNull XModificationCallback callback) {
         final ArrayElementDescriptorImpl elementDescriptor = ArrayElementDescriptorImpl.this;
         final ArrayReference array = elementDescriptor.getArray();
         if (array != null) {
@@ -99,18 +91,22 @@ public class ArrayElementDescriptorImpl extends ValueDescriptorImpl implements A
           final ArrayType arrType = (ArrayType)array.referenceType();
           final DebuggerContextImpl debuggerContext = DebuggerManagerEx.getInstanceEx(getProject()).getContext();
           set(expression, callback, debuggerContext, new SetValueRunnable() {
+            @Override
             public void setValue(EvaluationContextImpl evaluationContext, Value newValue)
               throws ClassNotLoadedException, InvalidTypeException, EvaluateException {
-              array.setValue(elementDescriptor.getIndex(), preprocessValue(evaluationContext, newValue, arrType.componentType()));
+              array.setValue(elementDescriptor.getIndex(), preprocessValue(evaluationContext, newValue, getLType()));
               update(debuggerContext);
             }
 
-            public ReferenceType loadClass(EvaluationContextImpl evaluationContext, String className) throws InvocationException,
-                                                                                                             ClassNotLoadedException,
-                                                                                                             IncompatibleThreadStateException,
-                                                                                                             InvalidTypeException,
-                                                                                                             EvaluateException {
-              return evaluationContext.getDebugProcess().loadClass(evaluationContext, className, arrType.classLoader());
+            @Override
+            public ClassLoaderReference getClassLoader(EvaluationContextImpl evaluationContext) {
+              return arrType.classLoader();
+            }
+
+            @NotNull
+            @Override
+            public Type getLType() throws ClassNotLoadedException {
+              return arrType.componentType();
             }
           });
         }

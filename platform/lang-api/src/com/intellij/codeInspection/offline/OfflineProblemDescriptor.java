@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 05-Jan-2007
- */
 package com.intellij.codeInspection.offline;
 
 import com.intellij.codeInspection.reference.RefEntity;
@@ -27,6 +23,7 @@ import com.intellij.openapi.application.ReadAction;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Objects;
 
 public class OfflineProblemDescriptor {
   public String myType;
@@ -87,7 +84,7 @@ public class OfflineProblemDescriptor {
 
   @Nullable
   public RefEntity getRefElement(final RefManager refManager) {
-    return ReadAction.compute(() -> refManager.getReference(myType, myFQName));
+    return ReadAction.compute(() -> refManager.getProject().isDisposed() ? null : refManager.getReference(myType, myFQName));
   }
 
   public boolean equals(final Object o) {
@@ -98,11 +95,11 @@ public class OfflineProblemDescriptor {
 
     if (myLine != that.myLine) return false;
     if (myProblemIndex != that.myProblemIndex) return false;
-    if (myDescription != null ? !myDescription.equals(that.myDescription) : that.myDescription != null) return false;
-    if (myFQName != null ? !myFQName.equals(that.myFQName) : that.myFQName != null) return false;
-    if (myHints != null ? !myHints.equals(that.myHints) : that.myHints != null) return false;
-    if (myModuleName != null ? !myModuleName.equals(that.myModuleName) : that.myModuleName != null) return false;
-    if (myType != null ? !myType.equals(that.myType) : that.myType != null) return false;
+    if (!Objects.equals(myDescription, that.myDescription)) return false;
+    if (!Objects.equals(myFQName, that.myFQName)) return false;
+    if (!Objects.equals(myHints, that.myHints)) return false;
+    if (!Objects.equals(myModuleName, that.myModuleName)) return false;
+    if (!Objects.equals(myType, that.myType)) return false;
 
     return true;
   }

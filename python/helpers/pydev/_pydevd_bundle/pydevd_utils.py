@@ -7,14 +7,16 @@ try:
 except:
     from urllib.parse import quote  # @UnresolvedImport
 
+try:
+    from collections import OrderedDict
+except:
+    OrderedDict = dict
+
 import inspect
-from _pydevd_bundle.pydevd_constants import IS_PY3K, GC_SUPPORTED
+from _pydevd_bundle.pydevd_constants import IS_PY3K, dict_iter_items
 import sys
 from _pydev_bundle import pydev_log
-try:
-    import gc
-except ImportError:
-    GC_SUPPORTED = False
+
 
 def save_main_module(file, module_name):
     # patch provided by: Scott Schlesier - when script is run, it does not
@@ -29,7 +31,7 @@ def save_main_module(file, module_name):
     m = new_module('__main__')
     sys.modules['__main__'] = m
     if hasattr(sys.modules[module_name], '__loader__'):
-        setattr(m, '__loader__', getattr(sys.modules[module_name], '__loader__'))
+        m.__loader__ = getattr(sys.modules[module_name], '__loader__')
     m.__file__ = file
 
     return m
@@ -54,47 +56,18 @@ def to_number(x):
                 pass
     return None
 
-def compare_object_attrs(x, y):
-    try:
-        if x == y:
-            return 0
-        x_num = to_number(x)
-        y_num = to_number(y)
-        if x_num is not None and y_num is not None:
-            if x_num - y_num<0:
-                return -1
-            else:
-                return 1
-        if '__len__' == x:
-            return -1
-        if '__len__' == y:
-            return 1
 
-        return x.__cmp__(y)
-    except:
-        if IS_PY3K:
-            return (to_string(x) > to_string(y)) - (to_string(x) < to_string(y))
-        else:
-            return cmp(to_string(x), to_string(y))
+def compare_object_attrs_key(x):
+    if '__len__' == x:
+        # __len__ should appear after other attributes in a list.
+        num = 99999999
+    else:
+        num = to_number(x)
+    if num is not None:
+        return 1, num
+    else:
+        return -1, to_string(x)
 
-def cmp_to_key(mycmp):
-    'Convert a cmp= function into a key= function'
-    class K(object):
-        def __init__(self, obj, *args):
-            self.obj = obj
-        def __lt__(self, other):
-            return mycmp(self.obj, other.obj) < 0
-        def __gt__(self, other):
-            return mycmp(self.obj, other.obj) > 0
-        def __eq__(self, other):
-            return mycmp(self.obj, other.obj) == 0
-        def __le__(self, other):
-            return mycmp(self.obj, other.obj) <= 0
-        def __ge__(self, other):
-            return mycmp(self.obj, other.obj) >= 0
-        def __ne__(self, other):
-            return mycmp(self.obj, other.obj) != 0
-    return K
 
 if IS_PY3K:
     def is_string(x):
@@ -127,51 +100,26 @@ else:
 
 def get_clsname_for_code(code, frame):
     clsname = None
-    if GC_SUPPORTED:
-        ## use of gc.get_referrers() was suggested by Michael Hudson
-        # all functions which refer to this code object
-        funcs = [f for f in gc.get_referrers(code)
-                 if inspect.isfunction(f)]
-        # require len(func) == 1 to avoid ambiguity caused by calls to
-        # new.function(): "In the face of ambiguity, refuse the
-        # temptation to guess."
-        if len(funcs) == 1:
-            dicts = [d for d in gc.get_referrers(funcs[0])
-                     if isinstance(d, dict)]
-            if len(dicts) == 1:
-                classes = [c for c in gc.get_referrers(dicts[0])
-                           if hasattr(c, "__bases__") or inspect.isclass(c)]
-            elif len(dicts) > 1:   #new-style classes
-                classes = [c for c in gc.get_referrers(dicts[1])
-                           if hasattr(c, "__bases__") or inspect.isclass(c)]
-            else:
-                classes = []
-
-            if len(classes) == 1:
-                # ditto for new.classobj()
-                clsname = classes[0].__name__
-
-    if clsname is None:
-        # If gc is not supported we are checking the first argument of the function
+    if len(code.co_varnames) > 0:
+        # We are checking the first argument of the function
         # (`self` or `cls` for methods).
-        func_name = code.co_name
-        if len(code.co_varnames) > 0:
-            first_arg_name = code.co_varnames[0]
-            if first_arg_name in frame.f_locals:
-                first_arg_obj = frame.f_locals[first_arg_name]
-                if inspect.isclass(first_arg_obj):  # class method
-                    first_arg_class = first_arg_obj
-                else:  # instance method
-                    first_arg_class = first_arg_obj.__class__
-                if hasattr(first_arg_class, func_name):
-                    method = getattr(first_arg_class, func_name)
-                    func_code = None
-                    if hasattr(method, 'func_code'):  # Python2
-                        func_code = method.func_code
-                    elif hasattr(method, '__code__'):  # Python3
-                        func_code = method.__code__
-                    if func_code and func_code == code:
-                        clsname = first_arg_class.__name__
+        first_arg_name = code.co_varnames[0]
+        if first_arg_name in frame.f_locals:
+            first_arg_obj = frame.f_locals[first_arg_name]
+            if inspect.isclass(first_arg_obj):  # class method
+                first_arg_class = first_arg_obj
+            else:  # instance method
+                first_arg_class = first_arg_obj.__class__
+            func_name = code.co_name
+            if hasattr(first_arg_class, func_name):
+                method = getattr(first_arg_class, func_name)
+                func_code = None
+                if hasattr(method, 'func_code'):  # Python2
+                    func_code = method.func_code
+                elif hasattr(method, '__code__'):  # Python3
+                    func_code = method.__code__
+                if func_code and func_code == code:
+                    clsname = first_arg_class.__name__
     return clsname
 
 
@@ -210,7 +158,7 @@ def not_in_project_roots(filename, filename_to_not_in_scope_cache={}):
             filename = os.path.abspath(filename)
         filename = os.path.normcase(filename)
         for root in project_roots:
-            if filename.startswith(root):
+            if len(root) > 0 and filename.startswith(root):
                 filename_to_not_in_scope_cache[original_filename] = False
                 break
         else: # for else (only called if the break wasn't reached).
@@ -262,4 +210,36 @@ def is_ignored_by_filter(filename, filename_to_ignored_by_filters_cache={}):
             filename_to_ignored_by_filters_cache[filename] = False
 
         return filename_to_ignored_by_filters_cache[filename]
+
+
+def take_first_n_coll_elements(coll, n):
+    if coll.__class__ in (list, tuple):
+        return coll[:n]
+    elif coll.__class__ in (set, frozenset):
+        buf = []
+        for i, x in enumerate(coll):
+            if i >= n:
+                break
+            buf.append(x)
+        return type(coll)(buf)
+    elif coll.__class__ in (dict, OrderedDict):
+        ret = type(coll)()
+        for i, (k, v) in enumerate(dict_iter_items(coll)):
+            if i >= n:
+                break
+            ret[k] = v
+        return ret
+    else:
+        raise TypeError("Unsupported collection type: '%s'" % str(coll.__class__))
+
+
+class VariableWithOffset(object):
+    def __init__(self, data, offset):
+        self.data, self.offset = data, offset
+
+
+def get_var_and_offset(var):
+    if isinstance(var, VariableWithOffset):
+        return var.data, var.offset
+    return var, 0
 

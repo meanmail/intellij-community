@@ -24,10 +24,11 @@ import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.ProcessingContext;
-import com.intellij.util.containers.HashSet;
 import com.intellij.xml.XmlAttributeDescriptor;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.HashSet;
 
 /**
  * @author peter
@@ -82,7 +83,7 @@ public class DomCompletionContributor extends CompletionContributor{
         }
 
         String[] enumeratedValues = XmlAttributeValueGetter.getEnumeratedValues((XmlAttribute)parent);
-        if (enumeratedValues != null && enumeratedValues.length > 0) {
+        if (enumeratedValues.length > 0) {
           String value = descriptor == null ? null : descriptor.getDefaultValue();
           if (value == null || enumeratedValues.length != 1 || !value.equals(enumeratedValues[0])) {
             return true;

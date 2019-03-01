@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -43,11 +29,6 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 
-/**
- * User: lex
- * Date: Sep 26, 2003
- * Time: 5:57:58 PM
- */
 public class ThreadsDebuggerTree extends DebuggerTree {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.impl.ThreadsDebuggerTree");
 
@@ -56,14 +37,17 @@ public class ThreadsDebuggerTree extends DebuggerTree {
     getEmptyText().setText(XDebuggerBundle.message("debugger.threads.not.available"));
   }
 
+  @Override
   protected NodeManagerImpl createNodeManager(Project project) {
     return new NodeManagerImpl(project, this) {
+      @Override
       public String getContextKey(StackFrameProxyImpl frame) {
         return "ThreadsView";
       }
     };
   }
 
+  @Override
   protected boolean isExpandable(DebuggerTreeNodeImpl node) {
     NodeDescriptorImpl descriptor = node.getDescriptor();
     if(descriptor instanceof StackFrameDescriptorImpl) {
@@ -72,10 +56,11 @@ public class ThreadsDebuggerTree extends DebuggerTree {
     return descriptor.isExpandable();
   }
 
+  @Override
   protected void build(DebuggerContextImpl context) {
     DebuggerSession session = context.getDebuggerSession();
     final RefreshThreadsTreeCommand command = new RefreshThreadsTreeCommand(session);
-    
+
     final DebuggerSession.State state = session != null ? session.getState() : DebuggerSession.State.DISPOSED;
     if (ApplicationManager.getApplication().isUnitTestMode() || state == DebuggerSession.State.PAUSED || state == DebuggerSession.State.RUNNING) {
       showMessage(MessageDescriptor.EVALUATING);
@@ -89,11 +74,12 @@ public class ThreadsDebuggerTree extends DebuggerTree {
   private class RefreshThreadsTreeCommand extends DebuggerCommandImpl{
     private final DebuggerSession mySession;
 
-    public RefreshThreadsTreeCommand(DebuggerSession session) {
+    RefreshThreadsTreeCommand(DebuggerSession session) {
       mySession = session;
     }
 
-    protected void action() throws Exception {
+    @Override
+    protected void action() {
       final DebuggerTreeNodeImpl root = getNodeFactory().getDefaultNode();
 
       final DebugProcessImpl debugProcess = mySession.getProcess();
@@ -103,7 +89,7 @@ public class ThreadsDebuggerTree extends DebuggerTree {
       final DebuggerContextImpl context = mySession.getContextManager().getContext();
       final SuspendContextImpl suspendContext = context.getSuspendContext();
       final ThreadReferenceProxyImpl suspendContextThread = suspendContext != null? suspendContext.getThread() : null;
-      
+
       final boolean showGroups = ThreadsViewSettings.getInstance().SHOW_THREAD_GROUPS;
       try {
         final ThreadReferenceProxyImpl currentThread = ThreadsViewSettings.getInstance().SHOW_CURRENT_THREAD ? suspendContextThread : null;
@@ -144,7 +130,7 @@ public class ThreadsDebuggerTree extends DebuggerTree {
             root.insert(nodeManager.createNode(nodeManager.getThreadDescriptor(null, currentThread), evaluationContext), 0);
           }
           List<ThreadReferenceProxyImpl> allThreads = new ArrayList<>(vm.allThreads());
-          Collections.sort(allThreads, ThreadReferenceProxyImpl.ourComparator);
+          allThreads.sort(ThreadReferenceProxyImpl.ourComparator);
 
           for (ThreadReferenceProxyImpl threadProxy : allThreads) {
             if (threadProxy.equals(currentThread)) {
@@ -215,6 +201,7 @@ public class ThreadsDebuggerTree extends DebuggerTree {
           SwingUtilities.invokeLater(() -> getModel().removeTreeModelListener(listener));
         }
 
+        @Override
         public void treeStructureChanged(TreeModelEvent event) {
           if(event.getPath().length <= 1) {
             removeListener();

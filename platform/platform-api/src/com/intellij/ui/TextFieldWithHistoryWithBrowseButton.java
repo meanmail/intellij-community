@@ -23,9 +23,6 @@ import com.intellij.openapi.ui.TextComponentAccessor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- */
 public class TextFieldWithHistoryWithBrowseButton extends ComponentWithBrowseButton<TextFieldWithHistory> {
   public TextFieldWithHistoryWithBrowseButton() {
     super(new TextFieldWithHistory(), null);
@@ -48,7 +45,7 @@ public class TextFieldWithHistoryWithBrowseButton extends ComponentWithBrowseBut
                                       FileChooserDescriptor fileChooserDescriptor,
                                       TextComponentAccessor<TextFieldWithHistory> accessor,
                                       boolean autoRemoveOnHide) {
-    super.addBrowseFolderListener(title, description, project, fileChooserDescriptor, accessor, autoRemoveOnHide);
+    addBrowseFolderListener(title, description, project, fileChooserDescriptor, accessor);
     FileChooserFactory.getInstance().installFileCompletion(getChildComponent().getTextEditor(), fileChooserDescriptor, false, project);
   }
 

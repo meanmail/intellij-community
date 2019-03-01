@@ -22,15 +22,11 @@ import com.intellij.ui.PopupHandler;
 import com.intellij.ui.treeStructure.Tree;
 import org.intellij.plugins.xsltDebugger.ui.actions.CopyValueAction;
 import org.intellij.plugins.xsltDebugger.ui.actions.NavigateAction;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 17.06.2007
- */
 public class StructureTree extends Tree implements TypeSafeDataProvider {
   public StructureTree(GeneratedStructureModel model) {
     super(model);
@@ -45,7 +41,8 @@ public class StructureTree extends Tree implements TypeSafeDataProvider {
     PopupHandler.installFollowingSelectionTreePopup(this, structureContextActions, "XSLT.Debugger.GeneratedStructure", ActionManager.getInstance());
   }
 
-  public void calcData(DataKey key, DataSink sink) {
+  @Override
+  public void calcData(@NotNull DataKey key, @NotNull DataSink sink) {
     if (key.equals(CommonDataKeys.NAVIGATABLE)) {
       final TreePath selection = getSelectionPath();
       if (selection != null) {

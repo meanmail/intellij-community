@@ -1,37 +1,13 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 06.05.2002
- * Time: 16:54:19
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceParameter;
 
 import com.intellij.codeInspection.AnonymousCanBeLambdaInspection;
 import com.intellij.codeInspection.LambdaCanBeMethodReferenceInspection;
 import com.intellij.ide.util.PropertiesComponent;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.JavaRefactoringSettings;
@@ -54,7 +30,8 @@ public class IntroduceParameterDialog extends RefactoringDialog {
   private NameSuggestionsManager myNameSuggestionsManager;
 
   private final Project myProject;
-  private final List<UsageInfo> myClassMembersList;
+  private final PsiFile myFile;
+  private final List<? extends UsageInfo> myClassMembersList;
   private final int myOccurenceNumber;
   private final PsiMethod myMethodToSearchFor;
   private final PsiMethod myMethodToReplaceIn;
@@ -77,7 +54,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
   private boolean myHasWriteAccess;
 
   IntroduceParameterDialog(@NotNull Project project,
-                           @NotNull List<UsageInfo> classMembersList,
+                           @NotNull List<? extends UsageInfo> classMembersList,
                            PsiExpression[] occurences,
                            PsiLocalVariable onLocalVariable,
                            PsiExpression onExpression,
@@ -90,6 +67,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     super(project, true);
     myPanel = new IntroduceParameterSettingsPanel(onLocalVariable, onExpression, methodToReplaceIn, parametersToRemove);
     myProject = project;
+    myFile = methodToReplaceIn.getContainingFile();
     myClassMembersList = classMembersList;
     myOccurenceNumber = occurences.length;
     for (PsiExpression occurence : occurences) {
@@ -110,6 +88,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     myPanel.updateTypeSelector();
   }
 
+  @Override
   protected void dispose() {
     myParameterNameField.removeDataChangedListener(myParameterNameChangedListener);
     super.dispose();
@@ -126,6 +105,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     return myParameterNameField.getEnteredName().trim();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myParameterNameField.getFocusableComponent();
   }
@@ -134,10 +114,12 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     return myTypeSelector.getSelectedType();
   }
 
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(HelpID.INTRODUCE_PARAMETER);
+  @Override
+  protected String getHelpId() {
+    return HelpID.INTRODUCE_PARAMETER;
   }
 
+  @Override
   protected JComponent createNorthPanel() {
     GridBagConstraints gbConstraints = new GridBagConstraints();
 
@@ -216,7 +198,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
 
     final Boolean settingsFinals = settings.INTRODUCE_PARAMETER_CREATE_FINALS;
     myCbDeclareFinal.setSelected(settingsFinals == null ?
-                                 CodeStyleSettingsManager.getSettings(myProject).GENERATE_FINAL_PARAMETERS :
+                                 JavaCodeStyleSettings.getInstance(myFile).GENERATE_FINAL_PARAMETERS :
                                  settingsFinals.booleanValue());
     panel.add(myCbDeclareFinal, gbConstraints);
     if (myMustBeFinal) {
@@ -229,19 +211,20 @@ public class IntroduceParameterDialog extends RefactoringDialog {
 
     gbConstraints.gridy++;
     myPanel.createDelegateCb(gbConstraints, panel);
-    
+
     myCbCollapseToLambda = new NonFocusableCheckBox(RefactoringBundle.message("introduce.parameter.convert.lambda"));
-    final PsiAnonymousClass anonymClass = myExpression instanceof PsiNewExpression ? ((PsiNewExpression)myExpression).getAnonymousClass() 
+    final PsiAnonymousClass anonymClass = myExpression instanceof PsiNewExpression ? ((PsiNewExpression)myExpression).getAnonymousClass()
                                                                                    : null;
-    myCbCollapseToLambda.setVisible(anonymClass != null && AnonymousCanBeLambdaInspection.canBeConvertedToLambda(anonymClass, false, Collections.emptySet()));
+    myCbCollapseToLambda.setVisible(anonymClass != null && AnonymousCanBeLambdaInspection.isLambdaForm(anonymClass, false, Collections.emptySet()));
     myCbCollapseToLambda.setSelected(PropertiesComponent.getInstance(myProject).getBoolean(INTRODUCE_PARAMETER_LAMBDA));
     gbConstraints.gridy++;
     panel.add(myCbCollapseToLambda, gbConstraints);
-    
+
     return panel;
   }
 
 
+  @Override
   protected JComponent createCenterPanel() {
     if(Util.anyFieldsWithGettersPresent(myClassMembersList)) {
       return myPanel.createReplaceFieldsWithGettersPanel();
@@ -250,6 +233,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
       return null;
   }
 
+  @Override
   protected void doAction() {
     final JavaRefactoringSettings settings = JavaRefactoringSettings.getInstance();
     settings.INTRODUCE_PARAMETER_REPLACE_FIELDS_WITH_GETTERS =
@@ -270,7 +254,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     PsiExpression parameterInitializer = myExpression;
     if (myLocalVar != null) {
       if (myPanel.isUseInitializer()) {
-        parameterInitializer = myLocalVar.getInitializer();    
+        parameterInitializer = myLocalVar.getInitializer();
       }
       isDeleteLocalVariable = myPanel.isDeleteLocalVariable();
     }
@@ -285,8 +269,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
     if (myCbCollapseToLambda.isVisible() && myCbCollapseToLambda.isSelected() && parameterInitializer != null) {
       PsiExpression lambda = AnonymousCanBeLambdaInspection.replaceAnonymousWithLambda(parameterInitializer, selectedType);
       if (lambda != null) {
-        lambda = LambdaCanBeMethodReferenceInspection.replaceLambdaWithMethodReference(JavaPsiFacade.getElementFactory(getProject()),
-                                                                                       (PsiLambdaExpression)lambda);
+        lambda = LambdaCanBeMethodReferenceInspection.replaceLambdaWithMethodReference((PsiLambdaExpression)lambda);
         processor.setParameterInitializer(lambda);
       }
     }
@@ -320,7 +303,7 @@ public class IntroduceParameterDialog extends RefactoringDialog {
   }
 
   private class IntroduceParameterSettingsPanel extends IntroduceParameterSettingsUI {
-    public IntroduceParameterSettingsPanel(PsiLocalVariable onLocalVariable,
+    IntroduceParameterSettingsPanel(PsiLocalVariable onLocalVariable,
                                            PsiExpression onExpression,
                                            PsiMethod methodToReplaceIn, TIntArrayList parametersToRemove) {
       super(onLocalVariable, onExpression, methodToReplaceIn, parametersToRemove);

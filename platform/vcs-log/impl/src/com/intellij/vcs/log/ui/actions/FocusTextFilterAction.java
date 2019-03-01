@@ -22,6 +22,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.vcs.log.VcsLogDataKeys;
 import com.intellij.vcs.log.VcsLogUi;
+import com.intellij.vcs.log.statistics.VcsLogUsageTriggerCollector;
 import com.intellij.vcs.log.ui.VcsLogUiImpl;
 import com.intellij.vcs.log.ui.frame.MainFrame;
 import org.jetbrains.annotations.NotNull;
@@ -35,14 +36,16 @@ public class FocusTextFilterAction extends DumbAwareAction {
   public void update(@NotNull AnActionEvent e) {
     Project project = e.getProject();
     VcsLogUi ui = e.getData(VcsLogDataKeys.VCS_LOG_UI);
-    e.getPresentation().setEnabledAndVisible(project != null && ui != null && ui instanceof VcsLogUiImpl);
+    e.getPresentation().setEnabledAndVisible(project != null && ui instanceof VcsLogUiImpl);
   }
 
   @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
+    VcsLogUsageTriggerCollector.triggerUsage(e, this);
+
     Project project = e.getRequiredData(CommonDataKeys.PROJECT);
     MainFrame mainFrame = ((VcsLogUiImpl)e.getRequiredData(VcsLogDataKeys.VCS_LOG_UI)).getMainFrame();
-    if (mainFrame.getTextFilter().getTextEditor().hasFocus()) {
+    if (IdeFocusManager.getInstance(project).getFocusedDescendantFor(mainFrame.getToolbar()) != null) {
       IdeFocusManager.getInstance(project).requestFocus(mainFrame.getGraphTable(), true);
     }
     else {

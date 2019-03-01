@@ -19,13 +19,14 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.Weighted;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeGlassPane;
 import com.intellij.openapi.wm.IdeGlassPaneUtil;
-import com.intellij.ui.Gray;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.OnePixelSplitter;
 import com.intellij.util.Producer;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
 import java.awt.*;
@@ -38,11 +39,11 @@ import java.awt.event.MouseEvent;
 public class OnePixelDivider extends Divider {
   public static final Color BACKGROUND = new JBColor(() -> {
     final Color bg = UIManager.getColor("OnePixelDivider.background");
-    return bg != null ? bg : new JBColor(Gray.xC5, Gray.x51);
+    return bg != null ? bg : JBColor.border();
   });
 
   private boolean myVertical;
-  private Splittable mySplitter;
+  private final Splittable mySplitter;
   private boolean myResizeEnabled;
   private boolean mySwitchOrientationEnabled;
   protected Point myPoint;
@@ -121,12 +122,15 @@ public class OnePixelDivider extends Divider {
       OnePixelDivider d = OnePixelDivider.this;
       if ((vertical ? p.x : p.y) < 0 || vertical && p.x > d.getWidth() || !vertical && p.y > d.getHeight()) return false;
       int r = Math.abs(vertical ? p.y : p.x);
-      return r < JBUI.scale(6);
+      return r < JBUI.scale(Registry.intValue("ide.splitter.mouseZone"));
     }
 
     @Override
     public void mouseReleased(MouseEvent e) {
       _processMouseEvent(e);
+      if (myDragging) {
+        e.consume();
+      }
       setDragging(false);
     }
 
@@ -187,11 +191,12 @@ public class OnePixelDivider extends Divider {
     myGlassPane.addMousePreprocessor(myListener, myDisposable);
   }
 
+  @Override
   public void setOrientation(boolean vertical) {
     removeAll();
     myVertical = vertical;
     final int cursorType = isVertical() ? Cursor.N_RESIZE_CURSOR : Cursor.W_RESIZE_CURSOR;
-    setCursor(Cursor.getPredefinedCursor(cursorType));
+    UIUtil.setCursor(this, Cursor.getPredefinedCursor(cursorType));
   }
 
   @Override
@@ -236,6 +241,7 @@ public class OnePixelDivider extends Divider {
     }
   }
 
+  @Override
   public void setResizeEnabled(boolean resizeEnabled) {
     myResizeEnabled = resizeEnabled;
     if (!myResizeEnabled) {
@@ -248,6 +254,7 @@ public class OnePixelDivider extends Divider {
     }
   }
 
+  @Override
   public void setSwitchOrientationEnabled(boolean switchOrientationEnabled) {
     mySwitchOrientationEnabled = switchOrientationEnabled;
   }

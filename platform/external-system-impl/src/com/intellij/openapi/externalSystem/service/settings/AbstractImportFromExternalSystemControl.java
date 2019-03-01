@@ -15,6 +15,10 @@
  */
 package com.intellij.openapi.externalSystem.service.settings;
 
+import com.intellij.ide.util.BrowseFilesListener;
+import com.intellij.ide.util.projectWizard.NamePathComponent;
+import com.intellij.ide.util.projectWizard.WizardContext;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
@@ -24,8 +28,6 @@ import com.intellij.openapi.externalSystem.util.*;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.TextComponentAccessor;
-import com.intellij.openapi.ui.TextFieldWithBrowseButton;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.projectImport.ProjectFormatPanel;
 import com.intellij.ui.HideableTitledPanel;
@@ -41,26 +43,24 @@ import java.awt.*;
  * A control which knows how to manage settings of external project being imported.
  * 
  * @author Denis Zhdanov
- * @since 4/30/13 2:33 PM
  */
 public abstract class AbstractImportFromExternalSystemControl<
   ProjectSettings extends ExternalProjectSettings,
   L extends ExternalSystemSettingsListener<ProjectSettings>,
   SystemSettings extends AbstractExternalSystemSettings<SystemSettings, ProjectSettings, L>>
+  extends AbstractSettingsControl
 {
   @NotNull private final SystemSettings  mySystemSettings;
   @NotNull private final ProjectSettings myProjectSettings;
 
   @NotNull private final PaintAwarePanel           myComponent              = new PaintAwarePanel(new GridBagLayout());
-  @NotNull private final TextFieldWithBrowseButton myLinkedProjectPathField = new TextFieldWithBrowseButton();
+  @NotNull private final NamePathComponent myLinkedProjectPathField;
   @Nullable private final HideableTitledPanel hideableSystemSettingsPanel;
   @NotNull private final ProjectFormatPanel myProjectFormatPanel;
 
   @NotNull private final  ExternalSystemSettingsControl<ProjectSettings> myProjectSettingsControl;
   @NotNull private final  ProjectSystemId                                myExternalSystemId;
   @Nullable private final ExternalSystemSettingsControl<SystemSettings>  mySystemSettingsControl;
-
-  @Nullable Project myCurrentProject;
 
   private boolean myShowProjectFormatPanel;
   private final JLabel myProjectFormatLabel;
@@ -85,37 +85,35 @@ public abstract class AbstractImportFromExternalSystemControl<
     mySystemSettingsControl = createSystemSettingsControl(systemSettings);
     myShowProjectFormatPanel = showProjectFormatPanel;
 
-    JLabel linkedProjectPathLabel =
-      new JLabel(ExternalSystemBundle.message("settings.label.select.project", externalSystemId.getReadableName()));
+    String projectPathTitle = ExternalSystemBundle.message("settings.label.select.project", externalSystemId.getReadableName());
     ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(externalSystemId);
     assert manager != null;
-    FileChooserDescriptor fileChooserDescriptor = manager.getExternalProjectDescriptor();
 
-    myLinkedProjectPathField.addBrowseFolderListener("",
-                                                     ExternalSystemBundle
-                                                       .message("settings.label.select.project", externalSystemId.getReadableName()),
-                                                     null,
-                                                     fileChooserDescriptor,
-                                                     TextComponentAccessor.TEXT_FIELD_WHOLE_TEXT,
-                                                     false);
-    myLinkedProjectPathField.getTextField().getDocument().addDocumentListener(new DocumentListener() {
+    myLinkedProjectPathField = new NamePathComponent("", projectPathTitle, projectPathTitle, "", false, false);
+    myLinkedProjectPathField.setNameComponentVisible(false);
+    myLinkedProjectPathField.setNameValue("untitled");
+
+    FileChooserDescriptor fileChooserDescriptor = manager.getExternalProjectDescriptor();
+    final BrowseFilesListener browseButtonActionListener = new BrowseFilesListener(
+      myLinkedProjectPathField.getPathComponent(), projectPathTitle, "", fileChooserDescriptor);
+
+    myLinkedProjectPathField.getPathPanel().setBrowseButtonActionListener(browseButtonActionListener);
+    myLinkedProjectPathField.getPathComponent().getDocument().addDocumentListener(new DocumentListener() {
       @Override
       public void insertUpdate(DocumentEvent e) {
-        onLinkedProjectPathChange(myLinkedProjectPathField.getText());
+        onLinkedProjectPathChange(myLinkedProjectPathField.getPath());
       }
 
       @Override
       public void removeUpdate(DocumentEvent e) {
-        onLinkedProjectPathChange(myLinkedProjectPathField.getText());
+        onLinkedProjectPathChange(myLinkedProjectPathField.getPath());
       }
 
       @Override
       public void changedUpdate(DocumentEvent e) {
-        onLinkedProjectPathChange(myLinkedProjectPathField.getText());
+        onLinkedProjectPathChange(myLinkedProjectPathField.getPath());
       }
     });
-
-    myComponent.add(linkedProjectPathLabel, ExternalSystemUiUtil.getLabelConstraints(0));
     myComponent.add(myLinkedProjectPathField, ExternalSystemUiUtil.getFillLineConstraints(0));
     myProjectSettingsControl.fillUi(myComponent, 0);
 
@@ -153,13 +151,13 @@ public abstract class AbstractImportFromExternalSystemControl<
    * project if it's already linked.
    * <p/>
    * This property helps us to achieve that - when an ide project is defined, that means that new modules are being imported
-   * to that ide project from external project; when this property is <code>null</code> that means that new ide project is being
+   * to that ide project from external project; when this property is {@code null} that means that new ide project is being
    * created on the target external project basis.
    * 
    * @param currentProject  current ide project (if any)
    */
   public void setCurrentProject(@Nullable Project currentProject) {
-    myCurrentProject = currentProject;
+    setProject(currentProject);
   }
 
   protected abstract void onLinkedProjectPathChange(@NotNull String path);
@@ -178,7 +176,7 @@ public abstract class AbstractImportFromExternalSystemControl<
    *
    * @param settings  target system settings
    * @return          a control for managing given system-level settings;
-   *                  <code>null</code> if current external system doesn't have system-level settings (only project-level settings)
+   *                  {@code null} if current external system doesn't have system-level settings (only project-level settings)
    */
   @Nullable
   protected abstract ExternalSystemSettingsControl<SystemSettings> createSystemSettingsControl(@NotNull SystemSettings settings);
@@ -200,7 +198,7 @@ public abstract class AbstractImportFromExternalSystemControl<
 
   public void setLinkedProjectPath(@NotNull String path) {
     myProjectSettings.setExternalProjectPath(path);
-    myLinkedProjectPathField.setText(path);
+    myLinkedProjectPathField.setPath(path);
   }
 
   @NotNull
@@ -218,10 +216,18 @@ public abstract class AbstractImportFromExternalSystemControl<
   }
 
   public void reset() {
-    myLinkedProjectPathField.setText("");
-    myProjectSettingsControl.reset();
+    reset(null, null);
+  }
+
+  @Override
+  public void reset(@Nullable WizardContext wizardContext, @Nullable Project project) {
+    super.reset(wizardContext, project);
+    myLinkedProjectPathField.setNameComponentVisible(false);
+    myLinkedProjectPathField.setNameValue("untitled");
+    myLinkedProjectPathField.setPath("");
+    myProjectSettingsControl.reset(wizardContext);
     if (mySystemSettingsControl != null) {
-      mySystemSettingsControl.reset();
+      mySystemSettingsControl.reset(wizardContext);
     }
     if (hideableSystemSettingsPanel != null) {
       hideableSystemSettingsPanel.setOn(false);
@@ -232,28 +238,12 @@ public abstract class AbstractImportFromExternalSystemControl<
     myProjectFormatPanel.getStorageFormatComboBox().setVisible(myShowProjectFormatPanel);
   }
 
-  public void apply() throws ConfigurationException {
-    String linkedProjectPath = myLinkedProjectPathField.getText();
-    if (StringUtil.isEmpty(linkedProjectPath)) {
-      throw new ConfigurationException(ExternalSystemBundle.message("error.project.undefined"));
-    }
-    else if (myCurrentProject != null) {
-      ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(myExternalSystemId);
-      assert manager != null;
-      AbstractExternalSystemSettings<?, ?,?> settings = manager.getSettingsProvider().fun(myCurrentProject);
-      if (settings.getLinkedProjectSettings(linkedProjectPath) != null) {
-        throw new ConfigurationException(ExternalSystemBundle.message("error.project.already.registered"));
-      }
-    }
-
+  public void apply() {
+    String linkedProjectPath = myLinkedProjectPathField.getPath();
     //noinspection ConstantConditions
     myProjectSettings.setExternalProjectPath(ExternalSystemApiUtil.normalizePath(linkedProjectPath));
-
-    myProjectSettingsControl.validate(myProjectSettings);
     myProjectSettingsControl.apply(myProjectSettings);
-
     if (mySystemSettingsControl != null) {
-      mySystemSettingsControl.validate(mySystemSettings);
       mySystemSettingsControl.apply(mySystemSettings);
     }
   }
@@ -261,5 +251,27 @@ public abstract class AbstractImportFromExternalSystemControl<
   @Nullable
   public ProjectFormatPanel getProjectFormatPanel() {
     return myShowProjectFormatPanel ? myProjectFormatPanel : null;
+  }
+
+  public boolean validate(WizardContext wizardContext, boolean defaultFormat) throws ConfigurationException {
+    if (ApplicationManager.getApplication().isHeadlessEnvironment()) return true;
+
+    if (!myProjectSettingsControl.validate(myProjectSettings)) return false;
+    if (mySystemSettingsControl != null && !mySystemSettingsControl.validate(mySystemSettings)) return false;
+    String linkedProjectPath = myLinkedProjectPathField.getPath();
+    Project currentProject = getProject();
+    if (StringUtil.isEmpty(linkedProjectPath)) {
+      throw new ConfigurationException(ExternalSystemBundle.message("error.project.undefined"));
+    }
+    else if (currentProject != null) {
+      ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(myExternalSystemId);
+      assert manager != null;
+      AbstractExternalSystemSettings<?, ?, ?> settings = manager.getSettingsProvider().fun(currentProject);
+      if (settings.getLinkedProjectSettings(linkedProjectPath) != null) {
+        throw new ConfigurationException(ExternalSystemBundle.message("error.project.already.registered"));
+      }
+    }
+
+    return !(wizardContext.isCreatingNewProject() && !myLinkedProjectPathField.validateNameAndPath(wizardContext, defaultFormat));
   }
 }

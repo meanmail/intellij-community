@@ -1,22 +1,11 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.wm;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.popup.Balloon;
 import org.jetbrains.annotations.NotNull;
@@ -27,7 +16,7 @@ import javax.swing.event.HyperlinkListener;
 
 /**
  * If you want to register a toolwindow, which will be enabled during the dumb mode, please use {@link ToolWindowManager}'s
- * registration methods which have 'canWorkInDumMode' parameter.
+ * registration methods which have 'canWorkInDumbMode' parameter.
  */
 public abstract class ToolWindowManager {
 
@@ -39,15 +28,15 @@ public abstract class ToolWindowManager {
 
   /**
    * Register specified tool window into IDE window system.
-   * @param id <code>id</code> of tool window to be registered.
-   * @param component <code>component</code> which represents tool window content.
+   * @param id {@code id} of tool window to be registered.
+   * @param component {@code component} which represents tool window content.
    * May be null. Content can be further added via content manager for this tool window (See {@link ToolWindow#getContentManager()})
    * @param anchor the default anchor for first registration. It uses only first time the
-   * tool window with the specified <code>id</code> is being registered into the window system.
+   * tool window with the specified {@code id} is being registered into the window system.
    * After the first registration window's anchor is stored in project file
-   * and <code>anchor</code> is ignored.
+   * and {@code anchor} is ignored.
    * @exception IllegalArgumentException if the same window is already installed or one
-   * of the parameters is <code>null</code>.
+   * of the parameters is {@code null}.
    * @return tool window
    * @deprecated  {@link ToolWindowManager#registerToolWindow(String, boolean, ToolWindowAnchor)}
    */
@@ -129,28 +118,59 @@ public abstract class ToolWindowManager {
   public abstract void activateEditorComponent();
 
   /**
-   * @return <code>true</code> if and only if editor component is active.
+   * @return {@code true} if and only if editor component is active.
    */
   public abstract boolean isEditorComponentActive();
 
   /**
-   * @return array of <code>id</code>s of all registered tool windows.
+   * @return array of {@code id}s of all registered tool windows.
    */
   @NotNull
   public abstract String[] getToolWindowIds();
 
   /**
-   * @return <code>ID</code> of currently active tool window or <code>null</code> if there is no active
+   * @return {@code ID} of currently active tool window or {@code null} if there is no active
    * tool window.
    */
   @Nullable
   public abstract String getActiveToolWindowId();
 
+  @Nullable
+  public static ToolWindow getActiveToolWindow () {
+    IdeFrame frame = IdeFocusManager.getGlobalInstance().getLastFocusedFrame();
+    Project project = frame == null ? ProjectManager.getInstance().getDefaultProject() : frame.getProject();
+
+    if (project != null) {
+      ToolWindowManager managerInstance = getInstance(project);
+      if (managerInstance != null) {
+        return managerInstance.getToolWindow(getActiveId());
+      }
+    }
+
+    return null;
+  }
+
+  @Nullable
+  public static String getActiveId () {
+    IdeFrame lastFocusedFrame = IdeFocusManager.getGlobalInstance().getLastFocusedFrame();
+
+    if (lastFocusedFrame !=null) {
+      Project project = lastFocusedFrame.getProject();
+      if (project != null) {
+        ToolWindowManager instance = getInstance(project);
+        return instance == null ? "" : instance.getActiveToolWindowId();
+      }
+    }
+    return "";
+  }
+
+
   /**
-   * @return registered tool window with specified <code>id</code>. If there is no registered
-   * tool window with specified <code>id</code> then the method returns <code>null</code>.
+   * @return registered tool window with specified {@code id}. If there is no registered
+   * tool window with specified {@code id} then the method returns {@code null}.
+   * @see ToolWindowId
    */
-  public abstract ToolWindow getToolWindow(String id);
+  public abstract ToolWindow getToolWindow(@Nullable String id);
 
   /**
    * Puts specified runnable to the tail of current command queue.

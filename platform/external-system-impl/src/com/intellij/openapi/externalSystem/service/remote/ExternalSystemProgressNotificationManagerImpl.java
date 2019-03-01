@@ -31,7 +31,6 @@ import java.util.concurrent.ConcurrentMap;
 
 /**
  * @author Denis Zhdanov
- * @since 11/10/11 11:56 AM
  */
 public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   implements ExternalSystemProgressNotificationManager, RemoteExternalSystemProgressNotificationManager
@@ -55,7 +54,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
         ids = myListeners.get(listener);
       }
       else {
-        ids = myListeners.putIfAbsent(listener, ContainerUtil.<ExternalSystemTaskId>newConcurrentSet());
+        ids = myListeners.putIfAbsent(listener, ContainerUtil.newConcurrentSet());
       }
     }
     return ids.add(taskId);
@@ -67,23 +66,13 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void onQueued(@NotNull ExternalSystemTaskId id, @NotNull String workingDir) {
+  public void onStart(@NotNull ExternalSystemTaskId id, @NotNull String workingDir) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {
-        entry.getKey().onQueued(id, workingDir);
+        entry.getKey().onStart(id, workingDir);
       }
     }
-  }
-
-  @Override
-  public void onStart(@NotNull ExternalSystemTaskId id) {
-    for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
-      final Set<ExternalSystemTaskId> ids = entry.getValue();
-      if (Collections.EMPTY_SET == ids || ids.contains(id)) {
-        entry.getKey().onStart(id);
-      }
-    } 
   }
 
   @Override
@@ -97,7 +86,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void onTaskOutput(@NotNull ExternalSystemTaskId id, @NotNull String text, boolean stdOut) throws RemoteException {
+  public void onTaskOutput(@NotNull ExternalSystemTaskId id, @NotNull String text, boolean stdOut) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {
@@ -117,7 +106,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void onSuccess(@NotNull ExternalSystemTaskId id) throws RemoteException {
+  public void onSuccess(@NotNull ExternalSystemTaskId id) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {
@@ -127,7 +116,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void onFailure(@NotNull ExternalSystemTaskId id, @NotNull Exception e) throws RemoteException {
+  public void onFailure(@NotNull ExternalSystemTaskId id, @NotNull Exception e) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {
@@ -137,7 +126,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void beforeCancel(@NotNull ExternalSystemTaskId id) throws RemoteException {
+  public void beforeCancel(@NotNull ExternalSystemTaskId id) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {
@@ -147,7 +136,7 @@ public class ExternalSystemProgressNotificationManagerImpl extends RemoteObject
   }
 
   @Override
-  public void onCancel(ExternalSystemTaskId id) throws RemoteException {
+  public void onCancel(ExternalSystemTaskId id) {
     for (Map.Entry<ExternalSystemTaskNotificationListener, Set<ExternalSystemTaskId>> entry : myListeners.entrySet()) {
       final Set<ExternalSystemTaskId> ids = entry.getValue();
       if (Collections.EMPTY_SET == ids || ids.contains(id)) {

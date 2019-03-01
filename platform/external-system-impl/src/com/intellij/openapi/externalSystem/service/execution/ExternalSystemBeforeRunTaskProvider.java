@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.externalSystem.service.execution;
 
 import com.intellij.execution.BeforeRunTaskProvider;
@@ -22,12 +8,11 @@ import com.intellij.execution.impl.RunConfigurationBeforeRunProvider;
 import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
 import com.intellij.openapi.externalSystem.model.execution.ExternalTaskPojo;
+import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
-import com.intellij.openapi.externalSystem.util.ExternalSystemConstants;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
@@ -41,12 +26,8 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/30/2014
  */
 public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskProvider<ExternalSystemBeforeRunTask> {
-
-  private static final Logger LOG = Logger.getInstance(ExternalSystemBeforeRunTaskProvider.class);
-
   @NotNull private final ProjectSystemId mySystemId;
   @NotNull private final Project myProject;
   @NotNull private final Key<ExternalSystemBeforeRunTask> myId;
@@ -59,6 +40,7 @@ public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskP
     myId = id;
   }
 
+  @Override
   @NotNull
   public Key<ExternalSystemBeforeRunTask> getId() {
     return myId;
@@ -75,7 +57,7 @@ public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskP
   }
 
   @Override
-  public boolean configureTask(RunConfiguration runConfiguration, ExternalSystemBeforeRunTask task) {
+  public boolean configureTask(@NotNull RunConfiguration runConfiguration, @NotNull ExternalSystemBeforeRunTask task) {
     ExternalSystemEditTaskDialog dialog = new ExternalSystemEditTaskDialog(myProject, task.getTaskExecutionSettings(), mySystemId);
     dialog.setTitle(ExternalSystemBundle.message("tasks.select.task.title", mySystemId.getReadableName()));
 
@@ -87,7 +69,7 @@ public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskP
   }
 
   @Override
-  public boolean canExecuteTask(RunConfiguration configuration, ExternalSystemBeforeRunTask beforeRunTask) {
+  public boolean canExecuteTask(@NotNull RunConfiguration configuration, @NotNull ExternalSystemBeforeRunTask beforeRunTask) {
     final ExternalSystemTaskExecutionSettings executionSettings = beforeRunTask.getTaskExecutionSettings();
 
     final List<ExternalTaskPojo> tasks = ContainerUtilRt.newArrayList();
@@ -105,10 +87,10 @@ public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskP
   }
 
   @Override
-  public boolean executeTask(DataContext context,
-                             RunConfiguration configuration,
-                             ExecutionEnvironment env,
-                             ExternalSystemBeforeRunTask beforeRunTask) {
+  public boolean executeTask(@NotNull DataContext context,
+                             @NotNull RunConfiguration configuration,
+                             @NotNull ExecutionEnvironment env,
+                             @NotNull ExternalSystemBeforeRunTask beforeRunTask) {
 
     final ExternalSystemTaskExecutionSettings executionSettings = beforeRunTask.getTaskExecutionSettings();
 
@@ -138,9 +120,9 @@ public abstract class ExternalSystemBeforeRunTaskProvider extends BeforeRunTaskP
 
     String desc = StringUtil.join(task.getTaskExecutionSettings().getTaskNames(), " ");
     for (Module module : ModuleManager.getInstance(myProject).getModules()) {
-      if (!mySystemId.toString().equals(module.getOptionValue(ExternalSystemConstants.EXTERNAL_SYSTEM_ID_KEY))) continue;
+      if (!ExternalSystemApiUtil.isExternalSystemAwareModule(mySystemId, module)) continue;
 
-      if (StringUtil.equals(externalProjectPath, module.getOptionValue(ExternalSystemConstants.LINKED_PROJECT_PATH_KEY))) {
+      if (StringUtil.equals(externalProjectPath, ExternalSystemApiUtil.getExternalProjectPath(module))) {
         desc = module.getName() + ": " + desc;
         break;
       }

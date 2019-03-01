@@ -20,14 +20,14 @@ import com.intellij.ide.CutProvider;
 import com.intellij.ide.DeleteProvider;
 import com.intellij.ide.PasteProvider;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.ex.util.EditorUtil;
+import com.intellij.openapi.editor.event.EditorMouseEvent;
+import com.intellij.openapi.editor.event.EditorMouseListener;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.impl.TextDrawingCallback;
-import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
@@ -44,6 +44,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeListener;
+import java.util.Collection;
+import java.util.function.IntFunction;
 
 public interface EditorEx extends Editor {
   @NonNls String PROP_INSERT_MODE = "insertMode";
@@ -68,7 +70,7 @@ public interface EditorEx extends Editor {
    *
    * @return the markup model instance.
    * @see com.intellij.openapi.editor.markup.MarkupEditorFilter
-   * @see com.intellij.openapi.editor.impl.EditorImpl#setHighlightingFilter(Condition<RangeHighlighter>)
+   * @see com.intellij.openapi.editor.impl.EditorImpl#setHighlightingFilter(Condition)
    * @see com.intellij.openapi.editor.impl.DocumentMarkupModel#forDocument(Document, Project, boolean)
    */
   @NotNull
@@ -154,6 +156,7 @@ public interface EditorEx extends Editor {
 
   void setFontSize(int fontSize);
 
+  @NotNull
   Color getBackgroundColor();
 
   void setBackgroundColor(Color color);
@@ -164,18 +167,6 @@ public interface EditorEx extends Editor {
   void setEmbeddedIntoDialogWrapper(boolean b);
 
   VirtualFile getVirtualFile();
-
-  /**
-   * @deprecated Use {@link #offsetToLogicalPosition(int)}
-   * or {@link EditorUtil#calcColumnNumber(Editor, CharSequence, int, int, int)} instead. To be removed in IDEA 2017.2.
-   */
-  int calcColumnNumber(@NotNull CharSequence text, int start, int offset, int tabSize);
-
-  /**
-   * @deprecated Use {@link #offsetToLogicalPosition(int)}
-   * or {@link EditorUtil#calcColumnNumber(Editor, CharSequence, int, int, int)} instead. To be removed in IDEA 2017.2.
-   */
-  int calcColumnNumber(int offset, int lineIndex);
 
   TextDrawingCallback getTextDrawingCallback();
 
@@ -198,16 +189,7 @@ public interface EditorEx extends Editor {
   EditorColorsScheme createBoundColorSchemeDelegate(@Nullable EditorColorsScheme customGlobalScheme);
 
   /**
-   * Instructs current editor about soft wraps appliance appliance use-case.
-   * <p/>
-   * {@link SoftWrapAppliancePlaces#MAIN_EDITOR} is used by default.
-   *
-   * @param place   soft wraps appliance appliance use-case
-   */
-  void setSoftWrapAppliancePlace(@NotNull SoftWrapAppliancePlaces place);
-
-  /**
-   * Allows to define <code>'placeholder text'</code> for the current editor, i.e. virtual text that will be represented until
+   * Allows to define {@code 'placeholder text'} for the current editor, i.e. virtual text that will be represented until
    * any user data is entered.
    *
    * Feel free to see the detailed feature
@@ -219,14 +201,14 @@ public interface EditorEx extends Editor {
 
   /**
    * Sets text attributes for a placeholder. Font style and color are currently supported. 
-   * <code>null</code> means default values should be used.
+   * {@code null} means default values should be used.
    * 
    * @see #setPlaceholder(CharSequence)
    */
   void setPlaceholderAttributes(@Nullable TextAttributes attributes);
   
   /**
-   * Controls whether <code>'placeholder text'</code> is visible when editor is focused.
+   * Controls whether {@code 'placeholder text'} is visible when editor is focused.
    *
    * @param show   flag indicating whether placeholder is visible when editor is focused.
    *
@@ -238,16 +220,16 @@ public interface EditorEx extends Editor {
    * Allows to answer if 'sticky selection' is active for the current editor.
    * <p/>
    * 'Sticky selection' means that every time caret position changes, selection end offset is automatically set to the same position.
-   * Selection start is always caret offset on {@link #setStickySelection(boolean)} call with <code>'true'</code> argument.
+   * Selection start is always caret offset on {@link #setStickySelection(boolean)} call with {@code 'true'} argument.
    *
-   * @return      <code>true</code> if 'sticky selection' mode is active at the current editor; <code>false</code> otherwise
+   * @return      {@code true} if 'sticky selection' mode is active at the current editor; {@code false} otherwise
    */
   boolean isStickySelection();
 
   /**
    * Allows to set current {@link #isStickySelection() sticky selection} mode.
    *
-   * @param enable      flag that identifies if <code>'sticky selection'</code> mode should be enabled
+   * @param enable      flag that identifies if {@code 'sticky selection'} mode should be enabled
    */
   void setStickySelection(boolean enable);
 
@@ -287,6 +269,12 @@ public interface EditorEx extends Editor {
   void setPurePaintingMode(boolean enabled);
 
   /**
+   * Registers a function which will be applied to a line number to obtain additional text fragments. The fragments returned by the
+   * function will be drawn in the editor after end of the line (together with fragments returned by {@link com.intellij.openapi.editor.EditorLinePainter} extensions).
+   */
+  void registerLineExtensionPainter(IntFunction<Collection<LineExtensionInfo>> lineExtensionPainter);
+
+  /**
    * Allows to register a callback that will be called one each repaint of the editor vertical scrollbar.
    * This is needed to allow a parent component draw above the scrollbar components (e.g. in the merge tool),
    * otherwise the drawings are cleared once the scrollbar gets repainted (which may happen suddenly, because the scrollbar UI uses the
@@ -297,28 +285,57 @@ public interface EditorEx extends Editor {
   void registerScrollBarRepaintCallback(@Nullable ButtonlessScrollBarUI.ScrollbarRepaintCallback callback);
 
   /**
-   * @return the offset that the caret is expected to be but maybe not yet.
-   * E.g. when user right-clicks the mouse the caret is not immediately jumps there but the click-handler wants to know that location already.
-   *
-   * When no mouse-clicks happened return the regular caret offset.
+   * @return the offset that the caret is expected to be but maybe not yet. This can be used in
+   * {@link EditorMouseListener#mousePressed(EditorMouseEvent)} implementation, as at the time this method is invoked caret wasn't yet moved
+   * to the press position. In other circumstances it's just equal to primary caret's offset.
    */
   int getExpectedCaretOffset();
 
   /**
-   * Sets id of action group what will be used to construct context menu displayed on mouse right button's click. Setting this to 
-   * <code>null</code> disables built-in logic for showing context menu (it can still be achieved by implementing corresponding mouse
-   * event listener).
+   * Sets id of action group what will be used to construct context menu displayed by default editor popup handler on mouse right button's
+   * click (with {@code null} value disabling context menu). This method might have no effect if default editor's popup handler was
+   * overridden using {@link #installPopupHandler(EditorPopupHandler)}.
    * 
-   * @see #getContextMenuGroupId() 
+   * @see #getContextMenuGroupId()
    */
   void setContextMenuGroupId(@Nullable String groupId);
 
   /**
-   * Returns id of action group what will be used to construct context menu displayed on mouse right button's click. <code>null</code>
-   * value means built-in logic for showing context menu is disabled.
+   * Returns id of action group what will be used to construct context menu displayed by default editor popup handler on mouse right
+   * button's click ({@code null} value meaning no context menu). Returned value might be meaningless if default editor's popup handler
+   * was overridden using {@link #installPopupHandler(EditorPopupHandler)}.
    * 
    * @see #setContextMenuGroupId(String)
    */
   @Nullable
   String getContextMenuGroupId();
+
+  /**
+   * Allows to override default editor's context popup logic.
+   * <p>
+   * Default handler shows a context menu corresponding to a certain action group
+   * registered in {@link ActionManager}. Group's id can be changed using {@link #setContextMenuGroupId(String)}. For inline custom visual
+   * elements (inlays) action group id is obtained from {@link EditorCustomElementRenderer#getContextMenuGroupId(Inlay)}.
+   * <p>
+   * If multiple handlers are installed, they are processed in order, starting from the most recently installed one. Processing stops when
+   * some handler returns {@code true} from {@link EditorPopupHandler#handlePopup(EditorMouseEvent)} method.
+   *
+   * @see #uninstallPopupHandler(EditorPopupHandler)
+   */
+  void installPopupHandler(@NotNull EditorPopupHandler popupHandler);
+
+  /**
+   * Removes previously installed {@link EditorPopupHandler}.
+   *
+   * @see #installPopupHandler(EditorPopupHandler)
+   */
+  void uninstallPopupHandler(@NotNull EditorPopupHandler popupHandler);
+
+  /**
+   * If {@code cursor} parameter value is not {@code null}, sets custom cursor to {@link #getContentComponent() editor's content component},
+   * otherwise restores default editor cursor management logic ({@code requestor} parameter value should be the same in both setting and
+   * restoring requests). 'Restoring' call for a requestor, which hasn't set a cursor previously, has no effect. If multiple requestors have
+   * currently set custom cursors, one of them will be used (it is unspecified, which one).
+   */
+  void setCustomCursor(@NotNull Object requestor, @Nullable Cursor cursor);
 }

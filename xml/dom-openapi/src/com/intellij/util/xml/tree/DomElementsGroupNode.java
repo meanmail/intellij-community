@@ -49,6 +49,7 @@ public class DomElementsGroupNode extends AbstractDomElementNode {
     myRootDomElement = rootDomElement;
   }
 
+  @NotNull
   @Override
   public SimpleNode[] getChildren() {
     if (!myParentElement.isValid()) return NO_CHILDREN;
@@ -59,7 +60,7 @@ public class DomElementsGroupNode extends AbstractDomElementNode {
         simpleNodes.add(new BaseDomElementNode(domChild, myRootDomElement, this));
       }
     }
-    return simpleNodes.toArray(new SimpleNode[simpleNodes.size()]);
+    return simpleNodes.toArray(new SimpleNode[0]);
   }
 
   @Override

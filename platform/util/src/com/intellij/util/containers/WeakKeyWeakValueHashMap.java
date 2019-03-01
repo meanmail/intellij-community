@@ -15,21 +15,31 @@
  */
 package com.intellij.util.containers;
 
+import com.intellij.util.DeprecatedMethodException;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.ref.ReferenceQueue;
 import java.lang.ref.WeakReference;
 import java.util.Map;
 
+/**
+ * @deprecated use {@link ContainerUtil#createWeakKeyWeakValueMap()} instead
+ */
+@Deprecated
 public final class WeakKeyWeakValueHashMap<K,V> extends RefKeyRefValueHashMap<K,V> implements Map<K,V>{
   public WeakKeyWeakValueHashMap() {
-    super(new WeakHashMap<K, ValueReference<K, V>>());
+    this(false);
+    DeprecatedMethodException.report("Use ContainerUtil#createWeakKeyWeakValueMap() instead");
+  }
+
+  WeakKeyWeakValueHashMap(boolean good) {
+    super((RefHashMap<K, ValueReference<K, V>>)ContainerUtil.<K, ValueReference<K, V>>createWeakMap());
   }
 
   private static class WeakValueReference<K,V> extends WeakReference<V> implements ValueReference<K,V> {
-    @NotNull private final WeakHashMap.Key<K> key;
+    @NotNull private final RefHashMap.Key<K> key;
 
-    private WeakValueReference(@NotNull WeakHashMap.Key<K> key, V referent, ReferenceQueue<? super V> q) {
+    private WeakValueReference(@NotNull RefHashMap.Key<K> key, V referent, ReferenceQueue<? super V> q) {
       super(referent, q);
       this.key = key;
     }
@@ -41,10 +51,11 @@ public final class WeakKeyWeakValueHashMap<K,V> extends RefKeyRefValueHashMap<K,
     }
   }
 
+  @NotNull
   @Override
   protected ValueReference<K, V> createValueReference(@NotNull RefHashMap.Key<K> key,
                                                       V referent,
                                                       ReferenceQueue<? super V> q) {
-    return new WeakValueReference<K, V>(key, referent, q);
+    return new WeakValueReference<>(key, referent, q);
   }
 }

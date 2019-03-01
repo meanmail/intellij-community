@@ -22,6 +22,7 @@ public class MavenConstants {
   public static final String POM_EXTENSION = "pom";
   public static final String POM_XML = "pom.xml";
   public static final String[] POM_NAMES = new String[]{POM_XML, "pom.scala", "pom.groovy", "pom.atom", "pom.rb", "pom.yml", "pom.clj"};
+  public static final String[] POM_EXTENSIONS = {"pom", "xml", "scala", "groovy", "atom", "rb", "yml", "clj"};
 
   public static final String SUPER_POM_XML = "pom-4.0.0.xml";
   public static final String PROFILES_XML = "profiles.xml";
@@ -55,4 +56,6 @@ public class MavenConstants {
   public static final List<String> BASIC_PHASES =
     Arrays.asList("clean", "validate", "compile", "test", "package", "verify", "install", "deploy", "site");
 
+  public static final String JVM_CONFIG_RELATIVE_PATH = "/.mvn/jvm.config";
+  public static final String MAVEN_CONFIG_RELATIVE_PATH = "/.mvn/maven.config";
 }

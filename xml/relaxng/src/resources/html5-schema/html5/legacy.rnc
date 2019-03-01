@@ -142,6 +142,7 @@ datatypes w = "http://whattf.org/datatype-draft"
 		element applet { applet.inner.phrasing & applet.attrs }
 	applet.attrs =
 		(	common.attrs
+		&	applet.attrs.alt?
 		&	applet.attrs.archive?
 		&	applet.attrs.code
 		&	applet.attrs.codebase?
@@ -149,6 +150,10 @@ datatypes w = "http://whattf.org/datatype-draft"
 		&	applet.attrs.height
 		&	applet.attrs.width
 		)
+		applet.attrs.alt =
+			attribute alt {
+				string
+			}
 		applet.attrs.archive =
 			attribute archive {
 				common.data.uri #FIXME *comma* separated URI list (*grumble*)
@@ -301,6 +306,16 @@ datatypes w = "http://whattf.org/datatype-draft"
 	common.elem.metadata |= meta.http-equiv.content-language.elem # not quite right per spec
                                                                # if the definition is 
                                                                # reused in another language
+
+## Key-pair generator/input control: <keygen>
+
+	keygen.elem =
+		element keygen { keygen.inner & keygen.attrs* }
+	keygen.attrs = attribute * { text }
+	keygen.inner =
+		( empty )
+
+	common.elem.phrasing |= keygen.elem
 
 ## Obsolete attributes
 
@@ -1020,13 +1035,13 @@ datatypes w = "http://whattf.org/datatype-draft"
 		}
 	body.attrs &= body.attrs.link?
 
-## marginbottom attribute
+## bottommargin attribute
 
-	body.attrs.marginbottom =
-		attribute marginbottom {
+	body.attrs.bottommargin =
+		attribute bottommargin {
 			string
 		}
-	body.attrs &= body.attrs.marginbottom?
+	body.attrs &= body.attrs.bottommargin?
 
 ## marginheight attribute
 
@@ -1042,29 +1057,29 @@ datatypes w = "http://whattf.org/datatype-draft"
 		}
 	iframe.attrs &= iframe.attrs.marginheight?
 
-## marginleft attribute
+## leftmargin attribute
 
-	body.attrs.marginleft =
-		attribute marginleft {
+	body.attrs.leftmargin =
+		attribute leftmargin {
 			string
 		}
-	body.attrs &= body.attrs.marginleft?
+	body.attrs &= body.attrs.leftmargin?
 
-## marginright attribute
+## rightmargin attribute
 
-	body.attrs.marginright =
-		attribute marginright {
+	body.attrs.rightmargin =
+		attribute rightmargin {
 			string
 		}
-	body.attrs &= body.attrs.marginright?
+	body.attrs &= body.attrs.rightmargin?
 
-## margintop attribute
+## topmargin attribute
 
-	body.attrs.margintop =
-		attribute margintop {
+	body.attrs.topmargin =
+		attribute topmargin {
 			string
 		}
-	body.attrs &= body.attrs.margintop?
+	body.attrs &= body.attrs.topmargin?
 
 ## marginwidth attribute
 

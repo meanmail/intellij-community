@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.zmlx.hg4idea.ui;
 
 import com.google.common.primitives.Ints;
@@ -33,7 +19,6 @@ import com.intellij.ui.PopupHandler;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.ui.TableSpeedSearch;
 import com.intellij.ui.table.JBTable;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.*;
 import org.zmlx.hg4idea.HgUpdater;
@@ -204,12 +189,7 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
   @NotNull
   @CalledInAny
   private List<String> getPatchNames(int[] rows) {
-    return ContainerUtil.map(Ints.asList(rows), new Function<Integer, String>() {
-      @Override
-      public String fun(Integer integer) {
-        return getPatchName(integer);
-      }
-    });
+    return ContainerUtil.map(Ints.asList(rows), integer -> getPatchName(integer));
   }
 
   @NotNull
@@ -223,7 +203,7 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (MQ_PATCHES.is(dataId)) {
       return this;
     }
@@ -236,19 +216,16 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
 
   @Override
   public void update(final Project project, @Nullable VirtualFile root) {
-    ApplicationManager.getApplication().invokeLater(new Runnable() {
-      @Override
-      public void run() {
-        if (project != null && !project.isDisposed()) {
-          refreshAll();
-        }
+    ApplicationManager.getApplication().invokeLater(() -> {
+      if (project != null && !project.isDisposed()) {
+        refreshAll();
       }
     });
   }
 
   private class MqDeleteAction extends DumbAwareAction {
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final List<String> names = getSelectedPatchNames();
       if (names.isEmpty()) return;
 
@@ -256,25 +233,23 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
                                         .format("You are going to delete selected %s. Would you like to continue?",
                                                 StringUtil.pluralize("patch", names.size())),
                                       "Delete Confirmation", Messages.getWarningIcon()) == Messages.OK) {
-        Runnable deleteTask = new Runnable() {
-          @Override
-          public void run() {
-            ProgressManager.getInstance().getProgressIndicator().setText("Deleting patches...");
-            new HgQDeleteCommand(myRepository).executeInCurrentThread(names);
-          }
+        Runnable deleteTask = () -> {
+          ProgressManager.getInstance().getProgressIndicator().setText("Deleting patches...");
+          new HgQDeleteCommand(myRepository).executeInCurrentThread(names);
         };
         updatePatchSeriesInBackground(deleteTask);
       }
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setEnabled(getSelectedRowsCount() != 0 && !myPatchTable.isEditing());
     }
   }
 
   private class MqRefreshAction extends DumbAwareAction {
-    public void actionPerformed(AnActionEvent e) {
+    @Override
+    public void actionPerformed(@NotNull AnActionEvent e) {
       refreshAll();
     }
   }
@@ -294,7 +269,7 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
     @NotNull private final Map<String, MqPatchDetails> myPatchesWithDetails = ContainerUtil.newHashMap();
     @NotNull private final List<String> myPatches;
 
-    public MyPatchModel(@NotNull List<String> names) {
+    MyPatchModel(@NotNull List<String> names) {
       myPatches = ContainerUtil.newArrayList(names);
       readMqPatchesDetails();
     }
@@ -381,10 +356,11 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
   }
 
   private class MyPatchTable extends JBTable {
-    public MyPatchTable(MyPatchModel model) {
+    MyPatchTable(MyPatchModel model) {
       super(model);
     }
 
+    @Override
     public MyPatchModel getModel() {
       return (MyPatchModel)dataModel;
     }
@@ -394,12 +370,7 @@ public class HgMqUnAppliedPatchesPanel extends JPanel implements DataProvider, H
       final int editingRow = getEditingRow();
       final String oldName = getModel().getPatchName(editingRow);
       super.editingStopped(e);
-      updatePatchSeriesInBackground(new Runnable() {
-        @Override
-        public void run() {
-          HgQRenameCommand.performPatchRename(myRepository, oldName, getModel().getPatchName(editingRow));
-        }
-      });
+      updatePatchSeriesInBackground(() -> HgQRenameCommand.performPatchRename(myRepository, oldName, getModel().getPatchName(editingRow)));
     }
   }
 }

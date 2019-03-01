@@ -21,15 +21,16 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectCoreUtil;
 import com.intellij.openapi.util.TextRange;
+import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiLock;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.TokenType;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.psi.impl.ElementBase;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.source.PsiFileImpl;
-import com.intellij.psi.stubs.IStubElementType;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.testFramework.ReadOnlyLightVirtualFile;
 import com.intellij.util.CharTable;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -48,7 +49,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     myType = type;
   }
 
-  static PsiFileImpl getCachedFile(TreeElement each) {
+  private static PsiFileImpl getCachedFile(@NotNull TreeElement each) {
     FileElement node = (FileElement)SharedImplUtil.findFileElement(each);
     return node == null ? null : (PsiFileImpl)node.getCachedPsi();
   }
@@ -57,13 +58,10 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   @Override
   public Object clone() {
     TreeElement clone = (TreeElement)super.clone();
-    synchronized (PsiLock.LOCK) {
-      clone.myNextSibling = null;
-      clone.myPrevSibling = null;
-      clone.myParent = null;
-      clone.myStartOffsetInParent = -1;
-    }
-
+    clone.myNextSibling = null;
+    clone.myPrevSibling = null;
+    clone.myParent = null;
+    clone.myStartOffsetInParent = -1;
     return clone;
   }
 
@@ -79,18 +77,17 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
       return PsiManagerEx.getInstanceEx(project);
     }
     TreeElement element;
-    for (element = this; element.getTreeParent() != null; element = element.getTreeParent()) {
+    CompositeElement parent;
+    for (element = this; (parent = element.getTreeParent()) != null; element = parent) {
     }
-
     if (element instanceof FileElement) { //TODO!!
       return element.getManager();
     }
-    else {
-      if (getTreeParent() != null) {
-        return getTreeParent().getManager();
-      }
-      return null;
+    parent = getTreeParent();
+    if (parent != null) {
+      return parent.getManager();
     }
+    return null;
   }
 
   @Override
@@ -132,7 +129,9 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     int offsetInParent = myStartOffsetInParent;
     if (offsetInParent != -1) return offsetInParent;
 
-    ApplicationManager.getApplication().assertReadAccessAllowed();
+    if (DebugUtil.CHECK_INSIDE_ATOMIC_ACTION_ENABLED) {
+      assertReadAccessAllowed();
+    }
 
     TreeElement cur = this;
     while (true) {
@@ -174,6 +173,7 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
     return getTextLength() == element.getTextLength() && textMatches(element.getText());
   }
 
+  @Override
   @NonNls
   public String toString() {
     return "Element" + "(" + getElementType() + ")";
@@ -229,14 +229,14 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   public void clearCaches() {
   }
 
-  @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
+  @Override
   public final boolean equals(Object obj) {
     return obj == this;
   }
 
   public abstract int hc(); // Used in tree diffing
 
-  public abstract void acceptTree(TreeElementVisitor visitor);
+  public abstract void acceptTree(@NotNull TreeElementVisitor visitor);
 
   protected void onInvalidated() {
     DebugUtil.onInvalidated(this);
@@ -414,6 +414,18 @@ public abstract class TreeElement extends ElementBase implements ASTNode, Clonea
   @NotNull
   public IElementType getElementType() {
     return myType;
+  }
+
+  void assertReadAccessAllowed() {
+    if (ApplicationManager.getApplication().isReadAccessAllowed()) return;
+    FileElement fileElement = TreeUtil.getFileElement(this);
+    PsiElement psi = fileElement == null ? null : fileElement.getCachedPsi();
+    if (psi == null) return;
+    FileViewProvider provider = psi instanceof PsiFile ? ((PsiFile)psi).getViewProvider() : null;
+    boolean ok = provider != null && provider.getVirtualFile() instanceof ReadOnlyLightVirtualFile;
+    if (!ok) {
+      ApplicationManager.getApplication().assertReadAccessAllowed();
+    }
   }
 }
 

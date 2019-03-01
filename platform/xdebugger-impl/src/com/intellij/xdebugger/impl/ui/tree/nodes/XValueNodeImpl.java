@@ -1,24 +1,11 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree.nodes;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColoredTextContainer;
@@ -28,15 +15,17 @@ import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.frame.*;
 import com.intellij.xdebugger.frame.presentation.XValuePresentation;
+import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerInlayUtil;
 import com.intellij.xdebugger.impl.frame.XDebugView;
 import com.intellij.xdebugger.impl.frame.XValueMarkers;
+import com.intellij.xdebugger.impl.frame.XValueWithInlinePresentation;
 import com.intellij.xdebugger.impl.frame.XVariablesView;
 import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.intellij.xdebugger.impl.ui.XDebuggerUIConstants;
 import com.intellij.xdebugger.impl.ui.tree.ValueMarkup;
 import com.intellij.xdebugger.impl.ui.tree.XDebuggerTree;
 import com.intellij.xdebugger.settings.XDebuggerSettingsManager;
-import gnu.trove.TObjectLongHashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -62,7 +51,7 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
 
   //todo[nik] annotate 'name' with @NotNull
   public XValueNodeImpl(XDebuggerTree tree, @Nullable XDebuggerTreeNode parent, String name, @NotNull XValue value) {
-    super(tree, parent, value);
+    super(tree, parent, true, value);
     myName = name;
 
     value.computePresentation(this, XValuePlace.TREE);
@@ -122,7 +111,7 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
       final XInlineDebuggerDataCallback callback = new XInlineDebuggerDataCallback() {
         @Override
         public void computed(XSourcePosition position) {
-          if (position == null) return;
+          if (isObsolete() || position == null) return;
           VirtualFile file = position.getFile();
           // filter out values from other files
           if (!Comparing.equal(debuggerPosition.getFile(), file)) {
@@ -131,16 +120,16 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
           final Document document = FileDocumentManager.getInstance().getDocument(file);
           if (document == null) return;
 
-          XVariablesView.InlineVariablesInfo data = myTree.getProject().getUserData(XVariablesView.DEBUG_VARIABLES);
-          final TObjectLongHashMap<VirtualFile> timestamps = myTree.getProject().getUserData(XVariablesView.DEBUG_VARIABLES_TIMESTAMPS);
-          if (data == null || timestamps == null) {
+          XVariablesView.InlineVariablesInfo data = XVariablesView.InlineVariablesInfo.get(session);
+          if (data == null) {
             return;
           }
 
-          data.put(file, position, XValueNodeImpl.this);
-          timestamps.put(file, document.getModificationStamp());
+          if (!showAsInlay(session, position, debuggerPosition)) {
+            data.put(file, position, XValueNodeImpl.this, document.getModificationStamp());
 
-          myTree.updateEditor();
+            myTree.updateEditor();
+          }
         }
       };
 
@@ -152,12 +141,39 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
     }
   }
 
+  private boolean showAsInlay(XDebugSession session,
+                              XSourcePosition position,
+                              XSourcePosition debuggerPosition) {
+    if (!Registry.is("debugger.show.values.between.lines") && !Registry.is("debugger.show.values.inplace")) return false;
+
+    if (Registry.is("debugger.show.values.between.lines") && session instanceof XDebugSessionImpl) {
+      if (XDebuggerInlayUtil.showValueInBlockInlay((XDebugSessionImpl)session, this, position)) {
+        return true;
+      }
+    }
+    if (Registry.is("debugger.show.values.inplace")) {
+      XValue container = getValueContainer();
+      if (debuggerPosition.getLine() == position.getLine() && container instanceof XValueWithInlinePresentation) {
+        String presentation = ((XValueWithInlinePresentation)container).computeInlinePresentation();
+        if (presentation != null) {
+          XDebuggerInlayUtil.createInlay(myTree.getProject(), position.getFile(), position.getOffset(), presentation);
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   @Override
   public void setFullValueEvaluator(@NotNull final XFullValueEvaluator fullValueEvaluator) {
     invokeNodeUpdate(() -> {
       myFullValueEvaluator = fullValueEvaluator;
       fireNodeChanged();
     });
+  }
+
+  public void clearFullValueEvaluator() {
+    myFullValueEvaluator = null;
   }
 
   private void updateText() {
@@ -169,7 +185,9 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
         myText.append("[" + markup.getText() + "] ", new SimpleTextAttributes(SimpleTextAttributes.STYLE_BOLD, markup.getColor()));
       }
     }
-    appendName();
+    if (myValuePresentation.isShowName()) {
+      appendName();
+    }
     buildText(myValuePresentation, myText);
   }
 
@@ -214,7 +232,7 @@ public class XValueNodeImpl extends XValueContainerNode<XValue> implements XValu
 
   @Nullable
   @Override
-  protected XDebuggerTreeNodeHyperlink getLink() {
+  public XDebuggerTreeNodeHyperlink getLink() {
     if (myFullValueEvaluator != null) {
       return new XDebuggerTreeNodeHyperlink(myFullValueEvaluator.getLinkText()) {
         @Override

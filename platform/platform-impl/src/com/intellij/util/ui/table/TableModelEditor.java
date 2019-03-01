@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.ui.table;
 
 import com.intellij.ide.IdeBundle;
@@ -21,6 +7,7 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.*;
 import com.intellij.ui.table.JBTable;
 import com.intellij.ui.table.TableView;
@@ -34,7 +21,6 @@ import com.intellij.util.ui.ColumnInfo;
 import com.intellij.util.ui.ListTableModel;
 import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
-import gnu.trove.TObjectObjectProcedure;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
@@ -105,41 +91,32 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
   }
 
   private void addDialogActions() {
-    toolbarDecorator.setEditAction(new AnActionButtonRunnable() {
-      @Override
-      public void run(AnActionButton button) {
-        T item = table.getSelectedObject();
-        if (item != null) {
-          Function<T, T> mutator;
-          if (helper.isMutable(item)) {
-            mutator = FunctionUtil.id();
-          }
-          else {
-            final int selectedRow = table.getSelectedRow();
-            mutator = item12 -> helper.getMutable(item12, selectedRow);
-          }
-          ((DialogItemEditor<T>)itemEditor).edit(item, mutator, false);
-          table.requestFocus();
+    toolbarDecorator.setEditAction(button -> {
+      T item = table.getSelectedObject();
+      if (item != null) {
+        Function<T, T> mutator;
+        if (helper.isMutable(item)) {
+          mutator = FunctionUtil.id();
         }
+        else {
+          final int selectedRow = table.getSelectedRow();
+          mutator = item12 -> helper.getMutable(item12, selectedRow);
+        }
+        ((DialogItemEditor<T>)itemEditor).edit(item, mutator, false);
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
       }
-    }).setEditActionUpdater(new AnActionButtonUpdater() {
-      @Override
-      public boolean isEnabled(AnActionEvent e) {
-        T item = table.getSelectedObject();
-        return item != null && ((DialogItemEditor<T>)itemEditor).isEditable(item);
-      }
+    }).setEditActionUpdater(e -> {
+      T item = table.getSelectedObject();
+      return item != null && ((DialogItemEditor<T>)itemEditor).isEditable(item);
     });
 
     if (((DialogItemEditor)itemEditor).isUseDialogToAdd()) {
-      toolbarDecorator.setAddAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          T item = createElement();
-          ((DialogItemEditor<T>)itemEditor).edit(item, item1 -> {
-            model.addRow(item1);
-            return item1;
-          }, true);
-        }
+      toolbarDecorator.setAddAction(button -> {
+        T item = createElement();
+        ((DialogItemEditor<T>)itemEditor).edit(item, item1 -> {
+          model.addRow(item1);
+          return item1;
+        }, true);
       });
     }
   }
@@ -202,7 +179,7 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     private List<T> items;
     private DataChangedListener<T> dataChangedListener;
 
-    public MyListTableModel(@NotNull ColumnInfo[] columns, @NotNull List<T> items) {
+    MyListTableModel(@NotNull ColumnInfo[] columns, @NotNull List<T> items) {
       super(columns, items);
 
       this.items = items;
@@ -272,7 +249,7 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
             model.addRow(itemEditor.clone(item, false));
           }
 
-          table.requestFocus();
+          IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
           TableUtil.updateScroller(table);
         }
       }
@@ -291,14 +268,11 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     final Ref<T> ref;
     if (helper.hasModifiedItems()) {
       ref = Ref.create();
-      helper.process(new TObjectObjectProcedure<T, T>() {
-        @Override
-        public boolean execute(T modified, T original) {
-          if (item == original) {
-            ref.set(modified);
-          }
-          return ref.isNull();
+      helper.process((modified, original) -> {
+        if (item == original) {
+          ref.set(modified);
         }
+        return ref.isNull();
       });
     }
     else {
@@ -313,22 +287,19 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     if (helper.hasModifiedItems()) {
       @SuppressWarnings("unchecked")
       final ColumnInfo<T, Object>[] columns = model.getColumnInfos();
-      helper.process(new TObjectObjectProcedure<T, T>() {
-        @Override
-        public boolean execute(T newItem, @NotNull T oldItem) {
-          for (ColumnInfo<T, Object> column : columns) {
-            if (column.isCellEditable(newItem)) {
-              column.setValue(oldItem, column.valueOf(newItem));
-            }
+      helper.process((newItem, oldItem) -> {
+        for (ColumnInfo<T, Object> column : columns) {
+          if (column.isCellEditable(newItem)) {
+            column.setValue(oldItem, column.valueOf(newItem));
           }
-
-          if (itemEditor instanceof DialogItemEditor) {
-            ((DialogItemEditor<T>)itemEditor).applyEdited(oldItem, newItem);
-          }
-
-          model.items.set(ContainerUtil.indexOfIdentity(model.items, newItem), oldItem);
-          return true;
         }
+
+        if (itemEditor instanceof DialogItemEditor) {
+          ((DialogItemEditor<T>)itemEditor).applyEdited(oldItem, newItem);
+        }
+
+        model.items.set(ContainerUtil.indexOfIdentity(model.items, newItem), oldItem);
+        return true;
       });
     }
 
@@ -336,6 +307,7 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     return model.items;
   }
 
+  @Override
   public void reset(@NotNull List<T> items) {
     super.reset(items);
     model.setItems(new ArrayList<>(items));
@@ -345,7 +317,7 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     @Override
     public void run(AnActionButton button) {
       if (TableUtil.doRemoveSelectedItems(table, model, this)) {
-        table.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(table, true));
         TableUtil.updateScroller(table);
       }
     }
@@ -357,7 +329,7 @@ public class TableModelEditor<T> extends CollectionModelEditor<T, CollectionItem
     }
 
     @Override
-    public boolean isEnabled(AnActionEvent e) {
+    public boolean isEnabled(@NotNull AnActionEvent e) {
       return areSelectedItemsRemovable(table.getSelectionModel());
     }
   }

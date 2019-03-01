@@ -15,13 +15,14 @@
  */
 package com.intellij.openapi.vcs.actions;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.editor.colors.ColorKey;
 import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.localVcs.UpToDateLineNumberProvider;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.vcs.annotate.*;
 import com.intellij.openapi.vcs.history.VcsRevisionNumber;
-import com.intellij.util.Consumer;
 import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -35,27 +36,45 @@ class AnnotationPresentation implements TextAnnotationPresentation {
   @Nullable private final AnnotationSourceSwitcher mySwitcher;
   private final ArrayList<AnAction> myActions = new ArrayList<>();
 
+  @NotNull private final Disposable myDisposable;
+  private boolean myDisposed = false;
+
   AnnotationPresentation(@NotNull FileAnnotation fileAnnotation,
                          @NotNull UpToDateLineNumberProvider upToDateLineNumberProvider,
-                         @Nullable final AnnotationSourceSwitcher switcher) {
+                         @Nullable AnnotationSourceSwitcher switcher,
+                         @NotNull Disposable disposable) {
     myUpToDateLineNumberProvider = upToDateLineNumberProvider;
     myFileAnnotation = fileAnnotation;
     mySwitcher = switcher;
+    myDisposable = disposable;
   }
 
+  @NotNull
+  FileAnnotation getFileAnnotation() {
+    return myFileAnnotation;
+  }
+
+  @Override
+  public int getAnnotationLine(int editorLine) {
+    return myUpToDateLineNumberProvider.getLineNumber(editorLine);
+  }
+
+  @Override
   public EditorFontType getFontType(final int line) {
     VcsRevisionNumber revision = myFileAnnotation.originalRevision(line);
     VcsRevisionNumber currentRevision = myFileAnnotation.getCurrentRevision();
     return currentRevision != null && currentRevision.equals(revision) ? EditorFontType.BOLD : EditorFontType.PLAIN;
   }
 
+  @Override
   public ColorKey getColor(final int line) {
     if (mySwitcher == null) return AnnotationSource.LOCAL.getColor();
     return mySwitcher.getAnnotationSource(line).getColor();
   }
 
+  @Override
   public List<AnAction> getActions(int line) {
-    int correctedNumber = myUpToDateLineNumberProvider.getLineNumber(line);
+    int correctedNumber = getAnnotationLine(line);
     for (AnAction action : myActions) {
       UpToDateLineNumberListener upToDateListener = ObjectUtils.tryCast(action, UpToDateLineNumberListener.class);
       if (upToDateListener != null) upToDateListener.consume(correctedNumber);
@@ -72,11 +91,18 @@ class AnnotationPresentation implements TextAnnotationPresentation {
     return myActions;
   }
 
-  public void addAction(AnAction action) {
+  public void addAction(@NotNull AnAction action) {
     myActions.add(action);
   }
 
-  public void addAction(AnAction action, int index) {
+  public void addAction(@NotNull AnAction action, int index) {
     myActions.add(index, action);
+  }
+
+  @Override
+  public void gutterClosed() {
+    if (myDisposed) return;
+    myDisposed = true;
+    Disposer.dispose(myDisposable);
   }
 }

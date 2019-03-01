@@ -16,6 +16,8 @@
 package com.intellij.psi.impl.smartPointers;
 
 import com.intellij.lang.LanguageUtil;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.ProperTextRange;
 import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
@@ -28,17 +30,11 @@ import com.intellij.psi.tree.IElementType;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
-* User: cdr
-*/
 class AnchorElementInfo extends SelfElementInfo {
   private volatile long myStubElementTypeAndId; // stubId in the lower 32 bits; stubElementTypeIndex in the high 32 bits packed together for atomicity
 
-  AnchorElementInfo(@NotNull PsiElement anchor, @NotNull PsiFile containingFile) {
-    super(containingFile.getProject(), ProperTextRange.create(anchor.getTextRange()),
-          AnchorTypeInfo.obtainInfo(anchor, LanguageUtil.getRootLanguage(containingFile)),
-          containingFile, false);
-    assert !(anchor instanceof PsiFile) : "FileElementInfo must be used for file: "+anchor;
+  AnchorElementInfo(@NotNull PsiElement anchor, @NotNull PsiFile containingFile, @NotNull Identikit.ByAnchor identikit) {
+    super(ProperTextRange.create(anchor.getTextRange()), identikit, containingFile, false);
     myStubElementTypeAndId = pack(-1, null);
   }
   // will restore by stub index until file tree get loaded
@@ -46,14 +42,14 @@ class AnchorElementInfo extends SelfElementInfo {
                     @NotNull PsiFileWithStubSupport containingFile,
                     int stubId,
                     @NotNull IStubElementType stubElementType) {
-    super(containingFile.getProject(), null,
-          AnchorTypeInfo.obtainInfo(anchor.getClass(), stubElementType, LanguageUtil.getRootLanguage(containingFile)),
+    super(null,
+          Identikit.fromTypes(anchor.getClass(), stubElementType, LanguageUtil.getRootLanguage(containingFile)),
           containingFile, false);
     myStubElementTypeAndId = pack(stubId, stubElementType);
     assert !(anchor instanceof PsiFile) : "FileElementInfo must be used for file: "+anchor;
   }
 
-  private static long pack(int stubId, IStubElementType stubElementType) {
+  private static long pack(int stubId, @Nullable IStubElementType stubElementType) {
     short index = stubElementType == null ? 0 : stubElementType.getIndex();
     assert index >= 0 : "Unregistered token types not allowed here: " + stubElementType;
     return ((long)stubId) | ((long)index << 32);
@@ -65,42 +61,22 @@ class AnchorElementInfo extends SelfElementInfo {
 
   @Override
   @Nullable
-  public PsiElement restoreElement() {
+  public PsiElement restoreElement(@NotNull SmartPointerManagerImpl manager) {
     long typeAndId = myStubElementTypeAndId;
     int stubId = (int)typeAndId;
     if (stubId != -1) {
-      PsiFile file = restoreFile();
+      PsiFile file = restoreFile(manager);
       if (!(file instanceof PsiFileWithStubSupport)) return null;
       short index = (short)(typeAndId >> 32);
       IStubElementType stubElementType = (IStubElementType)IElementType.find(index);
       return PsiAnchor.restoreFromStubIndex((PsiFileWithStubSupport)file, stubId, stubElementType, false);
     }
 
-    Segment psiRange = getPsiRange();
-    if (psiRange == null) return null;
-
-    PsiFile file = restoreFile();
-    if (file == null) return null;
-    PsiElement anchor = findElementInside(file, psiRange.getStartOffset(), psiRange.getEndOffset(), myType);
-    if (anchor == null) return null;
-
-    TextRange range = anchor.getTextRange();
-    if (range == null || range.getStartOffset() != psiRange.getStartOffset() || range.getEndOffset() != psiRange.getEndOffset()) return null;
-
-    return restoreFromAnchor(anchor);
-  }
-
-  @Nullable
-  static PsiElement restoreFromAnchor(PsiElement anchor) {
-    for (SmartPointerAnchorProvider provider : SmartPointerAnchorProvider.EP_NAME.getExtensions()) {
-      final PsiElement element = provider.restoreElement(anchor);
-      if (element != null) return element;
-    }
-    return anchor;
+    return super.restoreElement(manager);
   }
 
   @Override
-  public boolean pointsToTheSameElementAs(@NotNull final SmartPointerElementInfo other) {
+  public boolean pointsToTheSameElementAs(@NotNull final SmartPointerElementInfo other, @NotNull SmartPointerManagerImpl manager) {
     if (other instanceof AnchorElementInfo) {
       if (!getVirtualFile().equals(other.getVirtualFile())) return false;
 
@@ -111,50 +87,48 @@ class AnchorElementInfo extends SelfElementInfo {
         return packed1 == packed2;
       }
       if (packed1 != -1 || packed2 != -1) {
-        return areRestoredElementsEqual(other);
+        return ReadAction.compute(() -> Comparing.equal(restoreElement(manager), other.restoreElement(manager)));
       }
     }
-    return super.pointsToTheSameElementAs(other);
+    return super.pointsToTheSameElementAs(other, manager);
   }
 
   @Override
-  public void fastenBelt() {
+  public void fastenBelt(@NotNull SmartPointerManagerImpl manager) {
     if (getStubId() != -1) {
-      switchToTree();
+      switchToTree(manager);
     }
-    super.fastenBelt();
+    super.fastenBelt(manager);
   }
 
-  private void switchToTree() {
-    PsiElement element = restoreElement();
-    if (element != null) {
-      PsiElement anchor = AnchorElementInfoFactory.getAnchor(element);
-      if (anchor == null) anchor = element;
-      myType = AnchorTypeInfo.obtainInfo(anchor, myType.getFileLanguage());
-      setRange(anchor.getTextRange());
-      MarkerCache cache = myManager.getMarkerCache(getVirtualFile());
-      if (cache != null) {
-        cache.rangeChanged();
-      }
-      myStubElementTypeAndId = pack(-1, null);
+  private void switchToTree(@NotNull SmartPointerManagerImpl manager) {
+    PsiElement element = restoreElement(manager);
+    SmartPointerTracker tracker = manager.getTracker(getVirtualFile());
+    if (element != null && tracker != null) {
+      tracker.switchStubToAst(this, element);
     }
+  }
+
+  void switchToTreeRange(@NotNull PsiElement element) {
+    switchToAnchor(element);
+    myStubElementTypeAndId = pack(-1, null);
   }
 
   @Override
-  public Segment getRange() {
+  public Segment getRange(@NotNull SmartPointerManagerImpl manager) {
     if (getStubId() != -1) {
-      switchToTree();
+      switchToTree(manager);
     }
-    return super.getRange();
+    return super.getRange(manager);
   }
 
   @Nullable
   @Override
-  public TextRange getPsiRange() {
+  public TextRange getPsiRange(@NotNull SmartPointerManagerImpl manager) {
     if (getStubId() != -1) {
-      switchToTree();
+      switchToTree(manager);
     }
-    return super.getPsiRange();
+    return super.getPsiRange(manager);
   }
 
   @Override

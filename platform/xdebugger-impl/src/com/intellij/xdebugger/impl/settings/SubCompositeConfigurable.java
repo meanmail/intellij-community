@@ -72,11 +72,12 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
     return children != null && children.length == 1;
   }
 
+  @NotNull
   @Override
   public final Configurable[] getConfigurables() {
     if (children == null) {
       List<Configurable> configurables = DebuggerConfigurable.getConfigurables(getCategory());
-      children = configurables.toArray(new Configurable[configurables.size()]);
+      children = configurables.toArray(new Configurable[0]);
     }
     return isChildrenMerged() ? DebuggerConfigurable.EMPTY_CONFIGURABLES : children;
   }
@@ -155,9 +156,7 @@ abstract class SubCompositeConfigurable implements SearchableConfigurable.Parent
   public final void apply() throws ConfigurationException {
     if (root != null) {
       root.apply(getSettings());
-      for (DebuggerConfigurableProvider provider : DebuggerConfigurableProvider.EXTENSION_POINT.getExtensions()) {
-        provider.generalApplied(getCategory());
-      }
+      DebuggerConfigurableProvider.EXTENSION_POINT.extensions().forEach(provider -> provider.generalApplied(getCategory()));
     }
 
     if (isChildrenMerged()) {

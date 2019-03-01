@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.impl;
 
@@ -30,15 +16,14 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.PathUtil;
 import com.intellij.util.SystemProperties;
-import com.intellij.util.graph.CachingSemiGraph;
-import com.intellij.util.graph.DFSTBuilder;
-import com.intellij.util.graph.GraphGenerator;
+import com.intellij.util.graph.*;
 import com.intellij.util.xmlb.XmlSerializer;
-import com.intellij.util.xmlb.annotations.AbstractCollection;
-import com.intellij.util.xmlb.annotations.MapAnnotation;
 import com.intellij.util.xmlb.annotations.Tag;
+import com.intellij.util.xmlb.annotations.XCollection;
+import com.intellij.util.xmlb.annotations.XMap;
 import org.jdom.Document;
 import org.jetbrains.annotations.NotNull;
 
@@ -61,15 +46,15 @@ public class ConversionServiceImpl extends ConversionService {
       }
 
       @Override
-      public void successfullyConverted(File backupDir) {
+      public void successfullyConverted(@NotNull File backupDir) {
       }
 
       @Override
-      public void error(String message) {
+      public void error(@NotNull String message) {
       }
 
       @Override
-      public void cannotWriteToFiles(List<File> readonlyFiles) {
+      public void cannotWriteToFiles(@NotNull List<? extends File> readonlyFiles) {
       }
     });
   }
@@ -111,10 +96,7 @@ public class ConversionServiceImpl extends ConversionService {
       saveConversionResult(context);
       return new ConversionResultImpl(runners);
     }
-    catch (CannotConvertException e) {
-      listener.error(e.getMessage());
-    }
-    catch (IOException e) {
+    catch (CannotConvertException | IOException e) {
       listener.error(e.getMessage());
     }
     return ConversionResultImpl.ERROR_OCCURRED;
@@ -122,13 +104,17 @@ public class ConversionServiceImpl extends ConversionService {
 
   @NotNull
   @Override
-  public ConversionResult convert(@NotNull String projectPath) {
+  public ConversionResult convert(@NotNull VirtualFile projectPath) {
     try {
-      if (!new File(projectPath).exists() || ApplicationManager.getApplication().isHeadlessEnvironment() || !isConversionNeeded(projectPath)) {
+      if (!projectPath.isValid() || ApplicationManager.getApplication().isHeadlessEnvironment()) {
         return ConversionResultImpl.CONVERSION_NOT_NEEDED;
       }
 
-      final ConversionContextImpl context = new ConversionContextImpl(projectPath);
+      final ConversionContextImpl context = new ConversionContextImpl(projectPath.getPath());
+      if (!isConversionNeeded(context)) {
+        return ConversionResultImpl.CONVERSION_NOT_NEEDED;
+      }
+
       final List<ConversionRunner> converters = getConversionRunners(context);
       ConvertProjectDialog dialog = new ConvertProjectDialog(context, converters);
       dialog.show();
@@ -173,9 +159,12 @@ public class ConversionServiceImpl extends ConversionService {
     return converters;
   }
 
-  public static boolean isConversionNeeded(String projectPath) {
+  private static boolean isConversionNeeded(String projectPath) throws CannotConvertException {
+    return isConversionNeeded(new ConversionContextImpl(projectPath));
+  }
+
+  private static boolean isConversionNeeded(@NotNull ConversionContextImpl context ) {
     try {
-      final ConversionContextImpl context = new ConversionContextImpl(projectPath);
       final List<ConversionRunner> runners = getSortedConverters(context);
       if (runners.isEmpty()) {
         return false;
@@ -193,7 +182,7 @@ public class ConversionServiceImpl extends ConversionService {
     return false;
   }
 
-  private static List<ConversionRunner> getSortedConverters(final ConversionContextImpl context) throws CannotConvertException {
+  private static List<ConversionRunner> getSortedConverters(final ConversionContextImpl context) {
     final CachedConversionResult conversionResult = loadCachedConversionResult(context.getProjectFile());
     final Map<String, Long> oldMap = conversionResult.myProjectFilesTimestamps;
     Map<String, Long> newMap = getProjectFilesMap(context);
@@ -242,19 +231,14 @@ public class ConversionServiceImpl extends ConversionService {
         runners.add(new ConversionRunner(provider, context));
       }
     }
-    final CachingSemiGraph<ConverterProvider> graph = CachingSemiGraph.create(new ConverterProvidersGraph(providers));
-    final DFSTBuilder<ConverterProvider> builder = new DFSTBuilder<>(GraphGenerator.create(graph));
+    final Graph<ConverterProvider> graph = GraphGenerator.generate(CachingSemiGraph.cache(new ConverterProvidersGraph(providers)));
+    final DFSTBuilder<ConverterProvider> builder = new DFSTBuilder<>(graph);
     if (!builder.isAcyclic()) {
       final Pair<ConverterProvider,ConverterProvider> pair = builder.getCircularDependency();
       LOG.error("cyclic dependencies between converters: " + pair.getFirst().getId() + " and " + pair.getSecond().getId());
     }
     final Comparator<ConverterProvider> comparator = builder.comparator();
-    Collections.sort(runners, new Comparator<ConversionRunner>() {
-      @Override
-      public int compare(ConversionRunner o1, ConversionRunner o2) {
-        return comparator.compare(o1.getProvider(), o2.getProvider());
-      }
-    });
+    Collections.sort(runners, (o1, o2) -> comparator.compare(o1.getProvider(), o2.getProvider()));
     return runners;
   }
 
@@ -291,9 +275,7 @@ public class ConversionServiceImpl extends ConversionService {
       if (!infoFile.exists()) {
         return new CachedConversionResult();
       }
-      final Document document = JDOMUtil.loadDocument(infoFile);
-      final CachedConversionResult result = XmlSerializer.deserialize(document, CachedConversionResult.class);
-      return result != null ? result : new CachedConversionResult();
+      return XmlSerializer.deserialize(JDOMUtil.load(infoFile), CachedConversionResult.class);
     }
     catch (Exception e) {
       LOG.info(e);
@@ -330,7 +312,7 @@ public class ConversionServiceImpl extends ConversionService {
 
     try {
       ConversionContextImpl context = new ConversionContextImpl(projectPath);
-      final List<ConversionRunner> runners = createConversionRunners(context, Collections.<String>emptySet());
+      final List<ConversionRunner> runners = createConversionRunners(context, Collections.emptySet());
       final File backupFile = ProjectConversionUtil.backupFile(moduleFile);
       List<ConversionRunner> usedRunners = new ArrayList<>();
       for (ConversionRunner runner : runners) {
@@ -358,7 +340,7 @@ public class ConversionServiceImpl extends ConversionService {
   private static boolean isConversionNeeded(String projectPath, File moduleFile) {
     try {
       ConversionContextImpl context = new ConversionContextImpl(projectPath);
-      final List<ConversionRunner> runners = createConversionRunners(context, Collections.<String>emptySet());
+      final List<ConversionRunner> runners = createConversionRunners(context, Collections.emptySet());
       for (ConversionRunner runner : runners) {
         if (runner.isModuleConversionNeeded(moduleFile)) {
           return true;
@@ -375,27 +357,27 @@ public class ConversionServiceImpl extends ConversionService {
   @Tag("conversion")
   public static class CachedConversionResult {
     @Tag("applied-converters")
-    @AbstractCollection(surroundWithTag = false, elementTag = "converter", elementValueAttribute = "id")
+    @XCollection(elementName = "converter", valueAttributeName = "id")
     public Set<String> myAppliedConverters = new HashSet<>();
 
-    @Tag("project-files")
-    @MapAnnotation(surroundWithTag = false, surroundKeyWithTag = false, surroundValueWithTag = false, entryTagName = "file",
-                   keyAttributeName = "path", valueAttributeName = "timestamp")
+    @XMap(propertyElementName = "project-files", entryTagName = "file", keyAttributeName = "path", valueAttributeName = "timestamp")
     public Map<String, Long> myProjectFilesTimestamps = new HashMap<>();
   }
 
-  private static class ConverterProvidersGraph implements GraphGenerator.SemiGraph<ConverterProvider> {
+  private static class ConverterProvidersGraph implements InboundSemiGraph<ConverterProvider> {
     private final ConverterProvider[] myProviders;
 
-    public ConverterProvidersGraph(ConverterProvider[] providers) {
+    ConverterProvidersGraph(ConverterProvider[] providers) {
       myProviders = providers;
     }
 
+    @NotNull
     @Override
     public Collection<ConverterProvider> getNodes() {
       return Arrays.asList(myProviders);
     }
 
+    @NotNull
     @Override
     public Iterator<ConverterProvider> getIn(ConverterProvider n) {
       List<ConverterProvider> preceding = new ArrayList<>();

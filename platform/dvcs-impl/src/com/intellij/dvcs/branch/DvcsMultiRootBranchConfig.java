@@ -15,6 +15,7 @@
  */
 package com.intellij.dvcs.branch;
 
+import com.intellij.dvcs.MultiRootBranches;
 import com.intellij.dvcs.repo.Repository;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -34,36 +35,7 @@ public abstract class DvcsMultiRootBranchConfig<Repo extends Repository> {
 
   @Nullable
   public String getCurrentBranch() {
-    String commonBranch = null;
-    for (Repo repository : myRepositories) {
-      String branchName = repository.getCurrentBranchName();
-      if (branchName == null) {
-        return null;
-      }
-      // NB: if all repositories are in the rebasing state on the same branches, this branch is returned
-      if (commonBranch == null) {
-        commonBranch = branchName;
-      }
-      else if (!commonBranch.equals(branchName)) {
-        return null;
-      }
-    }
-    return commonBranch;
-  }
-
-  @Nullable
-  public Repository.State getState() {
-    Repository.State commonState = null;
-    for (Repo repository : myRepositories) {
-      Repository.State state = repository.getState();
-      if (commonState == null) {
-        commonState = state;
-      }
-      else if (!commonState.equals(state)) {
-        return null;
-      }
-    }
-    return commonState;
+    return MultiRootBranches.getCommonCurrentBranch(myRepositories);
   }
 
   @NotNull

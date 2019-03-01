@@ -15,13 +15,14 @@
  */
 package com.jetbrains.python.inspections;
 
-import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.fixtures.PyInspectionTestCase;
 import com.jetbrains.python.psi.LanguageLevel;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
  */
-public class PyCallingNonCallableInspectionTest extends PyTestCase {
+public class PyCallingNonCallableInspectionTest extends PyInspectionTestCase {
   public void testTupleNonCallable() {
     doTest();
   }
@@ -103,15 +104,42 @@ public class PyCallingNonCallableInspectionTest extends PyTestCase {
     doTest();
   }
 
-  private void doTest() {
-    setLanguageLevel(LanguageLevel.PYTHON27);
-    try {
-      myFixture.configureByFile("inspections/PyCallingNonCallableInspection/" + getTestName(true) + ".py");
-      myFixture.enableInspections(PyCallingNonCallableInspection.class);
-      myFixture.checkHighlighting(true, false, false);
-    }
-    finally {
-      setLanguageLevel(null);
-    }
+  // PY-26555
+  public void testAfterModifierWrappingCall() {
+    doTest();
+  }
+
+  // PY-28626
+  public void testFunctionDecoratedAsContextManager() {
+    doMultiFileTest();
+  }
+
+  // PY-24161
+  public void testGenericClassObjectTypeAnnotation() {
+    doTest();
+  }
+
+  // PY-24161
+  public void testExplicitClassObjectTypeAnnotation() {
+    doTest();
+  }
+
+  // PY-31943
+  public void testTypeVarBoundedWithCallable() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON36,
+      () -> doTestByText("from typing import TypeVar, Callable, Any\n" +
+                         "\n" +
+                         "F = TypeVar('F', bound=Callable[[], Any])\n" +
+                         "\n" +
+                         "def deco(func: F):\n" +
+                         "    func()")
+    );
+  }
+
+  @NotNull
+  @Override
+  protected Class<? extends PyInspection> getInspectionClass() {
+    return PyCallingNonCallableInspection.class;
   }
 }

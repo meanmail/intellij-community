@@ -16,27 +16,26 @@
 
 package com.siyeh.ig.classlayout;
 
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.AsyncResult;
 import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiMethod;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiParameterList;
 import com.intellij.refactoring.JavaRefactoringActionHandlerFactory;
 import com.intellij.refactoring.RefactoringActionHandler;
-import com.intellij.util.Consumer;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.fixes.RefactoringInspectionGadgetsFix;
+import com.siyeh.ig.psiutils.SerializationUtils;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Bas Leijdekkers
  */
-public class PublicConstructorInspection extends PublicConstructorInspectionBase {
+public class PublicConstructorInspection extends BaseInspection {
 
   @Nullable
   @Override
@@ -44,42 +43,90 @@ public class PublicConstructorInspection extends PublicConstructorInspectionBase
     return new ReplaceConstructorWithFactoryMethodFix();
   }
 
-  private static class ReplaceConstructorWithFactoryMethodFix extends InspectionGadgetsFix {
+  @Nls
+  @NotNull
+  @Override
+  public String getDisplayName() {
+    return InspectionGadgetsBundle.message("public.constructor.display.name");
+  }
+
+  @NotNull
+  @Override
+  protected String buildErrorString(Object... infos) {
+    if (((Boolean)infos[0]).booleanValue()) {
+      return InspectionGadgetsBundle.message("public.default.constructor.problem.descriptor");
+    }
+    else {
+      return InspectionGadgetsBundle.message("public.constructor.problem.descriptor");
+    }
+  }
+
+  @Override
+  protected boolean buildQuickFixesOnlyForOnTheFlyErrors() {
+    return true;
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new PublicConstructorVisitor();
+  }
+
+  private static class ReplaceConstructorWithFactoryMethodFix extends RefactoringInspectionGadgetsFix {
 
     @NotNull
     @Override
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("public.constructor.quickfix");
     }
 
     @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
+    public RefactoringActionHandler getHandler() {
+      return JavaRefactoringActionHandlerFactory.getInstance().createReplaceConstructorWithFactoryHandler();
     }
+  }
+
+  private static class PublicConstructorVisitor extends BaseInspectionVisitor {
 
     @Override
-    protected void doFix(final Project project, ProblemDescriptor descriptor) {
-      final PsiElement element = PsiTreeUtil.getParentOfType(descriptor.getPsiElement(), PsiClass.class, PsiMethod.class);
-      final AsyncResult<DataContext> context = DataManager.getInstance().getDataContextFromFocus();
-      context.doWhenDone(new Consumer<DataContext>() {
-        @Override
-        public void consume(DataContext dataContext) {
-          final JavaRefactoringActionHandlerFactory factory = JavaRefactoringActionHandlerFactory.getInstance();
-          final RefactoringActionHandler handler = factory.createReplaceConstructorWithFactoryHandler();
-          handler.invoke(project, new PsiElement[]{element}, dataContext);
+    public void visitMethod(PsiMethod method) {
+      super.visitMethod(method);
+      if (!method.isConstructor()) {
+        return;
+      }
+      if (!method.hasModifierProperty(PsiModifier.PUBLIC)) {
+        return;
+      }
+      final PsiClass aClass = method.getContainingClass();
+      if (aClass == null || aClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+        return;
+      }
+      if (SerializationUtils.isExternalizable(aClass)) {
+        final PsiParameterList parameterList = method.getParameterList();
+        if (parameterList.isEmpty()) {
+          return;
         }
-      });
+      }
+      registerMethodError(method, Boolean.FALSE);
     }
 
     @Override
-    protected boolean prepareForWriting() {
-      return false;
-    }
-
-    @Override
-    public boolean startInWriteAction() {
-      return false;
+    public void visitClass(PsiClass aClass) {
+      super.visitClass(aClass);
+      if (aClass.isInterface() || aClass.isEnum()) {
+        return;
+      }
+      if (!aClass.hasModifierProperty(PsiModifier.PUBLIC) || aClass.hasModifierProperty(PsiModifier.ABSTRACT)) {
+        return;
+      }
+      final PsiMethod[] constructors = aClass.getConstructors();
+      if (constructors.length > 0) {
+        return;
+      }
+      if (SerializationUtils.isExternalizable(aClass)) {
+        return;
+      }
+      registerClassError(aClass, Boolean.TRUE);
     }
   }
 }

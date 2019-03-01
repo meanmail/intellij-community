@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,17 +20,16 @@ import com.intellij.ide.util.treeView.AbstractTreeBuilder;
 import com.intellij.ide.util.treeView.NodeDescriptor;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.openapi.actionSystem.ActionToolbarPosition;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.externalSystem.ExternalSystemUiAware;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.ExternalProjectInfo;
 import com.intellij.openapi.externalSystem.model.ProjectKeys;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.project.ModuleData;
-import com.intellij.openapi.externalSystem.model.task.TaskData;
+import com.intellij.openapi.externalSystem.service.project.ProjectDataManager;
+import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl.ExternalProjectsStateProvider;
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator;
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator.Phase;
-import com.intellij.openapi.externalSystem.service.project.manage.ProjectDataManager;
 import com.intellij.openapi.externalSystem.service.project.manage.TaskActivationState;
 import com.intellij.openapi.externalSystem.settings.AbstractExternalSystemSettings;
 import com.intellij.openapi.externalSystem.settings.ExternalProjectSettings;
@@ -45,15 +44,15 @@ import com.intellij.openapi.ui.popup.ListPopupStep;
 import com.intellij.openapi.ui.popup.PopupStep;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.WriteExternalException;
-import com.intellij.ui.*;
+import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.treeStructure.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.SwingHelper;
 import icons.ExternalSystemIcons;
 import org.jdom.Element;
@@ -65,17 +64,13 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import javax.swing.tree.TreeSelectionModel;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.util.*;
 
-import static com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager.ExternalProjectsStateProvider;
-import static com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager.getInstance;
+import static com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl.getInstance;
 import static com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator.TaskActivationEntry;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/16/2015
  */
 public class ConfigureTasksActivationDialog extends DialogWrapper {
 
@@ -127,12 +122,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
       SwingHelper.updateItems(projectCombobox, projects,
                               new ProjectItem(uiAware.getProjectRepresentationName(projectPath, null), currentProjectSettings));
     }
-    projectCombobox.addActionListener(new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        updateTree(myRootNode);
-      }
-    });
+    projectCombobox.addActionListener(e -> updateTree(myRootNode));
   }
 
   private static AbstractTreeBuilder createTreeBuilder(@NotNull Project project, @NotNull SimpleNode root, @NotNull Tree tree) {
@@ -140,78 +130,55 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     tree.setModel(treeModel);
     tree.setRootVisible(false);
     tree.getSelectionModel().setSelectionMode(TreeSelectionModel.DISCONTIGUOUS_TREE_SELECTION);
-    final AbstractTreeBuilder treeBuilder = new AbstractTreeBuilder(tree, treeModel, new SimpleTreeStructure.Impl(root), null);
+    final AbstractTreeBuilder treeBuilder = new AbstractTreeBuilder(tree, treeModel, new SimpleTreeStructure.Impl(root), null) {
+      // unique class to simplify search through the logs
+    };
     Disposer.register(project, treeBuilder);
     return treeBuilder;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     ToolbarDecorator decorator = ToolbarDecorator.createDecorator(myTree).
-      setAddAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          ProjectItem projectItem = (ProjectItem)projectCombobox.getSelectedItem();
-          if(projectItem == null) return;
+      setAddAction(button -> {
+        ProjectItem projectItem = (ProjectItem)projectCombobox.getSelectedItem();
+        if(projectItem == null) return;
 
-          final ExternalProjectInfo projectData = ProjectDataManager.getInstance()
-            .getExternalProjectData(myProject, myProjectSystemId, projectItem.myProjectSettings.getExternalProjectPath());
+        final ExternalProjectInfo projectData = ProjectDataManager.getInstance()
+          .getExternalProjectData(myProject, myProjectSystemId, projectItem.myProjectSettings.getExternalProjectPath());
 
-          if (projectData == null || projectData.getExternalProjectStructure() == null) return;
+        if (projectData == null || projectData.getExternalProjectStructure() == null) return;
 
-          final List<ProjectPopupItem> popupItems = ContainerUtil.newArrayList();
-          for (DataNode<ModuleData> moduleDataNode : ExternalSystemApiUtil
-            .findAllRecursively(projectData.getExternalProjectStructure(), ProjectKeys.MODULE)) {
-            if(moduleDataNode.isIgnored()) continue;
+        final List<ProjectPopupItem> popupItems = ContainerUtil.newArrayList();
+        for (DataNode<ModuleData> moduleDataNode : ExternalSystemApiUtil
+          .findAllRecursively(projectData.getExternalProjectStructure(), ProjectKeys.MODULE)) {
+          if(moduleDataNode.isIgnored()) continue;
 
-            final List<String> tasks = ContainerUtil.map(
-              ExternalSystemApiUtil.findAll(moduleDataNode, ProjectKeys.TASK), node -> node.getData().getName());
-            if (!tasks.isEmpty()) {
-              popupItems.add(new ProjectPopupItem(moduleDataNode.getData(), tasks));
-            }
+          final List<String> tasks = ContainerUtil.map(
+            ExternalSystemApiUtil.findAll(moduleDataNode, ProjectKeys.TASK), node -> node.getData().getName());
+          if (!tasks.isEmpty()) {
+            popupItems.add(new ProjectPopupItem(moduleDataNode.getData(), tasks));
           }
+        }
 
-          final ChooseProjectStep projectStep = new ChooseProjectStep(popupItems);
-          final List<ProjectPopupItem> projectItems = projectStep.getValues();
-          ListPopupStep step = projectItems.size() == 1 ? (ListPopupStep)projectStep.onChosen(projectItems.get(0), false) : projectStep;
-          assert step != null;
-          JBPopupFactory.getInstance().createListPopup(step).show(
-            ObjectUtils.notNull(button.getPreferredPopupPoint(), RelativePoint.getSouthEastOf(projectCombobox)));
-        }
+        final ChooseProjectStep projectStep = new ChooseProjectStep(popupItems);
+        final List<ProjectPopupItem> projectItems = projectStep.getValues();
+        ListPopupStep step = projectItems.size() == 1 ? (ListPopupStep)projectStep.onChosen(projectItems.get(0), false) : projectStep;
+        assert step != null;
+        JBPopupFactory.getInstance().createListPopup(step).show(
+          ObjectUtils.notNull(button.getPreferredPopupPoint(), RelativePoint.getSouthEastOf(projectCombobox)));
       }).
-      setRemoveAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          List<TaskActivationEntry> tasks = findSelectedTasks();
-          myTaskActivator.removeTasks(tasks);
-          updateTree(null);
-        }
+      setRemoveAction(button -> {
+        List<TaskActivationEntry> tasks = findSelectedTasks();
+        myTaskActivator.removeTasks(tasks);
+        updateTree(null);
       }).
-      setMoveUpAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          moveAction(-1);
-        }
-      }).
-      setMoveUpActionUpdater(new AnActionButtonUpdater() {
-        @Override
-        public boolean isEnabled(AnActionEvent e) {
-          return isMoveActionEnabled(-1);
-        }
-      }).
-      setMoveDownAction(new AnActionButtonRunnable() {
-        @Override
-        public void run(AnActionButton button) {
-          moveAction(+1);
-        }
-      }).
-      setMoveDownActionUpdater(new AnActionButtonUpdater() {
-        @Override
-        public boolean isEnabled(AnActionEvent e) {
-          return isMoveActionEnabled(+1);
-        }
-      }).
+      setMoveUpAction(button -> moveAction(-1)).
+      setMoveUpActionUpdater(e -> isMoveActionEnabled(-1)).
+      setMoveDownAction(button -> moveAction(+1)).
+      setMoveDownActionUpdater(e -> isMoveActionEnabled(+1)).
       setToolbarPosition(ActionToolbarPosition.RIGHT).
-      setToolbarBorder(IdeBorderFactory.createEmptyBorder());
+      setToolbarBorder(JBUI.Borders.empty());
     tasksPanel.add(decorator.createPanel());
     return contentPane;
   }
@@ -260,7 +227,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
       }
 
       private int compare(int x, int y) {
-        return (x < y) ? -1 : ((x == y) ? 0 : 1);
+        return Integer.compare(x, y);
       }
     });
 
@@ -336,7 +303,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     @NotNull String projectName;
     @NotNull ExternalProjectSettings myProjectSettings;
 
-    public ProjectItem(@NotNull String projectName, @NotNull ExternalProjectSettings projectPath) {
+    ProjectItem(@NotNull String projectName, @NotNull ExternalProjectSettings projectPath) {
       this.projectName = projectName;
       this.myProjectSettings = projectPath;
     }
@@ -395,13 +362,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
       cleanUpEmptyNodes(node);
     }
 
-    TreeState treeState = new TreeState();
-    try {
-      treeState.readExternal(treeStateElement);
-      treeState.applyTo(myTree);
-    }
-    catch (InvalidDataException ignore) {
-    }
+    TreeState.createFrom(treeStateElement).applyTo(myTree);
   }
 
   private void cleanUpEmptyNodes(@NotNull CachingSimpleNode node) {
@@ -418,7 +379,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     ModuleData myModuleData;
     List<String> myTasks;
 
-    public ProjectPopupItem(ModuleData moduleData, List<String> tasks) {
+    ProjectPopupItem(ModuleData moduleData, List<String> tasks) {
       myModuleData = moduleData;
       myTasks = tasks;
     }
@@ -430,7 +391,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
   }
 
   private class ChooseProjectStep extends BaseListPopupStep<ProjectPopupItem> {
-    protected ChooseProjectStep(List<ProjectPopupItem> values) {
+    protected ChooseProjectStep(List<? extends ProjectPopupItem> values) {
       super("Choose project", values);
     }
 
@@ -475,7 +436,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
       super(aParent);
     }
 
-    public MyNode(Project aProject, @Nullable NodeDescriptor aParentDescriptor) {
+    MyNode(Project aProject, @Nullable NodeDescriptor aParentDescriptor) {
       super(aProject, aParentDescriptor);
     }
   }
@@ -483,7 +444,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
   private class RootNode extends MyNode {
     private final ExternalProjectsStateProvider myStateProvider;
 
-    public RootNode() {
+    RootNode() {
       super(ConfigureTasksActivationDialog.this.myProject, null);
       myStateProvider = getInstance(ConfigureTasksActivationDialog.this.myProject).getStateProvider();
     }
@@ -514,7 +475,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     private final String myProjectPath;
     private final String myProjectName;
 
-    public ProjectNode(RootNode parent,
+    ProjectNode(RootNode parent,
                        ExternalProjectsStateProvider stateProvider,
                        String rootProjectPath,
                        String projectPath) {
@@ -526,7 +487,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       super.update(presentation);
       presentation.setIcon(ExternalSystemIcons.TaskGroup);
     }
@@ -548,7 +509,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     private final TaskActivationState myTaskActivationState;
     private final String myProjectPath;
 
-    public PhaseNode(final String projectPath, Phase phase, TaskActivationState taskActivationState, SimpleNode parent) {
+    PhaseNode(final String projectPath, Phase phase, TaskActivationState taskActivationState, SimpleNode parent) {
       super(parent);
       myPhase = phase;
       myTaskActivationState = taskActivationState;
@@ -556,7 +517,7 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       super.update(presentation);
       presentation.setIcon(ExternalSystemIcons.TaskGroup);
     }
@@ -581,13 +542,13 @@ public class ConfigureTasksActivationDialog extends DialogWrapper {
   private class TaskNode extends MyNode {
     private final String myTaskName;
 
-    public TaskNode(String taskName, PhaseNode parent) {
+    TaskNode(String taskName, PhaseNode parent) {
       super(parent);
       myTaskName = taskName;
     }
 
     @Override
-    protected void update(PresentationData presentation) {
+    protected void update(@NotNull PresentationData presentation) {
       super.update(presentation);
       presentation.setIcon(uiAware.getTaskIcon());
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
-import java.util.HashSet;
+import java.util.Collections;
 import java.util.Set;
 
 public class ProjectDictionary implements EditableDictionary {
@@ -57,7 +57,7 @@ public class ProjectDictionary implements EditableDictionary {
   @Nullable
   public Boolean contains(@NotNull String word) {
     if (dictionaries == null) {
-      return false;
+      return null; // still ("WORD_OF_ENTIRELY_UNKNOWN_LETTERS_FOR_ALL");
     }
     int errors = 0;
     for (Dictionary dictionary : dictionaries) {
@@ -131,17 +131,15 @@ public class ProjectDictionary implements EditableDictionary {
 
 
   @Override
-  @Nullable
+  @NotNull
   public Set<String> getWords() {
     if (dictionaries == null) {
-      return null;
+      return Collections.emptySet();
     }
-    Set<String> words = new HashSet<>();
+    Set<String> words = new THashSet<>();
     for (Dictionary dictionary : dictionaries) {
       Set<String> otherWords = dictionary.getWords();
-      if (otherWords != null) {
-        words.addAll(otherWords);
-      }
+      words.addAll(otherWords);
     }
     return words;
   }
@@ -164,11 +162,10 @@ public class ProjectDictionary implements EditableDictionary {
     for (EditableDictionary dictionary : dictionaries) {
       dictionary.traverse(consumer);
     }
-
   }
 
   @Override
-  @Nullable
+  @NotNull
   public Set<String> getEditableWords() {
     return getActiveDictionary().getWords();
   }

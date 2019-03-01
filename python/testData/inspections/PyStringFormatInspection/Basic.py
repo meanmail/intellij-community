@@ -23,7 +23,7 @@
 '%d%d' % ((5), (5)) #ok
 "%(name)d %(name)d" % {"name": 43} #ok
 "%(name)d" % {'a': 4, "name": 5} #ok
-'%% name %(name)c' % <warning descr="Key 'name' has no following argument">{'a': 4}</warning> #Key 'name' has no following argument
+'%% name %(name)c' % <warning descr="Key 'name' has no corresponding argument">{'a': 4}</warning> #Key 'name' has no following argument
 '%d %u %f %F %s %r' % (2, 3, 4.1, 4.0, "name", "str") #ok
 '%d %d %d' % (4, <warning descr="Unexpected type str">"a"</warning>, <warning descr="Unexpected type str">"b"</warning>) #Unexpected type
 '%f %f %f' % (4, 5, <warning descr="Unexpected type str">"test"</warning>) #Unexpected type
@@ -100,9 +100,9 @@ print '%d, %d, %d, %d' % <warning descr="Too few arguments for format string">my
 
 # PY-12801
 print '%d %s' % ((42,) + ('spam',))
-print '%d %s' % (<warning descr="Unexpected type str">('ham',) + ('spam',)</warning>)
-print '%d %s' % (<warning descr="Too few arguments for format string">(42,) + ()</warning>)
-print '%d' % (<warning descr="Too many arguments for format string">(42,) + ('spam',)</warning>)
+print '%d %s' % (<warning descr="Unexpected type (str, str)">('ham',) + ('spam',)</warning>)
+print '%d %s' % (<warning descr="Too few arguments for format string"><warning descr="Unexpected type (int)">(42,) + ()</warning></warning>)
+print '%d' % (<warning descr="Too many arguments for format string"><warning descr="Unexpected type (int, str)">(42,) + ('spam',)</warning></warning>)
 
 # PY-11274
 import collections

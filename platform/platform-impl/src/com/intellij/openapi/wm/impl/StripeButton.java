@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
@@ -23,22 +9,21 @@ import com.intellij.openapi.actionSystem.ActionGroup;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.ActionPopupMenu;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.keymap.Keymap;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapManagerListener;
 import com.intellij.openapi.util.IconLoader;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.ui.MouseDragHelper;
 import com.intellij.ui.PopupHandler;
-import com.intellij.util.ui.JBImageIcon;
+import com.intellij.util.IconUtil;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
@@ -48,8 +33,6 @@ import java.awt.image.BufferedImage;
  * @author Vladimir Kondratyev
  */
 public final class StripeButton extends AnchoredButton implements ActionListener, Disposable {
-  private final Color ourBackgroundColor = new Color(247, 243, 239);
-
   /**
    * This is analog of Swing mnemomic. We cannot use the standard ones
    * because it causes typing of "funny" characters into the editor.
@@ -65,11 +48,9 @@ public final class StripeButton extends AnchoredButton implements ActionListener
   private Stripe myLastStripe;
   private KeyEventDispatcher myDragKeyEventDispatcher;
   private boolean myDragCancelled = false;
-  private final StripeButton.MyKeymapListener myKeymapListener;
 
   StripeButton(@NotNull final InternalDecorator decorator, ToolWindowsPane pane) {
     myDecorator = decorator;
-    myKeymapListener = new MyKeymapListener();
     myPane = pane;
 
     init();
@@ -108,9 +89,8 @@ public final class StripeButton extends AnchoredButton implements ActionListener
 
   private void init() {
     setFocusable(false);
-    setBackground(ourBackgroundColor);
-    final Border border = JBUI.Borders.empty(5, 5, 0, 5);
-    setBorder(border);
+
+    setBorder(JBUI.Borders.empty(5, 5, 0, 5));
     updatePresentation();
     apply(myDecorator.getWindowInfo());
     addActionListener(this);
@@ -126,26 +106,30 @@ public final class StripeButton extends AnchoredButton implements ActionListener
         processDrag(e);
       }
     });
-    KeymapManager.getInstance().addKeymapManagerListener(myKeymapListener, this);
+    ApplicationManager.getApplication().getMessageBus().connect(this).subscribe(KeymapManagerListener.TOPIC, new KeymapManagerListener() {
+      @Override
+      public void activeKeymapChanged(@Nullable Keymap keymap) {
+        updatePresentation();
+      }
+    });
   }
 
-  
   public boolean isFirst() {
     return is(true);
   }
-  
+
   public boolean isLast() {
     return is(false);
   }
-  
+
   public boolean isOppositeSide() {
     return getWindowInfo().isSplit();
   }
-  
+
   private boolean is(boolean first) {
     Container parent = getParent();
     if (parent == null) return false;
-    
+
     int max = first ? Integer.MAX_VALUE : 0;
     ToolWindowAnchor anchor = getAnchor();
     Component c = null;
@@ -166,8 +150,8 @@ public final class StripeButton extends AnchoredButton implements ActionListener
         }
       }
     }
-    
-    
+
+
     return c == this;
   }
 
@@ -186,14 +170,15 @@ public final class StripeButton extends AnchoredButton implements ActionListener
       if (myDragPane == null) return;
       int width = getWidth() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor == ToolWindowAnchor.LEFT)
       int height = getHeight() - 1; // -1 because StripeButtonUI.paint will not paint 1 pixel in case (anchor.isHorizontal())
-      BufferedImage image = UIUtil.createImage(width, height, BufferedImage.TYPE_INT_RGB);
+      BufferedImage image = UIUtil.createImage(e.getComponent(), width, height, BufferedImage.TYPE_INT_RGB);
       Graphics graphics = image.getGraphics();
       graphics.setColor(UIUtil.getBgFillColor(getParent()));
       graphics.fillRect(0, 0, width, height);
       paint(graphics);
       graphics.dispose();
-      myDragButtonImage = new JLabel(new JBImageIcon(image)) {
+      myDragButtonImage = new JLabel(IconUtil.createImageIcon((Image)image)) {
 
+        @Override
         public String toString() {
           return "Image for: " + StripeButton.this.toString();
         }
@@ -310,6 +295,7 @@ public final class StripeButton extends AnchoredButton implements ActionListener
     updateState();
   }
 
+  @Override
   public void dispose() {
   }
 
@@ -341,7 +327,7 @@ public final class StripeButton extends AnchoredButton implements ActionListener
 
   private void updateText() {
     String text = myDecorator.getToolWindow().getStripeTitle();
-    if (UISettings.getInstance().SHOW_TOOL_WINDOW_NUMBERS) {
+    if (UISettings.getInstance().getShowToolWindowsNumbers()) {
       String toolWindowId = myDecorator.getToolWindow().getId();
       int mnemonic = ActivateToolWindowAction.getMnemonicForToolWindow(toolWindowId);
       if (mnemonic != -1) {
@@ -358,7 +344,7 @@ public final class StripeButton extends AnchoredButton implements ActionListener
   private void updateState() {
     ToolWindowImpl window = myDecorator.getToolWindow();
     boolean toShow = window.isAvailable() || window.isPlaceholderMode();
-    if (UISettings.getInstance().ALWAYS_SHOW_WINDOW_BUTTONS) {
+    if (UISettings.getInstance().getAlwaysShowWindowsButton()) {
       setVisible(window.isShowStripeButton() || isSelected());
     }
     else {
@@ -371,13 +357,6 @@ public final class StripeButton extends AnchoredButton implements ActionListener
     @Override
     public void invokePopup(final Component component, final int x, final int y) {
       showPopup(component, x, y);
-    }
-  }
-
-  private final class MyKeymapListener implements KeymapManagerListener {
-    @Override
-    public void activeKeymapChanged(Keymap keymap) {
-      updatePresentation();
     }
   }
 
@@ -403,6 +382,7 @@ public final class StripeButton extends AnchoredButton implements ActionListener
   }
 
 
+  @Override
   public String toString() {
     return StringUtil.getShortName(getClass().getName()) + " text: " + getText();
   }

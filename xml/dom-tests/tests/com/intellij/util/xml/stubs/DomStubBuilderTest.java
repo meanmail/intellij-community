@@ -19,11 +19,13 @@ import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.PsiManagerEx;
+import com.intellij.psi.impl.source.PsiFileImpl;
 import com.intellij.psi.stubs.ObjectStubTree;
 import com.intellij.psi.stubs.StubTreeLoader;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ref.GCWatcher;
 import com.intellij.util.xml.DomFileElement;
 import com.intellij.util.xml.DomManager;
 import com.intellij.util.xml.XmlName;
@@ -37,15 +39,14 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 8/3/12
  */
 public class DomStubBuilderTest extends DomStubTest {
 
-  public void testDomLoading() throws Exception {
+  public void testDomLoading() {
     getRootStub("foo.xml");
   }
 
-  public void testFoo() throws Exception {
+  public void testFoo() {
     doBuilderTest("foo.xml", "File:foo\n" +
                              "  Element:foo\n" +
                              "    Element:id:foo\n" +
@@ -70,18 +71,18 @@ public class DomStubBuilderTest extends DomStubTest {
     assertEquals("foo", idElementStub.getValue());
   }
 
-  public void testIncompleteAttribute() throws Exception {
+  public void testIncompleteAttribute() {
     doBuilderTest("incompleteAttribute.xml", "File:foo\n" +
                                              "  Element:foo\n" +
                                              "    Element:bar\n" +
                                              "      Attribute:string:\n");
   }
 
-  public void testDomExtension() throws Exception {
+  public void testDomExtension() {
     DomExtenderEP ep = new DomExtenderEP();
     ep.domClassName = Bar.class.getName();
     ep.extenderClassName = TestExtender.class.getName();
-    PlatformTestUtil.registerExtension(Extensions.getRootArea(), DomExtenderEP.EP_NAME, ep, getTestRootDisposable());
+    PlatformTestUtil.registerExtension(Extensions.getRootArea(), DomExtenderEP.EP_NAME, ep, myFixture.getTestRootDisposable());
 
     doBuilderTest("extender.xml", "File:foo\n" +
                                   "  Element:foo\n" +
@@ -90,7 +91,7 @@ public class DomStubBuilderTest extends DomStubTest {
                                   "    Element:bar\n");
   }
 
-  public void testNullTag() throws Exception {
+  public void testNullTag() {
     VirtualFile virtualFile = myFixture.copyFileToProject("nullTag.xml");
     assertNotNull(virtualFile);
     PsiFile psiFile = ((PsiManagerEx)getPsiManager()).getFileManager().findFile(virtualFile);
@@ -99,10 +100,10 @@ public class DomStubBuilderTest extends DomStubTest {
     VirtualFile file = psiFile.getVirtualFile();
     assertTrue(loader.canHaveStub(file));
     ObjectStubTree stubTree = loader.readFromVFile(getProject(), file);
-    assertNull(stubTree); // no stubs for invalid XML
+    assertNotNull(stubTree);
   }
 
-  public void testInclusion() throws Exception {
+  public void testInclusion() {
     myFixture.copyFileToProject("include.xml");
     doBuilderTest("inclusion.xml", "File:foo\n" +
                                    "  Element:foo\n" +
@@ -112,6 +113,9 @@ public class DomStubBuilderTest extends DomStubTest {
                                    "    Element:bar\n");
 
     PsiFile file = myFixture.getFile();
+    GCWatcher.tracking(file.getNode()).tryGc();
+    assertFalse(((PsiFileImpl) file).isContentsLoaded());
+
     DomFileElement<Foo> element = DomManager.getDomManager(getProject()).getFileElement((XmlFile)file, Foo.class);
     assert element != null;
     assertEquals(2, element.getRootElement().getBars().size());

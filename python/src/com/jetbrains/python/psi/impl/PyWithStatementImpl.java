@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.intellij.lang.ASTNode;
@@ -20,6 +6,7 @@ import com.intellij.psi.PsiNamedElement;
 import com.intellij.psi.tree.TokenSet;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.jetbrains.python.PyElementTypes;
+import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -37,10 +24,12 @@ public class PyWithStatementImpl extends PyElementImpl implements PyWithStatemen
     super(astNode);
   }
 
+  @Override
   protected void acceptPyVisitor(final PyElementVisitor pyVisitor) {
     pyVisitor.visitPyWithStatement(this);
   }
 
+  @Override
   @NotNull
   public List<PsiNamedElement> getNamedElements() {
     PyWithItem[] items = PsiTreeUtil.getChildrenOfType(this, PyWithItem.class);
@@ -64,6 +53,7 @@ public class PyWithStatementImpl extends PyElementImpl implements PyWithStatemen
     return PyUtil.IterHelper.findName(getNamedElements(), the_name);
   }
 
+  @Override
   public PyWithItem[] getWithItems() {
     return childrenToPsi(WITH_ITEM, PyWithItem.EMPTY_ARRAY);
   }
@@ -74,5 +64,10 @@ public class PyWithStatementImpl extends PyElementImpl implements PyWithStatemen
     final PyStatementList statementList = childToPsi(PyElementTypes.STATEMENT_LIST);
     assert statementList != null : "Statement list missing for with statement " + getText();
     return statementList;
+  }
+
+  @Override
+  public boolean isAsync() {
+    return getNode().findChildByType(PyTokenTypes.ASYNC_KEYWORD) != null;
   }
 }

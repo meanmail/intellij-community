@@ -1,26 +1,15 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
 import com.intellij.ide.UiActivity;
 import com.intellij.ide.UiActivityMonitor;
 import com.intellij.ide.impl.ContentManagerWatcher;
 import com.intellij.notification.EventLog;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionGroup;
+import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.impl.ActionManagerImpl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.components.ServiceManager;
@@ -30,6 +19,7 @@ import com.intellij.openapi.util.BusyObject;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.ex.ToolWindowEx;
+import com.intellij.openapi.wm.ex.WindowManagerEx;
 import com.intellij.openapi.wm.impl.commands.FinalizableCommand;
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi;
 import com.intellij.ui.LayeredIcon;
@@ -38,7 +28,6 @@ import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.ContentManager;
 import com.intellij.ui.content.impl.ContentImpl;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.containers.HashSet;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
@@ -48,18 +37,15 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.InputEvent;
-import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Set;
 
 /**
  * @author Anton Katilin
  * @author Vladimir Kondratyev
  */
-public final class ToolWindowImpl implements ToolWindowEx {
+public final class ToolWindowImpl implements ToolWindowEx, Disposable {
   private final PropertyChangeSupport myChangeSupport = new PropertyChangeSupport(this);
   private final ToolWindowManagerImpl myToolWindowManager;
   private final String myId;
@@ -78,20 +64,6 @@ public final class ToolWindowImpl implements ToolWindowEx {
   private boolean myPlaceholderMode;
   private ToolWindowFactory myContentFactory;
 
-  private static final Set<KeyStroke> FORWARD_TRAVERSAL_KEYSTROKES = new HashSet<>(Arrays.asList(
-    new KeyStroke[]{
-      KeyStroke.getKeyStroke(KeyEvent.VK_TAB, 0)
-    }
-  ));
-
-  private static final Set<KeyStroke> BACKWARD_TRAVERSAL_KEYSTROKES = new HashSet<>(Arrays.asList(
-    new KeyStroke[]{
-      KeyStroke.getKeyStroke(KeyEvent.VK_TAB, InputEvent.SHIFT_DOWN_MASK)
-    }
-  ));
-
-  @NotNull
-  private ActionCallback myActivation = ActionCallback.DONE;
   private final BusyObject.Impl myShowing = new BusyObject.Impl() {
     @Override
     public boolean isReady() {
@@ -101,6 +73,7 @@ public final class ToolWindowImpl implements ToolWindowEx {
   private boolean myUseLastFocused = true;
 
   private static final Logger LOG = Logger.getInstance(ToolWindowImpl.class);
+  private String myHelpId;
 
   ToolWindowImpl(@NotNull ToolWindowManagerImpl toolWindowManager, @NotNull String id, boolean canCloseContent, @Nullable final JComponent component) {
     myToolWindowManager = toolWindowManager;
@@ -109,6 +82,7 @@ public final class ToolWindowImpl implements ToolWindowEx {
     final ContentFactory contentFactory = ServiceManager.getService(ContentFactory.class);
     myContentUI = new ToolWindowContentUi(this);
     myContentManager = contentFactory.createContentManager(myContentUI, canCloseContent, toolWindowManager.getProject());
+    Disposer.register(this, myContentManager);
 
     if (component != null) {
       final Content content = contentFactory.createContent(component, "", false);
@@ -118,7 +92,7 @@ public final class ToolWindowImpl implements ToolWindowEx {
 
     myComponent = myContentManager.getComponent();
 
-    installToolwindowFocusPolicy();
+    InternalDecorator.installFocusTraversalPolicy(myComponent, new LayoutFocusTraversalPolicy());
 
     UiNotifyConnector notifyConnector = new UiNotifyConnector(myComponent, new Activatable.Adapter() {
       @Override
@@ -127,50 +101,6 @@ public final class ToolWindowImpl implements ToolWindowEx {
       }
     });
     Disposer.register(myContentManager, notifyConnector);
-  }
-
-  /**
-   * Installs a focus traversal policy for the tool window.
-   * If the policy cannot handle a keystroke, it delegates the handling to
-   * the nearest ancestors focus traversal policy. For instance,
-   * this policy does not handle KeyEvent.VK_ESCAPE, so it can delegate the handling
-   * to a ThreeComponentSplitter instance.
-   */
-  private void installToolwindowFocusPolicy() {
-
-    myComponent.setFocusTraversalKeys(KeyboardFocusManager.FORWARD_TRAVERSAL_KEYS, FORWARD_TRAVERSAL_KEYSTROKES);
-    myComponent.setFocusTraversalKeys(KeyboardFocusManager.BACKWARD_TRAVERSAL_KEYS, BACKWARD_TRAVERSAL_KEYSTROKES);
-
-    FocusTraversalPolicy layoutFocusTraversalPolicy = new LayoutFocusTraversalPolicy();
-
-    myComponent.setFocusCycleRoot(true);
-    myComponent.setFocusTraversalPolicyProvider(true);
-    myComponent.setFocusTraversalPolicy(new FocusTraversalPolicy() {
-      @Override
-      public Component getComponentAfter(Container container, Component component) {
-        return layoutFocusTraversalPolicy.getComponentAfter(container, component);
-      }
-
-      @Override
-      public Component getComponentBefore(Container container, Component component) {
-        return layoutFocusTraversalPolicy.getComponentBefore(container, component);
-      }
-
-      @Override
-      public Component getFirstComponent(Container container) {
-        return layoutFocusTraversalPolicy.getFirstComponent(container);
-      }
-
-      @Override
-      public Component getLastComponent(Container container) {
-        return layoutFocusTraversalPolicy.getLastComponent(container);
-      }
-
-      @Override
-      public Component getDefaultComponent(Container container) {
-        return layoutFocusTraversalPolicy.getDefaultComponent(container);
-      }
-    });
   }
 
   public final void addPropertyChangeListener(final PropertyChangeListener l) {
@@ -200,19 +130,29 @@ public final class ToolWindowImpl implements ToolWindowEx {
     UiActivityMonitor.getInstance().addActivity(myToolWindowManager.getProject(), activity, ModalityState.NON_MODAL);
 
     myToolWindowManager.activateToolWindow(myId, forced, autoFocusContents);
-
-    getActivation().doWhenDone(() -> myToolWindowManager.invokeLater(() -> {
+    myToolWindowManager.invokeLater(() -> {
       if (runnable != null) {
         runnable.run();
       }
       UiActivityMonitor.getInstance().removeActivity(myToolWindowManager.getProject(), activity);
-    }));
+    });
   }
 
   @Override
   public final boolean isActive() {
     ApplicationManager.getApplication().assertIsDispatchThread();
+
+    IdeFrameImpl frame = WindowManagerEx.getInstanceEx().getFrame(myToolWindowManager.getProject());
+    if (frame == null || !frame.isActive()) return false;
+
     if (myToolWindowManager.isEditorComponentActive()) return false;
+    ActionManager actionManager = ActionManager.getInstance();
+    if (actionManager instanceof ActionManagerImpl
+        && !((ActionManagerImpl)actionManager).isActionPopupStackEmpty()
+        && !((ActionManagerImpl)actionManager).isToolWindowContextMenuVisible()) {
+      return false;
+    }
+
     return myToolWindowManager.isToolWindowActive(myId) || myDecorator != null && myDecorator.isFocused();
   }
 
@@ -223,6 +163,11 @@ public final class ToolWindowImpl implements ToolWindowEx {
     myShowing.getReady(this).doWhenDone(() -> {
       ArrayList<FinalizableCommand> cmd = new ArrayList<>();
       cmd.add(new FinalizableCommand(null) {
+        @Override
+        public boolean willChangeState() {
+          return false;
+        }
+
         @Override
         public void run() {
           IdeFocusManager.getInstance(myToolWindowManager.getProject()).doWhenFocusSettlesDown(() -> {
@@ -241,7 +186,7 @@ public final class ToolWindowImpl implements ToolWindowEx {
     ApplicationManager.getApplication().assertIsDispatchThread();
     myToolWindowManager.showToolWindow(myId);
     if (runnable != null) {
-      getActivation().doWhenDone(() -> myToolWindowManager.invokeLater(runnable));
+      myToolWindowManager.invokeLater(runnable);
     }
   }
 
@@ -367,6 +312,15 @@ public final class ToolWindowImpl implements ToolWindowEx {
   }
 
   @Override
+  public void setTabActions(AnAction... actions) {
+    getDecorator().setTabActions(actions);
+  }
+
+  public void setTabDoubleClickActions(@NotNull AnAction... actions) {
+    myContentUI.setTabDoubleClickActions(actions);
+  }
+
+  @Override
   public final void setAvailable(final boolean available, final Runnable runnable) {
     ApplicationManager.getApplication().assertIsDispatchThread();
     final Boolean oldAvailable = myAvailable ? Boolean.TRUE : Boolean.FALSE;
@@ -383,8 +337,8 @@ public final class ToolWindowImpl implements ToolWindowEx {
   }
 
   /**
-   * @return <code>true</code> if the component passed into constructor is not instance of
-   *         <code>ContentManager</code> class. Otherwise it delegates the functionality to the
+   * @return {@code true} if the component passed into constructor is not instance of
+   *         {@code ContentManager} class. Otherwise it delegates the functionality to the
    *         passed content manager.
    */
   @Override
@@ -399,7 +353,13 @@ public final class ToolWindowImpl implements ToolWindowEx {
 
   @Override
   public ContentManager getContentManager() {
+    ensureContentInitialized();
     return myContentManager;
+  }
+
+  // to avoid ensureContentInitialized call - myContentManager can report canCloseContents without full initialization
+  public boolean canCloseContents() {
+    return myContentManager.canCloseContents();
   }
 
   public ToolWindowContentUi getContentUI() {
@@ -432,17 +392,21 @@ public final class ToolWindowImpl implements ToolWindowEx {
   }
 
   @Override
-  public final void setIcon(final Icon icon) {
+  public final void setIcon(Icon icon) {
+    //icon = IconUtil.filterIcon(icon, new UIUtil.GrayFilter(), myComponent);
     ApplicationManager.getApplication().assertIsDispatchThread();
     final Icon oldIcon = getIcon();
     if (!EventLog.LOG_TOOL_WINDOW_ID.equals(getId())) {
-      if (oldIcon != icon && icon != null && !(icon instanceof LayeredIcon) && (icon.getIconHeight() != Math.floor(JBUI.scale(13f)) ||
-                                                                                icon.getIconWidth() != Math.floor(JBUI.scale(13f)))) {
+      if (oldIcon != icon && icon != null && !(icon instanceof LayeredIcon) &&
+          (Math.abs(icon.getIconHeight() - JBUI.scale(13f)) >= 1 ||
+           Math.abs(icon.getIconWidth() - JBUI.scale(13f)) >= 1))
+      {
         LOG.warn("ToolWindow icons should be 13x13. Please fix ToolWindow (ID:  " + getId() + ") or icon " + icon);
       }
     }
     //getSelectedContent().setIcon(icon);
-    myIcon = icon;
+
+    myIcon = new ToolWindowIcon(icon, getId());
     myChangeSupport.firePropertyChange(PROP_ICON, oldIcon, icon);
   }
 
@@ -499,6 +463,19 @@ public final class ToolWindowImpl implements ToolWindowEx {
     return myDecorator != null ? myDecorator.createPopupGroup() : null;
   }
 
+  @SuppressWarnings("unused")
+  public void removeStripeButton() {
+    if (myDecorator != null) {
+      myDecorator.removeStripeButton();
+    }
+  }
+  @SuppressWarnings("unused")
+  public void showStripeButton() {
+    if (myDecorator != null) {
+      myDecorator.showStripeButton();
+    }
+  }
+
   @Override
   public void setDefaultState(@Nullable final ToolWindowAnchor anchor, @Nullable final ToolWindowType type, @Nullable final Rectangle floatingBounds) {
     myToolWindowManager.setDefaultState(this, anchor, type, floatingBounds);
@@ -529,28 +506,17 @@ public final class ToolWindowImpl implements ToolWindowEx {
     return myContentManager.isDisposed();
   }
 
+  @Override
+  public void dispose() {
+    myToolWindowManager.doUnregisterToolWindow(myId);
+  }
+
   boolean isPlaceholderMode() {
     return myPlaceholderMode;
   }
 
   void setPlaceholderMode(final boolean placeholderMode) {
     myPlaceholderMode = placeholderMode;
-  }
-
-  @Override
-  @NotNull
-  public ActionCallback getActivation() {
-    return myActivation;
-  }
-
-  @NotNull
-  ActionCallback setActivation(@NotNull ActionCallback activation) {
-    if (!myActivation.isProcessed() && !myActivation.equals(activation)) {
-      myActivation.setRejected();
-    }
-
-    myActivation = activation;
-    return myActivation;
   }
 
   public void setContentFactory(ToolWindowFactory contentFactory) {
@@ -560,10 +526,23 @@ public final class ToolWindowImpl implements ToolWindowEx {
 
   public void ensureContentInitialized() {
     if (myContentFactory != null) {
-      getContentManager().removeAllContents(false);
-      myContentFactory.createToolWindowContent(myToolWindowManager.getProject(), this);
+      ToolWindowFactory contentFactory = myContentFactory;
+      // clear it first to avoid SOE
       myContentFactory = null;
+      myContentManager.removeAllContents(false);
+      contentFactory.createToolWindowContent(myToolWindowManager.getProject(), this);
     }
+  }
+
+  @Override
+  public void setHelpId(String helpId) {
+    myHelpId = helpId;
+  }
+
+  @Nullable
+  @Override
+  public String getHelpId() {
+    return myHelpId;
   }
 
   @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,103 +15,77 @@
  */
 package com.intellij.codeInspection.dataFlow;
 
-import com.intellij.codeInspection.dataFlow.value.DfaConstValue;
-import com.intellij.codeInspection.dataFlow.value.DfaValueFactory;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
+import com.intellij.codeInspection.dataFlow.value.DfaRelationValue.RelationType;
 
+import java.util.Collections;
 import java.util.List;
 
 /**
- * @author peter
+ * A method contract which states that method will have a concrete return value
+ * if arguments fulfill some constraint.
+ *
+ * @author Tagir Valeev
  */
-public class MethodContract {
-  public final ValueConstraint[] arguments;
-  public final ValueConstraint returnValue;
+public abstract class MethodContract {
+  private final ContractReturnValue myReturnValue;
 
-  public MethodContract(@NotNull ValueConstraint[] arguments, @NotNull ValueConstraint returnValue) {
-    this.arguments = arguments;
-    this.returnValue = returnValue;
+  // package private to avoid uncontrolled implementations
+  MethodContract(ContractReturnValue returnValue) {
+    myReturnValue = returnValue;
   }
 
-  static ValueConstraint[] createConstraintArray(int paramCount) {
-    ValueConstraint[] args = new ValueConstraint[paramCount];
-    for (int i = 0; i < args.length; i++) {
-      args[i] = ValueConstraint.ANY_VALUE;
-    }
-    return args;
+  /**
+   * @return a value the method will return if the contract conditions fulfill
+   */
+  public ContractReturnValue getReturnValue() {
+    return myReturnValue;
   }
+
+  /**
+   * @return true if this contract result does not depend on arguments
+   */
+  public boolean isTrivial() {
+    return getConditions().isEmpty();
+  }
+
+  abstract String getArgumentsPresentation();
+
+  public abstract List<ContractValue> getConditions();
 
   @Override
   public String toString() {
-    return StringUtil.join(arguments, constraint -> constraint.toString(), ", ") + " -> " + returnValue;
+    return getArgumentsPresentation() + " -> " + getReturnValue();
   }
 
-  public enum ValueConstraint {
-    ANY_VALUE("_"), NULL_VALUE("null"), NOT_NULL_VALUE("!null"), TRUE_VALUE("true"), FALSE_VALUE("false"), THROW_EXCEPTION("fail");
-    private final String myPresentableName;
-
-    ValueConstraint(String presentableName) {
-      myPresentableName = presentableName;
-    }
-
-    @Nullable
-    DfaConstValue getComparisonValue(DfaValueFactory factory) {
-      if (this == NULL_VALUE || this == NOT_NULL_VALUE) return factory.getConstFactory().getNull();
-      if (this == TRUE_VALUE || this == FALSE_VALUE) return factory.getConstFactory().getTrue();
-      return null;
-    }
-
-    boolean shouldUseNonEqComparison() {
-      return this == NOT_NULL_VALUE || this == FALSE_VALUE;
-    }
-
-    @Override
-    public String toString() {
-      return myPresentableName;
-    }
-  }
-
-  public static List<MethodContract> parseContract(String text) throws ParseException {
-    List<MethodContract> result = ContainerUtil.newArrayList();
-    for (String clause : StringUtil.replace(text, " ", "").split(";")) {
-      String arrow = "->";
-      int arrowIndex = clause.indexOf(arrow);
-      if (arrowIndex < 0) {
-        throw new ParseException("A contract clause must be in form arg1, ..., argN -> return-value");
+  public static MethodContract trivialContract(ContractReturnValue value) {
+    return new MethodContract(value) {
+      @Override
+      String getArgumentsPresentation() {
+        return "()";
       }
 
-      String beforeArrow = clause.substring(0, arrowIndex);
-      ValueConstraint[] args;
-      if (StringUtil.isNotEmpty(beforeArrow)) {
-        String[] argStrings = beforeArrow.split(",");
-        args = new ValueConstraint[argStrings.length];
-        for (int i = 0; i < args.length; i++) {
-          args[i] = parseConstraint(argStrings[i]);
-        }
-      } else {
-        args = new ValueConstraint[0];
+      @Override
+      public List<ContractValue> getConditions() {
+        return Collections.emptyList();
       }
-      result.add(new MethodContract(args, parseConstraint(clause.substring(arrowIndex + arrow.length()))));
-    }
-    return result;
+    };
   }
 
-  private static ValueConstraint parseConstraint(String name) throws ParseException {
-    if (StringUtil.isEmpty(name)) throw new ParseException("Constraint should not be empty");
-    for (ValueConstraint constraint : ValueConstraint.values()) {
-      if (constraint.toString().equals(name)) return constraint;
-    }
-    throw new ParseException("Constraint should be one of: null, !null, true, false, fail, _. Found: " + name);
-  }
+  public static MethodContract singleConditionContract(ContractValue left,
+                                                       RelationType relationType,
+                                                       ContractValue right,
+                                                       ContractReturnValue returnValue) {
+    ContractValue condition = ContractValue.condition(left, relationType, right);
+    return new MethodContract(returnValue) {
+      @Override
+      String getArgumentsPresentation() {
+        return "("+condition.toString()+")";
+      }
 
-  public static class ParseException extends Exception {
-    private ParseException(String message) {
-      super(message);
-    }
+      @Override
+      public List<ContractValue> getConditions() {
+        return Collections.singletonList(condition);
+      }
+    };
   }
-
 }

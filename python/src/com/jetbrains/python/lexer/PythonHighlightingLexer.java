@@ -19,6 +19,8 @@ import com.intellij.psi.tree.IElementType;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
 import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.psi.PyStringLiteralUtil;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author yole
@@ -31,31 +33,30 @@ public class PythonHighlightingLexer extends PythonLexer {
     hasUnicodeImport = false;
   }
 
-  static public IElementType convertStringType(IElementType tokenType, String tokenText,
-                                        LanguageLevel languageLevel, boolean unicodeImport) {
+  @NotNull
+  public static IElementType convertStringType(@NotNull IElementType tokenType,
+                                               @NotNull String tokenText,
+                                               @NotNull LanguageLevel languageLevel,
+                                               boolean unicodeImport) {
+    final String prefix = PyStringLiteralUtil.getPrefix(tokenText);
+
     if (tokenType == PyTokenTypes.SINGLE_QUOTED_STRING) {
       if (languageLevel.isPy3K()) {
-        if (!tokenText.toLowerCase().startsWith("b")) return PyTokenTypes.SINGLE_QUOTED_UNICODE;
+        if (!PyStringLiteralUtil.isBytesPrefix(prefix)) return PyTokenTypes.SINGLE_QUOTED_UNICODE;
       }
-      else {
-        if ((unicodeImport && !tokenText.toLowerCase().startsWith("b"))
-            || tokenText.toLowerCase().startsWith("u")) return PyTokenTypes.SINGLE_QUOTED_UNICODE;
+      else if (unicodeImport && !PyStringLiteralUtil.isBytesPrefix(prefix) || PyStringLiteralUtil.isUnicodePrefix(prefix)) {
+        return PyTokenTypes.SINGLE_QUOTED_UNICODE;
       }
     }
     if (tokenType == PyTokenTypes.TRIPLE_QUOTED_STRING) {
       if (languageLevel.isPy3K()) {
-        if (!tokenText.toLowerCase().startsWith("b")) return PyTokenTypes.TRIPLE_QUOTED_UNICODE;
+        if (!PyStringLiteralUtil.isBytesPrefix(prefix)) return PyTokenTypes.TRIPLE_QUOTED_UNICODE;
       }
-      else {
-        if ((unicodeImport && !tokenText.toLowerCase().startsWith("b"))
-            || tokenText.toLowerCase().startsWith("u")) return PyTokenTypes.TRIPLE_QUOTED_UNICODE;
+      else if (unicodeImport && !PyStringLiteralUtil.isBytesPrefix(prefix) || PyStringLiteralUtil.isUnicodePrefix(prefix)) {
+        return PyTokenTypes.TRIPLE_QUOTED_UNICODE;
       }
     }
     return tokenType;
-  }
-
-  public IElementType convertStringType(IElementType tokenType, String tokenText) {
-    return convertStringType(tokenType, tokenText, myLanguageLevel, hasUnicodeImport);
   }
 
   @Override
@@ -63,29 +64,33 @@ public class PythonHighlightingLexer extends PythonLexer {
     final IElementType tokenType = super.getTokenType();
 
     if (PyTokenTypes.STRING_NODES.contains(tokenType)) {
-      return convertStringType(tokenType, getTokenText());
+      return convertStringType(tokenType, getTokenText(), myLanguageLevel, hasUnicodeImport);
     }
 
     if (tokenType == PyTokenTypes.IDENTIFIER) {
       final String tokenText = getTokenText();
 
       if (myLanguageLevel.hasWithStatement()) {
-        if (tokenText.equals("with")) return PyTokenTypes.WITH_KEYWORD;
-        if (tokenText.equals("as")) return PyTokenTypes.AS_KEYWORD;
+        if (tokenText.equals(PyNames.WITH)) return PyTokenTypes.WITH_KEYWORD;
+        if (tokenText.equals(PyNames.AS)) return PyTokenTypes.AS_KEYWORD;
       }
 
       if (myLanguageLevel.hasPrintStatement()) {
-        if (tokenText.equals("print")) return PyTokenTypes.PRINT_KEYWORD;
+        if (tokenText.equals(PyNames.PRINT)) return PyTokenTypes.PRINT_KEYWORD;
       }
 
       if (myLanguageLevel.isPy3K()) {
-        if (tokenText.equals("None")) return PyTokenTypes.NONE_KEYWORD;
-        if (tokenText.equals("True")) return PyTokenTypes.TRUE_KEYWORD;
-        if (tokenText.equals("False")) return PyTokenTypes.FALSE_KEYWORD;
-        if (tokenText.equals("nonlocal")) return PyTokenTypes.NONLOCAL_KEYWORD;
-        if (tokenText.equals("__debug__")) return PyTokenTypes.DEBUG_KEYWORD;
+        if (tokenText.equals(PyNames.NONE)) return PyTokenTypes.NONE_KEYWORD;
+        if (tokenText.equals(PyNames.TRUE)) return PyTokenTypes.TRUE_KEYWORD;
+        if (tokenText.equals(PyNames.FALSE)) return PyTokenTypes.FALSE_KEYWORD;
+        if (tokenText.equals(PyNames.NONLOCAL)) return PyTokenTypes.NONLOCAL_KEYWORD;
+        if (tokenText.equals(PyNames.DEBUG)) return PyTokenTypes.DEBUG_KEYWORD;
+        if (myLanguageLevel.isAtLeast(LanguageLevel.PYTHON37)) {
+          if (tokenText.equals(PyNames.ASYNC)) return PyTokenTypes.ASYNC_KEYWORD;
+          if (tokenText.equals(PyNames.AWAIT)) return PyTokenTypes.AWAIT_KEYWORD;
+        }
       }
-      else if (tokenText.equals("exec")) {
+      else if (tokenText.equals(PyNames.EXEC)) {
         return PyTokenTypes.EXEC_KEYWORD;
       }
     }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeEditor.printing;
 
@@ -23,23 +9,19 @@ import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.vfs.CharsetToolkit;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.file.PsiDirectoryFactory;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.TreeMap;
+import java.nio.charset.StandardCharsets;
+import java.util.*;
 
 class ExportToHTMLManager {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeEditor.printing.ExportToHTMLManager");
@@ -82,10 +64,9 @@ class ExportToHTMLManager {
 
     ExportToHTMLSettings exportToHTMLSettings = ExportToHTMLSettings.getInstance(project);
     if (exportToHTMLSettings.OUTPUT_DIRECTORY == null) {
-      final VirtualFile baseDir = project.getBaseDir();
-
+      String baseDir = Objects.requireNonNull(project).getBasePath();
       if (baseDir != null) {
-        exportToHTMLSettings.OUTPUT_DIRECTORY = baseDir.getPresentableUrl() + File.separator + "exportToHTML";
+        exportToHTMLSettings.OUTPUT_DIRECTORY = baseDir + File.separator + "exportToHTML";
       }
       else {
         exportToHTMLSettings.OUTPUT_DIRECTORY = "";
@@ -109,16 +90,22 @@ class ExportToHTMLManager {
         return;
       }
       final String dirName = constructOutputDirectory(psiFile, outputDirectoryName);
-      HTMLTextPainter textPainter = new HTMLTextPainter(psiFile, project, dirName, exportToHTMLSettings.PRINT_LINE_NUMBERS);
+      HTMLTextPainter textPainter = new HTMLTextPainter(psiFile, project, exportToHTMLSettings.PRINT_LINE_NUMBERS);
       if (exportToHTMLSettings.getPrintScope() == PrintSettings.PRINT_SELECTED_TEXT &&
           editor != null &&
           editor.getSelectionModel().hasSelection()) {
         int firstLine = editor.getDocument().getLineNumber(editor.getSelectionModel().getSelectionStart());
         textPainter.setSegment(editor.getSelectionModel().getSelectionStart(), editor.getSelectionModel().getSelectionEnd(), firstLine);
       }
-      textPainter.paint(null, psiFile.getFileType());
-      if (exportToHTMLSettings.OPEN_IN_BROWSER) {
-        BrowserUtil.browse(textPainter.getHTMLFileName());
+
+      try {
+        String htmlFile = doPaint(dirName, textPainter, null);
+        if (exportToHTMLSettings.OPEN_IN_BROWSER) {
+          BrowserUtil.browse(htmlFile);
+        }
+      }
+      catch (IOException e) {
+        LOG.error(e);
       }
     }
     else {
@@ -130,6 +117,15 @@ class ExportToHTMLManager {
         throw myLastException;
       }
     }
+  }
+
+  @NotNull
+  protected static String doPaint(@NotNull String dirName, @NotNull HTMLTextPainter textPainter, @Nullable TreeMap refMap) throws IOException {
+    String htmlFile = dirName + File.separator + getHTMLFileName(textPainter.getPsiFile());
+    try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(htmlFile), StandardCharsets.UTF_8)) {
+      textPainter.paint(refMap, writer, true);
+    }
+    return htmlFile;
   }
 
   private static boolean exportPsiFile(final PsiFile psiFile,
@@ -147,21 +143,22 @@ class ExportToHTMLManager {
         return;
       }
       TreeMap<Integer, PsiReference> refMap = null;
-      for (PrintOption printOption : Extensions.getExtensions(PrintOption.EP_NAME)) {
+      for (PrintOption printOption : PrintOption.EP_NAME.getExtensionList()) {
         final TreeMap<Integer, PsiReference> map = printOption.collectReferences(psiFile, filesMap);
         if (map != null) {
-          refMap = new TreeMap<>();
-          refMap.putAll(map);
+          refMap = new TreeMap<>(map);
         }
       }
 
       String dirName = constructOutputDirectory(psiFile, outputDirectoryName);
-      HTMLTextPainter textPainter = new HTMLTextPainter(psiFile, project, dirName, exportToHTMLSettings.PRINT_LINE_NUMBERS);
       try {
-        textPainter.paint(refMap, psiFile.getFileType());
+        doPaint(dirName, new HTMLTextPainter(psiFile, project, exportToHTMLSettings.PRINT_LINE_NUMBERS), refMap);
       }
       catch (FileNotFoundException e) {
         myLastException = e;
+      }
+      catch (IOException e) {
+        LOG.error(e);
       }
     });
     return myLastException == null;
@@ -183,7 +180,7 @@ class ExportToHTMLManager {
   }
 
   private static void addToPsiFileList(PsiDirectory psiDirectory,
-                                       ArrayList<PsiFile> filesList,
+                                       List<? super PsiFile> filesList,
                                        boolean isRecursive,
                                        final String outputDirectoryName) throws FileNotFoundException {
     if (!psiDirectory.isValid()) {
@@ -201,12 +198,10 @@ class ExportToHTMLManager {
   }
 
   @SuppressWarnings({"HardCodedStringLiteral"})
-  private static void generateIndexHtml(final PsiDirectory psiDirectory, final boolean recursive, final String outputDirectoryName)
-    throws FileNotFoundException {
+  private static void generateIndexHtml(final PsiDirectory psiDirectory, final boolean recursive, final String outputDirectoryName) throws FileNotFoundException {
     String indexHtmlName = constructOutputDirectory(psiDirectory, outputDirectoryName) + File.separator + "index.html";
-    OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(indexHtmlName), CharsetToolkit.UTF8_CHARSET);
     final String title = PsiDirectoryFactory.getInstance(psiDirectory.getProject()).getQualifiedName(psiDirectory, true);
-    try {
+    try (OutputStreamWriter writer = new OutputStreamWriter(new FileOutputStream(indexHtmlName), StandardCharsets.UTF_8)) {
       writer.write("<html><head><title>" + title + "</title></head><body>");
       if (recursive) {
         PsiDirectory[] directories = psiDirectory.getSubdirectories();
@@ -221,7 +216,9 @@ class ExportToHTMLManager {
         }
       }
       writer.write("</body></html>");
-      writer.close();
+    }
+    catch (FileNotFoundException e) {
+      throw e;
     }
     catch (IOException e) {
       LOG.error(e);
@@ -234,7 +231,7 @@ class ExportToHTMLManager {
     private final String myOutputDirectoryName;
     private final Project myProject;
 
-    public ExportRunnable(ExportToHTMLSettings exportToHTMLSettings,
+    ExportRunnable(ExportToHTMLSettings exportToHTMLSettings,
                           PsiDirectory psiDirectory,
                           String outputDirectoryName,
                           Project project) {

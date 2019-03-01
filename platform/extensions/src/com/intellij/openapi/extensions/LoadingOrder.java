@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.extensions;
 
 import com.intellij.openapi.util.Couple;
@@ -21,7 +7,7 @@ import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.graph.CachingSemiGraph;
 import com.intellij.util.graph.DFSTBuilder;
 import com.intellij.util.graph.GraphGenerator;
-import org.jdom.Element;
+import com.intellij.util.graph.InboundSemiGraph;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,12 +28,14 @@ import java.util.*;
  * @author Alexander Kireyev
  */
 public class LoadingOrder {
-  @NonNls private static final String FIRST_STR = "FIRST";
-  @NonNls private static final String LAST_STR = "LAST";
-  @NonNls private static final String BEFORE_STR = "BEFORE ";
-  @NonNls private static final String BEFORE_STR_OLD = "BEFORE:";
-  @NonNls private static final String AFTER_STR = "AFTER ";
-  @NonNls private static final String AFTER_STR_OLD = "AFTER:";
+  @NonNls public static final String FIRST_STR = "first";
+  @NonNls public static final String LAST_STR = "last";
+  @NonNls public static final String BEFORE_STR = "before ";
+  @NonNls public static final String BEFORE_STR_OLD = "before:";
+  @NonNls public static final String AFTER_STR = "after ";
+  @NonNls public static final String AFTER_STR_OLD = "after:";
+
+  @NonNls public static final String ORDER_RULE_SEPARATOR = ",";
 
   public static final LoadingOrder ANY = new LoadingOrder();
   public static final LoadingOrder FIRST = new LoadingOrder(FIRST_STR);
@@ -56,8 +44,8 @@ public class LoadingOrder {
   @NonNls private final String myName; // for debug only
   private final boolean myFirst;
   private final boolean myLast;
-  private final Set<String> myBefore = new LinkedHashSet<String>(2);
-  private final Set<String> myAfter = new LinkedHashSet<String>(2);
+  private final Set<String> myBefore = new LinkedHashSet<>(2);
+  private final Set<String> myAfter = new LinkedHashSet<>(2);
 
   private LoadingOrder() {
     myName = "ANY";
@@ -69,7 +57,7 @@ public class LoadingOrder {
     myName = text;
     boolean last = false;
     boolean first = false;
-    for (final String string : StringUtil.split(text, ",")) {
+    for (final String string : StringUtil.split(text, ORDER_RULE_SEPARATOR)) {
       String trimmed = string.trim();
       if (trimmed.equalsIgnoreCase(FIRST_STR)) first = true;
       else if (trimmed.equalsIgnoreCase(LAST_STR)) last = true;
@@ -117,26 +105,35 @@ public class LoadingOrder {
     return new LoadingOrder(AFTER_STR + id);
   }
 
-  public static void sort(@NotNull Orderable... orderable) {
-    sort(Arrays.asList(orderable));
+  public static void sort(@NotNull Orderable[] orderable) {
+    if (orderable.length > 1) {
+      sort(Arrays.asList(orderable));
+    }
   }
 
   public static void sort(@NotNull final List<? extends Orderable> orderable) {
+    if (orderable.size() < 2) return;
+
     // our graph is pretty sparse so do benefit from the fact
     final Map<String, Orderable> map = ContainerUtil.newLinkedHashMap();
     final Map<Orderable, LoadingOrder> cachedMap = ContainerUtil.newLinkedHashMap();
-    final Set<Orderable> first = new LinkedHashSet<Orderable>(1);
-    final Set<Orderable> hasBefore = new LinkedHashSet<Orderable>(orderable.size());
+    final Set<Orderable> first = new LinkedHashSet<>(1);
+    final Set<Orderable> hasBefore = new LinkedHashSet<>(orderable.size());
     for (Orderable o : orderable) {
       String id = o.getOrderId();
       if (StringUtil.isNotEmpty(id)) map.put(id, o);
       LoadingOrder order = o.getOrder();
+      if (order == ANY) continue;
+
       cachedMap.put(o, order);
       if (order.myFirst) first.add(o);
       if (!order.myBefore.isEmpty()) hasBefore.add(o);
     }
 
-    GraphGenerator.SemiGraph<Orderable> graph = new GraphGenerator.SemiGraph<Orderable>() {
+    if (cachedMap.isEmpty()) return;
+
+    InboundSemiGraph<Orderable> graph = new InboundSemiGraph<Orderable>() {
+      @NotNull
       @Override
       public Collection<Orderable> getNodes() {
         List<Orderable> list = ContainerUtil.newArrayList(orderable);
@@ -144,11 +141,12 @@ public class LoadingOrder {
         return list;
       }
 
+      @NotNull
       @Override
       public Iterator<Orderable> getIn(Orderable n) {
-        LoadingOrder order = cachedMap.get(n);
+        LoadingOrder order = cachedMap.getOrDefault(n, ANY);
 
-        Set<Orderable> predecessors = new LinkedHashSet<Orderable>();
+        Set<Orderable> predecessors = new LinkedHashSet<>();
         for (String id : order.myAfter) {
           Orderable o = map.get(id);
           if (o != null) {
@@ -159,7 +157,7 @@ public class LoadingOrder {
         String id = n.getOrderId();
         if (StringUtil.isNotEmpty(id)) {
           for (Orderable o : hasBefore) {
-            LoadingOrder hisOrder = cachedMap.get(o);
+            LoadingOrder hisOrder = cachedMap.getOrDefault(o, ANY);
             if (hisOrder.myBefore.contains(id)) {
               predecessors.add(o);
             }
@@ -168,7 +166,7 @@ public class LoadingOrder {
 
         if (order.myLast) {
           for (Orderable o : orderable) {
-            LoadingOrder hisOrder = cachedMap.get(o);
+            LoadingOrder hisOrder = cachedMap.getOrDefault(o, ANY);
             if (!hisOrder.myLast) {
               predecessors.add(o);
             }
@@ -183,24 +181,36 @@ public class LoadingOrder {
       }
     };
 
-    DFSTBuilder<Orderable> builder = new DFSTBuilder<Orderable>(new GraphGenerator<Orderable>(new CachingSemiGraph<Orderable>(graph)));
+    DFSTBuilder<Orderable> builder = new DFSTBuilder<>(GraphGenerator.generate(CachingSemiGraph.cache(graph)));
 
     if (!builder.isAcyclic()) {
       Couple<Orderable> p = builder.getCircularDependency();
-      throw new SortingException("Could not satisfy sorting requirements", p.first.getDescribingElement(), p.second.getDescribingElement());
+      throw new SortingException("Could not satisfy sorting requirements", p.first, p.second);
     }
 
-    Collections.sort(orderable, builder.comparator());
+    orderable.sort(builder.comparator());
   }
 
-  public static LoadingOrder readOrder(@NonNls String orderAttr) {
-    return orderAttr != null ? new LoadingOrder(orderAttr) : ANY;
+  @NotNull
+  public static LoadingOrder readOrder(@Nullable String orderAttr) {
+    if (orderAttr == null) {
+      return ANY;
+    }
+    else if (orderAttr.equals(FIRST_STR)) {
+      return FIRST;
+    }
+    else if (orderAttr.equals(LAST_STR)) {
+      return LAST;
+    }
+    else {
+      return new LoadingOrder(orderAttr);
+    }
   }
 
   public interface Orderable {
     @Nullable
     String getOrderId();
+
     LoadingOrder getOrder();
-    Element getDescribingElement();
   }
 }

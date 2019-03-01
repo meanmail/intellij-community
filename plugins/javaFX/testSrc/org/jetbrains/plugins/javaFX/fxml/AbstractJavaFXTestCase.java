@@ -29,10 +29,6 @@ import org.jetbrains.plugins.javaFX.packaging.JavaFxApplicationArtifactType;
 
 import java.io.File;
 
-/**
- * User: anna
- * Date: 3/20/13
- */
 public abstract class AbstractJavaFXTestCase extends LightCodeInsightFixtureTestCase {
   public static final DefaultLightProjectDescriptor JAVA_FX_DESCRIPTOR = new DefaultLightProjectDescriptor() {
     @Override
@@ -50,7 +46,7 @@ public abstract class AbstractJavaFXTestCase extends LightCodeInsightFixtureTest
   public static void addJavaFxJarAsLibrary(@NotNull Module module, @Nullable ModifiableRootModel model) {
     final String libPath = System.getProperty("java.home") + File.separator + "lib" + File.separator + "ext";
     if (model != null) {
-      PsiTestUtil.addLibrary(module, model, "javafx", libPath, "jfxrt.jar");
+      PsiTestUtil.addLibrary(model, "javafx", libPath, "jfxrt.jar");
     }
     else {
       PsiTestUtil.addLibrary(module, "javafx", libPath, "jfxrt.jar");

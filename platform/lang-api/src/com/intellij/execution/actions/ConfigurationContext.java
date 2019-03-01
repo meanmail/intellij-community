@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.actions;
 
@@ -21,7 +7,6 @@ import com.intellij.execution.PsiLocation;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.ConfigurationType;
-import com.intellij.execution.configurations.ConfigurationTypeUtil;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.junit.RuntimeConfigurationProducer;
 import com.intellij.ide.DataManager;
@@ -38,6 +23,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
@@ -59,6 +45,7 @@ public class ConfigurationContext {
   private final Location<PsiElement> myLocation;
   private RunnerAndConfigurationSettings myConfiguration;
   private boolean myInitialized = false;
+  private boolean myMultipleSelection = false;
   private Ref<RunnerAndConfigurationSettings> myExistingConfiguration;
   private final Module myModule;
   private final RunConfiguration myRuntimeConfiguration;
@@ -83,6 +70,11 @@ public class ConfigurationContext {
     return sharedContext;
   }
 
+  @NotNull
+  public static ConfigurationContext createEmptyContextForLocation(@NotNull Location location) {
+    return new ConfigurationContext(location);
+  }
+
   private ConfigurationContext(final DataContext dataContext) {
     myRuntimeConfiguration = RunConfiguration.DATA_KEY.getData(dataContext);
     myContextComponent = PlatformDataKeys.CONTEXT_COMPONENT.getData(dataContext);
@@ -91,6 +83,8 @@ public class ConfigurationContext {
     final Location<PsiElement> location = (Location<PsiElement>)Location.DATA_KEY.getData(dataContext);
     if (location != null) {
       myLocation = location;
+      Location<?>[] locations = Location.DATA_KEYS.getData(dataContext);
+      myMultipleSelection = locations != null && locations.length > 1;
       return;
     }
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
@@ -104,6 +98,14 @@ public class ConfigurationContext {
       return;
     }
     myLocation = new PsiLocation<>(project, myModule, element);
+    final PsiElement[] elements = LangDataKeys.PSI_ELEMENT_ARRAY.getData(dataContext);
+    if (elements != null) {
+      myMultipleSelection = elements.length > 1;
+    }
+    else {
+      final VirtualFile[] files = CommonDataKeys.VIRTUAL_FILE_ARRAY.getData(dataContext);
+      myMultipleSelection = files != null && files.length > 1;
+    }
   }
 
   public ConfigurationContext(PsiElement element) {
@@ -111,6 +113,18 @@ public class ConfigurationContext {
     myLocation = new PsiLocation<>(element.getProject(), myModule, element);
     myRuntimeConfiguration = null;
     myContextComponent = null;
+  }
+
+  private ConfigurationContext(@NotNull Location location) {
+    //noinspection unchecked
+    myLocation = location;
+    myModule = location.getModule();
+    myRuntimeConfiguration = null;
+    myContextComponent = null;
+  }
+
+  public boolean containsMultipleSelection() {
+    return myMultipleSelection;
   }
 
   /**
@@ -174,7 +188,12 @@ public class ConfigurationContext {
    */
   @Nullable
   public RunnerAndConfigurationSettings findExisting() {
-    if (myExistingConfiguration != null) return myExistingConfiguration.get();
+    if (myExistingConfiguration != null) {
+      RunnerAndConfigurationSettings configuration = myExistingConfiguration.get();
+      if (configuration == null || !Registry.is("suggest.all.run.configurations.from.context") || configuration.equals(myConfiguration)) {
+        return configuration;
+      }
+    }
     myExistingConfiguration = new Ref<>();
     if (myLocation == null) {
       return null;
@@ -182,6 +201,11 @@ public class ConfigurationContext {
 
     final PsiElement psiElement = myLocation.getPsiElement();
     if (!psiElement.isValid()) {
+      return null;
+    }
+
+    if (MultipleRunLocationsProvider.findAlternativeLocations(myLocation) != null) {
+      myExistingConfiguration.set(null);
       return null;
     }
 
@@ -213,7 +237,9 @@ public class ConfigurationContext {
     for (RunConfigurationProducer producer : RunConfigurationProducer.getProducers(getProject())) {
       RunnerAndConfigurationSettings configuration = producer.findExistingConfiguration(this);
       if (configuration != null) {
-        myExistingConfiguration.set(configuration);
+        if (!Registry.is("suggest.all.run.configurations.from.context") || configuration.equals(myConfiguration)) {
+          myExistingConfiguration.set(configuration);
+        }
       }
     }
     return myExistingConfiguration.get();
@@ -246,6 +272,7 @@ public class ConfigurationContext {
     return element;
   }
 
+  @NotNull
   public RunManager getRunManager() {
     return RunManager.getInstance(getProject());
   }
@@ -272,14 +299,24 @@ public class ConfigurationContext {
    */
   @Nullable
   public RunConfiguration getOriginalConfiguration(@Nullable ConfigurationType type) {
-    if (type == null) {
-      return myRuntimeConfiguration;
-    }
-    if (myRuntimeConfiguration != null
-        && ConfigurationTypeUtil.equals(myRuntimeConfiguration.getType(), type)) {
+    if (type == null || (myRuntimeConfiguration != null && myRuntimeConfiguration.getType() == type)) {
       return myRuntimeConfiguration;
     }
     return null;
+  }
+
+  /**
+   * Checks if the original run configuration matches the passed type.
+   * If the original run configuration is undefined, the check is passed too.
+   * An original run configuration is a run configuration associated with given context.
+   * For example, it could be a test framework run configuration that had been launched
+   * and that had brought a result test tree on which a right-click action was performed (and this context was created). In this case, other run configuration producers might want to not work on such elements.
+   *
+   * @param type {@link ConfigurationType} instance to match the original run configuration
+   * @return true if the original run configuration is of the same type or it's undefined; false otherwise
+   */
+  public boolean isCompatibleWithOriginalRunConfiguration(@NotNull ConfigurationType type) {
+    return myRuntimeConfiguration == null || myRuntimeConfiguration.getType() == type;
   }
 
   @Deprecated

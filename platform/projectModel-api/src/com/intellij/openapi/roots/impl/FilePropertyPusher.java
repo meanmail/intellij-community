@@ -47,6 +47,10 @@ public interface FilePropertyPusher<T> {
   @Nullable
   T getImmediateValue(@NotNull Module module);
 
+  default boolean acceptsFile(@NotNull VirtualFile file, @NotNull Project project) {
+    return acceptsFile(file);
+  }
+
   boolean acceptsFile(@NotNull VirtualFile file);
   boolean acceptsDirectory(@NotNull VirtualFile file, @NotNull Project project);
 
@@ -54,7 +58,7 @@ public interface FilePropertyPusher<T> {
 
   interface Engine {
     void pushAll();
-    void pushRecursively(VirtualFile vile, Project project);
+    void pushRecursively(@NotNull VirtualFile vile, @NotNull Project project);
   }
 
   void afterRootsChanged(@NotNull Project project);

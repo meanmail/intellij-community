@@ -24,6 +24,7 @@ import com.intellij.ui.ListUtil;
 import com.intellij.ui.components.JBList;
 import com.intellij.ui.table.JBTable;
 import com.intellij.ui.treeStructure.Tree;
+import com.intellij.util.Function;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -46,6 +47,7 @@ public abstract class HintUpdateSupply {
 
   @Nullable
   private JBPopup myHint;
+  private JComponent myComponent;
 
   @Nullable
   public static HintUpdateSupply getSupply(@NotNull JComponent component) {
@@ -57,13 +59,22 @@ public abstract class HintUpdateSupply {
     if (supply != null) supply.hideHint();
   }
 
-  public static void installSimpleHintUpdateSupply(@NotNull final JComponent component) {
+  public static void installSimpleHintUpdateSupply(@NotNull JComponent component) {
+    installHintUpdateSupply(component, o -> o instanceof PsiElement ? (PsiElement)o : null);
+  }
+
+  public static void installDataContextHintUpdateSupply(@NotNull JComponent component) {
+    installHintUpdateSupply(component, o ->
+      o instanceof PsiElement ? (PsiElement)o :
+      CommonDataKeys.PSI_ELEMENT.getData(DataManager.getInstance().getDataContext(component)));
+  }
+
+  public static void installHintUpdateSupply(@NotNull final JComponent component, final Function<Object, ? extends PsiElement> provider) {
     HintUpdateSupply supply = new HintUpdateSupply(component) {
       @Nullable
       @Override
       protected PsiElement getPsiElementForHint(@Nullable Object selectedValue) {
-        return selectedValue instanceof PsiElement ? (PsiElement)selectedValue :
-               CommonDataKeys.PSI_ELEMENT.getData(DataManager.getInstance().getDataContext(component));
+        return provider.fun(selectedValue);
       }
     };
     if (component instanceof JList) supply.installListListener((JList)component);
@@ -94,7 +105,7 @@ public abstract class HintUpdateSupply {
     ListSelectionListener listener = new ListSelectionListener() {
       @Override
       public void valueChanged(final ListSelectionEvent e) {
-        if (!isHintVisible(HintUpdateSupply.this.myHint) || isSelectedByMouse(table)) return;
+        if (!shouldUpdateHint()) return;
 
         int selected = ((ListSelectionModel)e.getSource()).getLeadSelectionIndex();
         int rowCount = table.getRowCount();
@@ -114,7 +125,7 @@ public abstract class HintUpdateSupply {
     tree.addTreeSelectionListener(new TreeSelectionListener() {
       @Override
       public void valueChanged(final TreeSelectionEvent e) {
-        if (!isHintVisible(HintUpdateSupply.this.myHint) || isSelectedByMouse(tree)) return;
+        if (!shouldUpdateHint()) return;
 
         TreePath path = tree.getSelectionPath();
         if (path != null) {
@@ -127,11 +138,11 @@ public abstract class HintUpdateSupply {
     });
   }
 
-  protected void installListListener(@NotNull final JList list) {
+  protected void installListListener(@NotNull JList list) {
     list.addListSelectionListener(new ListSelectionListener() {
       @Override
       public void valueChanged(final ListSelectionEvent e) {
-        if (!isHintVisible(HintUpdateSupply.this.myHint) || isSelectedByMouse(list)) return;
+        if (!shouldUpdateHint()) return;
 
         Object[] selectedValues = ((JList)e.getSource()).getSelectedValues();
         if (selectedValues.length != 1) return;
@@ -149,6 +160,7 @@ public abstract class HintUpdateSupply {
 
   private void installSupply(@NotNull JComponent component) {
     component.putClientProperty(HINT_UPDATE_MARKER, this);
+    myComponent = component;
   }
 
   public void registerHint(JBPopup hint) {
@@ -171,6 +183,10 @@ public abstract class HintUpdateSupply {
     if (updateProcessor != null) {
       updateProcessor.updatePopup(element);
     }
+  }
+
+  public boolean shouldUpdateHint() {
+    return isHintVisible(myHint) && !isSelectedByMouse(myComponent);
   }
 
   @Contract("!null->true")

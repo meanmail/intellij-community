@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 11-Nov-2008
- */
 package org.jetbrains.idea.eclipse;
 
 import com.intellij.openapi.util.Comparing;
@@ -35,7 +31,7 @@ import java.io.IOException;
 import java.util.List;
 
 public class EclipseProjectFinder implements EclipseXml {
-  public static void findModuleRoots(final List<String> paths, final String rootPath, @Nullable Processor<String> progressUpdater) {
+  public static void findModuleRoots(final List<? super String> paths, final String rootPath, @Nullable Processor<? super String> progressUpdater) {
     if (progressUpdater != null) {
       progressUpdater.process(rootPath);
     }
@@ -68,10 +64,7 @@ public class EclipseProjectFinder implements EclipseXml {
         }
         name = name.replace("\n", " ").trim();
       }
-      catch (JDOMException e) {
-        return null;
-      }
-      catch (IOException e) {
+      catch (JDOMException | IOException e) {
         return null;
       }
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiDirectory;
@@ -103,13 +104,7 @@ public class CommanderPanel extends JPanel {
     myList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
     if (enablePopupMenu) {
-      myCopyPasteDelegator = new CopyPasteDelegator(myProject, myList) {
-        @Override
-        @NotNull
-        protected PsiElement[] getSelectedElements() {
-          return CommanderPanel.this.getSelectedElements();
-        }
-      };
+      myCopyPasteDelegator = new CopyPasteDelegator(myProject, myList);
     }
 
     myListSpeedSearch = new ListSpeedSearch(myList);
@@ -300,12 +295,12 @@ public class CommanderPanel extends JPanel {
     myTitlePanel.addMouseListener(new MouseAdapter() {
       @Override
       public void mouseClicked(final MouseEvent e) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
 
       @Override
       public void mousePressed(final MouseEvent e) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     });
   }
@@ -398,7 +393,7 @@ public class CommanderPanel extends JPanel {
     if (selectedIndices.length == 0 && myList.getModel().getSize() > 0) {
       myList.setSelectedIndex(0);
       if (!myList.hasFocus()) {
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     }
     else if (myList.getModel().getSize() > 0) {
@@ -418,7 +413,7 @@ public class CommanderPanel extends JPanel {
       final int popupIndex = myList.locationToIndex(new Point(x, y));
       if (popupIndex >= 0) {
         myList.setSelectedIndex(popupIndex);
-        myList.requestFocus();
+        IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myList, true));
       }
     }
 
@@ -505,7 +500,7 @@ public class CommanderPanel extends JPanel {
       }
     }
 
-    return elements.toArray(new Navigatable[elements.size()]);
+    return elements.toArray(new Navigatable[0]);
   }
 
   @Nullable
@@ -533,7 +528,7 @@ public class CommanderPanel extends JPanel {
   private static final class MyTitleLabel extends JLabel {
     private final JPanel myPanel;
 
-    public MyTitleLabel(final JPanel panel) {
+    MyTitleLabel(final JPanel panel) {
       myPanel = panel;
     }
 

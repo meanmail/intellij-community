@@ -1,7 +1,4 @@
-/*
- * User: anna
- * Date: 08-Aug-2008
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.typeMigration.rules;
 
 import com.intellij.openapi.util.Pair;
@@ -19,11 +16,12 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
 
 public class ListArrayConversionRule extends TypeConversionRule {
+  @Override
   public TypeConversionDescriptorBase findConversion(final PsiType from,
-                                                 final PsiType to,
-                                                 PsiMember member,
-                                                 final PsiExpression context,
-                                                 final TypeMigrationLabeler labeler) {
+                                                     final PsiType to,
+                                                     PsiMember member,
+                                                     final PsiExpression context,
+                                                     final TypeMigrationLabeler labeler) {
     PsiExpression expression = context;
     PsiClassType classType = from instanceof PsiClassType ? (PsiClassType)from : to instanceof PsiClassType ? (PsiClassType)to : null;
     PsiArrayType arrayType = from instanceof PsiArrayType ? (PsiArrayType)from : to instanceof PsiArrayType ? (PsiArrayType)to : null;
@@ -81,7 +79,7 @@ public class ListArrayConversionRule extends TypeConversionRule {
       }
     }
 
-    if (member instanceof PsiField && member.getName().equals("length")) {
+    if (member instanceof PsiField && "length".equals(member.getName())) {
       return new TypeConversionDescriptor("$qualifier$.length", "$qualifier$.size()");
     }
 
@@ -102,22 +100,20 @@ public class ListArrayConversionRule extends TypeConversionRule {
   @Nullable
   public static PsiType evaluateCollectionsType(PsiClassType classType, PsiExpression expression) {
     final PsiClassType.ClassResolveResult classResolveResult = PsiUtil.resolveGenericsClassInType(classType);
-    if (classResolveResult != null) {
-      final PsiClass psiClass = classResolveResult.getElement();
-      if (psiClass != null) {
-        final GlobalSearchScope allScope = GlobalSearchScope.allScope(psiClass.getProject());
-        final PsiClass collectionClass =
-          JavaPsiFacade.getInstance(psiClass.getProject()).findClass(CommonClassNames.JAVA_UTIL_LIST, allScope);
-        if (collectionClass != null && InheritanceUtil.isInheritorOrSelf(psiClass, collectionClass, true)) {
-          final PsiSubstitutor derivedSubstitutor = classResolveResult.getSubstitutor();
-          if (PsiUtil.isRawSubstitutor(psiClass, derivedSubstitutor)) return null;
-          final PsiSubstitutor substitutor =
-            TypeConversionUtil.getClassSubstitutor(collectionClass, psiClass, derivedSubstitutor);
-          assert substitutor != null;
-          final PsiType type = substitutor.substitute(collectionClass.getTypeParameters()[0]);
-          assert type != null;
-          return PsiImplUtil.normalizeWildcardTypeByPosition(type, expression);
-        }
+    final PsiClass psiClass = classResolveResult.getElement();
+    if (psiClass != null) {
+      final GlobalSearchScope allScope = GlobalSearchScope.allScope(psiClass.getProject());
+      final PsiClass collectionClass =
+        JavaPsiFacade.getInstance(psiClass.getProject()).findClass(CommonClassNames.JAVA_UTIL_LIST, allScope);
+      if (collectionClass != null && InheritanceUtil.isInheritorOrSelf(psiClass, collectionClass, true)) {
+        final PsiSubstitutor derivedSubstitutor = classResolveResult.getSubstitutor();
+        if (PsiUtil.isRawSubstitutor(psiClass, derivedSubstitutor)) return null;
+        final PsiSubstitutor substitutor =
+          TypeConversionUtil.getClassSubstitutor(collectionClass, psiClass, derivedSubstitutor);
+        assert substitutor != null;
+        final PsiType type = substitutor.substitute(collectionClass.getTypeParameters()[0]);
+        assert type != null;
+        return PsiImplUtil.normalizeWildcardTypeByPosition(type, expression);
       }
     }
     return null;
@@ -153,7 +149,7 @@ public class ListArrayConversionRule extends TypeConversionRule {
                                                                        PsiArrayType arrayType) {
     @NonNls final String methodName = method.getName();
     if (methodName.equals("toArray")) {
-      if (method.getParameterList().getParameters().length == 0) {
+      if (method.getParameterList().isEmpty()) {
         return new TypeConversionDescriptor("$qualifier$.toArray()", "$qualifier$");
       }
       return new TypeConversionDescriptor("$qualifier$.toArray($expr$)", "$qualifier$");

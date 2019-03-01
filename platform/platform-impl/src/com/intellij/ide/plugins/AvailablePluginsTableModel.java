@@ -1,25 +1,5 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * Created by IntelliJ IDEA.
- * User: Anna.Kozlova
- * Date: 19-Aug-2006
- * Time: 14:54:29
- */
 package com.intellij.ide.plugins;
 
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
@@ -32,7 +12,6 @@ import java.util.TreeSet;
 
 /**
  * @author stathik
- * @since Dec 26, 2003
  */
 public class AvailablePluginsTableModel extends PluginTableModel {
   public static final String ALL = "All";
@@ -40,7 +19,7 @@ public class AvailablePluginsTableModel extends PluginTableModel {
   public static final String BUILTIN_REPO = "Built-in Plugin Repository";
 
   private String myCategory = ALL;
-  private TreeSet<String> myAvailableCategories = new TreeSet<>();
+  private final TreeSet<String> myAvailableCategories = new TreeSet<>();
   private String myRepository = ALL;
   private String myVendor = null;
 
@@ -119,6 +98,7 @@ public class AvailablePluginsTableModel extends PluginTableModel {
     }
   }
 
+  @Override
   public void updatePluginsList(List<IdeaPluginDescriptor> list) {
     view.clear();
     myAvailableCategories.clear();
@@ -142,6 +122,7 @@ public class AvailablePluginsTableModel extends PluginTableModel {
     fireTableDataChanged();
   }
 
+  @Override
   public int getNameColumn() {
     return 0;
   }

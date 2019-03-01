@@ -19,7 +19,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.LineTokenizer;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Enumerator;
 import org.jetbrains.annotations.NonNls;
@@ -37,21 +36,17 @@ public class Diff {
   private static final Logger LOG = Logger.getInstance("#com.intellij.util.diff.Diff");
 
   @Nullable
-  public static Change buildChanges(@NotNull CharSequence before, @NotNull CharSequence after,
-                                    int additionalShift) throws FilesTooBigForDiffException {
-    final String[] strings1 = LineTokenizer.tokenize(before, false);
-    final String[] strings2 = LineTokenizer.tokenize(after, false);
-    return buildChanges(strings1, strings2, additionalShift);
+  public static Change buildChanges(@NotNull CharSequence before, @NotNull CharSequence after) throws FilesTooBigForDiffException {
+    return buildChanges(splitLines(before), splitLines(after));
+  }
+
+  @NotNull
+  private static String[] splitLines(@NotNull CharSequence s) {
+    return s.length() == 0 ? new String[]{""} : LineTokenizer.tokenize(s, false, false);
   }
 
   @Nullable
   public static <T> Change buildChanges(@NotNull T[] objects1, @NotNull T[] objects2) throws FilesTooBigForDiffException {
-    return buildChanges(objects1, objects2, 0);
-  }
-
-  @Nullable
-  public static <T> Change buildChanges(@NotNull T[] objects1, @NotNull T[] objects2,
-                                        int additionalShift) throws FilesTooBigForDiffException {
 
     // Old variant of enumerator worked incorrectly with null values.
     // This check is to ensure that the corrected version does not introduce bugs.
@@ -61,14 +56,14 @@ public class Diff {
     final int startShift = getStartShift(objects1, objects2);
     final int endCut = getEndCut(objects1, objects2, startShift);
 
-    Ref<Change> changeRef = doBuildChangesFast(objects1.length, objects2.length, startShift, endCut, additionalShift);
+    Ref<Change> changeRef = doBuildChangesFast(objects1.length, objects2.length, startShift, endCut);
     if (changeRef != null) return changeRef.get();
 
     int trimmedLength = objects1.length + objects2.length - 2 * startShift - 2 * endCut;
-    Enumerator<T> enumerator = new Enumerator<T>(trimmedLength, ContainerUtil.<T>canonicalStrategy());
+    Enumerator<T> enumerator = new Enumerator<>(trimmedLength, ContainerUtil.canonicalStrategy());
     int[] ints1 = enumerator.enumerate(objects1, startShift, endCut);
     int[] ints2 = enumerator.enumerate(objects2, startShift, endCut);
-    return doBuildChanges(ints1, ints2, new ChangeBuilder(startShift + additionalShift));
+    return doBuildChanges(ints1, ints2, new ChangeBuilder(startShift));
   }
 
   @Nullable
@@ -76,7 +71,7 @@ public class Diff {
     final int startShift = getStartShift(array1, array2);
     final int endCut = getEndCut(array1, array2, startShift);
 
-    Ref<Change> changeRef = doBuildChangesFast(array1.length, array2.length, startShift, endCut, 0);
+    Ref<Change> changeRef = doBuildChangesFast(array1.length, array2.length, startShift, endCut);
     if (changeRef != null) return changeRef.get();
 
     boolean copyArray = startShift != 0 || endCut != 0;
@@ -86,14 +81,14 @@ public class Diff {
   }
 
   @Nullable
-  private static Ref<Change> doBuildChangesFast(int length1, int length2, int startShift, int endCut, int additionalShift) {
+  private static Ref<Change> doBuildChangesFast(int length1, int length2, int startShift, int endCut) {
     int trimmedLength1 = length1 - startShift - endCut;
     int trimmedLength2 = length2 - startShift - endCut;
     if (trimmedLength1 != 0 && trimmedLength2 != 0) return null;
     Change change = trimmedLength1 != 0 || trimmedLength2 != 0 ?
-                    new Change(startShift + additionalShift, startShift + additionalShift, trimmedLength1, trimmedLength2, null) :
+                    new Change(startShift, startShift, trimmedLength1, trimmedLength2, null) :
                     null;
-    return new Ref<Change>(change);
+    return new Ref<>(change);
   }
 
   private static Change doBuildChanges(@NotNull int[] ints1, @NotNull int[] ints2, @NotNull ChangeBuilder builder)
@@ -115,8 +110,8 @@ public class Diff {
     }
     else {
       try {
-        IntLCS intLCS = new IntLCS(discarded[0], discarded[1]);
-        intLCS.execute();
+        MyersLCS intLCS = new MyersLCS(discarded[0], discarded[1]);
+        intLCS.executeWithThreshold();
         changes = intLCS.getChanges();
       }
       catch (FilesTooBigForDiffException e) {
@@ -173,18 +168,6 @@ public class Diff {
     return idx;
   }
 
-  /**
-   * Tries to translate given line that pointed to the text before change to the line that points to the same text after the change.
-   *
-   * @param before    text before change
-   * @param after     text after change
-   * @param line      target line before change
-   * @return          translated line if the processing is ok; negative value otherwise
-   */
-  public static int translateLine(@NotNull CharSequence before, @NotNull CharSequence after, int line) throws FilesTooBigForDiffException {
-    return translateLine(before, after, line, false);
-  }
-
   public static int translateLine(@NotNull CharSequence before, @NotNull CharSequence after, int line, boolean approximate)
     throws FilesTooBigForDiffException {
     String[] strings1 = LineTokenizer.tokenize(before, false);
@@ -199,17 +182,12 @@ public class Diff {
 
   @NotNull
   private static String[] trim(@NotNull String[] lines) {
-    return ContainerUtil.map2Array(lines, String.class, new Function<String, String>() {
-      @Override
-      public String fun(String s) {
-        return s.trim();
-      }
-    });
+    return ContainerUtil.map2Array(lines, String.class, String::trim);
   }
 
   /**
    * Tries to translate given line that pointed to the text before change to the line that points to the same text after the change.
-   * 
+   *
    * @param change    target change
    * @param line      target line before change
    * @return          translated line if the processing is ok; negative value otherwise
@@ -235,7 +213,7 @@ public class Diff {
 
     return result;
   }
-  
+
   public static class Change {
     // todo remove. Return lists instead.
     /**
@@ -267,17 +245,13 @@ public class Diff {
       //System.err.println(line0+","+line1+","+inserted+","+deleted);
     }
 
-    public Change shift(int lines) {
-      return new Change(line0 + lines, line1 + lines, deleted, inserted, link);
-    }
-
     @NonNls
     public String toString() {
       return "change[" + "inserted=" + inserted + ", deleted=" + deleted + ", line0=" + line0 + ", line1=" + line1 + "]";
     }
 
     public ArrayList<Change> toList() {
-      ArrayList<Change> result = new ArrayList<Change>();
+      ArrayList<Change> result = new ArrayList<>();
       Change current = this;
       while (current != null) {
         result.add(current);

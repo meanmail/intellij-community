@@ -7,28 +7,29 @@ import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.JavaPsiFacade;
-import com.intellij.testFramework.InspectionTestCase;
+import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
 
-/**
- * @author lesya
- */
-public class I18NInspectionTest extends InspectionTestCase {
-  private void doTest() throws Exception {
-    doTest(new I18nInspection());
-  }
-  private void doTest(I18nInspection tool) throws Exception {
-    doTest("i18n/" + getTestName(true), tool);
+import static com.intellij.testFramework.LightCodeInsightTestCase.getJavaFacade;
+
+public class I18NInspectionTest extends LightCodeInsightFixtureTestCase {
+
+  I18nInspection myTool = new I18nInspection();
+  
+  private void doTest() {
+    myFixture.enableInspections(myTool);
+    myFixture.testHighlighting("i18n/" + getTestName(false) + ".java");
   }
 
-  public void testHardCodedStringLiteralAsParameter() throws Exception{ doTest(); }
-  public void testReturnTypeInheritsNonNlsAnnotationFromParent() throws Exception{ doTest(); }
-  public void testRecursiveInheritance() throws Exception { doTest(); }
-  public void testParameterInheritsNonNlsAnnotationFromSuper() throws Exception { doTest(); }
-  public void testLocalVariables() throws Exception { doTest(); }
-  public void testFields() throws Exception{ doTest(); }
-  public void testAnonymousClassConstructorParameter() throws Exception { doTest(); }
-  public void testStringBufferNonNls() throws Exception { doTest(); }
-  public void testEnum() throws Exception {
+  public void testHardCodedStringLiteralAsParameter() { doTest(); }
+  public void testReturnTypeInheritsNonNlsAnnotationFromParent() { doTest(); }
+  public void testRecursiveInheritance() { doTest(); }
+  public void testParameterInheritsNonNlsAnnotationFromSuper() { doTest(); }
+  public void testLocalVariables() { doTest(); }
+  public void testFields() { doTest(); }
+  public void testInAnnotationArguments() { doTest(); }
+  public void testAnonymousClassConstructorParameter() { doTest(); }
+  public void testStringBufferNonNls() { doTest(); }
+  public void testEnum() {
      final JavaPsiFacade facade = getJavaFacade();
      final LanguageLevel effectiveLanguageLevel = LanguageLevelProjectExtension.getInstance(facade.getProject()).getLanguageLevel();
      LanguageLevelProjectExtension.getInstance(facade.getProject()).setLanguageLevel(LanguageLevel.JDK_1_5);
@@ -40,20 +41,19 @@ public class I18NInspectionTest extends InspectionTestCase {
      }
    }
 
-  public void testFormTabbedPaneTitle() throws Exception { doTest(); }
-  public void testVarargNonNlsParameter() throws Exception { doTest(); }
-  public void testInitializerInAnonymousClass() throws Exception{ doTest(); }
-  public void testNonNlsArray() throws Exception{ doTest(); }
-  public void testParameterInNewAnonymousClass() throws Exception{ doTest(); }
-  public void testConstructorCallOfNonNlsVariable() throws Exception{ doTest(); }
-  public void testSwitchOnNonNlsString() throws Exception{ doTest(); }
-  public void testNonNlsComment() throws Exception{
-    I18nInspection inspection = new I18nInspection();
-    inspection.nonNlsCommentPattern = "MYNON-NLS";
-    inspection.cacheNonNlsCommentPattern();
-    doTest(inspection);
+  public void testVarargNonNlsParameter() { doTest(); }
+  public void testInitializerInAnonymousClass() { doTest(); }
+  public void testNonNlsArray() { doTest(); }
+  public void testNonNlsEquals() { doTest(); }
+  public void testParameterInNewAnonymousClass() { doTest(); }
+  public void testConstructorCallOfNonNlsVariable() { doTest(); }
+  public void testSwitchOnNonNlsString() { doTest(); }
+  public void testNonNlsComment() {
+    myTool.nonNlsCommentPattern = "MYNON-NLS";
+    myTool.cacheNonNlsCommentPattern();
+    doTest();
   }
-  public void testAnnotationArgument() throws Exception{ doTest(); }
+  public void testAnnotationArgument() { doTest(); }
 
   @Override
   protected String getTestDataPath() {

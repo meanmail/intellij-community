@@ -43,7 +43,7 @@ public abstract class GrDocMemberReferenceImpl extends GroovyDocPsiElementImpl i
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return getManager().areElementsEquivalent(element, resolve());
   }
 
@@ -93,7 +93,7 @@ public abstract class GrDocMemberReferenceImpl extends GroovyDocPsiElementImpl i
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     PsiElement nameElement = getReferenceNameElement();
     ASTNode node = nameElement.getNode();
     ASTNode newNameNode = GroovyPsiElementFactory.getInstance(getProject()).createDocMemberReferenceNameFromText(newElementName).getNode();
@@ -110,6 +110,7 @@ public abstract class GrDocMemberReferenceImpl extends GroovyDocPsiElementImpl i
     return token;
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
@@ -120,6 +121,7 @@ public abstract class GrDocMemberReferenceImpl extends GroovyDocPsiElementImpl i
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final PsiElement refNameElement = getReferenceNameElement();
@@ -165,12 +167,6 @@ public abstract class GrDocMemberReferenceImpl extends GroovyDocPsiElementImpl i
   @NotNull
   public ResolveResult[] multiResolve(boolean incompleteCode) {
     return multiResolveImpl();
-  }
-
-  @Override
-  @NotNull
-  public Object[] getVariants() {
-    return PsiElement.EMPTY_ARRAY;
   }
 
   protected abstract ResolveResult[] multiResolveImpl();

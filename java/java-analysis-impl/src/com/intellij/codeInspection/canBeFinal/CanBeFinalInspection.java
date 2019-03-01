@@ -14,18 +14,9 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Dec 24, 2001
- * Time: 2:46:32 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.canBeFinal;
 
 import com.intellij.analysis.AnalysisScope;
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.GroupNames;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.reference.*;
@@ -35,13 +26,12 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
 import java.awt.*;
 
 public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
@@ -71,34 +61,19 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
 
       myReportClassesCheckbox = new JCheckBox(InspectionsBundle.message("inspection.can.be.final.option"));
       myReportClassesCheckbox.setSelected(REPORT_CLASSES);
-      myReportClassesCheckbox.getModel().addChangeListener(new ChangeListener() {
-        @Override
-        public void stateChanged(ChangeEvent e) {
-          REPORT_CLASSES = myReportClassesCheckbox.isSelected();
-        }
-      });
+      myReportClassesCheckbox.getModel().addItemListener(e -> REPORT_CLASSES = myReportClassesCheckbox.isSelected());
       gc.gridy = 0;
       add(myReportClassesCheckbox, gc);
 
       myReportMethodsCheckbox = new JCheckBox(InspectionsBundle.message("inspection.can.be.final.option1"));
       myReportMethodsCheckbox.setSelected(REPORT_METHODS);
-      myReportMethodsCheckbox.getModel().addChangeListener(new ChangeListener() {
-        @Override
-        public void stateChanged(ChangeEvent e) {
-          REPORT_METHODS = myReportMethodsCheckbox.isSelected();
-        }
-      });
+      myReportMethodsCheckbox.getModel().addItemListener(e -> REPORT_METHODS = myReportMethodsCheckbox.isSelected());
       gc.gridy++;
       add(myReportMethodsCheckbox, gc);
 
       myReportFieldsCheckbox = new JCheckBox(InspectionsBundle.message("inspection.can.be.final.option2"));
       myReportFieldsCheckbox.setSelected(REPORT_FIELDS);
-      myReportFieldsCheckbox.getModel().addChangeListener(new ChangeListener() {
-        @Override
-        public void stateChanged(ChangeEvent e) {
-          REPORT_FIELDS = myReportFieldsCheckbox.isSelected();
-        }
-      });
+      myReportFieldsCheckbox.getModel().addItemListener(e -> REPORT_FIELDS = myReportFieldsCheckbox.isSelected());
 
       gc.weighty = 1;
       gc.gridy++;
@@ -145,7 +120,7 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
       if (refElement.isFinal()) return null;
       if (!((RefElementImpl)refElement).checkFlag(CanBeFinalAnnotator.CAN_BE_FINAL_MASK)) return null;
 
-      final PsiMember psiMember = (PsiMember)refElement.getElement();
+      final PsiMember psiMember = ObjectUtils.tryCast(refElement.getPsiElement(), PsiMember.class);
       if (psiMember == null || !CanBeFinalHandler.allowToBeFinal(psiMember)) return null;
 
       PsiIdentifier psiIdentifier = null;
@@ -157,11 +132,14 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
       }
       else if (refElement instanceof RefMethod) {
         RefMethod refMethod = (RefMethod)refElement;
-        if (refMethod.getOwnerClass().isFinal()) return null;
+        RefClass ownerClass = refMethod.getOwnerClass();
+        if (ownerClass == null || ownerClass.isFinal()) return null;
+        if (psiMember.hasModifierProperty(PsiModifier.PRIVATE)) return null;
         if (!isReportMethods()) return null;
         psiIdentifier = ((PsiMethod)psiMember).getNameIdentifier();
       }
       else if (refElement instanceof RefField) {
+        if (!((RefField)refElement).isUsedForWriting()) return null;
         if (!isReportFields()) return null;
         psiIdentifier = ((PsiField)psiMember).getNameIdentifier();
       }
@@ -180,7 +158,7 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
   protected boolean queryExternalUsagesRequests(@NotNull final RefManager manager,
                                                 @NotNull final GlobalJavaInspectionContext globalContext,
                                                 @NotNull final ProblemDescriptionsProcessor problemsProcessor) {
-    for (RefElement entryPoint : globalContext.getEntryPointsManager(manager).getEntryPoints()) {
+    for (RefElement entryPoint : globalContext.getEntryPointsManager(manager).getEntryPoints(manager)) {
       problemsProcessor.ignoreElement(entryPoint);
     }
 
@@ -191,26 +169,20 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
           @Override public void visitMethod(@NotNull final RefMethod refMethod) {
             if (!refMethod.isStatic() && !PsiModifier.PRIVATE.equals(refMethod.getAccessModifier()) &&
                 !(refMethod instanceof RefImplicitConstructor)) {
-              globalContext.enqueueDerivedMethodsProcessor(refMethod, new GlobalJavaInspectionContext.DerivedMethodsProcessor() {
-                @Override
-                public boolean process(PsiMethod derivedMethod) {
-                  ((RefElementImpl)refMethod).setFlag(false, CanBeFinalAnnotator.CAN_BE_FINAL_MASK);
-                  problemsProcessor.ignoreElement(refMethod);
-                  return false;
-                }
+              globalContext.enqueueDerivedMethodsProcessor(refMethod, derivedMethod -> {
+                ((RefElementImpl)refMethod).setFlag(false, CanBeFinalAnnotator.CAN_BE_FINAL_MASK);
+                problemsProcessor.ignoreElement(refMethod);
+                return false;
               });
             }
           }
 
           @Override public void visitClass(@NotNull final RefClass refClass) {
             if (!refClass.isAnonymous()) {
-              globalContext.enqueueDerivedClassesProcessor(refClass, new GlobalJavaInspectionContext.DerivedClassesProcessor() {
-                @Override
-                public boolean process(PsiClass inheritor) {
-                  ((RefClassImpl)refClass).setFlag(false, CanBeFinalAnnotator.CAN_BE_FINAL_MASK);
-                  problemsProcessor.ignoreElement(refClass);
-                  return false;
-                }
+              globalContext.enqueueDerivedClassesProcessor(refClass, inheritor -> {
+                ((RefClassImpl)refClass).setFlag(false, CanBeFinalAnnotator.CAN_BE_FINAL_MASK);
+                problemsProcessor.ignoreElement(refClass);
+                return false;
               });
             }
           }
@@ -265,25 +237,18 @@ public class CanBeFinalInspection extends GlobalJavaBatchInspectionTool {
   private static class AcceptSuggested implements LocalQuickFix {
     private final RefManager myManager;
 
-    public AcceptSuggested(final RefManager manager) {
+    AcceptSuggested(final RefManager manager) {
       myManager = manager;
     }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return QUICK_FIX_NAME;
     }
 
     @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
-      if (!FileModificationService.getInstance().preparePsiElementForWrite(descriptor.getPsiElement())) return;
       final PsiElement element = descriptor.getPsiElement();
       final PsiModifierListOwner psiElement = PsiTreeUtil.getParentOfType(element, PsiModifierListOwner.class);
       if (psiElement != null) {

@@ -18,7 +18,6 @@ package com.intellij.spellchecker.inspector;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.spellchecker.inspections.*;
-import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NotNull;
 import org.junit.Test;
 
@@ -284,7 +283,19 @@ public class SplitterTest {
     String text = "shkate123-\u00DC.test@gmail.com";
     correctListToCheck(PlainTextSplitter.getInstance(), text);
   }
+  
+  @Test
+  public void testEmailWithPlus() {
+    String text = "test+test@gmail.com";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
 
+  @Test
+  public void testEmailNoDLT() {
+    String text = "user@localserver";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+  
   @Test
   public void testUrl() {
     String text = "https://www.jetbrains.com/idea";
@@ -295,6 +306,42 @@ public class SplitterTest {
   public void testUrlThenSpaces() {
     String text = "https://www.jetbrains.com/idea asdasdasd sdfsdf";
     correctListToCheck(PlainTextSplitter.getInstance(), text, "asdasdasd", "sdfsdf");
+  }
+
+  @Test
+  public void testShortUrl() {
+    String text = "https://test.com";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+
+  @Test
+  public void testUrlWithFragmentID() {
+    String text = "http://www.example.org/foo.html#bar";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+
+  @Test
+  public void testUrlWithQuery() {
+    String text = "http://example.com/over/there?name=ferret";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+
+  @Test
+  public void testEncodedUrl() {
+    String text = "http://www.test.com/test/example.html?var=This+is+a+simple+%26+short+test";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+
+  @Test
+  public void testUUID() {
+    String text = "cc27bbbc-d763-44b5-95fd-46124b6e84ca";
+    correctListToCheck(PlainTextSplitter.getInstance(), text);
+  }
+
+  @Test
+  public void testUUIDInsideText() {
+    String text = "asdasd ee3aaabc-98cb-47cf-a732-00f55f65975d asdasd";
+    correctListToCheck(PlainTextSplitter.getInstance(), text, "asdasd", "asdasd");
   }
 
   @Test
@@ -399,16 +446,10 @@ public class SplitterTest {
     if (is != null) {
       StringBuilder sb = new StringBuilder();
 
-      try {
-        BufferedReader reader = new BufferedReader(new InputStreamReader(is, CharsetToolkit.UTF8_CHARSET));
-        try {
-          String line;
-          while ((line = reader.readLine()) != null) {
-            sb.append(line).append('\n');
-          }
-        }
-        finally {
-          reader.close();
+      try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, CharsetToolkit.UTF8_CHARSET))) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          sb.append(line).append('\n');
         }
       }
       catch (Exception e) {

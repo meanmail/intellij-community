@@ -46,8 +46,9 @@ public class SimpleJavaBlock extends AbstractJavaBlock {
                          AlignmentStrategy alignment,
                          Indent indent,
                          CommonCodeStyleSettings settings,
-                         JavaCodeStyleSettings javaSettings) {
-    super(node, wrap, alignment, indent, settings, javaSettings);
+                         JavaCodeStyleSettings javaSettings,
+                         @NotNull FormattingMode formattingMode) {
+    super(node, wrap, alignment, indent, settings, javaSettings, formattingMode);
   }
 
   @Override
@@ -89,8 +90,7 @@ public class SimpleJavaBlock extends AbstractJavaBlock {
 
         if (myNode.getElementType() == JavaElementType.FIELD
             || myNode.getElementType() == JavaElementType.DECLARATION_STATEMENT
-            || myNode.getElementType() == JavaElementType.LOCAL_VARIABLE)
-        {
+            || myNode.getElementType() == JavaElementType.LOCAL_VARIABLE) {
           alignmentStrategyToUse = myAlignmentStrategy;
         }
 
@@ -112,13 +112,14 @@ public class SimpleJavaBlock extends AbstractJavaBlock {
     }
   }
 
-  private void processHeadCommentsAndWhiteSpaces(@NotNull List<Block> result) {
+  private void processHeadCommentsAndWhiteSpaces(@NotNull List<? super Block> result) {
     while (myCurrentChild != null) {
       if (StdTokenSets.COMMENT_BIT_SET.contains(myCurrentChild.getElementType()) || myCurrentChild.getElementType() == JavaDocElementType.DOC_COMMENT) {
         Block commentBlock = createJavaBlock(
           myCurrentChild,
           mySettings, myJavaSettings,
-          Indent.getNoneIndent(), null, AlignmentStrategy.getNullStrategy()
+          Indent.getNoneIndent(), null, AlignmentStrategy.getNullStrategy(),
+          getFormattingMode()
         );
         result.add(commentBlock);
         myCurrentIndent = Indent.getNoneIndent();

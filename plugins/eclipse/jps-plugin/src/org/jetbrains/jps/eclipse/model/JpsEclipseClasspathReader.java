@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.eclipse.model;
 
 import com.intellij.openapi.components.ExpandMacroToPathMap;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.HashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.eclipse.*;
@@ -37,15 +22,11 @@ import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.*;
 
-/**
- * User: anna
- * Date: 10/29/12
- */
 class JpsEclipseClasspathReader extends AbstractEclipseClasspathReader<JpsModule> {
   private static final Logger LOG = Logger.getInstance(JpsEclipseClasspathReader.class);
   private final Map<String, String> myLibLevels;
 
-  public JpsEclipseClasspathReader(String rootPath,
+  JpsEclipseClasspathReader(String rootPath,
                                    @Nullable List<String> currentRoots,
                                    @Nullable Set<String> moduleNames,
                                    Map<String, String> levels) {
@@ -115,12 +96,7 @@ class JpsEclipseClasspathReader extends AbstractEclipseClasspathReader<JpsModule
   @Override
   protected void addJUnitDefaultLib(JpsModule rootModel, String junitName, ExpandMacroToPathMap macroMap) {
     final String ideaHome = macroMap.substitute("$APPLICATION_HOME_DIR$", SystemInfo.isFileSystemCaseSensitive);
-    final FilenameFilter junitFilter = new FilenameFilter() {
-      @Override
-      public boolean accept(File dir, String name) {
-        return name.startsWith("junit");
-      }
-    };
+    final FilenameFilter junitFilter = (dir, name) -> name.startsWith("junit");
     File[] junitJars = new File(ideaHome, "lib").listFiles(junitFilter);
     if (junitJars == null || junitJars.length == 0) {
       junitJars = new File(new File(ideaHome, "community"), "lib").listFiles(junitFilter);
@@ -151,7 +127,7 @@ class JpsEclipseClasspathReader extends AbstractEclipseClasspathReader<JpsModule
                                   String libName,
                                   String url,
                                   String srcUrl,
-                                  String nativeRoot, 
+                                  String nativeRoot,
                                   ExpandMacroToPathMap macroMap) {
     final JpsLibrary jpsLibrary = rootModel.addModuleLibrary(libName, JpsJavaLibraryType.INSTANCE);
     final JpsDependenciesList dependenciesList = rootModel.getDependenciesList();
@@ -211,10 +187,10 @@ class JpsEclipseClasspathReader extends AbstractEclipseClasspathReader<JpsModule
                             final String testPattern,
                             Element classpathElement, JpsMacroExpander expander) throws IOException {
     LOG.debug("start loading classpath for " + model.getName());
-    final HashSet<String> libs = new HashSet<String>();
+    final HashSet<String> libs = new HashSet<>();
     for (Object o : classpathElement.getChildren(EclipseXml.CLASSPATHENTRY_TAG)) {
       try {
-        readClasspathEntry(model, new ArrayList<String>(), new ArrayList<String>(), new HashSet<String>(),
+        readClasspathEntry(model, new ArrayList<>(), new ArrayList<>(), new HashSet<>(),
                            testPattern, (Element)o, 0, null, expander.getExpandMacroMap(), libs);
       }
       catch (ConversionException e) {
@@ -255,6 +231,7 @@ class JpsEclipseClasspathReader extends AbstractEclipseClasspathReader<JpsModule
     return null;
   }
 
+  @Override
   public void setupOutput(JpsModule rootModel, final String path) {
     final JpsJavaModuleExtension extension = getService().getOrCreateModuleExtension(rootModel);
     String outputUrl = pathToUrl(path);

@@ -24,22 +24,20 @@ import com.intellij.diff.tools.util.FoldingModelSupport;
 import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings;
 import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.diff.util.DiffUserDataKeysEx;
-import com.intellij.diff.util.DiffUtil;
 import com.intellij.icons.AllIcons;
-import com.intellij.internal.statistic.UsageTrigger;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ComboBoxAction;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.diff.impl.DiffUsageTriggerCollector;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.actions.EditorActionUtil;
 import com.intellij.openapi.editor.event.DocumentListener;
-import com.intellij.openapi.editor.event.EditorMouseEvent;
 import com.intellij.openapi.editor.ex.EditorEx;
+import com.intellij.openapi.editor.ex.EditorPopupHandler;
+import com.intellij.openapi.editor.impl.ContextMenuPopupHandler;
 import com.intellij.openapi.project.DumbAware;
-import com.intellij.openapi.util.Condition;
 import com.intellij.ui.ToggleActionButton;
-import com.intellij.util.EditorPopupHandler;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -51,8 +49,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import static com.intellij.diff.util.DiffUtil.isUserDataFlagSet;
+import static com.intellij.util.containers.ContainerUtil.list;
+
 public class TextDiffViewerUtil {
-  public static final Logger LOG = Logger.getInstance(TextDiffViewerUtil.class);
+  private static final Logger LOG = Logger.getInstance(TextDiffViewerUtil.class);
 
   @NotNull
   public static List<AnAction> createEditorPopupActions() {
@@ -73,11 +74,11 @@ public class TextDiffViewerUtil {
 
   @NotNull
   public static TextDiffSettings getTextSettings(@NotNull DiffContext context) {
-    TextDiffSettings settings = context.getUserData(TextDiffSettingsHolder.KEY);
+    TextDiffSettings settings = context.getUserData(TextDiffSettings.KEY);
     if (settings == null) {
       settings = TextDiffSettings.getSettings(context.getUserData(DiffUserDataKeys.PLACE));
-      context.putUserData(TextDiffSettingsHolder.KEY, settings);
-      if (DiffUtil.isUserDataFlagSet(DiffUserDataKeys.DO_NOT_IGNORE_WHITESPACES, context)) {
+      context.putUserData(TextDiffSettings.KEY, settings);
+      if (isUserDataFlagSet(DiffUserDataKeys.DO_NOT_IGNORE_WHITESPACES, context)) {
         settings.setIgnorePolicy(IgnorePolicy.DEFAULT);
       }
     }
@@ -86,24 +87,28 @@ public class TextDiffViewerUtil {
 
   @NotNull
   public static boolean[] checkForceReadOnly(@NotNull DiffContext context, @NotNull ContentDiffRequest request) {
-    int contentCount = request.getContents().size();
+    List<DiffContent> contents = request.getContents();
+    int contentCount = contents.size();
     boolean[] result = new boolean[contentCount];
 
-    if (DiffUtil.isUserDataFlagSet(DiffUserDataKeys.FORCE_READ_ONLY, request, context)) {
-      Arrays.fill(result, true);
-      return result;
+    boolean[] data = request.getUserData(DiffUserDataKeys.FORCE_READ_ONLY_CONTENTS);
+    if (data != null && data.length != contentCount) {
+      LOG.warn("Invalid FORCE_READ_ONLY_CONTENTS key value: " + request);
+      data = null;
     }
 
-    boolean[] data = request.getUserData(DiffUserDataKeys.FORCE_READ_ONLY_CONTENTS);
-    if (data != null && data.length == contentCount) {
-      return data;
+    for (int i = 0; i < contents.size(); i++) {
+      if (isUserDataFlagSet(DiffUserDataKeys.FORCE_READ_ONLY, contents.get(i), request, context) ||
+          data != null && data[i]) {
+        result[i] = true;
+      }
     }
 
     return result;
   }
 
   public static void installDocumentListeners(@NotNull DocumentListener listener,
-                                              @NotNull List<Document> documents,
+                                              @NotNull List<? extends Document> documents,
                                               @NotNull Disposable disposable) {
     for (Document document : ContainerUtil.newHashSet(documents)) {
       document.addDocumentListener(listener, disposable);
@@ -133,7 +138,7 @@ public class TextDiffViewerUtil {
       for (DiffContent content : contents) {
         message.append(content.toString()).append("\n");
       }
-      LOG.warn(new Throwable(message.toString()));
+      LOG.warn(message.toString());
     }
   }
 
@@ -142,7 +147,9 @@ public class TextDiffViewerUtil {
   }
 
   public static boolean areEqualCharsets(@NotNull List<? extends DiffContent> contents) {
-    return areEqualDocumentContentProperties(contents, DocumentContent::getCharset);
+    boolean sameCharset = areEqualDocumentContentProperties(contents, DocumentContent::getCharset);
+    boolean sameBOM = areEqualDocumentContentProperties(contents, DocumentContent::hasBom);
+    return sameCharset && sameBOM;
   }
 
   private static <T> boolean areEqualDocumentContentProperties(@NotNull List<? extends DiffContent> contents,
@@ -160,136 +167,180 @@ public class TextDiffViewerUtil {
   // Actions
   //
 
-  // TODO: pretty icons ?
   public static abstract class ComboBoxSettingAction<T> extends ComboBoxAction implements DumbAware {
-    private DefaultActionGroup myChildren;
+    private DefaultActionGroup myActions;
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       Presentation presentation = e.getPresentation();
-      presentation.setText(getText(getCurrentSetting()));
-    }
-
-    @NotNull
-    public DefaultActionGroup getPopupGroup() {
-      initChildren();
-      return myChildren;
+      presentation.setText(getText(getValue()));
     }
 
     @NotNull
     @Override
     protected DefaultActionGroup createPopupActionGroup(JComponent button) {
-      initChildren();
-      return myChildren;
+      return getActions();
     }
 
-    private void initChildren() {
-      if (myChildren == null) {
-        myChildren = new DefaultActionGroup();
-        for (T setting : getAvailableSettings()) {
-          myChildren.add(new MyAction(setting));
+    @NotNull
+    public DefaultActionGroup getActions() {
+      if (myActions == null) {
+        myActions = new DefaultActionGroup();
+        for (T setting : getAvailableOptions()) {
+          myActions.add(new MyAction(setting));
         }
       }
+      return myActions;
     }
 
     @NotNull
-    protected abstract List<T> getAvailableSettings();
+    protected abstract List<T> getAvailableOptions();
 
     @NotNull
-    protected abstract String getText(@NotNull T setting);
+    protected abstract T getValue();
+
+    protected abstract void setValue(@NotNull T option);
 
     @NotNull
-    protected abstract T getCurrentSetting();
-
-    protected abstract void applySetting(@NotNull T setting, @NotNull AnActionEvent e);
+    protected abstract String getText(@NotNull T option);
 
     private class MyAction extends AnAction implements DumbAware {
-      @NotNull private final T mySetting;
+      @NotNull private final T myOption;
 
-      public MyAction(@NotNull T setting) {
-        super(getText(setting));
-        mySetting = setting;
+      MyAction(@NotNull T option) {
+        super(getText(option));
+        myOption = option;
       }
 
       @Override
       public void actionPerformed(@NotNull AnActionEvent e) {
-        applySetting(mySetting, e);
+        setValue(myOption);
       }
     }
   }
 
-  public static abstract class HighlightPolicySettingAction extends ComboBoxSettingAction<HighlightPolicy> {
-    @NotNull protected final TextDiffSettings mySettings;
+  private static abstract class EnumPolicySettingAction<T extends Enum> extends TextDiffViewerUtil.ComboBoxSettingAction<T> {
+    @NotNull private final T[] myPolicies;
 
-    public HighlightPolicySettingAction(@NotNull TextDiffSettings settings) {
-      mySettings = settings;
+    EnumPolicySettingAction(@NotNull T[] policies) {
+      assert policies.length > 0;
+      myPolicies = policies;
     }
 
     @Override
-    protected void applySetting(@NotNull HighlightPolicy setting, @NotNull AnActionEvent e) {
-      if (getCurrentSetting() == setting) return;
-      UsageTrigger.trigger("diff.TextDiffSettings.HighlightPolicy." + setting.name());
-      mySettings.setHighlightPolicy(setting);
-      update(e);
-      onSettingsChanged();
+    public void update(@NotNull AnActionEvent e) {
+      super.update(e);
+      e.getPresentation().setEnabledAndVisible(myPolicies.length > 1);
     }
 
     @NotNull
     @Override
-    protected HighlightPolicy getCurrentSetting() {
+    protected List<T> getAvailableOptions() {
+      //noinspection unchecked
+      return ContainerUtil.sorted(Arrays.asList(myPolicies));
+    }
+
+    @NotNull
+    @Override
+    public T getValue() {
+      T value = getStoredValue();
+      if (ArrayUtil.contains(value, myPolicies)) return value;
+
+      List<T> substitutes = getValueSubstitutes(value);
+      for (T substitute : substitutes) {
+        if (ArrayUtil.contains(substitute, myPolicies)) return substitute;
+      }
+
+      return myPolicies[0];
+    }
+
+    @NotNull
+    protected abstract T getStoredValue();
+
+    @NotNull
+    protected abstract List<T> getValueSubstitutes(@NotNull T value);
+  }
+
+  public static class HighlightPolicySettingAction extends EnumPolicySettingAction<HighlightPolicy> {
+    @NotNull protected final TextDiffSettings mySettings;
+
+    public HighlightPolicySettingAction(@NotNull TextDiffSettings settings,
+                                        @NotNull HighlightPolicy... policies) {
+      super(policies);
+      mySettings = settings;
+    }
+
+    @Override
+    protected void setValue(@NotNull HighlightPolicy option) {
+      if (getValue() == option) return;
+      DiffUsageTriggerCollector.trigger("toggle.highlight.policy", option);
+      mySettings.setHighlightPolicy(option);
+    }
+
+    @NotNull
+    @Override
+    protected HighlightPolicy getStoredValue() {
       return mySettings.getHighlightPolicy();
     }
 
     @NotNull
     @Override
-    protected String getText(@NotNull HighlightPolicy setting) {
-      return setting.getText();
+    protected List<HighlightPolicy> getValueSubstitutes(@NotNull HighlightPolicy value) {
+      if (value == HighlightPolicy.BY_WORD_SPLIT) {
+        return list(HighlightPolicy.BY_WORD);
+      }
+      if (value == HighlightPolicy.DO_NOT_HIGHLIGHT) {
+        return list(HighlightPolicy.BY_LINE);
+      }
+      return list(HighlightPolicy.BY_WORD);
     }
 
     @NotNull
     @Override
-    protected List<HighlightPolicy> getAvailableSettings() {
-      return Arrays.asList(HighlightPolicy.values());
+    protected String getText(@NotNull HighlightPolicy option) {
+      return option.getText();
     }
-
-    protected abstract void onSettingsChanged();
   }
 
-  public static abstract class IgnorePolicySettingAction extends ComboBoxSettingAction<IgnorePolicy> {
+  public static class IgnorePolicySettingAction extends EnumPolicySettingAction<IgnorePolicy> {
     @NotNull protected final TextDiffSettings mySettings;
 
-    public IgnorePolicySettingAction(@NotNull TextDiffSettings settings) {
+    public IgnorePolicySettingAction(@NotNull TextDiffSettings settings,
+                                     @NotNull IgnorePolicy... policies) {
+      super(policies);
       mySettings = settings;
     }
 
     @Override
-    protected void applySetting(@NotNull IgnorePolicy setting, @NotNull AnActionEvent e) {
-      if (getCurrentSetting() == setting) return;
-      UsageTrigger.trigger("diff.TextDiffSettings.IgnorePolicy." + setting.name());
-      mySettings.setIgnorePolicy(setting);
-      update(e);
-      onSettingsChanged();
+    protected void setValue(@NotNull IgnorePolicy option) {
+      if (getValue() == option) return;
+      DiffUsageTriggerCollector.trigger("toggle.ignore.policy", option);
+      mySettings.setIgnorePolicy(option);
     }
 
     @NotNull
     @Override
-    protected IgnorePolicy getCurrentSetting() {
+    protected IgnorePolicy getStoredValue() {
       return mySettings.getIgnorePolicy();
     }
 
     @NotNull
     @Override
-    protected String getText(@NotNull IgnorePolicy setting) {
-      return setting.getText();
+    protected List<IgnorePolicy> getValueSubstitutes(@NotNull IgnorePolicy value) {
+      if (value == IgnorePolicy.IGNORE_WHITESPACES_CHUNKS) {
+        return list(IgnorePolicy.IGNORE_WHITESPACES);
+      }
+      if (value == IgnorePolicy.FORMATTING) {
+        return list(IgnorePolicy.TRIM_WHITESPACES);
+      }
+      return list(IgnorePolicy.DEFAULT);
     }
 
     @NotNull
     @Override
-    protected List<IgnorePolicy> getAvailableSettings() {
-      return Arrays.asList(IgnorePolicy.values());
+    protected String getText(@NotNull IgnorePolicy option) {
+      return option.getText();
     }
-
-    protected abstract void onSettingsChanged();
   }
 
   public static class ToggleAutoScrollAction extends ToggleActionButton implements DumbAware {
@@ -315,7 +366,7 @@ public class TextDiffViewerUtil {
     @NotNull protected final TextDiffSettings mySettings;
 
     public ToggleExpandByDefaultAction(@NotNull TextDiffSettings settings) {
-      super("Collapse unchanged fragments", AllIcons.Actions.Collapseall);
+      super("Collapse Unchanged Fragments", AllIcons.Actions.Collapseall);
       mySettings = settings;
     }
 
@@ -345,14 +396,14 @@ public class TextDiffViewerUtil {
     @NotNull protected final TextDiffSettings mySettings;
 
     public ReadOnlyLockAction(@NotNull DiffContext context) {
-      super("Disable editing", null, AllIcons.Nodes.Padlock);
+      super("Disable Editing", null, AllIcons.Diff.Lock);
       myContext = context;
       mySettings = getTextSettings(context);
     }
 
     protected void applyDefaults() {
       if (isVisible()) { // apply default state
-        setSelected(null, isSelected(null));
+        setSelected(isSelected());
       }
     }
 
@@ -367,12 +418,20 @@ public class TextDiffViewerUtil {
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
+      return isSelected();
+    }
+
+    boolean isSelected() {
       return mySettings.isReadOnlyLock();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
+      setSelected(state);
+    }
+
+    void setSelected(boolean state) {
       mySettings.setReadOnlyLock(state);
       doApply(state);
     }
@@ -410,12 +469,7 @@ public class TextDiffViewerUtil {
 
   @NotNull
   public static List<? extends EditorEx> getEditableEditors(@NotNull List<? extends EditorEx> editors) {
-    return ContainerUtil.filter(editors, new Condition<EditorEx>() {
-      @Override
-      public boolean value(EditorEx editor) {
-        return !editor.isViewer();
-      }
-    });
+    return ContainerUtil.filter(editors, editor -> !editor.isViewer());
   }
 
   public static class EditorFontSizeSynchronizer implements PropertyChangeListener {
@@ -458,7 +512,7 @@ public class TextDiffViewerUtil {
     }
   }
 
-  public static class EditorActionsPopup extends EditorPopupHandler {
+  public static class EditorActionsPopup {
     @NotNull private final List<? extends AnAction> myEditorPopupActions;
 
     public EditorActionsPopup(@NotNull List<? extends AnAction> editorPopupActions) {
@@ -466,18 +520,12 @@ public class TextDiffViewerUtil {
     }
 
     public void install(@NotNull List<? extends EditorEx> editors) {
+      EditorPopupHandler handler = new ContextMenuPopupHandler.Simple(
+        myEditorPopupActions.isEmpty() ? null : new DefaultActionGroup(myEditorPopupActions)
+      );
       for (EditorEx editor : editors) {
-        editor.addEditorMouseListener(this);
-        editor.setContextMenuGroupId(null); // disabling default context menu
+        editor.installPopupHandler(handler);
       }
-    }
-
-    @Override
-    public void invokePopup(final EditorMouseEvent event) {
-      if (myEditorPopupActions.isEmpty()) return;
-      ActionGroup group = new DefaultActionGroup(myEditorPopupActions);
-      EditorPopupHandler handler = EditorActionUtil.createEditorPopupHandler(group);
-      handler.invokePopup(event);
     }
   }
 }

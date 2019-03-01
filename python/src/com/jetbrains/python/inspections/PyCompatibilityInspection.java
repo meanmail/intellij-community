@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,21 +22,19 @@ import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.ProblemsHolder;
 import com.intellij.ide.util.ElementsChooser;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.JDOMExternalizableStringList;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiElementVisitor;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiReference;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.QualifiedName;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.inspections.quickfix.PyRenameElementQuickFix;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.types.PyClassType;
@@ -45,14 +43,15 @@ import com.jetbrains.python.psi.types.PyTypeChecker;
 import com.jetbrains.python.psi.types.TypeEvalContext;
 import com.jetbrains.python.validation.CompatibilityVisitor;
 import com.jetbrains.python.validation.UnsupportedFeaturesUtil;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * User: catherine
@@ -60,20 +59,35 @@ import java.util.List;
  * Inspection to detect code incompatibility with python versions
  */
 public class PyCompatibilityInspection extends PyInspection {
-  public static List<String> BACKPORTED_PACKAGES = ImmutableList.<String>builder()
+
+  @NotNull
+  public static final List<String> BACKPORTED_PACKAGES = ImmutableList.<String>builder()
     .add("enum")
     .add("typing")
     .build();
 
-  public static final int LATEST_INSPECTION_VERSION = 1;
+  public static final List<String> COMPATIBILITY_LIBS = Collections.singletonList("six");
+
+  public static final int LATEST_INSPECTION_VERSION = 3;
+
+  @NotNull
   public static final List<LanguageLevel> DEFAULT_PYTHON_VERSIONS = ImmutableList.of(LanguageLevel.PYTHON27, LanguageLevel.getLatest());
+
+  @NotNull
+  public static final List<LanguageLevel> SUPPORTED_LEVELS = StreamEx
+    .of(LanguageLevel.values())
+    .filter(v -> v.isPython2() && v.isAtLeast(LanguageLevel.PYTHON26) || v.isAtLeast(LanguageLevel.PYTHON34))
+    .toImmutableList();
+
+  @NotNull
+  private static final List<String> SUPPORTED_IN_SETTINGS = ContainerUtil.map(SUPPORTED_LEVELS, LanguageLevel::toString);
 
   // Legacy DefaultJDOMExternalizer requires public fields for proper serialization
   public JDOMExternalizableStringList ourVersions = new JDOMExternalizableStringList();
 
   public PyCompatibilityInspection () {
     if (ApplicationManager.getApplication().isUnitTestMode()) {
-      ourVersions.addAll(UnsupportedFeaturesUtil.ALL_LANGUAGE_LEVELS);
+      ourVersions.addAll(SUPPORTED_IN_SETTINGS);
     }
     else {
       ourVersions.addAll(ContainerUtil.map(DEFAULT_PYTHON_VERSIONS, LanguageLevel::toString));
@@ -96,8 +110,10 @@ public class PyCompatibilityInspection extends PyInspection {
     List<LanguageLevel> result = new ArrayList<>();
 
     for (String version : ourVersions) {
-      LanguageLevel level = LanguageLevel.fromPythonVersion(version);
-      result.add(level);
+      if (SUPPORTED_IN_SETTINGS.contains(version)) {
+        LanguageLevel level = LanguageLevel.fromPythonVersion(version);
+        result.add(level);
+      }
     }
     return result;
   }
@@ -112,8 +128,8 @@ public class PyCompatibilityInspection extends PyInspection {
   @Override
   public JComponent createOptionsPanel() {
     final ElementsChooser<String> chooser = new ElementsChooser<>(true);
-    chooser.setElements(UnsupportedFeaturesUtil.ALL_LANGUAGE_LEVELS, false);
-    chooser.markElements(ourVersions);
+    chooser.setElements(SUPPORTED_IN_SETTINGS, false);
+    chooser.markElements(ContainerUtil.filter(ourVersions, SUPPORTED_IN_SETTINGS::contains));
     chooser.addElementsMarkListener(new ElementsChooser.ElementsMarkListener<String>() {
       @Override
       public void elementMarkChanged(String element, boolean isMarked) {
@@ -137,70 +153,65 @@ public class PyCompatibilityInspection extends PyInspection {
 
   private static class Visitor extends CompatibilityVisitor {
     private final ProblemsHolder myHolder;
-    private Set<String> myUsedImports = Collections.synchronizedSet(new HashSet<String>());
+    private final Set<String> myUsedImports = Collections.synchronizedSet(new HashSet<>());
+    private final Set<String> myFromCompatibilityLibs = Collections.synchronizedSet(new HashSet<>());
 
-    public Visitor(ProblemsHolder holder, List<LanguageLevel> versionsToProcess) {
+    Visitor(ProblemsHolder holder, List<LanguageLevel> versionsToProcess) {
       super(versionsToProcess);
       myHolder = holder;
     }
 
     @Override
-    protected final void registerProblem(@Nullable final PsiElement element,
-                                       @NotNull final String message,
-                                       @Nullable final LocalQuickFix quickFix, final boolean asError) {
-      if (element == null) return;
-      registerProblem(element, element.getTextRange(), message, quickFix, asError);
-    }
-
-    @Override
-    protected void registerProblem(@NotNull final PsiElement element, @NotNull TextRange range, String message,
-                                   @Nullable LocalQuickFix quickFix, boolean asError) {
+    protected void registerProblem(@NotNull PsiElement element,
+                                   @NotNull TextRange range,
+                                   @NotNull String message,
+                                   @Nullable LocalQuickFix quickFix,
+                                   boolean asError) {
       if (element.getTextLength() == 0) {
         return;
       }
+
       range = range.shiftRight(-element.getTextRange().getStartOffset());
-      if (quickFix != null)
+      if (quickFix != null) {
         myHolder.registerProblem(element, range, message, quickFix);
-      else
+      }
+      else {
         myHolder.registerProblem(element, range, message);
+      }
     }
 
     @Override
     public void visitPyCallExpression(PyCallExpression node) {
       super.visitPyCallExpression(node);
+      PyExpression callee = node.getCallee();
+      if (callee != null && importedFromCompatibilityLibs(callee)) {
+        return;
+      }
 
-      final Optional<PyFunction> optionalFunction = Optional
-        .ofNullable(node.getCallee())
+      final PsiElement resolvedCallee = Optional
+        .ofNullable(callee)
         .map(PyExpression::getReference)
         .map(PsiReference::resolve)
-        .filter(PyFunction.class::isInstance)
-        .map(PyFunction.class::cast);
+        .orElse(null);
 
-      if (optionalFunction.isPresent()) {
-        final PyFunction function = optionalFunction.get();
+      if (resolvedCallee instanceof PyFunction) {
+        final PyFunction function = (PyFunction)resolvedCallee;
         final PyClass containingClass = function.getContainingClass();
         final String originalFunctionName = function.getName();
 
-        final StringBuilder message = containingClass != null && !PyNames.INIT.equals(originalFunctionName)
-                                      ? new StringBuilder("Class " + containingClass.getName() + " in python version ")
-                                      : new StringBuilder("Python version ");
-
         final String functionName = containingClass != null && PyNames.INIT.equals(originalFunctionName)
-                                    ? node.getCallee().getText()
+                                    ? callee.getText()
                                     : originalFunctionName;
-
-        int len = 0;
 
         if (containingClass != null) {
           final String className = containingClass.getName();
 
           if (UnsupportedFeaturesUtil.CLASS_METHODS.containsKey(className)) {
             final Map<LanguageLevel, Set<String>> unsupportedMethods = UnsupportedFeaturesUtil.CLASS_METHODS.get(className);
-            for (LanguageLevel languageLevel : myVersionsToProcess) {
-              if (unsupportedMethods.getOrDefault(languageLevel, Collections.emptySet()).contains(functionName)) {
-                len = appendLanguageLevel(message, len, languageLevel);
-              }
-            }
+
+            registerForAllMatchingVersions(level -> unsupportedMethods.getOrDefault(level, Collections.emptySet()).contains(functionName),
+                                           " not have method " + functionName,
+                                           node);
           }
         }
 
@@ -208,31 +219,34 @@ public class PyCompatibilityInspection extends PyInspection {
             !"print".equals(functionName) &&
             !"exec".equals(functionName) &&
             !myUsedImports.contains(functionName)) {
-          for (LanguageLevel languageLevel : myVersionsToProcess) {
-            if (UnsupportedFeaturesUtil.BUILTINS.get(languageLevel).contains(functionName)) {
-              len = appendLanguageLevel(message, len, languageLevel);
-            }
-          }
+          registerForAllMatchingVersions(level -> UnsupportedFeaturesUtil.BUILTINS.get(level).contains(functionName),
+                                         " not have method " + functionName,
+                                         node);
         }
+      }
+      else if (resolvedCallee instanceof PyTargetExpression) {
+        final PyTargetExpression target = (PyTargetExpression)resolvedCallee;
 
-        commonRegisterProblem(message, " not have method " + functionName, len, node, null, false);
+        if (!target.isQualified() &&
+            PyNames.TYPE_LONG.equals(target.getName()) &&
+            PyBuiltinCache.getInstance(resolvedCallee).isBuiltin(resolvedCallee)) {
+          registerForAllMatchingVersions(level -> UnsupportedFeaturesUtil.BUILTINS.get(level).contains(PyNames.TYPE_LONG),
+                                         " not have type long. Use int instead.",
+                                         node);
+        }
       }
     }
 
     @Override
     public void visitPyImportElement(PyImportElement importElement) {
       myUsedImports.add(importElement.getVisibleName());
-      PyIfStatement ifParent = PsiTreeUtil.getParentOfType(importElement, PyIfStatement.class);
-      if (ifParent != null)
-        return;
-      int len = 0;
-      String moduleName = "";
-      StringBuilder message = new StringBuilder("Python version ");
 
-      PyTryExceptStatement tryExceptStatement = PsiTreeUtil.getParentOfType(importElement, PyTryExceptStatement.class);
+      final PyIfStatement ifParent = PsiTreeUtil.getParentOfType(importElement, PyIfStatement.class);
+      if (ifParent != null) return;
+
+      final PyTryExceptStatement tryExceptStatement = PsiTreeUtil.getParentOfType(importElement, PyTryExceptStatement.class);
       if (tryExceptStatement != null) {
-        PyExceptPart[] parts = tryExceptStatement.getExceptParts();
-        for (PyExceptPart part : parts) {
+        for (PyExceptPart part : tryExceptStatement.getExceptParts()) {
           final PyExpression exceptClass = part.getExceptClass();
           if (exceptClass != null && exceptClass.getText().equals("ImportError")) {
             return;
@@ -240,82 +254,77 @@ public class PyCompatibilityInspection extends PyInspection {
         }
       }
 
-      final PyFromImportStatement fromImportStatement = PsiTreeUtil.getParentOfType(importElement, PyFromImportStatement.class);
-      if (fromImportStatement != null) {
-        for (int i = 0; i != myVersionsToProcess.size(); ++i) {
-          LanguageLevel languageLevel = myVersionsToProcess.get(i);
-          final QualifiedName qName = importElement.getImportedQName();
-          final QualifiedName sourceQName = fromImportStatement.getImportSourceQName();
-          if (qName != null && sourceQName != null && qName.matches("unicode_literals") &&
-              sourceQName.matches("__future__") && languageLevel.isOlderThan(LanguageLevel.PYTHON26)) {
-            len = appendLanguageLevel(message, len, languageLevel);
-          }
+      final QualifiedName qName = getImportedFullyQName(importElement);
+      if (qName != null && !qName.matches("builtins") && !qName.matches("__builtin__")) {
+        if (COMPATIBILITY_LIBS.contains(qName.getFirstComponent())) {
+          myFromCompatibilityLibs.add(qName.getLastComponent());
         }
-        commonRegisterProblem(message, " not have unicode_literals in __future__ module", len, importElement, null);
-        return;
-      }
+        final String moduleName = qName.toString();
 
-      for (int i = 0; i != myVersionsToProcess.size(); ++i) {
-        LanguageLevel languageLevel = myVersionsToProcess.get(i);
-        final QualifiedName qName = importElement.getImportedQName();
-        if (qName != null && !qName.matches("builtins") && !qName.matches("__builtin__")) {
-          moduleName = qName.toString();
-          if (UnsupportedFeaturesUtil.MODULES.get(languageLevel).contains(moduleName) && !BACKPORTED_PACKAGES.contains(moduleName)) {
-            len = appendLanguageLevel(message, len, languageLevel);
-          }
-        }
+        registerForAllMatchingVersions(level -> UnsupportedFeaturesUtil.MODULES.get(level).contains(moduleName) && !BACKPORTED_PACKAGES.contains(moduleName),
+                                       " not have module " + moduleName,
+                                       importElement);
       }
-      commonRegisterProblem(message, " not have module " + moduleName, len, importElement, null);
+    }
+
+    @Nullable
+    private static QualifiedName getImportedFullyQName(@NotNull PyImportElement importElement) {
+      final QualifiedName importedQName = importElement.getImportedQName();
+      if (importedQName == null) return null;
+
+      final PyStatement containingImportStatement = importElement.getContainingImportStatement();
+      final QualifiedName importSourceQName = containingImportStatement instanceof PyFromImportStatement
+                                              ? ((PyFromImportStatement)containingImportStatement).getImportSourceQName()
+                                              : null;
+
+      return importSourceQName == null ? importedQName : importSourceQName.append(importedQName);
     }
 
     @Override
     public void visitPyFromImportStatement(PyFromImportStatement node) {
       super.visitPyFromImportStatement(node);
+
       if (node.getRelativeLevel() > 0) return;
-      int len = 0;
-      StringBuilder message = new StringBuilder("Python version ");
-      QualifiedName name = node.getImportSourceQName();
-      PyReferenceExpression source = node.getImportSource();
-      if (name != null) {
-        for (int i = 0; i != myVersionsToProcess.size(); ++i) {
-          LanguageLevel languageLevel = myVersionsToProcess.get(i);
-          final String moduleName = name.toString();
-          if (UnsupportedFeaturesUtil.MODULES.get(languageLevel).contains(moduleName) && !BACKPORTED_PACKAGES.contains(moduleName)) {
-            len = appendLanguageLevel(message, len, languageLevel);
-          }
-        }
-        commonRegisterProblem(message, " not have module " + name,
-                              len, source, null, false);
+
+      final QualifiedName name = node.getImportSourceQName();
+      final PyReferenceExpression source = node.getImportSource();
+      if (name != null && source != null) {
+        final String moduleName = name.toString();
+
+        registerForAllMatchingVersions(level -> UnsupportedFeaturesUtil.MODULES.get(level).contains(moduleName) && !BACKPORTED_PACKAGES.contains(moduleName),
+                                       " not have module " + name,
+                                       source);
       }
     }
 
     @Override
     public void visitPyArgumentList(final PyArgumentList node) { //PY-5588
-      final List<PyElement> problemElements = new ArrayList<>();
       if (node.getParent() instanceof PyClass) {
-        for (final PyExpression expression : node.getArguments()) {
-          if (expression instanceof PyKeywordArgument)
-            problemElements.add(expression);
+        final boolean isPython2 = LanguageLevel.forElement(node).isPython2();
+        if (isPython2 || myVersionsToProcess.stream().anyMatch(LanguageLevel::isPython2)) {
+          Arrays
+            .stream(node.getArguments())
+            .filter(PyKeywordArgument.class::isInstance)
+            .forEach(expression -> myHolder.registerProblem(expression,
+                                                            "This syntax available only since py3",
+                                                            !isPython2
+                                                            ? ProblemHighlightType.GENERIC_ERROR_OR_WARNING
+                                                            : ProblemHighlightType.GENERIC_ERROR));
         }
-      }
-      final String errorMessage = "This syntax available only since py3";
-      final boolean isPy3 = LanguageLevel.forElement(node).isPy3K();
-      if (shouldBeCompatibleWithPy2() || !isPy3) {
-        for (final PyElement problemElement : problemElements)
-          myHolder.registerProblem(problemElement, errorMessage, isPy3? ProblemHighlightType.GENERIC_ERROR_OR_WARNING :
-                                                          ProblemHighlightType.GENERIC_ERROR);
       }
     }
 
     @Override
     public void visitPyReferenceExpression(PyReferenceExpression node) {
       super.visitPyElement(node);
-      if (shouldBeCompatibleWithPy3()) {
-        final TypeEvalContext context = TypeEvalContext.codeAnalysis(node.getProject(), node.getContainingFile());
+
+      if (myVersionsToProcess.stream().anyMatch(LanguageLevel::isPy3K)) {
         final String nodeText = node.getText();
+
         if (nodeText.endsWith("iteritems") || nodeText.endsWith("iterkeys") || nodeText.endsWith("itervalues")) {
           final PyExpression qualifier = node.getQualifier();
           if (qualifier != null) {
+            final TypeEvalContext context = TypeEvalContext.codeAnalysis(node.getProject(), node.getContainingFile());
             final PyType type = context.getType(qualifier);
             final PyClassType dictType = PyBuiltinCache.getInstance(node).getDictType();
             if (PyTypeChecker.match(dictType, type, context)) {
@@ -325,21 +334,65 @@ public class PyCompatibilityInspection extends PyInspection {
         }
 
         if (PyNames.BASESTRING.equals(nodeText)) {
-          PsiElement res = node.getReference().resolve();
+          final PsiElement res = node.getReference().resolve();
           if (res != null) {
-            ProjectFileIndex ind = ProjectRootManager.getInstance(node.getProject()).getFileIndex();
-            PsiFile file = res.getContainingFile();
-            if (file != null ) {
+            final PsiFile file = res.getContainingFile();
+            if (file != null) {
               final VirtualFile virtualFile = file.getVirtualFile();
-                if (virtualFile != null && ind.isInLibraryClasses(virtualFile)) {
+              if (virtualFile != null && ProjectRootManager.getInstance(node.getProject()).getFileIndex().isInLibraryClasses(virtualFile)) {
                 registerProblem(node, "basestring type is not available in py3");
               }
-            } else {
+            }
+            else {
               registerProblem(node, "basestring type is not available in py3");
             }
           }
         }
       }
+    }
+
+    @Override
+    public void visitPyTargetExpression(PyTargetExpression node) {
+      super.visitPyTargetExpression(node);
+      warnAsyncAndAwaitAreBecomingKeywordsInPy37(node);
+    }
+
+    @Override
+    public void visitPyClass(PyClass node) {
+      super.visitPyClass(node);
+      warnAsyncAndAwaitAreBecomingKeywordsInPy37(node);
+    }
+
+    @Override
+    public void visitPyFunction(PyFunction node) {
+      super.visitPyFunction(node);
+      warnAsyncAndAwaitAreBecomingKeywordsInPy37(node);
+    }
+
+    @Override
+    protected boolean registerForLanguageLevel(@NotNull LanguageLevel level) {
+      return level != LanguageLevel.forElement(myHolder.getFile());
+    }
+
+    private void warnAsyncAndAwaitAreBecomingKeywordsInPy37(@NotNull PsiNameIdentifierOwner nameIdentifierOwner) {
+      final PsiElement nameIdentifier = nameIdentifierOwner.getNameIdentifier();
+
+      if (nameIdentifier != null &&
+          ArrayUtil.contains(nameIdentifierOwner.getName(), PyNames.AWAIT, PyNames.ASYNC) &&
+          LanguageLevel.forElement(nameIdentifierOwner).isOlderThan(LanguageLevel.PYTHON37)) {
+        registerForAllMatchingVersions(level -> level.isAtLeast(LanguageLevel.PYTHON37),
+                                       " not allow 'async' and 'await' as names",
+                                       nameIdentifier,
+                                       new PyRenameElementQuickFix(nameIdentifierOwner));
+      }
+    }
+
+    private boolean importedFromCompatibilityLibs(@NotNull PyExpression callee) {
+      if (callee instanceof PyQualifiedExpression) {
+        QualifiedName qualifiedName = ((PyQualifiedExpression) callee).asQualifiedName();
+        return qualifiedName != null && myFromCompatibilityLibs.contains(qualifiedName.getFirstComponent());
+      }
+      return myFromCompatibilityLibs.contains(callee.getName());
     }
   }
 }

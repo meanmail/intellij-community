@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.editor.ex.util;
 
+import com.intellij.openapi.diagnostic.Attachment;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
@@ -26,11 +14,14 @@ import com.intellij.openapi.editor.highlighter.HighlighterClient;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
 import com.intellij.openapi.editor.impl.DocumentImpl;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileTypes.SyntaxHighlighter;
 import com.intellij.openapi.fileTypes.SyntaxHighlighterBase;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.tree.IElementType;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.FactoryMap;
 import com.intellij.util.containers.IntArrayList;
 import com.intellij.util.text.MergingCharSequence;
@@ -38,13 +29,13 @@ import gnu.trove.TIntIntHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.lang.reflect.Array;
 import java.util.*;
 
 /**
  * @author max
  */
 public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.editor.ex.util.LayeredLexerEditorHighlighter");
   private final Map<IElementType, LayerDescriptor> myTokensToLayer = new HashMap<>();
   private final Map<LayerDescriptor, Mapper> myLayerBuffers = new HashMap<>();
 
@@ -107,9 +98,18 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
         final int len = lengths.get(i);
         start += mySeparator.length();
         final int globalIndex = index2Global.get(i);
-        assert getSegments().myRanges[globalIndex] == null : myText;
+        checkNull(type, getSegments().myRanges[globalIndex]);
         getSegments().myRanges[globalIndex] = new MappedRange(mapper, document.createRangeMarker(start, start + len), type);
         start += len;
+      }
+    }
+
+    private void checkNull(IElementType type, MappedRange range) {
+      if (range != null) {
+        Document mainDocument = getDocument();
+        VirtualFile file = mainDocument == null ? null : FileDocumentManager.getInstance().getFile(mainDocument);
+        LOG.error("Expected null range on " + type + ", found " + range + "; highlighter=" + getSyntaxHighlighter(),
+                  new Attachment(file != null ? file.getName() : "editorText.txt", myText.toString()));
       }
     }
   }
@@ -126,13 +126,10 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
   @Override
   protected TokenProcessor createTokenProcessor(final int startIndex) {
     return new TokenProcessor() {
-      final Map<Mapper, LightMapper> docTexts = new FactoryMap<Mapper, LightMapper>() {
-        @Override
-        protected LightMapper create(final Mapper key) {
-          final MappedRange predecessor = key.findPredecessor(startIndex);
-          return new LightMapper(key, predecessor != null ? predecessor.range.getEndOffset() : 0);
-        }
-      };
+      final Map<Mapper, LightMapper> docTexts = FactoryMap.create(key -> {
+        final MappedRange predecessor = key.findPredecessor(startIndex);
+        return new LightMapper(key, predecessor != null ? predecessor.range.getEndOffset() : 0);
+      });
 
       @Override
       public void addToken(final int i, final int startOffset, final int endOffset, final int data, final IElementType tokenType) {
@@ -154,11 +151,13 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
 
   protected boolean updateLayers() { return false; }
 
+  protected boolean updateLayers(@NotNull DocumentEvent e) { return updateLayers(); }
+
   @SuppressWarnings("NonSynchronizedMethodOverridesSynchronizedMethod")
   @Override
-  public void documentChanged(DocumentEvent e) {
+  public void documentChanged(@NotNull DocumentEvent e) {
     // do NOT synchronize before updateLayers due to deadlock with PsiLock
-    boolean changed = updateLayers();
+    boolean changed = updateLayers(e);
 
     //noinspection SynchronizeOnThis
     synchronized (this) {
@@ -174,19 +173,15 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
   @NotNull
   @Override
   public HighlighterIterator createIterator(int startOffset) {
-    // do NOT synchronize before updateLayers due to deadlock with PsiLock
-    final boolean changed = updateLayers();
-
     //noinspection SynchronizeOnThis
     synchronized (this) {
-      if (changed) {
-        Document document = getDocument();
-        if (document != null) {
-          resetText(document.getImmutableCharSequence());
-        }
-      }
       return new LayeredHighlighterIteratorImpl(startOffset);
     }
+  }
+
+  @NotNull
+  public HighlighterIterator createBaseIterator(int startOffset) {
+    return super.createIterator(startOffset);
   }
 
   private class MappingSegments extends SegmentArrayWithData {
@@ -222,18 +217,8 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
 
     @Override
     public void remove(int startIndex, int endIndex) {
-      Map<Mapper, Integer> mins = new FactoryMap<Mapper, Integer>() {
-        @Override
-        protected Integer create(final Mapper key) {
-          return Integer.MAX_VALUE;
-        }
-      };
-      Map<Mapper, Integer> maxs = new FactoryMap<Mapper, Integer>() {
-        @Override
-        protected Integer create(final Mapper key) {
-          return 0;
-        }
-      };
+      Map<Mapper, Integer> mins = FactoryMap.create(key -> Integer.MAX_VALUE);
+      Map<Mapper, Integer> maxs = FactoryMap.create(key -> 0);
 
       for (int i = startIndex; i < endIndex; i++) {
         final MappedRange range = myRanges[i];
@@ -275,6 +260,7 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
       if (endIndex < mySegmentCount) {
         System.arraycopy(array, endIndex, array, startIndex, mySegmentCount - endIndex);
       }
+      Arrays.fill(array, mySegmentCount - (endIndex - startIndex), mySegmentCount, null);
       return array;
     }
 
@@ -456,6 +442,11 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
       this.outerToken = outerToken;
       assert mapper.doc == range.getDocument();
     }
+
+    @Override
+    public String toString() {
+      return "MappedRange{range=" + range + ", outerToken=" + outerToken + '}';
+    }
   }
 
   @Nullable
@@ -484,6 +475,11 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
     }
   }
 
+  @Override
+  protected boolean hasAdditionalData(int segmentIndex) {
+    return getSegments().myRanges[segmentIndex] != null;
+  }
+
   private class LayeredHighlighterIteratorImpl implements LayeredHighlighterIterator {
     private final HighlighterIterator myBaseIterator;
     private HighlighterIterator myLayerIterator;
@@ -491,7 +487,7 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
     private Mapper myCurrentMapper;
 
     private LayeredHighlighterIteratorImpl(int offset) {
-      myBaseIterator = LayeredLexerEditorHighlighter.super.createIterator(offset);
+      myBaseIterator = createBaseIterator(offset);
       if (!myBaseIterator.atEnd()) {
         int shift = offset - myBaseIterator.getStart();
         initLayer(shift);
@@ -588,12 +584,11 @@ public class LayeredLexerEditorHighlighter extends LexerEditorHighlighter {
     }
   }
 
-  @SuppressWarnings("unchecked")
   @NotNull
   private static <T> T[] reallocateArray(@NotNull T[] array, int index) {
     if (index < array.length) return array;
 
-    T[] newArray = (T[])Array.newInstance(array.getClass().getComponentType(), SegmentArray.calcCapacity(array.length, index));
+    T[] newArray = ArrayUtil.newArray(ArrayUtil.getComponentType(array), SegmentArray.calcCapacity(array.length, index));
 
     System.arraycopy(array, 0, newArray, 0, array.length);
     return newArray;

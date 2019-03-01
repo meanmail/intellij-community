@@ -31,13 +31,13 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.dom.DependencyConflictId;
 import org.jetbrains.idea.maven.dom.MavenDomBundle;
 import org.jetbrains.idea.maven.dom.MavenDomProjectProcessorUtils;
-import org.jetbrains.idea.maven.dom.MavenDomUtil;
 import org.jetbrains.idea.maven.dom.model.MavenDomDependencies;
 import org.jetbrains.idea.maven.dom.model.MavenDomDependency;
 import org.jetbrains.idea.maven.dom.model.MavenDomProjectModel;
-import org.jetbrains.idea.maven.project.MavenProject;
 
 import java.util.*;
+
+import static org.jetbrains.idea.maven.dom.MavenDomUtil.getProjectName;
 
 public class MavenDuplicateDependenciesInspection extends DomElementsInspection<MavenDomProjectModel> {
   public MavenDuplicateDependenciesInspection() {
@@ -123,23 +123,6 @@ public class MavenDuplicateDependenciesInspection extends DomElementsInspection<
   }
 
   @NotNull
-  private static String getProjectName(MavenDomProjectModel model) {
-    MavenProject mavenProject = MavenDomUtil.findProject(model);
-    if (mavenProject != null) {
-      return mavenProject.getDisplayName();
-    }
-    else {
-      String name = model.getName().getStringValue();
-      if (!StringUtil.isEmptyOrSpaces(name)) {
-        return name;
-      }
-      else {
-        return "pom.xml"; // ?
-      }
-    }
-  }
-
-  @NotNull
   private static MultiMap<DependencyConflictId, MavenDomDependency> getDuplicateDependenciesMap(MavenDomProjectModel projectModel) {
     final MultiMap<DependencyConflictId, MavenDomDependency> allDependencies = MultiMap.createSet();
 
@@ -178,21 +161,25 @@ public class MavenDuplicateDependenciesInspection extends DomElementsInspection<
     }
   }
 
+  @Override
   @NotNull
   public String getGroupDisplayName() {
     return MavenDomBundle.message("inspection.group");
   }
 
+  @Override
   @NotNull
   public String getDisplayName() {
     return MavenDomBundle.message("inspection.duplicate.dependencies.name");
   }
 
+  @Override
   @NotNull
   public String getShortName() {
     return "MavenDuplicateDependenciesInspection";
   }
 
+  @Override
   @NotNull
   public HighlightDisplayLevel getDefaultLevel() {
     return HighlightDisplayLevel.WARNING;

@@ -1,7 +1,3 @@
-/*
- * User: anna
- * Date: 19-Feb-2010
- */
 package com.intellij.coverage.listeners;
 
 public abstract class CoverageListener {
@@ -9,13 +5,16 @@ public abstract class CoverageListener {
   private Object myProjectData;
 
   protected static String sanitize(String className, String methodName) {
-    final StringBuilder result = new StringBuilder();
-    final String fileName = className + "." + methodName;
-    for (int i = 0; i < fileName.length(); i++) {
-      final char ch = fileName.charAt(i);
+    return className + "," + sanitize(methodName, className.length());
+  }
+
+  public static String sanitize(String name, int length) {
+    StringBuilder result = new StringBuilder();
+    for (int i = 0; i < name.length(); i++) {
+      final char ch = name.charAt(i);
 
       if (ch > 0 && ch < 255) {
-        if (Character.isLetterOrDigit(ch)) {
+        if (Character.isJavaIdentifierPart(ch) || ch == ' ' || ch == '@' || ch == '-') {
           result.append(ch);
         }
         else {
@@ -23,6 +22,12 @@ public abstract class CoverageListener {
         }
       }
 
+    }
+
+    int methodNameLimit = 250 - length;
+    if (result.length() >= methodNameLimit) {
+      String hash = String.valueOf(result.toString().hashCode());
+      return (methodNameLimit > hash.length() ? result.substring(0, methodNameLimit - hash.length()) : "") + hash;
     }
 
     return result.toString();

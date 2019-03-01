@@ -28,22 +28,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCondit
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 
 public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspection {
-  @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression with identical branches";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
 
   @Override
   public String buildErrorString(Object... args) {
@@ -58,7 +42,7 @@ public class GroovyConditionalWithIdenticalBranchesInspection extends BaseInspec
   private static class CollapseConditionalFix extends GroovyFix {
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return "Collapse conditional expression";
     }
 

@@ -20,22 +20,16 @@ import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleFileIndex;
-import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiDirectory;
-import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiManager;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 
 public class ProjectViewModuleNode extends AbstractModuleNode {
 
-  public ProjectViewModuleNode(Project project, Module value, ViewSettings viewSettings) {
+  public ProjectViewModuleNode(Project project, @NotNull Module value, ViewSettings viewSettings) {
     super(project, value, viewSettings);
   }
 
@@ -46,35 +40,9 @@ public class ProjectViewModuleNode extends AbstractModuleNode {
     if (module == null || module.isDisposed()) {  // module has been disposed
       return Collections.emptyList();
     }
-    ModuleRootManager rootManager = ModuleRootManager.getInstance(module);
-    ModuleFileIndex moduleFileIndex = rootManager.getFileIndex();
 
-    final VirtualFile[] contentRoots = rootManager.getContentRoots();
-    final List<AbstractTreeNode> children = new ArrayList<>(contentRoots.length + 1);
-    final PsiManager psiManager = PsiManager.getInstance(module.getProject());
-    for (final VirtualFile contentRoot : contentRoots) {
-      if (!moduleFileIndex.isInContent(contentRoot)) continue;
-
-      if (contentRoot.isDirectory()) {
-        PsiDirectory directory = psiManager.findDirectory(contentRoot);
-        if (directory != null) {
-          children.add(new PsiDirectoryNode(getProject(), directory, getSettings()));
-        }
-      }
-      else {
-        PsiFile file = psiManager.findFile(contentRoot);
-        if (file != null) {
-          children.add(new PsiFileNode(getProject(), file, getSettings()));
-        }
-      }
-    }
-
-    /*
-    if (getSettings().isShowLibraryContents()) {
-      children.add(new LibraryGroupNode(getProject(), new LibraryGroupElement(getValue()), getSettings()));
-    }
-    */
-    return children;
+    final List<VirtualFile> contentRoots = ProjectViewDirectoryHelper.getInstance(myProject).getTopLevelModuleRoots(module, getSettings());
+    return ProjectViewDirectoryHelper.getInstance(myProject).createFileAndDirectoryNodes(contentRoots, getSettings());
   }
 
   @Override

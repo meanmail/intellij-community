@@ -1,29 +1,17 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
+import com.google.common.collect.FluentIterable;
 import com.google.common.collect.ImmutableList;
 import com.intellij.lang.ASTNode;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.scope.DelegatingScopeProcessor;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.stubs.IStubElementType;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.QualifiedName;
-import com.intellij.util.ArrayFactory;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyElementTypes;
 import com.jetbrains.python.PyNames;
 import com.jetbrains.python.PyTokenTypes;
@@ -62,19 +50,18 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
     pyVisitor.visitPyFromImportStatement(this);
   }
 
+  @Override
   public boolean isStarImport() {
-    final PyFromImportStatementStub stub = getStub();
-    if (stub != null) {
-      return stub.isStarImport();
-    }
     return getStarImportElement() != null;
   }
 
+  @Override
   @Nullable
   public PyReferenceExpression getImportSource() {
     return childToPsi(PythonDialectsTokenSetProvider.INSTANCE.getReferenceExpressionTokens(), 0);
   }
 
+  @Override
   public QualifiedName getImportSourceQName() {
     final PyFromImportStatementStub stub = getStub();
     if (stub != null) {
@@ -92,29 +79,39 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
     return importSource.asQualifiedName();
   }
 
+  @Override
   @NotNull
   public PyImportElement[] getImportElements() {
+    return getImportElements(PyElementTypes.IMPORT_ELEMENT, PyTokenTypes.IMPORT_KEYWORD);
+  }
+
+  @NotNull
+  final protected PyImportElement[] getImportElements(
+    @NotNull IElementType importElementType,
+    @NotNull PyElementType importKeywordToken) {
     final PyFromImportStatementStub stub = getStub();
     if (stub != null) {
-      return stub.getChildrenByType(PyElementTypes.IMPORT_ELEMENT, count -> new PyImportElement[count]);
+      return stub.getChildrenByType(importElementType, count -> new PyImportElement[count]);
     }
     List<PyImportElement> result = new ArrayList<>();
-    final ASTNode importKeyword = getNode().findChildByType(PyTokenTypes.IMPORT_KEYWORD);
+    final ASTNode importKeyword = getNode().findChildByType(importKeywordToken);
     if (importKeyword != null) {
       for (ASTNode node = importKeyword.getTreeNext(); node != null; node = node.getTreeNext()) {
-        if (node.getElementType() == PyElementTypes.IMPORT_ELEMENT) {
+        if (node.getElementType() == importElementType) {
           result.add((PyImportElement)node.getPsi());
         }
       }
     }
-    return result.toArray(new PyImportElement[result.size()]);
+    return result.toArray(new PyImportElement[0]);
   }
 
+  @Override
   @Nullable
   public PyStarImportElement getStarImportElement() {
     return getStubOrPsiChild(PyElementTypes.STAR_IMPORT_ELEMENT);
   }
 
+  @Override
   public int getRelativeLevel() {
     final PyFromImportStatementStub stub = getStub();
     if (stub != null) {
@@ -133,6 +130,7 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
     return result;
   }
 
+  @Override
   public boolean isFromFuture() {
     final QualifiedName qName = getImportSourceQName();
     return qName != null && qName.matches(PyNames.FUTURE_MODULE);
@@ -148,6 +146,7 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
     return findChildByType(PyTokenTypes.RPAR);
   }
 
+  @Override
   public boolean processDeclarations(@NotNull final PsiScopeProcessor processor,
                                      @NotNull final ResolveState state,
                                      final PsiElement lastParent,
@@ -161,7 +160,17 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
       for (PsiElement target : targets) {
         final PsiElement importedFile = PyUtil.turnDirIntoInit(target);
         if (importedFile != null) {
-          if (!importedFile.processDeclarations(processor, state, null, place)) {
+          PsiScopeProcessor starImportableNamesProcessor = new DelegatingScopeProcessor(processor) {
+            @Override
+            public boolean execute(@NotNull PsiElement element, @NotNull ResolveState state) {
+              if (element instanceof PyElement && importedFile instanceof PyFile &&
+                  !PyUtil.isStarImportableFrom(StringUtil.notNullize(((PyElement)element).getName()), (PyFile)importedFile)) {
+                return true;
+              }
+              return super.execute(element, state);
+            }
+          };
+          if (!importedFile.processDeclarations(starImportableNamesProcessor, state, null, place)) {
             return false;
           }
         }
@@ -216,9 +225,10 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
     super.deleteChildInternal(child);
   }
 
+  @Override
   @Nullable
   public PsiFileSystemItem resolveImportSource() {
-    return as(ContainerUtil.getFirstItem(resolveImportSourceCandidates()), PsiFileSystemItem.class);
+    return FluentIterable.from(resolveImportSourceCandidates()).filter(PsiFileSystemItem.class).first().orNull();
   }
 
   @NotNull
@@ -229,7 +239,7 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
       final int level = getRelativeLevel();
       if (level > 0) {
         final PsiDirectory upper = ResolveImportUtil.stepBackFrom(getContainingFile().getOriginalFile(), level);
-        return upper == null ? Collections.<PsiElement>emptyList() : Collections.<PsiElement>singletonList(upper);
+        return upper == null ? Collections.emptyList() : Collections.singletonList(upper);
       }
     }
     return ResolveImportUtil.resolveFromImportStatementSource(this, qName);
@@ -256,7 +266,7 @@ public class PyFromImportStatementImpl extends PyBaseElementImpl<PyFromImportSta
   @Override
   public Iterable<PyElement> iterateNames() {
     final PyElement resolved = as(resolveImplicitSubModule(), PyElement.class);
-    return resolved != null ? ImmutableList.<PyElement>of(resolved) : Collections.<PyElement>emptyList();
+    return resolved != null ? ImmutableList.of(resolved) : Collections.emptyList();
   }
 
   @NotNull

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@
 package com.jetbrains.python.parsing;
 
 import com.intellij.lang.PsiBuilder;
+import com.intellij.lang.WhitespacesAndCommentsBinder;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
@@ -30,6 +31,7 @@ import static com.jetbrains.python.PyBundle.message;
  */
 public class ExpressionParsing extends Parsing {
   private static final Logger LOG = Logger.getInstance("#ru.yole.pythonlanguage.parsing.ExpressionParsing");
+  public static final WhitespacesAndCommentsBinder CONSUME_COMMENTS_AND_SPACES_TO_LEFT = (tokens, atStreamEdge, getter) -> tokens.size();
 
   public ExpressionParsing(ParsingContext context) {
     super(context);
@@ -37,7 +39,7 @@ public class ExpressionParsing extends Parsing {
 
   public boolean parsePrimaryExpression(boolean isTargetExpression) {
     final IElementType firstToken = myBuilder.getTokenType();
-    if (firstToken == PyTokenTypes.IDENTIFIER) {
+    if (isIdentifier(myBuilder)) {
       if (isTargetExpression) {
         buildTokenElement(PyElementTypes.TARGET_EXPRESSION, myBuilder);
       }
@@ -68,7 +70,7 @@ public class ExpressionParsing extends Parsing {
       buildTokenElement(PyElementTypes.BOOL_LITERAL_EXPRESSION, myBuilder);
       return true;
     }
-    else if (PyTokenTypes.STRING_NODES.contains(firstToken)) {
+    else if (PyTokenTypes.STRING_NODES.contains(firstToken) || firstToken == PyTokenTypes.FSTRING_START) {
       return parseStringLiteralExpression();
     }
     else if (firstToken == PyTokenTypes.LPAR) {
@@ -95,15 +97,127 @@ public class ExpressionParsing extends Parsing {
 
   public boolean parseStringLiteralExpression() {
     final PsiBuilder builder = myContext.getBuilder();
-    if (PyTokenTypes.STRING_NODES.contains(builder.getTokenType())) {
+    IElementType tokenType = builder.getTokenType();
+    if (PyTokenTypes.STRING_NODES.contains(tokenType) || tokenType == PyTokenTypes.FSTRING_START) {
       final PsiBuilder.Marker marker = builder.mark();
-      while (PyTokenTypes.STRING_NODES.contains(builder.getTokenType())) {
-        nextToken();
+      while (true) {
+        tokenType = builder.getTokenType();
+        if (PyTokenTypes.STRING_NODES.contains(tokenType)) {
+          nextToken();
+        }
+        else if (tokenType == PyTokenTypes.FSTRING_START) {
+          parseFormattedStringNode();
+        }
+        else {
+          break;
+        }
       }
       marker.done(PyElementTypes.STRING_LITERAL_EXPRESSION);
       return true;
     }
     return false;
+  }
+
+  private void parseFormattedStringNode() {
+    final PsiBuilder builder = myContext.getBuilder();
+    if (atToken(PyTokenTypes.FSTRING_START)) {
+      final String prefixThenQuotes = builder.getTokenText();
+      assert prefixThenQuotes != null;
+      final String openingQuotes = prefixThenQuotes.replaceFirst("^[UuBbCcRrFf]*", "");
+      final PsiBuilder.Marker marker = builder.mark();
+      nextToken();
+      while (true) {
+        if (atToken(PyTokenTypes.FSTRING_TEXT)) {
+          nextToken();
+        }
+        else if (atToken(PyTokenTypes.FSTRING_FRAGMENT_START)) {
+          parseFStringFragment();
+        }
+        else if (atToken(PyTokenTypes.FSTRING_END)) {
+          if (builder.getTokenText().equals(openingQuotes)) {
+            nextToken();
+          }
+          // Can be the end of an enclosing f-string, so leave it in the stream
+          else {
+            builder.mark().error(openingQuotes + " expected");
+          }
+          break;
+        }
+        else if (atToken(PyTokenTypes.STATEMENT_BREAK)) {
+          builder.mark().error(openingQuotes + " expected");
+          break;
+        }
+        else {
+          builder.error("unexpected f-string token");
+          break;
+        }
+      }
+      marker.done(PyElementTypes.FSTRING_NODE);
+    }
+  }
+
+  private void parseFStringFragment() {
+    final PsiBuilder builder = myContext.getBuilder();
+    if (atToken(PyTokenTypes.FSTRING_FRAGMENT_START)) {
+      final PsiBuilder.Marker marker = builder.mark();
+      nextToken();
+      PsiBuilder.Marker recoveryMarker = builder.mark();
+      final boolean parsedExpression = myContext.getExpressionParser().parseExpressionOptional();
+      if (parsedExpression) {
+        recoveryMarker.drop();
+        recoveryMarker = builder.mark();
+      }
+      boolean recovery = !parsedExpression;
+      while (!builder.eof() && !atAnyOfTokens(PyTokenTypes.FSTRING_FRAGMENT_TYPE_CONVERSION,
+                                              PyTokenTypes.FSTRING_FRAGMENT_FORMAT_START,
+                                              PyTokenTypes.FSTRING_FRAGMENT_END,
+                                              PyTokenTypes.FSTRING_END,
+                                              PyTokenTypes.STATEMENT_BREAK)) {
+        nextToken();
+        recovery = true;
+      }
+      if (recovery) {
+        recoveryMarker.error(parsedExpression ? "unexpected expression part" : "expression expected");
+        recoveryMarker.setCustomEdgeTokenBinders(null, CONSUME_COMMENTS_AND_SPACES_TO_LEFT);
+      }
+      else {
+        recoveryMarker.drop();
+      }
+      final boolean hasTypeConversion = matchToken(PyTokenTypes.FSTRING_FRAGMENT_TYPE_CONVERSION);
+      final boolean hasFormatPart = atToken(PyTokenTypes.FSTRING_FRAGMENT_FORMAT_START);
+      if (hasFormatPart) {
+        parseFStringFragmentFormatPart();
+      }
+      String errorMessage = "} expected";
+      if (!hasFormatPart && !atToken(PyTokenTypes.FSTRING_END)) {
+        errorMessage = ": or " + errorMessage;
+        if (!hasTypeConversion) {
+          errorMessage = "type conversion, " + errorMessage;
+        }
+      }
+      checkMatches(PyTokenTypes.FSTRING_FRAGMENT_END, errorMessage);
+      marker.setCustomEdgeTokenBinders(null, CONSUME_COMMENTS_AND_SPACES_TO_LEFT);
+      marker.done(PyElementTypes.FSTRING_FRAGMENT);
+    }
+  }
+
+  private void parseFStringFragmentFormatPart() {
+    if (atToken(PyTokenTypes.FSTRING_FRAGMENT_FORMAT_START)) {
+      final PsiBuilder.Marker marker = myContext.getBuilder().mark();
+      nextToken();
+      while (true) {
+        if (atToken(PyTokenTypes.FSTRING_TEXT)) {
+          nextToken();
+        }
+        else if (atToken(PyTokenTypes.FSTRING_FRAGMENT_START)) {
+          parseFStringFragment();
+        }
+        else {
+          break;
+        }
+      }
+      marker.done(PyElementTypes.FSTRING_FRAGMENT_FORMAT_PART);
+    }
   }
 
   private void parseListLiteralExpression(final PsiBuilder builder, boolean isTargetExpression) {
@@ -118,7 +232,7 @@ public class ExpressionParsing extends Parsing {
     if (!parseSingleExpression(isTargetExpression)) {
       builder.error(message("PARSE.expected.expression"));
     }
-    if (builder.getTokenType() == PyTokenTypes.FOR_KEYWORD) {
+    if (atForOrAsyncFor()) {
       parseComprehension(expr, PyTokenTypes.RBRACKET, PyElementTypes.LIST_COMP_EXPRESSION);
     }
     else {
@@ -153,7 +267,7 @@ public class ExpressionParsing extends Parsing {
           myBuilder.error(message("PARSE.expected.expression"));
         }
       }
-      if (atToken(PyTokenTypes.FOR_KEYWORD)) {
+      if (atForOrAsyncFor()) {
         continue;
       }
       if (endToken == null || matchToken(endToken)) {
@@ -214,7 +328,7 @@ public class ExpressionParsing extends Parsing {
       firstExprMarker.drop();
       parseSetLiteralTail(expr);
     }
-    else if (atToken(PyTokenTypes.FOR_KEYWORD)) {
+    else if (atForOrAsyncFor()) {
       firstExprMarker.drop();
       parseComprehension(expr, PyTokenTypes.RBRACE, PyElementTypes.SET_COMP_EXPRESSION);
     }
@@ -236,7 +350,7 @@ public class ExpressionParsing extends Parsing {
       return;
     }
     firstKeyValueMarker.done(PyElementTypes.KEY_VALUE_EXPRESSION);
-    if (myBuilder.getTokenType() == PyTokenTypes.FOR_KEYWORD) {
+    if (atForOrAsyncFor()) {
       parseComprehension(startMarker, PyTokenTypes.RBRACE, PyElementTypes.DICT_COMP_EXPRESSION);
     }
     else {
@@ -299,10 +413,26 @@ public class ExpressionParsing extends Parsing {
     }
     else {
       parseYieldOrTupleExpression(isTargetExpression);
-      if (myBuilder.getTokenType() == PyTokenTypes.FOR_KEYWORD) {
+      if (atForOrAsyncFor()) {
         parseComprehension(expr, PyTokenTypes.RPAR, PyElementTypes.GENERATOR_EXPRESSION);
       }
       else {
+        final PsiBuilder.Marker err = myBuilder.mark();
+        boolean empty = true;
+        while (!myBuilder.eof() &&
+               myBuilder.getTokenType() != PyTokenTypes.RPAR &&
+               myBuilder.getTokenType() != PyTokenTypes.LINE_BREAK &&
+               myBuilder.getTokenType() != PyTokenTypes.STATEMENT_BREAK &&
+               myBuilder.getTokenType() != PyTokenTypes.FSTRING_END) {
+          myBuilder.advanceLexer();
+          empty = false;
+        }
+        if (!empty) {
+          err.error("Unexpected expression syntax");
+        }
+        else {
+          err.drop();
+        }
         checkMatches(PyTokenTypes.RPAR, message("PARSE.expected.rpar"));
         expr.done(PyElementTypes.PARENTHESIZED_EXPRESSION);
       }
@@ -323,7 +453,7 @@ public class ExpressionParsing extends Parsing {
     boolean recastFirstIdentifier = false;
     boolean recastQualifier = false;
     do {
-      boolean firstIdentifierIsTarget = isTargetExpression && ! recastFirstIdentifier;
+      boolean firstIdentifierIsTarget = isTargetExpression && !recastFirstIdentifier;
       PsiBuilder.Marker expr = myBuilder.mark();
       if (!parsePrimaryExpression(firstIdentifierIsTarget)) {
         expr.drop();
@@ -340,7 +470,7 @@ public class ExpressionParsing extends Parsing {
           }
           myBuilder.advanceLexer();
           checkMatches(PyTokenTypes.IDENTIFIER, message("PARSE.expected.name"));
-          if (isTargetExpression && ! recastQualifier && !atAnyOfTokens(PyTokenTypes.DOT, PyTokenTypes.LPAR, PyTokenTypes.LBRACKET)) {
+          if (isTargetExpression && !recastQualifier && !atAnyOfTokens(PyTokenTypes.DOT, PyTokenTypes.LPAR, PyTokenTypes.LBRACKET)) {
             expr.done(PyElementTypes.TARGET_EXPRESSION);
           }
           else {
@@ -390,7 +520,7 @@ public class ExpressionParsing extends Parsing {
               expr.done(PyElementTypes.SUBSCRIPTION_EXPRESSION);
             }
           }
-          if (isTargetExpression && ! recastQualifier) {
+          if (isTargetExpression && !recastQualifier) {
             recastFirstIdentifier = true; // subscription is always a reference
             recastQualifier = true; // recast non-first qualifiers too
             expr.rollbackTo();
@@ -415,6 +545,8 @@ public class ExpressionParsing extends Parsing {
     if (atToken(PyTokenTypes.DOT)) {
       final PsiBuilder.Marker maybeEllipsis = myBuilder.mark();
       myBuilder.advanceLexer();
+      //duplication is intended as matchToken advances the lexer
+      //noinspection DuplicateBooleanBranch
       if (matchToken(PyTokenTypes.DOT) && matchToken(PyTokenTypes.DOT)) {
         maybeEllipsis.done(PyElementTypes.NONE_LITERAL_EXPRESSION);
         return true;
@@ -424,8 +556,8 @@ public class ExpressionParsing extends Parsing {
     return false;
   }
 
-  private static TokenSet BRACKET_OR_COMMA = TokenSet.create(PyTokenTypes.RBRACKET, PyTokenTypes.COMMA);
-  private static TokenSet BRACKET_COLON_COMMA = TokenSet.create(PyTokenTypes.RBRACKET, PyTokenTypes.COLON, PyTokenTypes.COMMA);
+  private static final TokenSet BRACKET_OR_COMMA = TokenSet.create(PyTokenTypes.RBRACKET, PyTokenTypes.COMMA);
+  private static final TokenSet BRACKET_COLON_COMMA = TokenSet.create(PyTokenTypes.RBRACKET, PyTokenTypes.COLON, PyTokenTypes.COMMA);
 
   public void parseSliceEnd(PsiBuilder.Marker exprStart, PsiBuilder.Marker sliceItemStart) {
     myBuilder.advanceLexer();
@@ -500,7 +632,7 @@ public class ExpressionParsing extends Parsing {
     while (myBuilder.getTokenType() != PyTokenTypes.RPAR) {
       argNumber++;
       if (argNumber > 1) {
-        if (argNumber == 2 && atToken(PyTokenTypes.FOR_KEYWORD) && genexpr != null) {
+        if (argNumber == 2 && atForOrAsyncFor() && genexpr != null) {
           parseComprehension(genexpr, null, PyElementTypes.GENERATOR_EXPRESSION);
           genexpr = null;
           continue;
@@ -524,9 +656,9 @@ public class ExpressionParsing extends Parsing {
         starArgMarker.done(PyElementTypes.STAR_ARGUMENT_EXPRESSION);
       }
       else {
-        if (myBuilder.getTokenType() == PyTokenTypes.IDENTIFIER) {
+        if (isIdentifier(myBuilder)) {
           final PsiBuilder.Marker keywordArgMarker = myBuilder.mark();
-          myBuilder.advanceLexer();
+          advanceIdentifierLike(myBuilder);
           if (myBuilder.getTokenType() == PyTokenTypes.EQ) {
             myBuilder.advanceLexer();
             if (!parseSingleExpression(false)) {
@@ -637,7 +769,7 @@ public class ExpressionParsing extends Parsing {
       return parseLambdaExpression(false);
     }
     PsiBuilder.Marker condExpr = myBuilder.mark();
-    if (!parseORTestExpression( stopOnIn, isTargetExpression)) {
+    if (!parseORTestExpression(stopOnIn, isTargetExpression)) {
       condExpr.drop();
       return false;
     }
@@ -982,7 +1114,8 @@ public class ExpressionParsing extends Parsing {
       else {
         if (isTargetExpression) {
           expr.error("can't assign to await expression");
-        } else {
+        }
+        else {
           expr.done(PyElementTypes.PREFIX_EXPRESSION);
         }
       }
@@ -992,5 +1125,21 @@ public class ExpressionParsing extends Parsing {
     else {
       return parseMemberExpression(isTargetExpression);
     }
+  }
+
+  private boolean atForOrAsyncFor() {
+    if (atToken(PyTokenTypes.FOR_KEYWORD)) {
+      return true;
+    }
+    else if (matchToken(PyTokenTypes.ASYNC_KEYWORD)) {
+      if (atToken(PyTokenTypes.FOR_KEYWORD)) {
+        return true;
+      }
+      else {
+        myBuilder.error("'for' expected");
+        return false;
+      }
+    }
+    return false;
   }
 }

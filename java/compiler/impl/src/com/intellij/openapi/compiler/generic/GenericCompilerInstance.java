@@ -17,14 +17,18 @@ package com.intellij.openapi.compiler.generic;
 
 import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 import java.util.List;
 
 /**
- * @author nik
+ * @deprecated this class is part of the old deprecated build infrastructure; plug into the external build process instead
+ * (see {@link org.jetbrains.jps.incremental.TargetBuilder})
  */
+@Deprecated
+@ApiStatus.ScheduledForRemoval(inVersion = "192.0")
 public abstract class GenericCompilerInstance<T extends BuildTarget, Item extends CompileItem<Key, SourceState, OutputState>, Key, SourceState, OutputState> {
   protected final CompileContext myContext;
 
@@ -48,8 +52,8 @@ public abstract class GenericCompilerInstance<T extends BuildTarget, Item extend
   @NotNull
   public abstract List<Item> getItems(@NotNull T target);
 
-  public abstract void processItems(@NotNull T target, @NotNull List<GenericCompilerProcessingItem<Item, SourceState, OutputState>> changedItems, @NotNull List<GenericCompilerCacheState<Key, SourceState, OutputState>> obsoleteItems,
-                                    @NotNull OutputConsumer<Item> consumer);
+  public abstract void processItems(@NotNull T target, @NotNull List<? extends GenericCompilerProcessingItem<Item, SourceState, OutputState>> changedItems, @NotNull List<GenericCompilerCacheState<Key, SourceState, OutputState>> obsoleteItems,
+                                    @NotNull OutputConsumer<? super Item> consumer);
 
   public interface OutputConsumer<Item extends CompileItem<?,?,?>> {
     void addFileToRefresh(@NotNull File file);

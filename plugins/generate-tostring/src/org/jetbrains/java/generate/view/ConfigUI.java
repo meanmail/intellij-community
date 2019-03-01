@@ -117,6 +117,7 @@ public class ConfigUI extends JPanel {
         panel.add(innerPanel);
         sortElementsComboBox.addItem("Ascending");
         sortElementsComboBox.addItem("Descending");
+        sortElementsComboBox.addItem("Super class members first");
         constraint.gridwidth = GridBagConstraints.REMAINDER;
         constraint.fill = GridBagConstraints.BOTH;
         constraint.gridx = 0;
@@ -246,12 +247,15 @@ public class ConfigUI extends JPanel {
         enableMethods.setSelected(config.isEnableMethods());
         moveCaretToMethod.setSelected(config.isJumpToMethod());
 
-        sortElements.setSelected(config.getSortElements() != 0);
+        int sort = config.getSortElements();
+        sortElements.setSelected(sort != 0);
         sortElementsComboBox.setEnabled(sortElements.isSelected());
-        if (config.getSortElements() == 0 || config.getSortElements() == 1) {
+        if (sort == 0 || sort == 1) {
             sortElementsComboBox.setSelectedIndex(0);
-        } else if (config.getSortElements() == 2) {
+        } else if (sort == 2) {
             sortElementsComboBox.setSelectedIndex(1);
+        } else if (sort == 3) {
+            sortElementsComboBox.setSelectedIndex(2);
         }
     }
 
@@ -298,10 +302,8 @@ public class ConfigUI extends JPanel {
 
         if (!sortElements.isSelected()) {
             config.setSortElements(0);
-        } else if (sortElementsComboBox.getSelectedIndex() == 0) {
-            config.setSortElements(1); // selected index of 0 is ascending
         } else {
-            config.setSortElements(2); // selected index of 0 is ascending
+            config.setSortElements(sortElementsComboBox.getSelectedIndex() + 1);
         }
 
         return config;
@@ -318,6 +320,7 @@ public class ConfigUI extends JPanel {
             this.option = option;
         }
 
+        @Override
         public void actionPerformed(ActionEvent e) {
         }
     }
@@ -333,6 +336,7 @@ public class ConfigUI extends JPanel {
             this.option = option;
         }
 
+        @Override
         public void actionPerformed(ActionEvent e) {
         }
     }
@@ -342,6 +346,7 @@ public class ConfigUI extends JPanel {
      * Action listener for user checking sort elements
      */
     private class OnSortElements implements ActionListener {
+        @Override
         public void actionPerformed(ActionEvent e) {
             sortElementsComboBox.setEnabled(sortElements.isSelected());
         }

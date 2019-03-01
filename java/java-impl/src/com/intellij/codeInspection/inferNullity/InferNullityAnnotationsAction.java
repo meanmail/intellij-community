@@ -25,17 +25,14 @@ import com.intellij.codeInsight.daemon.impl.quickfix.JetBrainsAnnotationsExterna
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
 import com.intellij.ide.util.PropertiesComponent;
+import com.intellij.openapi.application.AppUIExecutor;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
-import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.application.TransactionId;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectUtil;
 import com.intellij.openapi.roots.DependencyScope;
@@ -59,6 +56,7 @@ import com.intellij.ui.TitledSeparator;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.usages.*;
+import com.intellij.util.ObjectUtils;
 import com.intellij.util.Processor;
 import com.intellij.util.SequentialModalProgressTask;
 import com.intellij.util.containers.ContainerUtil;
@@ -95,13 +93,11 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
       public void visitFile(PsiFile file) {
         fileCount[0]++;
         final ProgressIndicator progressIndicator = ProgressManager.getInstance().getProgressIndicator();
-        if (progressIndicator != null) {
-          final VirtualFile virtualFile = file.getVirtualFile();
-          if (virtualFile != null) {
-            progressIndicator.setText2(ProjectUtil.calcRelativeToProjectPath(virtualFile, project));
-          }
-          progressIndicator.setText(AnalysisScopeBundle.message("scanning.scope.progress.title"));
+        final VirtualFile virtualFile = file.getVirtualFile();
+        if (virtualFile != null) {
+          progressIndicator.setText2(ProjectUtil.calcRelativeToProjectPath(virtualFile, project));
         }
+        progressIndicator.setText(AnalysisScopeBundle.message("scanning.scope.progress.title"));
         if (!(file instanceof PsiJavaFile)) return;
         final Module module = ModuleUtilCore.findModuleForPsiElement(file);
         if (module != null && processed.add(module)) {
@@ -144,7 +140,7 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
   }
 
   public static boolean addAnnotationsDependency(@NotNull final Project project,
-                                                 @NotNull final Set<Module> modulesWithoutAnnotations,
+                                                 @NotNull final Set<? extends Module> modulesWithoutAnnotations,
                                                  @NotNull String annoFQN, final String title) {
     final Library annotationsLib = LibraryUtil.findLibraryByClass(annoFQN, project);
     if (annotationsLib != null) {
@@ -166,10 +162,8 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
       return false;
     }
     
-    if (Messages.showOkCancelDialog(project, "It is required that JetBrains annotations" +
-                                             " be available in all your project sources.\n\nYou will need to add annotations.jar as a library. " +
-                                             "It is possible to configure custom JAR\nin e.g. Constant Conditions & Exceptions inspection or use JetBrains annotations available in installation. " +
-                                             "\nIntelliJ IDEA nullity annotations are freely usable and redistributable under the Apache 2.0 license.\nWould you like to do it now?",
+    if (Messages.showOkCancelDialog(project, "JetBrains annotations library is missing.\n" +
+                                             "Without the library, IntelliJ IDEA cannot run the analysis. Would you like to add it?",
                                     title, Messages.getErrorIcon()) == Messages.OK) {
       Module firstModule = modulesWithoutAnnotations.iterator().next();
       JavaProjectModelModificationService.getInstance(project).addDependency(modulesWithoutAnnotations, JetBrainsAnnotationsExternalLibraryResolver.getAnnotationsLibraryDescriptor(firstModule),
@@ -215,7 +209,7 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
 
     final List<UsageInfo> usages = new ArrayList<>();
     inferrer.collect(usages);
-    return usages.toArray(new UsageInfo[usages.size()]);
+    return usages.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   protected boolean isAnnotateLocalVariables() {
@@ -226,30 +220,28 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
     return () -> {
       final LocalHistoryAction action = LocalHistory.getInstance().startAction(INFER_NULLITY_ANNOTATIONS);
       try {
-        new WriteCommandAction(project, INFER_NULLITY_ANNOTATIONS) {
-          @Override
-          protected void run(@NotNull Result result) throws Throwable {
-            final UsageInfo[] infos = computable.compute();
-            if (infos.length > 0) {
+        WriteCommandAction.writeCommandAction(project).withName(INFER_NULLITY_ANNOTATIONS).run(() -> {
+          final UsageInfo[] infos = computable.compute();
+          if (infos.length > 0) {
 
-              final Set<PsiElement> elements = new LinkedHashSet<>();
-              for (UsageInfo info : infos) {
-                final PsiElement element = info.getElement();
-                if (element != null) {
-                  ContainerUtil.addIfNotNull(elements, element.getContainingFile());
-                }
+            final Set<PsiElement> elements = new LinkedHashSet<>();
+            for (UsageInfo info : infos) {
+              final PsiElement element = info.getElement();
+              if (element != null) {
+                ContainerUtil.addIfNotNull(elements, element.getContainingFile());
               }
-              if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return;
-
-              final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, INFER_NULLITY_ANNOTATIONS, false);
-              progressTask.setMinIterationTime(200);
-              progressTask.setTask(new AnnotateTask(project, progressTask, infos));
-              ProgressManager.getInstance().run(progressTask);
-            } else {
-              NullityInferrer.nothingFoundMessage(project);
             }
+            if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) return;
+
+            final SequentialModalProgressTask progressTask = new SequentialModalProgressTask(project, INFER_NULLITY_ANNOTATIONS, false);
+            progressTask.setMinIterationTime(200);
+            progressTask.setTask(new AnnotateTask(project, progressTask, infos));
+            ProgressManager.getInstance().run(progressTask);
           }
-        }.execute();
+          else {
+            NullityInferrer.nothingFoundMessage(project);
+          }
+        });
       }
       finally {
         action.finish();
@@ -258,16 +250,7 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
   }
 
   protected void restartAnalysis(final Project project, final AnalysisScope scope) {
-    TransactionGuard guard = TransactionGuard.getInstance();
-    TransactionId id = guard.getContextTransaction();
-    DumbService.getInstance(project).smartInvokeLater(
-      () -> TransactionGuard.getInstance().submitTransaction(project, id, () -> {
-        if (DumbService.isDumb(project)) {
-          restartAnalysis(project, scope);
-        } else {
-          analyze(project, scope);
-        }
-      }));
+    AppUIExecutor.onUiThread().inSmartMode(project).inTransaction(project).execute(() -> analyze(project, scope));
   }
 
   private void showUsageView(@NotNull Project project, final UsageInfo[] usageInfos, @NotNull AnalysisScope scope) {
@@ -288,7 +271,7 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
 
     final Runnable refactoringRunnable = applyRunnable(project, () -> {
       final Set<UsageInfo> infos = UsageViewUtil.getNotExcludedUsageInfos(usageView);
-      return infos.toArray(new UsageInfo[infos.size()]);
+      return infos.toArray(UsageInfo.EMPTY_ARRAY);
     });
 
     String canNotMakeString = "Cannot perform operation.\nThere were changes in code after usages have been found.\nPlease perform operation search again.";
@@ -299,9 +282,10 @@ public class InferNullityAnnotationsAction extends BaseAnalysisAction {
   @NotNull
   private Factory<UsageSearcher> rerunFactory(@NotNull final Project project, @NotNull final AnalysisScope scope) {
     return () -> new UsageInfoSearcherAdapter() {
+      @NotNull
       @Override
       protected UsageInfo[] findUsages() {
-        return InferNullityAnnotationsAction.this.findUsages(project, scope, scope.getFileCount());
+        return ObjectUtils.notNull(InferNullityAnnotationsAction.this.findUsages(project, scope, scope.getFileCount()), UsageInfo.EMPTY_ARRAY);
       }
 
       @Override

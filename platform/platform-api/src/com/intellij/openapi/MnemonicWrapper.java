@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,23 @@
  */
 package com.intellij.openapi;
 
-import com.intellij.Patches;
 import com.intellij.ide.ui.UISettings;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
-import java.awt.Component;
+import java.awt.*;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.lang.reflect.Method;
 
 /**
  * @author Sergey.Malenkov
  */
-abstract class MnemonicWrapper<T extends Component> implements Runnable, PropertyChangeListener {
+abstract class MnemonicWrapper<T extends JComponent> implements Runnable, PropertyChangeListener {
   public static MnemonicWrapper getWrapper(Component component) {
     if (component == null || component.getClass().getName().equals("com.intellij.openapi.wm.impl.StripeButton")) {
       return null;
@@ -45,7 +44,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
       }
     }
     if (component instanceof JMenuItem) {
-      return null; // TODO: new MenuWrapper((JMenuItem)component);
+      return new MenuWrapper((AbstractButton)component);
     }
     if (component instanceof AbstractButton) {
       return new ButtonWrapper((AbstractButton)component);
@@ -64,6 +63,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
   private int myIndex;
   private boolean myFocusable;
   private boolean myEvent;
+  private boolean myTextChanged;
   private Runnable myRunnable;
 
   private MnemonicWrapper(T component, String text, String code, String index) {
@@ -86,8 +86,29 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     boolean disabled = isDisabled();
     try {
       myEvent = true;
-      setMnemonicCode(disabled ? KeyEvent.VK_UNDEFINED : myCode);
-      setMnemonicIndex(disabled ? -1 : myIndex);
+      if (myTextChanged) updateText();
+      // update mnemonic code only if changed
+      int code = disabled ? KeyEvent.VK_UNDEFINED : myCode;
+      if (code != getMnemonicCode()) setMnemonicCode(code);
+      // update input map to support Alt-based mnemonics
+      if (SystemInfo.isMac && Registry.is("ide.mac.alt.mnemonic.without.ctrl")) {
+        InputMap map = myComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
+        if (map != null) updateInputMap(map, code);
+      }
+      // update mnemonic index only if changed
+      int index = disabled ? -1 : myIndex;
+      if (index != getMnemonicIndex()) {
+        try {
+          setMnemonicIndex(index);
+        }
+        catch (IllegalArgumentException cause) {
+          // EA-94674 - IAE: AbstractButton.setDisplayedMnemonicIndex
+          StringBuilder sb = new StringBuilder("cannot set mnemonic index ");
+          if (myTextChanged) sb.append("if text changed ");
+          String message = sb.append(myComponent).toString();
+          Logger.getInstance(MnemonicWrapper.class).warn(message, cause);
+        }
+      }
       Component component = getFocusableComponent();
       if (component != null) {
         component.setFocusable(disabled || myFocusable);
@@ -95,6 +116,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     }
     finally {
       myEvent = false;
+      myTextChanged = false;
       myRunnable = null;
     }
   }
@@ -104,9 +126,10 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     if (!myEvent) {
       String property = event.getPropertyName();
       if (myTextProperty.equals(property)) {
-        if (updateText()) {
-          updateRequest();
-        }
+        // it is needed to update text later because
+        // this listener is notified before Swing updates mnemonics
+        myTextChanged = true;
+        updateRequest();
       }
       else if (myCodeProperty.equals(property)) {
         myCode = getMnemonicCode();
@@ -136,7 +159,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
           sb.append(ch);
         }
         else if (i + 1 < length) {
-          code = getExtendedKeyCodeForChar(text.charAt(i + 1));
+          code = KeyEvent.getExtendedKeyCodeForChar((int)text.charAt(i + 1));
           index = sb.length();
         }
       }
@@ -159,6 +182,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
   private void updateRequest() {
     if (myRunnable == null) {
       myRunnable = this; // run once
+      //noinspection SSBasedInspection
       SwingUtilities.invokeLater(this);
     }
   }
@@ -173,7 +197,7 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
   }
 
   boolean isDisabled() {
-    return UISettings.getShadowInstance().DISABLE_MNEMONICS_IN_CONTROLS;
+    return UISettings.getShadowInstance().getDisableMnemonicsInControls();
   }
 
   abstract String getText();
@@ -188,6 +212,8 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
 
   abstract void setMnemonicIndex(int index);
 
+  abstract void updateInputMap(InputMap map, int code);
+
   static KeyStroke fixMacKeyStroke(KeyStroke stroke, InputMap map, int code, boolean onKeyRelease, String action) {
     if (stroke != null && code != stroke.getKeyCode()) {
       map.remove(stroke);
@@ -200,42 +226,36 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     return stroke;
   }
 
-  // TODO: HACK because of Java7 required:
-  // replace later with KeyEvent.getExtendedKeyCodeForChar(ch)
-  private static int getExtendedKeyCodeForChar(int ch) {
-    //noinspection ConstantConditions
-    assert Patches.USE_REFLECTION_TO_ACCESS_JDK7;
-    try {
-      Method method = KeyEvent.class.getMethod("getExtendedKeyCodeForChar", int.class);
-      if (!method.isAccessible()) {
-        method.setAccessible(true);
-      }
-      return (Integer)method.invoke(KeyEvent.class, ch);
-    }
-    catch (Exception exception) {
-      if (ch >= 'a' && ch <= 'z') {
-        ch -= ('a' - 'A');
-      }
-      return ch;
-    }
-  }
+  private static class MenuWrapper extends AbstractButtonWrapper {
+    private KeyStroke myStrokePressed;
 
-  private static class MenuWrapper extends ButtonWrapper {
     private MenuWrapper(AbstractButton component) {
       super(component);
     }
 
     @Override
-    boolean isDisabled() {
-      return UISettings.getShadowInstance().DISABLE_MNEMONICS;
+    void updateInputMap(InputMap map, int code) {
+      myStrokePressed = fixMacKeyStroke(myStrokePressed, map, code, false, "selectMenu");
     }
   }
 
-  private static class ButtonWrapper extends MnemonicWrapper<AbstractButton> {
+  private static class ButtonWrapper extends AbstractButtonWrapper {
     private KeyStroke myStrokePressed;
     private KeyStroke myStrokeReleased;
 
     private ButtonWrapper(AbstractButton component) {
+      super(component);
+    }
+
+    @Override
+    void updateInputMap(InputMap map, int code) {
+      myStrokePressed = fixMacKeyStroke(myStrokePressed, map, code, false, "pressed");
+      myStrokeReleased = fixMacKeyStroke(myStrokeReleased, map, code, true, "released");
+    }
+  }
+
+  private static abstract class AbstractButtonWrapper extends MnemonicWrapper<AbstractButton> {
+    private AbstractButtonWrapper(AbstractButton component) {
       super(component, "text", "mnemonic", "displayedMnemonicIndex");
     }
 
@@ -257,13 +277,6 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     @Override
     void setMnemonicCode(int code) {
       myComponent.setMnemonic(code);
-      if (SystemInfo.isMac && Registry.is("ide.mac.alt.mnemonic.without.ctrl")) {
-        InputMap map = myComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        if (map != null) {
-          myStrokePressed = fixMacKeyStroke(myStrokePressed, map, code, false, "pressed");
-          myStrokeReleased = fixMacKeyStroke(myStrokeReleased, map, code, true, "released");
-        }
-      }
     }
 
     @Override
@@ -285,6 +298,11 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     }
 
     @Override
+    void updateInputMap(InputMap map, int code) {
+      myStrokeRelease = fixMacKeyStroke(myStrokeRelease, map, code, true, "release");
+    }
+
+    @Override
     String getText() {
       return myComponent.getText();
     }
@@ -302,12 +320,6 @@ abstract class MnemonicWrapper<T extends Component> implements Runnable, Propert
     @Override
     void setMnemonicCode(int code) {
       myComponent.setDisplayedMnemonic(code);
-      if (SystemInfo.isMac && Registry.is("ide.mac.alt.mnemonic.without.ctrl")) {
-        InputMap map = myComponent.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW);
-        if (map != null) {
-          myStrokeRelease = fixMacKeyStroke(myStrokeRelease, map, code, true, "release");
-        }
-      }
     }
 
     @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 package com.intellij.profile.codeInspection.ui.table;
 
 import com.intellij.profile.codeInspection.ui.inspectionsTree.InspectionsConfigTreeTable;
-import com.intellij.ui.IdeBorderFactory;
-import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.ThreeStateCheckBox;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +29,6 @@ import javax.swing.table.TableCellRenderer;
 import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
-import java.util.ArrayList;
 import java.util.EventObject;
 import java.util.List;
 
@@ -38,13 +37,13 @@ import java.util.List;
  */
 public class ThreeStateCheckBoxRenderer extends ThreeStateCheckBox implements TableCellRenderer, TableCellEditor {
 
-  private final List<CellEditorListener> myListeners = new SmartList<>();
+  private final List<CellEditorListener> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
 
   public ThreeStateCheckBoxRenderer() {
     setThirdStateEnabled(false);
     setHorizontalAlignment(CENTER);
     setVerticalAlignment(CENTER);
-    setBorder(IdeBorderFactory.createEmptyBorder(0, 0, 0, InspectionsConfigTreeTable.getAdditionalPadding()));
+    setBorder(JBUI.Borders.empty(0, 0, 0, InspectionsConfigTreeTable.getAdditionalPadding()));
     addItemListener(new ItemListener() {
       @Override
       public void itemStateChanged(ItemEvent e) {
@@ -55,7 +54,9 @@ public class ThreeStateCheckBoxRenderer extends ThreeStateCheckBox implements Ta
 
   @Override
   public Component getTableCellEditorComponent(final JTable table, final Object value, final boolean isSelected, final int row, final int column) {
-    return tune(value, isSelected, row, table, false);
+    JCheckBox checkBox = tune(value, isSelected, row, table, false);
+    checkBox.setOpaque(true);
+    return checkBox;
   }
 
   @Override
@@ -77,6 +78,7 @@ public class ThreeStateCheckBoxRenderer extends ThreeStateCheckBox implements Ta
     } else {
       setSelected((Boolean) value);
     }
+
     return this;
   }
 
@@ -99,7 +101,7 @@ public class ThreeStateCheckBoxRenderer extends ThreeStateCheckBox implements Ta
   @Override
   public boolean stopCellEditing() {
     final ChangeEvent e = new ChangeEvent(this);
-    for (final CellEditorListener listener : new ArrayList<>(myListeners)) {
+    for (final CellEditorListener listener : myListeners) {
       listener.editingStopped(e);
     }
     return true;
@@ -108,7 +110,7 @@ public class ThreeStateCheckBoxRenderer extends ThreeStateCheckBox implements Ta
   @Override
   public void cancelCellEditing() {
     final ChangeEvent e = new ChangeEvent(this);
-    for (final CellEditorListener listener : new ArrayList<>(myListeners)) {
+    for (final CellEditorListener listener : myListeners) {
       listener.editingCanceled(e);
     }
   }

@@ -29,7 +29,7 @@ class RainbowAttributeDescriptor implements EditorSchemeAttributeDescriptorWithP
   private final Language myLanguage;
   private final RainbowColorsInSchemeState myRainbowColorsInSchemaState;
 
-  public RainbowAttributeDescriptor(@Nullable Language language,
+  RainbowAttributeDescriptor(@Nullable Language language,
                                     @NotNull String group,
                                     @NotNull String displayNameWithPath,
                                     @NotNull EditorColorsScheme scheme,
@@ -62,11 +62,8 @@ class RainbowAttributeDescriptor implements EditorSchemeAttributeDescriptorWithP
   }
 
   @Override
-  public void apply(@NotNull EditorColorsScheme scheme) {
-    if (myLanguage == null) {
-      // call it once for 'Default Language'
-      myRainbowColorsInSchemaState.apply(scheme);
-    }
+  public void apply(@Nullable EditorColorsScheme scheme) {
+    myRainbowColorsInSchemaState.apply(scheme);
   }
 
   @Override

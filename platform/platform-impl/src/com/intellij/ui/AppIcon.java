@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.icons.AllIcons;
@@ -29,10 +15,9 @@ import com.intellij.openapi.wm.WindowManager;
 import com.intellij.util.IconUtil;
 import com.intellij.util.ui.ImageUtil;
 import com.intellij.util.ui.UIUtil;
-import org.apache.sanselan.ImageWriteException;
-import org.apache.sanselan.common.BinaryConstants;
-import org.apache.sanselan.common.BinaryOutputStream;
+import org.apache.commons.imaging.common.BinaryOutputStream;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.imageio.ImageIO;
 import javax.swing.*;
@@ -43,9 +28,11 @@ import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.ByteOrder;
+import java.util.HashMap;
+import java.util.Map;
 
 public abstract class AppIcon {
   private static final Logger LOG = Logger.getInstance(AppIcon.class);
@@ -77,7 +64,7 @@ public abstract class AppIcon {
 
   public abstract void setOkBadge(Project project, boolean visible);
 
-  public abstract void requestAttention(Project project, boolean critical);
+  public abstract void requestAttention(@Nullable Project project, boolean critical);
 
   public abstract void requestFocus(IdeFrame frame);
 
@@ -124,7 +111,7 @@ public abstract class AppIcon {
     }
 
     @Override
-    public final void requestAttention(Project project, boolean critical) {
+    public final void requestAttention(@Nullable Project project, boolean critical) {
       if (!isAppActive() && Registry.is("ide.appIcon.requestAttention")) {
         _requestAttention(getIdeFrame(project), critical);
       }
@@ -140,15 +127,15 @@ public abstract class AppIcon {
 
     public abstract void _requestAttention(IdeFrame frame, boolean critical);
 
-    protected abstract IdeFrame getIdeFrame(Project project);
+    protected abstract IdeFrame getIdeFrame(@Nullable Project project);
 
     private boolean isAppActive() {
       Application app = ApplicationManager.getApplication();
 
       if (app != null && myAppListener == null) {
-        myAppListener = new ApplicationActivationListener.Adapter() {
+        myAppListener = new ApplicationActivationListener() {
           @Override
-          public void applicationActivated(IdeFrame ideFrame) {
+          public void applicationActivated(@NotNull IdeFrame ideFrame) {
             hideProgress(ideFrame.getProject(), myCurrentProcessId);
             _setOkBadge(ideFrame, false);
             _setTextBadge(ideFrame, null);
@@ -163,8 +150,9 @@ public abstract class AppIcon {
 
 
   @SuppressWarnings("UseJBColor")
-  private static class MacAppIcon extends BaseIcon {
+  static class MacAppIcon extends BaseIcon {
     private BufferedImage myAppImage;
+    private final Map<Object, AppImage> myProgressImagesCache = new HashMap<>();
 
     private BufferedImage getAppImage() {
       assertIsDispatchThread();
@@ -228,7 +216,7 @@ public abstract class AppIcon {
     }
 
     @Override
-    protected IdeFrame getIdeFrame(Project project) {
+    protected IdeFrame getIdeFrame(@Nullable Project project) {
       return null;
     }
 
@@ -240,6 +228,7 @@ public abstract class AppIcon {
       if (myCurrentProcessId != null && !myCurrentProcessId.equals(processId)) return false;
 
       setDockIcon(getAppImage());
+      myProgressImagesCache.remove(myCurrentProcessId);
       myCurrentProcessId = null;
       myLastValue = 0;
 
@@ -259,7 +248,7 @@ public abstract class AppIcon {
 
         int myImgWidth = img.myImg.getWidth();
         if (myImgWidth != 128) {
-          okIcon = IconUtil.scale(okIcon, myImgWidth / 128);
+          okIcon = IconUtil.scale(okIcon, frame != null ? frame.getComponent() : null, myImgWidth / 128f);
         }
 
         int x = myImgWidth - okIcon.getIconWidth();
@@ -272,8 +261,8 @@ public abstract class AppIcon {
     }
 
     // white 80% transparent
-    private static Color PROGRESS_BACKGROUND_COLOR = new Color(255, 255, 255, 217);
-    private static Color PROGRESS_OUTLINE_COLOR = new Color(140, 139, 140);
+    private static final Color PROGRESS_BACKGROUND_COLOR = new Color(255, 255, 255, 217);
+    private static final Color PROGRESS_OUTLINE_COLOR = new Color(140, 139, 140);
 
     @Override
     public boolean _setProgress(IdeFrame frame, Object processId, AppIconScheme.Progress scheme, double value, boolean isOk) {
@@ -308,7 +297,8 @@ public abstract class AppIcon {
 
         progressArea.intersect(borderArea);
 
-        AppImage appImg = createAppImage();
+        AppImage appImg = myProgressImagesCache.get(myCurrentProcessId);
+        if (appImg == null) myProgressImagesCache.put(myCurrentProcessId, appImg = createAppImage());
 
         appImg.myG2d.setColor(PROGRESS_BACKGROUND_COLOR);
         appImg.myG2d.fill(backgroundArea);
@@ -354,7 +344,7 @@ public abstract class AppIcon {
       }
     }
 
-    private static void setDockIcon(BufferedImage image) {
+    static void setDockIcon(BufferedImage image) {
       try {
         getAppMethod("setDockIconImage", Image.class).invoke(getApp(), image);
       }
@@ -421,16 +411,15 @@ public abstract class AppIcon {
       return true;
     }
 
-    private static void writeTransparentIcoImageWithSanselan(BufferedImage src, OutputStream os)
-      throws ImageWriteException, IOException {
+    private static byte[] writeTransparentIco(BufferedImage src)
+      throws IOException {
 
       LOG.assertTrue(BufferedImage.TYPE_INT_ARGB == src.getType() || BufferedImage.TYPE_4BYTE_ABGR == src.getType());
 
       int bitCount = 32;
 
-      BinaryOutputStream bos = new BinaryOutputStream(os, BinaryConstants.BYTE_ORDER_INTEL);
-
-      try {
+      try (ByteArrayOutputStream os = new ByteArrayOutputStream();
+           BinaryOutputStream bos = new BinaryOutputStream(os, ByteOrder.LITTLE_ENDIAN)) {
         int scanline_size = (bitCount * src.getWidth() + 7) / 8;
         if ((scanline_size % 4) != 0)
           scanline_size += 4 - (scanline_size % 4); // pad scanline to 4 byte size.
@@ -516,17 +505,13 @@ public abstract class AppIcon {
           for (int x = 0; x < t_row_padding; x++)
             bos.write(0);
         }
-      }
-      finally {
-        try {
-          bos.close();
-        } catch (IOException ignored) { }
+        return os.toByteArray();
       }
     }
 
-    private static Color errorBadgeShadowColor = new Color(0,0,0,102);
-    private static Color errorBadgeMainColor = new Color(255,98,89);
-    private static Color errorBadgeTextBackgroundColor = new Color(0,0,0,39);
+    private static final Color errorBadgeShadowColor = new Color(0, 0, 0, 102);
+    private static final Color errorBadgeMainColor = new Color(255, 98, 89);
+    private static final Color errorBadgeTextBackgroundColor = new Color(0, 0, 0, 39);
 
     @Override
     public void _setTextBadge(IdeFrame frame, String text) {
@@ -539,7 +524,7 @@ public abstract class AppIcon {
       if (text != null) {
         try {
           int size = 16;
-          BufferedImage image = UIUtil.createImage(size, size, BufferedImage.TYPE_INT_ARGB);
+          BufferedImage image = UIUtil.createImage(frame.getComponent(), size, size, BufferedImage.TYPE_INT_ARGB);
           Graphics2D g = image.createGraphics();
 
           int shadowRadius = 16;
@@ -564,9 +549,8 @@ public abstract class AppIcon {
           g.setColor(Color.white);
           g.drawString(text, size / 2 - textWidth / 2, size / 2 - fontMetrics.getHeight() / 2 + fontMetrics.getAscent());
 
-          ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-          writeTransparentIcoImageWithSanselan(image, bytes);
-          icon = Win7TaskBar.createIcon(bytes.toByteArray());
+          byte[] bytes = writeTransparentIco(image);
+          icon = Win7TaskBar.createIcon(bytes);
         }
         catch (Throwable e) {
           LOG.error(e);
@@ -596,9 +580,8 @@ public abstract class AppIcon {
           if (myOkIcon == null) {
             try {
               BufferedImage image = ImageIO.read(getClass().getResource("/mac/appIconOk512.png"));
-              ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-              writeTransparentIcoImageWithSanselan(image, bytes);
-              myOkIcon = Win7TaskBar.createIcon(bytes.toByteArray());
+              byte[] bytes = writeTransparentIco(image);
+              myOkIcon = Win7TaskBar.createIcon(bytes);
             }
             catch (Throwable e) {
               LOG.error(e);
@@ -631,7 +614,7 @@ public abstract class AppIcon {
     }
 
     @Override
-    protected IdeFrame getIdeFrame(Project project) {
+    protected IdeFrame getIdeFrame(@Nullable Project project) {
       return WindowManager.getInstance().getIdeFrame(project);
     }
 
@@ -662,7 +645,7 @@ public abstract class AppIcon {
     public void setOkBadge(Project project, boolean visible) { }
 
     @Override
-    public void requestAttention(Project project, boolean critical) { }
+    public void requestAttention(@Nullable Project project, boolean critical) { }
 
     @Override
     public void requestFocus(IdeFrame frame) { }

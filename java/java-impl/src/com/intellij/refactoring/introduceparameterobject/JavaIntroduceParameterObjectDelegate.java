@@ -16,6 +16,7 @@
 package com.intellij.refactoring.introduceparameterobject;
 
 import com.intellij.codeInsight.highlighting.ReadWriteAccessDetector;
+import com.intellij.codeInspection.RemoveRedundantTypeArgumentsUtil;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -134,7 +135,7 @@ public class JavaIntroduceParameterObjectDelegate
       PsiNewExpression newClassExpression = (PsiNewExpression)JavaCodeStyleManager.getInstance(callExpression.getProject())
         .shortenClassReferences(facade.getElementFactory().createExpressionFromText(newExpression.toString(), expr));
       if (PsiDiamondTypeUtil.canChangeContextForDiamond(newClassExpression, newClassExpression.getType())) {
-        PsiDiamondTypeUtil.replaceExplicitWithDiamond(newClassExpression.getClassOrAnonymousClassReference().getParameterList());
+        RemoveRedundantTypeArgumentsUtil.replaceExplicitWithDiamond(newClassExpression.getClassOrAnonymousClassReference().getParameterList());
       }
       return newClassExpression;
     }
@@ -174,7 +175,7 @@ public class JavaIntroduceParameterObjectDelegate
                                   method,
                                   method.getName(),
                                   returnType != null ? CanonicalTypes.createTypeWrapper(returnType) : null,
-                                  newParameterInfos.toArray(new ParameterInfoImpl[newParameterInfos.size()]),
+                                  newParameterInfos.toArray(new ParameterInfoImpl[0]),
                                   null,
                                   delegate,
                                   Collections.emptySet(),

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.ui.configuration.libraryEditor;
 
 import com.intellij.icons.AllIcons;
@@ -31,20 +17,20 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.roots.PersistentOrderRootType;
+import com.intellij.openapi.roots.ProjectModelExternalSource;
 import com.intellij.openapi.roots.libraries.LibraryKind;
 import com.intellij.openapi.roots.libraries.LibraryProperties;
 import com.intellij.openapi.roots.libraries.LibraryType;
 import com.intellij.openapi.roots.libraries.ui.*;
 import com.intellij.openapi.roots.libraries.ui.impl.RootDetectionUtil;
+import com.intellij.openapi.roots.ui.configuration.ModificationOfImportedModelWarningComponent;
 import com.intellij.openapi.roots.ui.configuration.libraries.LibraryPresentationManager;
 import com.intellij.openapi.ui.ex.MultiLineLabel;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.vfs.JarFileSystem;
-import com.intellij.openapi.vfs.VfsUtilCore;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.AnActionButton;
 import com.intellij.ui.AnActionButtonRunnable;
 import com.intellij.ui.ToolbarDecorator;
@@ -52,10 +38,8 @@ import com.intellij.ui.border.CustomLineBorder;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IconUtil;
-import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.FilteringIterator;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -64,12 +48,11 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreePath;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 11, 2004
  */
 public class LibraryRootsComponent implements Disposable, LibraryEditorComponent {
   static final UrlComparator ourUrlComparator = new UrlComparator();
@@ -78,15 +61,17 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
   private JPanel myTreePanel;
   private MultiLineLabel myPropertiesLabel;
   private JPanel myPropertiesPanel;
+  private JPanel myBottomPanel;
   private LibraryPropertiesEditor myPropertiesEditor;
   private Tree myTree;
   private LibraryTableTreeBuilder myTreeBuilder;
+  private final ModificationOfImportedModelWarningComponent myModificationOfImportedModelWarningComponent;
   private VirtualFile myLastChosen;
 
   private final Collection<Runnable> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   @Nullable private final Project myProject;
 
-  private final Computable<LibraryEditor> myLibraryEditorComputable;
+  private final Computable<? extends LibraryEditor> myLibraryEditorComputable;
   private LibraryRootsComponentDescriptor myDescriptor;
   private Module myContextModule;
   private LibraryRootsComponent.AddExcludedRootActionButton myAddExcludedRootActionButton;
@@ -95,7 +80,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     this(project, new Computable.PredefinedValueComputable<>(libraryEditor));
   }
 
-  public LibraryRootsComponent(@Nullable Project project, @NotNull Computable<LibraryEditor> libraryEditorComputable) {
+  public LibraryRootsComponent(@Nullable Project project, @NotNull Computable<? extends LibraryEditor> libraryEditorComputable) {
     myProject = project;
     myLibraryEditorComputable = libraryEditorComputable;
     final LibraryEditor editor = getLibraryEditor();
@@ -111,6 +96,8 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     if (myDescriptor == null) {
       myDescriptor = new DefaultLibraryRootsComponentDescriptor();
     }
+    myModificationOfImportedModelWarningComponent = new ModificationOfImportedModelWarningComponent();
+    myBottomPanel.add(BorderLayout.CENTER, myModificationOfImportedModelWarningComponent.getLabel());
     init(new LibraryTreeStructure(this, myDescriptor));
     updatePropertiesLabel();
     onRootsChanged();
@@ -135,7 +122,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     StringBuilder text = new StringBuilder();
     final LibraryType<?> type = getLibraryEditor().getType();
     final Set<LibraryKind> excluded =
-      type != null ? Collections.<LibraryKind>singleton(type.getKind()) : Collections.<LibraryKind>emptySet();
+      type != null ? Collections.singleton(type.getKind()) : Collections.emptySet();
     for (String description : LibraryPresentationManager.getInstance().getDescriptions(getLibraryEditor().getFiles(OrderRootType.CLASSES),
                                                                                        excluded)) {
       if (text.length() > 0) {
@@ -174,11 +161,12 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     toolbarDecorator.addExtraAction(myAddExcludedRootActionButton);
     toolbarDecorator.addExtraAction(new AnActionButton("Remove", IconUtil.getRemoveIcon()) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
-        final Object[] selectedElements = getSelectedElements();
-        if (selectedElements.length == 0) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
+        final List<Object> selectedElements = getSelectedElements();
+        if (selectedElements.isEmpty()) {
           return;
         }
+
         ApplicationManager.getApplication().runWriteAction(() -> {
           for (Object selectedElement : selectedElements) {
             if (selectedElement instanceof ItemElement) {
@@ -201,11 +189,10 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
       }
 
       @Override
-      public void updateButton(AnActionEvent e) {
+      public void updateButton(@NotNull AnActionEvent e) {
         super.updateButton(e);
-        Object[] elements = getSelectedElements();
         Presentation presentation = e.getPresentation();
-        if (ContainerUtil.and(elements, new FilteringIterator.InstanceOf<>(ExcludedRootElement.class))) {
+        if (ContainerUtil.and(getSelectedElements(), new FilteringIterator.InstanceOf<>(ExcludedRootElement.class))) {
           presentation.setText("Cancel Exclusion");
         }
         else {
@@ -222,7 +209,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
       @Override
       public void run(AnActionButton button) {
         if (popupItems.isEmpty()) {
-          new AttachFilesAction(myDescriptor.getAttachFilesActionName()).actionPerformed(null);
+          new AttachFilesAction(myDescriptor.getAttachFilesActionName()).perform();
           return;
         }
 
@@ -302,12 +289,17 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     return getLibraryEditor().hasChanges();
   }
 
-  private Object[] getSelectedElements() {
-    if (myTreeBuilder == null || myTreeBuilder.isDisposed()) return ArrayUtil.EMPTY_OBJECT_ARRAY;
+  @NotNull
+  private List<Object> getSelectedElements() {
+    if (myTreeBuilder == null || myTreeBuilder.isDisposed()) {
+      return Collections.emptyList();
+    }
+
     final TreePath[] selectionPaths = myTreeBuilder.getTree().getSelectionPaths();
     if (selectionPaths == null) {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
+      return Collections.emptyList();
     }
+
     List<Object> elements = new ArrayList<>();
     for (TreePath selectionPath : selectionPaths) {
       final Object pathElement = getPathElement(selectionPath);
@@ -315,7 +307,11 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
         elements.add(pathElement);
       }
     }
-    return ArrayUtil.toObjectArray(elements);
+    return elements;
+  }
+
+  public void onLibraryRenamed() {
+    updateModificationOfImportedModelWarning();
   }
 
   @Nullable
@@ -386,7 +382,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
   }
 
   private class AttachFilesAction extends AttachItemActionBase {
-    public AttachFilesAction(String title) {
+    AttachFilesAction(String title) {
       super(title);
     }
 
@@ -410,7 +406,11 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     }
 
     @Override
-    public void actionPerformed(@Nullable AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
+      perform();
+    }
+
+    void perform() {
       VirtualFile toSelect = getFileToSelect();
       List<OrderRoot> roots = selectRoots(toSelect);
       if (roots.isEmpty()) return;
@@ -421,7 +421,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
         myLastChosen = first.getFile();
       }
       fireLibraryChanged();
-      myTree.requestFocus();
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
     }
 
     protected abstract List<OrderRoot> selectRoots(@Nullable VirtualFile initialSelection);
@@ -449,7 +449,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     }
   }
 
-  private List<OrderRoot> attachFiles(List<OrderRoot> roots) {
+  private List<OrderRoot> attachFiles(List<? extends OrderRoot> roots) {
     final List<OrderRoot> rootsToAttach = filterAlreadyAdded(roots);
     if (!rootsToAttach.isEmpty()) {
       ApplicationManager.getApplication().runWriteAction(() -> getLibraryEditor().addRoots(rootsToAttach));
@@ -460,7 +460,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     return rootsToAttach;
   }
 
-  private List<OrderRoot> filterAlreadyAdded(@NotNull List<OrderRoot> roots) {
+  private List<OrderRoot> filterAlreadyAdded(@NotNull List<? extends OrderRoot> roots) {
     List<OrderRoot> result = new ArrayList<>();
     for (OrderRoot root : roots) {
       final VirtualFile[] libraryFiles = getLibraryEditor().getFiles(root.getType());
@@ -476,7 +476,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
     updatePropertiesLabel();
     myTreeBuilder.queueUpdate();
     if (putFocusIntoTree) {
-      myTree.requestFocus();
+      IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(myTree, true));
     }
     fireLibraryChanged();
   }
@@ -484,6 +484,19 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
   private void fireLibraryChanged() {
     for (Runnable listener : myListeners) {
       listener.run();
+    }
+    updateModificationOfImportedModelWarning();
+  }
+
+  private void updateModificationOfImportedModelWarning() {
+    LibraryEditor libraryEditor = getLibraryEditor();
+    ProjectModelExternalSource externalSource = libraryEditor.getExternalSource();
+    if (externalSource != null && hasChanges()) {
+      String name = libraryEditor instanceof ExistingLibraryEditor ? ((ExistingLibraryEditor)libraryEditor).getLibrary().getName() : libraryEditor.getName();
+      myModificationOfImportedModelWarningComponent.showWarning(name != null ? "Library '" + name + "'" : "Library", externalSource);
+    }
+    else {
+      myModificationOfImportedModelWarningComponent.hideWarning();
     }
   }
 
@@ -506,7 +519,7 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
       VirtualFile[] files = getLibraryEditor().getFiles(type);
       for (VirtualFile file : files) {
         if (!VfsUtilCore.isUnder(file, excludedRoots)) {
-          roots.add(PathUtil.getLocalFile(file));
+          roots.add(VfsUtil.getLocalFile(file));
         }
       }
     }
@@ -514,17 +527,17 @@ public class LibraryRootsComponent implements Disposable, LibraryEditorComponent
   }
 
   private class AddExcludedRootActionButton extends AnActionButton {
-    public AddExcludedRootActionButton() {
+    AddExcludedRootActionButton() {
       super("Exclude", null, AllIcons.Modules.AddExcludedRoot);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       FileChooserDescriptor descriptor = FileChooserDescriptorFactory.createMultipleJavaPathDescriptor();
       descriptor.setTitle("Exclude from Library");
       descriptor.setDescription("Select directories which should be excluded from the library content. Content of excluded directories won't be processed by IDE.");
       Set<VirtualFile> roots = getNotExcludedRoots();
-      descriptor.setRoots(roots.toArray(new VirtualFile[roots.size()]));
+      descriptor.setRoots(roots.toArray(VirtualFile.EMPTY_ARRAY));
       if (roots.size() < 2) {
         descriptor.withTreeRootVisible(true);
       }

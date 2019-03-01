@@ -31,11 +31,11 @@ class CollectionsUtilityMethodsProvider {
   private final PsiElement myElement;
   private final PsiType myExpectedType;
   private final PsiType myDefaultType;
-  @NotNull private final Consumer<LookupElement> myResult;
+  @NotNull private final Consumer<? super LookupElement> myResult;
 
   CollectionsUtilityMethodsProvider(PsiElement position,
                                     PsiType expectedType,
-                                    PsiType defaultType, @NotNull final Consumer<LookupElement> result) {
+                                    PsiType defaultType, @NotNull final Consumer<? super LookupElement> result) {
     myResult = result;
     myElement = position;
     myExpectedType = expectedType;
@@ -92,7 +92,7 @@ class CollectionsUtilityMethodsProvider {
     final PsiMethod method = methods[0];
     final JavaMethodCallElement item = new JavaMethodCallElement(method, false, false);
     item.setAutoCompletionPolicy(AutoCompletionPolicy.NEVER_AUTOCOMPLETE);
-    item.setInferenceSubstitutor(SmartCompletionDecorator.calculateMethodReturnTypeSubstitutor(method, expectedType), myElement);
+    item.setInferenceSubstitutorFromExpectedType(myElement, expectedType);
     myResult.consume(item);
   }
 

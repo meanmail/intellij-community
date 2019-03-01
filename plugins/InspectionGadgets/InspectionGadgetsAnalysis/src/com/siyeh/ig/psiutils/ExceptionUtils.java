@@ -17,6 +17,8 @@ package com.siyeh.ig.psiutils;
 
 import com.intellij.codeInsight.ExceptionUtil;
 import com.intellij.psi.*;
+import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.util.JavaPsiConstructorUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -213,6 +215,26 @@ public class ExceptionUtils {
       }
     }
     return out;
+  }
+
+  public static boolean isExceptionArgument(@NotNull PsiExpression expression) {
+    final PsiNewExpression newExpression =
+      PsiTreeUtil.getParentOfType(expression, PsiNewExpression.class, true, PsiCodeBlock.class, PsiClass.class);
+    if (newExpression != null) {
+      final PsiType newExpressionType = newExpression.getType();
+      if (com.intellij.psi.util.InheritanceUtil.isInheritor(newExpressionType, CommonClassNames.JAVA_LANG_THROWABLE)) {
+        return true;
+      }
+    } else {
+      final PsiMethodCallExpression methodCallExpression =
+        PsiTreeUtil.getParentOfType(expression, PsiMethodCallExpression.class, true, PsiCodeBlock.class, PsiClass.class);
+      if (JavaPsiConstructorUtil.isConstructorCall(methodCallExpression)) {
+        PsiMethod ctor = methodCallExpression.resolveMethod();
+        return ctor != null &&
+               com.intellij.psi.util.InheritanceUtil.isInheritor(ctor.getContainingClass(), CommonClassNames.JAVA_LANG_THROWABLE);
+      }
+    }
+    return false;
   }
 
   private static class ExceptionsThrownVisitor extends JavaRecursiveElementWalkingVisitor {

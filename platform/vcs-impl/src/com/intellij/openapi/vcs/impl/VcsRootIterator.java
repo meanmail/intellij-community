@@ -15,12 +15,11 @@
  */
 package com.intellij.openapi.vcs.impl;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -44,7 +43,7 @@ public class VcsRootIterator {
     myProject = project;
     myVcsManager = ProjectLevelVcsManager.getInstance(project);
     myOtherVcsFolders = new HashMap<>();
-    myExcludedFileIndex = PeriodicalTasksCloser.getInstance().safeGetService(project, FileIndexFacade.class);
+    myExcludedFileIndex = ServiceManager.getService(project, FileIndexFacade.class);
 
     final VcsRoot[] allRoots = myVcsManager.getAllVcsRoots();
     final VirtualFile[] roots = myVcsManager.getRootsUnderVcs(vcs);
@@ -65,12 +64,7 @@ public class VcsRootIterator {
   }
 
   private static boolean isIgnoredByVcs(final ProjectLevelVcsManager vcsManager, final Project project, final VirtualFile file) {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        return project.isDisposed() ||  vcsManager.isIgnored(file);
-      }
-    });
+    return ReadAction.compute(() -> project.isDisposed() || vcsManager.isIgnored(file));
   }
 
   private static class MyRootFilter {
@@ -118,20 +112,20 @@ public class VcsRootIterator {
 
   public static void iterateVfUnderVcsRoot(final Project project,
                                            final VirtualFile root,
-                                           final Processor<VirtualFile> processor) {
+                                           final Processor<? super VirtualFile> processor) {
     final MyRootIterator rootIterator = new MyRootIterator(project, root, null, processor, null);
     rootIterator.iterate();
   }
 
   public static void iterateVcsRoot(final Project project,
                                     final VirtualFile root,
-                                    final Processor<FilePath> processor) {
+                                    final Processor<? super FilePath> processor) {
     iterateVcsRoot(project, root, processor, null);
   }
 
   public static void iterateVcsRoot(final Project project,
                                     final VirtualFile root,
-                                    final Processor<FilePath> processor,
+                                    final Processor<? super FilePath> processor,
                                     @Nullable VirtualFileFilter directoryFilter) {
     final MyRootIterator rootIterator = new MyRootIterator(project, root, processor, null, directoryFilter);
     rootIterator.iterate();
@@ -139,8 +133,8 @@ public class VcsRootIterator {
 
   private static class MyRootIterator {
     private final Project myProject;
-    private final Processor<FilePath> myPathProcessor;
-    private final Processor<VirtualFile> myFileProcessor;
+    private final Processor<? super FilePath> myPathProcessor;
+    private final Processor<? super VirtualFile> myFileProcessor;
     @Nullable private final VirtualFileFilter myDirectoryFilter;
     private final VirtualFile myRoot;
     private final MyRootFilter myRootPresentFilter;
@@ -148,8 +142,8 @@ public class VcsRootIterator {
 
     private MyRootIterator(final Project project,
                            final VirtualFile root,
-                           @Nullable final Processor<FilePath> pathProcessor,
-                           @Nullable final Processor<VirtualFile> fileProcessor,
+                           @Nullable final Processor<? super FilePath> pathProcessor,
+                           @Nullable final Processor<? super VirtualFile> fileProcessor,
                            @Nullable VirtualFileFilter directoryFilter) {
       myProject = project;
       myPathProcessor = pathProcessor;

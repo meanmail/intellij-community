@@ -1,36 +1,28 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
+import com.intellij.psi.PsiClassType
 import com.intellij.psi.PsiIntersectionType
 import com.intellij.psi.PsiReference
 import com.intellij.psi.PsiType
+import com.intellij.psi.impl.source.PsiImmediateClassType
+import groovy.transform.CompileStatic
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
-import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrListOrMap
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariableDeclaration
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrAssignmentExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrClosureType
+import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames
+import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil
 
 import static com.intellij.psi.CommonClassNames.*
+import static org.jetbrains.plugins.groovy.lang.psi.dataFlow.types.NestedContextKt.allowNestedContext
+import static org.jetbrains.plugins.groovy.lang.psi.dataFlow.types.NestedContextKt.allowNestedContextOnce
 
 /**
  * @author ven
  */
+@CompileStatic
 class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testTryFinallyFlow() {
@@ -98,7 +90,11 @@ class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testClosure2() {
     GrReferenceExpression ref = (GrReferenceExpression)configureByFile("closure2/A.groovy").element
-    assertTrue(ref.type.equalsToText("java.lang.Integer"))
+    assertTrue(ref.type.equalsToText("int"))
+  }
+
+  void 'test binding from inside closure'() {
+    doTest "list = ['a', 'b']; list.each { <caret>it }", JAVA_LANG_STRING
   }
 
   void testGrvy1209() {
@@ -108,7 +104,7 @@ class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testLeastUpperBoundClosureType() {
     GrReferenceExpression ref = (GrReferenceExpression)configureByFile("leastUpperBoundClosureType/A.groovy").element
-    assertInstanceOf(ref.type, GrClosureType.class)
+    assertInstanceOf(ref.type, PsiImmediateClassType.class)
   }
 
   void testJavaLangClassType() {
@@ -138,7 +134,7 @@ class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testParameterWithBuiltinType() {
     GrReferenceExpression refExpr = (GrReferenceExpression)configureByFile("parameterWithBuiltinType/A.groovy")
-    assertEquals("java.lang.Integer", refExpr.type.canonicalText)
+    assertEquals("int", refExpr.type.canonicalText)
   }
 
   void testRawTypeInReturnExpression() {
@@ -170,10 +166,6 @@ class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testImplicitCallMethod() {
     assertEquals("java.lang.String", ((GrExpression)configureByFile("A.groovy")).type.canonicalText)
-  }
-
-  void testTupleWithNullInIt() {
-    assertTypeEquals("java.util.ArrayList", "A.groovy")
   }
 
   void testImplicitlyReturnedMethodCall() {
@@ -209,7 +201,9 @@ class TypeInferenceTest extends TypeInferenceTestBase {
   }
 
   void testSafeInvocationInClassQualifier() {
-    assertTypeEquals("java.lang.Class", "SafeInvocationInClassQualifier.groovy")
+    final PsiReference ref = configureByFile(getTestName(true) + "/SafeInvocationInClassQualifier.groovy")
+    assertInstanceOf(ref, GrReferenceExpression.class)
+    assertNull(((GrReferenceExpression)ref).type)
   }
 
   void testReturnTypeFromMethodClosure() {
@@ -224,6 +218,7 @@ class TypeInferenceTest extends TypeInferenceTestBase {
   }
 
   void testTraditionalForVar() {
+    allowNestedContext(2, testRootDisposable)
     assertTypeEquals(JAVA_LANG_INTEGER, "A.groovy")
   }
 
@@ -237,10 +232,6 @@ class TypeInferenceTest extends TypeInferenceTestBase {
 
   void testMultiTypeParameter() {
     assertTypeEquals("X | Y", "a.groovy")
-  }
-
-  void testTypeArgsInAccessor() {
-    assertTypeEquals("Foo<java.lang.String>", "a.groovy")
   }
 
   void testSingleParameterInStringInjection() {
@@ -266,22 +257,7 @@ map['i'] += 2
   }
 
   void testAllTypeParamsAreSubstituted() {
-    assertTypeEquals('java.util.Map', 'a.groovy')
-  }
-
-  void testDiamond() {
-    GroovyFile file = myFixture.configureByText('a.groovy', '''
-List<String> list = new ArrayList<>()
-List<Integer> l2
-
-(list, l2) = [new ArrayList<>(), new ArrayList<>()]
-''') as GroovyFile
-
-    def statements = file.topStatements
-
-    assertEquals('java.util.ArrayList<java.lang.String>', (statements[0] as GrVariableDeclaration).variables[0].initializerGroovy.type.canonicalText)
-    assertEquals('java.util.ArrayList<java.lang.String>', ((statements[2] as GrAssignmentExpression).RValue as GrListOrMap).initializers[0].type.canonicalText)
-    assertEquals('java.util.ArrayList<java.lang.Integer>', ((statements[2] as GrAssignmentExpression).RValue as GrListOrMap).initializers[1].type.canonicalText)
+    assertTypeEquals('java.util.Map<java.lang.Object,java.lang.Object>', 'a.groovy')
   }
 
   void testWildCardsNormalized() {
@@ -289,18 +265,7 @@ List<Integer> l2
   }
 
   void testIndexPropertyInLHS() {
-    assertTypeEquals("java.util.LinkedHashMap", 'a.groovy')
-  }
-
-  void testEmptyMapTypeArgs() {
-    myFixture.configureByText('a.groovy', '''
-class X<A, B> implements Map<A, B> {}
-
-X<String, Integer> x = [:]
-''')
-
-    def type = ((myFixture.file as GroovyFile).statements[0] as GrVariableDeclaration).variables[0].initializerGroovy.type
-    assertEquals("java.util.LinkedHashMap<java.lang.String,java.lang.Integer>", type.canonicalText)
+    assertTypeEquals("java.util.LinkedHashMap<java.lang.Object, java.lang.Object>", 'a.groovy')
   }
 
   void testRawCollectionsInCasts() {
@@ -343,6 +308,7 @@ print fou<caret>nd''', 'java.util.HashSet<java.lang.String>')
   }
 
   void testInferArgumentTypeFromMethod1() {
+    allowNestedContextOnce(testRootDisposable)
     doTest('''\
 def bar(String s) {}
 
@@ -379,6 +345,7 @@ def foo(Integer a) {
   }
 
   void testInferArgumentTypeFromMethod4() {
+    allowNestedContext(2, testRootDisposable)
     doTest('''\
 def bar(String s) {}
 
@@ -480,6 +447,15 @@ def bar(oo) {
 ''', null)
   }
 
+  void testNegatedInstanceOfInferring1() {
+    doTest('''\
+def bar(oo) {
+  boolean b = oo !instanceof String || oo != null
+  o<caret>o
+}
+''', null)
+  }
+
   void testInstanceOfInferring2() {
     doTest('''\
 def bar(oo) {
@@ -487,6 +463,15 @@ def bar(oo) {
   oo
 }
 ''', null)
+  }
+
+  void testNegatedInstanceOfInferring2() {
+    doTest('''\
+def bar(oo) {
+  boolean b = oo !instanceof String || o<caret>o != null
+  oo
+}
+''', JAVA_LANG_STRING)
   }
 
   void testInstanceOfInferring3() {
@@ -498,10 +483,28 @@ def bar(oo) {
 ''', String.canonicalName)
   }
 
+  void testNegatedInstanceOfInferring3() {
+    doTest('''\
+def bar(oo) {
+  boolean b = oo !instanceof String && o<caret>o != null
+  oo
+}
+''', null)
+  }
+
   void testInstanceOfInferring4() {
     doTest('''\
 def bar(oo) {
   boolean b = oo instanceof String && oo != null
+  o<caret>o
+}
+''', null)
+  }
+
+  void testNegatedInstanceOfInferring4() {
+    doTest('''\
+def bar(oo) {
+  boolean b = oo !instanceof String && oo != null
   o<caret>o
 }
 ''', null)
@@ -521,6 +524,20 @@ def foo(def oo) {
 ''', null)
   }
 
+  void testNegatedInstanceOfInferring5() {
+    doTest('''\
+def foo(def oo) {
+  if (oo !instanceof String || oo !instanceof CharSequence) {
+    oo
+  }
+  else {
+    o<caret>o
+  }
+
+}
+''', JAVA_LANG_STRING)
+  }
+
   void testInstanceOfInferring6() {
     doTest('''\
 def foo(bar) {
@@ -528,6 +545,122 @@ def foo(bar) {
     ba<caret>r
   }
 }''', 'java.lang.Runnable')
+  }
+
+  void testNegatedInstanceOfInferring6() {
+    doTest('''\
+def foo(bar) {
+  if (!(bar !instanceof String) || bar !instanceof Runnable) {
+    
+  } else {
+    ba<caret>r
+  }
+}''', 'java.lang.Runnable')
+  }
+
+  void 'test instanceof or instanceof'() {
+    doTest '''\
+class A {}
+class B extends A {}
+class C extends A {}
+def foo(a) {
+    if (a instanceof B || a instanceof C) {
+        <caret>a
+    }
+}
+''', 'A'
+  }
+
+  void 'test if null typed'() {
+    doTest '''\
+def foo(String a) {
+    if (a == null) {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test null or instanceof'() {
+    doTest '''\
+def foo(a) {
+    if (a == null || a instanceof String) {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test null or instanceof 2'() {
+    doTest '''\
+def foo(a) {
+    if (null == a || a instanceof String) {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test instanceof or null'() {
+    doTest '''\
+def foo(a) {
+    if (a == null || a instanceof String) {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test instanceof or null 2'() {
+    doTest '''\
+def foo(a) {
+    if (null == a || a instanceof String) {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test null or instanceof else'() {
+    doTest '''\
+def foo(a) {
+    if (a != null && a !instanceof String) {
+    
+    } else {
+        <caret>a
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test while null'() {
+    doTest '''\
+def s = null
+while (s == null) {
+  s = ""
+}
+<caret>s
+''', JAVA_LANG_STRING
+  }
+
+  void 'test while null typed'() {
+    doTest '''\
+String s = null
+while (s == null) {
+  s = ""
+}
+<caret>s
+''', JAVA_LANG_STRING
+  }
+
+  void 'test enum constant'() {
+    doTest('''\
+import static MyEnum.*
+enum MyEnum {ONE}
+if (ONE instanceof String) {
+  <caret>ONE
+}
+''', 'MyEnum')
   }
 
   void testInString() {
@@ -538,7 +671,16 @@ def foo(ii) {
 }''', 'java.lang.String'
   }
 
+  void testNegatedInString() {
+    doTest '''\
+def foo(ii) {
+  if (ii !in String) {}
+  else print i<caret>i
+}''', 'java.lang.String'
+  }
+
   void testIndexProperty() {
+    allowNestedContextOnce(testRootDisposable)
     doTest('''\
 private void getCommonAncestor() {
     def c1 = [new File('a')]
@@ -549,7 +691,6 @@ private void getCommonAncestor() {
     }
 }
 ''', 'java.io.File')
-
   }
 
   void testWildcardClosureParam() {
@@ -599,6 +740,22 @@ class Any {
 ''', 'java.lang.Object')
   }
 
+  void testRange() {
+    doTest('''\
+        def m = new int[3]
+        for (ii in 0..<m.length) {
+         print i<caret>i
+        }
+''', 'java.lang.Integer')
+
+    doTest('''\
+        def m = new int[3]
+        for (ii in m.size()..< m[0]) {
+         print i<caret>i
+        }
+''', 'java.lang.Integer')
+  }
+
   void testUnary() {
     doExprTest('~/abc/', 'java.util.regex.Pattern')
   }
@@ -614,22 +771,6 @@ class Any {
       }
       ~new A()
 ''', 'java.lang.String')
-  }
-
-  void testPlus1() {
-    doExprTest('2+2', 'java.lang.Integer')
-  }
-
-  void testPlus2() {
-    doExprTest('2f+2', 'java.lang.Double')
-  }
-
-  void testPlus3() {
-    doExprTest('2f+2f', 'java.lang.Double')
-  }
-
-  void testPlus4() {
-    doExprTest('2.5+2', 'java.math.BigDecimal')
   }
 
   void testMultiply1() {
@@ -694,6 +835,7 @@ class Any {
   }
 
   void testRecursionWithMaps() {
+    allowNestedContext(2, testRootDisposable)
     doTest('''
 def foo(Map map) {
   while(true)
@@ -703,12 +845,110 @@ def foo(Map map) {
   }
 
   void testRecursionWithLists() {
+    allowNestedContextOnce(testRootDisposable)
     doTest('''
 def foo(List list) {
   while(true)
     lis<caret>t = [list]
 }
-''', 'java.util.ArrayList<java.util.List>')
+''', 'java.util.List<java.util.List>')
+  }
+
+  void testReturnNullWithGeneric() {
+    doTest('''
+     import groovy.transform.CompileStatic
+
+    @CompileStatic
+    class SomeClass {
+      protected List foo(String text) {
+        return null
+      }
+
+      def bar() {
+        fo<caret>o("")
+      }
+    }
+  }
+''', 'java.util.List')
+  }
+
+  void 'test substitutor is not inferred while inferring initializer type'() {
+    def file = (GroovyFile)fixture.configureByText('_.groovy', '''\
+class A { Closure foo = { 42 } }
+''')
+    GrClosureType.forbidClosureInference {
+      def getter = file.typeDefinitions[0].findMethodsByName("getFoo", false)[0]
+      def type = (PsiClassType)PsiUtil.getSmartReturnType(getter)
+      assert type.resolve().qualifiedName == GroovyCommonClassNames.GROOVY_LANG_CLOSURE
+    }
+  }
+
+  void 'test variable type from null initializer'() {
+    doTest 'def v = null; <caret>v', 'null'
+  }
+
+  void 'test variable type from null initializer @CompileStatic'() {
+    doTest '''\
+@groovy.transform.CompileStatic
+def foo() {
+  def v = null
+  <caret>v
+}
+''', JAVA_LANG_OBJECT
+  }
+
+  void testClassExpressions() {
+    doExprTest 'String[]', 'java.lang.Class<java.lang.String[]>'
+    doExprTest 'Class[]', 'java.lang.Class<java.lang.Class[]>'
+    doExprTest 'int[]', 'java.lang.Class<int[]>'
+    doExprTest 'float[][]', 'java.lang.Class<float[][]>'
+    doExprTest 'Integer[][]', 'java.lang.Class<java.lang.Integer[][]>'
+    doExprTest 'boolean[][][]', 'java.lang.Class<boolean[][][]>'
+
+    doExprTest 'String.class', 'java.lang.Class<java.lang.String>'
+    doExprTest 'byte.class', 'java.lang.Class<byte>'
+
+    doExprTest 'String[].class', 'java.lang.Class<java.lang.String[]>'
+    doExprTest 'Class[].class', 'java.lang.Class<java.lang.Class[]>'
+    doExprTest 'int[].class', 'java.lang.Class<int[]>'
+    doExprTest 'float[][]', 'java.lang.Class<float[][]>'
+    doExprTest 'Integer[][].class', 'java.lang.Class<java.lang.Integer[][]>'
+    doExprTest 'double[][][].class', 'java.lang.Class<double[][][]>'
+  }
+
+  void testClassExpressionsWithArguments() {
+    doExprTest 'String[1]', 'java.lang.Object'
+    doExprTest 'String[1][]', 'java.lang.Object'
+    doExprTest 'String[1][].class', 'java.lang.Class<java.lang.Object>'
+    doExprTest 'int[][1].class', 'java.lang.Class<java.lang.Object>'
+  }
+
+  void testClassReference() {
+    doExprTest '[].class', "java.lang.Class<java.util.List<java.lang.Object>>"
+    doExprTest '1.class', 'java.lang.Class<java.lang.Integer>'
+    doExprTest 'String.valueOf(1).class', 'java.lang.Class<java.lang.String>'
+    doExprTest '1.getClass()', 'java.lang.Class<? extends java.lang.Integer>'
+
+    doCSExprTest '[].class', "java.lang.Class<java.util.List<java.lang.Object>>"
+    doCSExprTest '1.class', 'java.lang.Class<java.lang.Integer>'
+    doCSExprTest 'String.valueOf(1).class', 'java.lang.Class<java.lang.String>'
+    doCSExprTest '1.getClass()', 'java.lang.Class<? extends java.lang.Integer>'
+  }
+
+  void testUnknownClass() {
+    doExprTest 'a.class', null
+    doCSExprTest 'a.class', 'java.lang.Class'
+
+    doExprTest 'a().class', null
+    doCSExprTest 'a().class', 'java.lang.Class'
+  }
+
+  void 'test list literal type'() {
+    doExprTest '[]', 'java.util.List<java.lang.Object>'
+    doExprTest '[null]', 'java.util.List'
+    doExprTest '["foo", "bar"]', 'java.util.List<java.lang.String>'
+    doExprTest '["${foo}", "${bar}"]', 'java.util.List<groovy.lang.GString>'
+    doExprTest '[1, "a"]', 'java.util.List<java.io.Serializable>'
   }
 
   void 'test map literal type'() {
@@ -720,5 +960,182 @@ def foo(List list) {
     doExprTest "[foo: null]", "java.util.LinkedHashMap<java.lang.String, null>"
     doExprTest "[(null): 'foo', bar: null]", "java.util.LinkedHashMap<java.lang.String, java.lang.String>"
     doExprTest "[foo: 'bar', 2: 'goo']", "java.util.LinkedHashMap<java.io.Serializable, java.lang.String>"
+  }
+
+  void 'test recursive literal types'() {
+    doExprTest 'def foo() { [foo()] }\nfoo()', "java.util.List<java.util.List>"
+    doExprTest 'def foo() { [new Object(), foo()] }\nfoo()', "java.util.List<java.lang.Object>"
+    doExprTest 'def foo() { [someKey1: foo()] }\nfoo()', "java.util.LinkedHashMap<java.lang.String, java.util.LinkedHashMap>"
+    doExprTest 'def foo() { [someKey0: new Object(), someKey1: foo()] }\nfoo()', "java.util.LinkedHashMap<java.lang.String, java.lang.Object>"
+  }
+
+  void 'test range literal type'() {
+    doExprTest "1..10", "groovy.lang.IntRange"
+    doExprTest "'a'..'z'", "groovy.lang.Range<java.lang.String>"
+    doExprTest "'b'..1", "groovy.lang.Range<java.io.Serializable>"
+  }
+
+  void 'test list with spread'() {
+    doExprTest 'def l = [1, 2]; [*l]', 'java.util.List<java.lang.Integer>'
+    doExprTest 'def l = [1, 2]; [*[*[*l]]]', 'java.util.List<java.lang.Integer>'
+  }
+
+  void 'test map spread dot access'() {
+    doExprTest '[foo: 2, bar: 4]*.key', 'java.util.ArrayList<java.lang.String>'
+    doExprTest '[foo: 2, bar: 4]*.value', 'java.util.ArrayList<java.lang.Integer>'
+    doExprTest '[foo: 2, bar: 4]*.undefined', 'java.util.List'
+  }
+
+  void 'test instanceof does not interfere with outer if'() {
+    doTest '''\
+def bar(CharSequence xx) {
+  if (xx instanceof String) {
+    1 instanceof Object
+    <caret>xx
+  }  
+}
+''', 'java.lang.String'
+  }
+
+  void 'test generic tuple inference with type param'() {
+    doTest '''\
+
+def <T> T func(T arg){
+    return arg
+}
+
+def bar() {
+    def ll = func([[""]])
+    l<caret>l
+}
+''', 'java.util.List<java.util.List<java.lang.String>>'
+  }
+
+  void 'test generic tuple inference with type param 2'() {
+    doTest '''\
+
+def <T> T func(T arg){
+    return arg
+}
+
+def bar() {
+    def ll = func([["", 1]])
+    l<caret>l
+}
+''', 'java.util.List<java.util.List<java.io.Serializable>>'
+  }
+
+  void 'test enum values() type'() {
+    doExprTest 'enum E {}; E.values()', 'E[]'
+  }
+
+  void 'test closure owner type'() {
+    doTest '''\
+class W {
+  def c = {
+    <caret>owner
+  }
+}
+''', 'W'
+  }
+
+  void 'test elvis assignment'() {
+    doExprTest 'def a; a ?= "hello"', 'java.lang.String'
+    doExprTest 'def a = ""; a ?= null', 'java.lang.String'
+    doExprTest 'def a = "s"; a ?= 1', '[java.io.Serializable,java.lang.Comparable<? extends java.io.Serializable>]'
+  }
+
+  void 'test spread asImmutable()'() {
+    doExprTest('List<List<String>> a; a*.asImmutable()', 'java.util.ArrayList<java.util.List<java.lang.String>>')
+  }
+
+  void "test don't start inference for method parameter type"() {
+    doTest 'def bar(String ss) { <caret>ss }', 'java.lang.String'
+  }
+
+  void 'test closure param'() {
+    doTest '''\
+interface I { def foo(String s) }
+def bar(I i) {}
+bar { var ->
+  <caret>var
+}
+''', 'java.lang.String'
+  }
+
+  void 'test assignment in cycle independent on index'() {
+    doTest '''\
+def foo
+for (def i = 1; i < 10; i++) {
+  foo = 2
+  <caret>foo
+}
+''', 'java.lang.Integer'
+  }
+
+  void 'test assignment in cycle depending on index'() {
+    allowNestedContextOnce(testRootDisposable)
+    doTest '''\
+def foo
+for (def i = 1; i < 10; i++) {
+  foo = i
+  <caret>foo
+}
+''', 'java.lang.Integer'
+  }
+
+  void 'test java field passed as argument to overloaded method'() {
+    fixture.addClass '''\
+public interface I {}
+'''
+    fixture.addClass '''\
+public class SuperClass {
+  public I myField;
+}
+'''
+    doTest '''\
+class A extends SuperClass {
+  
+  static void foo(I s) {}
+  static void foo(String s) {}
+  
+  def usage() {
+    foo(myField)
+    <caret>myField
+  }
+}
+''', 'I'
+  }
+
+  void 'test no soe argument instruction in cycle'() {
+    allowNestedContext(3, testRootDisposable)
+    doTest '''\
+static <U> void foo(U[] a, U[] b) {}
+
+String prevParent = null
+while (condition) {
+  String parent = null
+  foo(parent, prevParent)
+  prevParent = parent
+}
+<caret>prevParent
+''', 'java.lang.String'
+  }
+
+  void 'test String variable assigned with GString inside closure @CS'() {
+    doTest '''\
+@groovy.transform.CompileStatic
+def test() {
+    String key
+    return {
+        key = "hi ${"there"}"
+        <caret>key
+    }
+}
+''', JAVA_LANG_STRING
+  }
+
+  void 'test spread list of classes'() {
+    doExprTest "[String, Integer]*.'class'", 'java.util.ArrayList<java.lang.Class<?>>'
   }
 }

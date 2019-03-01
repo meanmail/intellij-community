@@ -17,15 +17,12 @@ package com.jetbrains.python;
 
 import com.intellij.codeInsight.actions.OptimizeImportsAction;
 import com.intellij.ide.DataManager;
-import com.intellij.openapi.application.WriteAction;
-import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.projectRoots.SdkModificator;
-import com.intellij.openapi.roots.OrderRootType;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.jetbrains.python.fixtures.PyTestCase;
+import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyImportStatementBase;
 import com.jetbrains.python.psi.impl.PyFileImpl;
-import com.jetbrains.python.sdk.PythonSdkType;
 
 import java.util.List;
 
@@ -33,13 +30,6 @@ import java.util.List;
  * @author yole
  */
 public class PyOptimizeImportsTest extends PyTestCase {
-
-  @Override
-  protected void setUp() throws Exception {
-    super.setUp();
-    // importsFromTypingUnusedInTypeComments depends on registered TokenSetContributors
-    PythonDialectsTokenSetProvider.reset();
-  }
 
   public void testSimple() {
     doTest();
@@ -92,16 +82,11 @@ public class PyOptimizeImportsTest extends PyTestCase {
 
   // PY-16351
   public void testNoExtraBlankLineAfterImportBlock() {
-    final String testName = getTestName(true);
-    myFixture.copyDirectoryToProject(testName, "");
-    myFixture.configureByFile("main.py");
-    OptimizeImportsAction.actionPerformedImpl(DataManager.getInstance().getDataContext(myFixture.getEditor().getContentComponent()));
-    myFixture.checkResultByFile(testName + "/main.after.py");
+    doMultiFileTest();
   }
 
   // PY-18521
   public void testImportsFromTypingUnusedInTypeComments() {
-    myFixture.copyDirectoryToProject("../typing", "");
     doTest();
   }
 
@@ -111,32 +96,28 @@ public class PyOptimizeImportsTest extends PyTestCase {
     myFixture.copyDirectoryToProject(testName, "");
     final VirtualFile libDir = myFixture.findFileInTempDir("lib");
     assertNotNull(libDir);
-
-    final Sdk sdk = PythonSdkType.findPythonSdk(myFixture.getModule());
-    assertNotNull(sdk);
-    WriteAction.run(() -> {
-      final SdkModificator modificator = sdk.getSdkModificator();
-      assertNotNull(modificator);
-      modificator.addRoot(libDir, OrderRootType.CLASSES);
-      modificator.commitChanges();
-    });
-
-    try {
+    
+    runWithAdditionalClassEntryInSdkRoots(libDir, () -> {
       myFixture.configureByFile("main.py");
       OptimizeImportsAction.actionPerformedImpl(DataManager.getInstance().getDataContext(myFixture.getEditor().getContentComponent()));
       myFixture.checkResultByFile(testName + "/main.after.py");
-    }
-    finally {
-      //noinspection ThrowFromFinallyBlock
-      WriteAction.run(() -> {
-        final SdkModificator modificator = sdk.getSdkModificator();
-        assertNotNull(modificator);
-        modificator.removeRoot(libDir, OrderRootType.CLASSES);
-        modificator.commitChanges();
-      });
-    }
+    });
   }
   
+  // PY-22656
+  public void testPyiStubInInterpreterPaths() {
+    final String testName = getTestName(true);
+    myFixture.copyDirectoryToProject(testName, "");
+    final VirtualFile stubDir = myFixture.findFileInTempDir("stubs");
+    assertNotNull(stubDir);
+
+    runWithAdditionalClassEntryInSdkRoots(stubDir, () -> {
+      myFixture.configureByFile("main.py");
+      OptimizeImportsAction.actionPerformedImpl(DataManager.getInstance().getDataContext(myFixture.getEditor().getContentComponent()));
+      myFixture.checkResultByFile(testName + "/main.after.py");
+    });
+  }
+
   // PY-18792
   public void testDisableAlphabeticalOrder() {
     getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_SORT_IMPORTS = false;
@@ -192,6 +173,19 @@ public class PyOptimizeImportsTest extends PyTestCase {
     doTest();
   }
 
+  // PY-20159
+  public void testCaseInsensitiveOrderOfImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_CASE_INSENSITIVE_ORDER = true;
+    doTest();
+  }
+
+  // PY-20159
+  public void testCaseInsensitiveOrderOfNamesInsideFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_SORT_NAMES_IN_FROM_IMPORTS = true;
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_CASE_INSENSITIVE_ORDER = true;
+    doTest();
+  }
+
   // PY-19674
   public void testUnresolvedRelativeImportsShouldBeInProjectGroup() {
     final String testName = getTestName(true);
@@ -229,6 +223,94 @@ public class PyOptimizeImportsTest extends PyTestCase {
   // PY-19836
   public void testSameModuleImportedWithDifferentAliases() {
     doTest();
+  }
+
+  // PY-18972
+  public void testReferencesInFStringLiterals() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-22355
+  public void testParenthesesAndTrailingCommaInFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_WRAPPING = CommonCodeStyleSettings.WRAP_ALWAYS;
+    getPythonCodeStyleSettings().FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE = true;
+    doTest();
+  }
+
+  // PY-19837
+  public void testCommentsHandling() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_SORT_NAMES_IN_FROM_IMPORTS = true;
+    doTest();
+  }
+
+  // PY-19837
+  public void testKeepLicenseComment() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    doTest();
+  }
+
+  // PY-23035
+  public void testCommentsInsideParenthesesInCombinedFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    doTest();
+  }
+
+  // PY-23086
+  public void testTrailingCommentsInCombinedFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    doTest();
+  }
+
+  // PY-23104
+  public void testMultilineImportElementsInCombinedFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    doTest();
+  }
+  
+  // PY-23125
+  public void testStackDanglingCommentsAtEnd() {
+    doTest();
+  }
+
+  // PY-23578
+  public void testBlankLineBetweenDocstringAndFirstImportPreserved() {
+    doTest();
+  }
+
+  // PY-23636
+  public void testBlankLineBetweenEncodingDeclarationAndFirstImportPreserved() {
+    doTest();
+  }
+
+  // PY-25567
+  public void testExistingParenthesesInReorderedFromImport() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_SORT_NAMES_IN_FROM_IMPORTS = true;
+    doTest();
+  }
+
+  // PY-25567
+  public void testExistingParenthesesInCombinedFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = true;
+    doTest();
+  }
+
+  // PY-20100
+  public void testSplittingOfFromImports() {
+    getPythonCodeStyleSettings().OPTIMIZE_IMPORTS_ALWAYS_SPLIT_FROM_IMPORTS = true;
+    doTest();
+  }
+
+  private void doMultiFileTest() {
+    final String testName = getTestName(true);
+    myFixture.copyDirectoryToProject(testName, "");
+    myFixture.configureByFile("main.py");
+    OptimizeImportsAction.actionPerformedImpl(DataManager.getInstance().getDataContext(myFixture.getEditor().getContentComponent()));
+    myFixture.checkResultByFile(testName + "/main.after.py");
   }
 
   private void doTest() {

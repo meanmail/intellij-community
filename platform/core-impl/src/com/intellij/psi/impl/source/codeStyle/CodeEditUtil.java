@@ -23,7 +23,6 @@ import com.intellij.psi.impl.source.tree.Factory;
 import com.intellij.psi.impl.source.tree.LeafElement;
 import com.intellij.psi.impl.source.tree.TreeElement;
 import com.intellij.psi.impl.source.tree.TreeUtil;
-import com.intellij.psi.templateLanguages.OuterLanguageElement;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.util.NotNullFunction;
@@ -32,42 +31,29 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class CodeEditUtil {
-  private static final Key<Boolean> GENERATED_FLAG = new Key<Boolean>("GENERATED_FLAG");
-  private static final Key<Integer> INDENT_INFO = new Key<Integer>("INDENT_INFO");
-  private static final Key<Boolean> REFORMAT_BEFORE_KEY = new Key<Boolean>("REFORMAT_BEFORE_KEY");
-  private static final Key<Boolean> REFORMAT_KEY = new Key<Boolean>("REFORMAT_KEY");
-  private static final ThreadLocal<Boolean> ALLOW_TO_MARK_NODES_TO_REFORMAT = new ThreadLocal<Boolean>() {
-    @Override
-    protected Boolean initialValue() {
-      return Boolean.TRUE;
-    }
-  };
-  private static final ThreadLocal<Boolean> ALLOW_NODES_REFORMATTING = new ThreadLocal<Boolean>() {
-    @Override
-    protected Boolean initialValue() {
-      return Boolean.TRUE;
-    }
-  };
-  private static final ThreadLocal<NotNullFunction<ASTNode, Boolean>> NODE_REFORMAT_STRATEGY = new ThreadLocal<NotNullFunction<ASTNode, Boolean>>();
-
-  public static final Key<Boolean> OUTER_OK = new Key<Boolean>("OUTER_OK");
+  private static final Key<Boolean> GENERATED_FLAG = new Key<>("GENERATED_FLAG");
+  private static final Key<Integer> INDENT_INFO = new Key<>("INDENT_INFO");
+  private static final Key<Boolean> REFORMAT_BEFORE_KEY = new Key<>("REFORMAT_BEFORE_KEY");
+  private static final Key<Boolean> REFORMAT_KEY = new Key<>("REFORMAT_KEY");
+  private static final ThreadLocal<Boolean> ALLOW_TO_MARK_NODES_TO_REFORMAT = ThreadLocal.withInitial(() -> Boolean.TRUE);
+  private static final ThreadLocal<Boolean> ALLOW_NODES_REFORMATTING = ThreadLocal.withInitial(() -> Boolean.TRUE);
+  private static final ThreadLocal<NotNullFunction<ASTNode, Boolean>> NODE_REFORMAT_STRATEGY = new ThreadLocal<>();
 
   private CodeEditUtil() { }
 
-  public static void addChild(ASTNode parent, ASTNode child, ASTNode anchorBefore) {
+  public static void addChild(@NotNull ASTNode parent, @NotNull ASTNode child, @Nullable ASTNode anchorBefore) {
     addChildren(parent, child, child, anchorBefore);
   }
 
-  public static void removeChild(ASTNode parent, @NotNull ASTNode child) {
+  public static void removeChild(@NotNull ASTNode parent, @NotNull ASTNode child) {
     removeChildren(parent, child, child);
   }
 
-  public static ASTNode addChildren(ASTNode parent, @NotNull ASTNode first, @NotNull ASTNode last, ASTNode anchorBefore) {
+  public static ASTNode addChildren(@NotNull ASTNode parent, @NotNull ASTNode first, @NotNull ASTNode last, @Nullable ASTNode anchorBefore) {
     ASTNode lastChild = last.getTreeNext();
     ASTNode current = first;
     while (current != lastChild) {
       saveWhitespacesInfo(current);
-      checkForOuters(current);
       current = current.getTreeNext();
     }
 
@@ -84,7 +70,7 @@ public class CodeEditUtil {
     ASTNode result = first;
     if (firstAddedLeaf != null) {
       ASTNode placeHolderEnd = makePlaceHolderBetweenTokens(prevLeaf, firstAddedLeaf, isFormattingRequired(prevLeaf, first), false);
-      if (placeHolderEnd != prevLeaf && first == firstAddedLeaf) {
+      if (placeHolderEnd != prevLeaf && first == firstAddedLeaf || result.getTreeParent() != parent) {
         result = placeHolderEnd;
       }
       ASTNode lastAddedLeaf = findLastLeaf(first, last);
@@ -99,7 +85,7 @@ public class CodeEditUtil {
     return result;
   }
 
-  private static boolean isComment(IElementType type) {
+  private static boolean isComment(@NotNull IElementType type) {
     final ParserDefinition def = LanguageParserDefinitions.INSTANCE.forLanguage(type.getLanguage());
     return def != null && def.getCommentTokens().contains(type);
   }
@@ -122,18 +108,6 @@ public class CodeEditUtil {
     return false;
   }
 
-  public static void checkForOuters(ASTNode element) {
-    if (element instanceof OuterLanguageElement && element.getCopyableUserData(OUTER_OK) == null) {
-      throw new IllegalArgumentException("Outer element " + element + " is not allowed here");
-    }
-
-    ASTNode child = element.getFirstChildNode();
-    while (child != null) {
-      checkForOuters(child);
-      child = child.getTreeNext();
-    }
-  }
-
   public static void saveWhitespacesInfo(ASTNode first) {
     if (first == null || isNodeGenerated(first) || getOldIndentation(first) >= 0) {
       return;
@@ -145,7 +119,7 @@ public class CodeEditUtil {
     }
 
     PsiFile file = psiElement.getContainingFile();
-    setOldIndentation((TreeElement)first, IndentHelper.getInstance().getIndent(file.getProject(), file.getFileType(), first));
+    setOldIndentation((TreeElement)first, IndentHelper.getInstance().getIndent(file, first));
   }
 
   public static int getOldIndentation(ASTNode node) {
@@ -154,7 +128,7 @@ public class CodeEditUtil {
     return stored != null ? stored : -1;
   }
 
-  public static void removeChildren(ASTNode parent, @NotNull ASTNode first, @NotNull ASTNode last) {
+  public static void removeChildren(@NotNull ASTNode parent, @NotNull ASTNode first, @NotNull ASTNode last) {
     final boolean tailingElement = last.getStartOffset() + last.getTextLength() == parent.getStartOffset() + parent.getTextLength();
     final boolean forceReformat = needToForceReformat(parent, first, last);
     saveWhitespacesInfo(first);
@@ -168,7 +142,7 @@ public class CodeEditUtil {
     assert child == last : last + " is not a successor of " + first + " in the .getTreeNext() chain";
 
     final ASTNode prevLeaf = TreeUtil.prevLeaf(first);
-    final ASTNode nextLeaf = TreeUtil.nextLeaf(first);
+    final ASTNode nextLeaf = TreeUtil.nextLeaf(last);
     parent.removeRange(first, last.getTreeNext());
     ASTNode nextLeafToAdjust = nextLeaf;
     if (nextLeafToAdjust != null && prevLeaf != null && nextLeafToAdjust.getTreeParent() == null) {
@@ -193,11 +167,9 @@ public class CodeEditUtil {
     return buffer.toString().trim().length();
   }
 
-  public static void replaceChild(ASTNode parent, @NotNull ASTNode oldChild, @NotNull ASTNode newChild) {
+  public static void replaceChild(@NotNull ASTNode parent, @NotNull ASTNode oldChild, @NotNull ASTNode newChild) {
     saveWhitespacesInfo(oldChild);
     saveWhitespacesInfo(newChild);
-    checkForOuters(oldChild);
-    checkForOuters(newChild);
 
     LeafElement oldFirst = TreeUtil.findFirstLeaf(oldChild);
 
@@ -335,11 +307,13 @@ public class CodeEditUtil {
     }
   }
 
-  public static void markToReformatBefore(final ASTNode right, boolean value) {
-    right.putCopyableUserData(REFORMAT_BEFORE_KEY, value ? true : null);
+  public static void markToReformatBefore(@NotNull ASTNode right, boolean value) {
+    if (ALLOW_TO_MARK_NODES_TO_REFORMAT.get()) {
+      right.putCopyableUserData(REFORMAT_BEFORE_KEY, value ? true : null);
+    }
   }
 
-  private static int getBlankLines(final String text) {
+  private static int getBlankLines(@NotNull String text) {
     int result = 0;
     int currentIndex = -1;
     while ((currentIndex = text.indexOf('\n', currentIndex + 1)) >= 0) result++;
@@ -368,12 +342,12 @@ public class CodeEditUtil {
     treeElement.putCopyableUserData(INDENT_INFO, oldIndentation >= 0 ? oldIndentation : null);
   }
 
-  public static boolean isMarkedToReformatBefore(final TreeElement element) {
+  public static boolean isMarkedToReformatBefore(@NotNull TreeElement element) {
     return element.getCopyableUserData(REFORMAT_BEFORE_KEY) != null;
   }
 
   @Nullable
-  public static PsiElement createLineFeed(final PsiManager manager) {
+  public static PsiElement createLineFeed(@NotNull PsiManager manager) {
     return Factory.createSingleLeafElement(TokenType.WHITE_SPACE, "\n", 0, 1, null, manager).getPsi();
   }
 
@@ -381,9 +355,9 @@ public class CodeEditUtil {
    * Allows to answer if given node is configured to be reformatted.
    *
    * @param node node to check
-   * @return <code>true</code> if given node is configured to be reformatted; <code>false</code> otherwise
+   * @return {@code true} if given node is configured to be reformatted; {@code false} otherwise
    */
-  public static boolean isMarkedToReformat(final ASTNode node) {
+  public static boolean isMarkedToReformat(@NotNull ASTNode node) {
     if (node.getCopyableUserData(REFORMAT_KEY) == null || !isSuspendedNodesReformattingAllowed()) {
       return false;
     }
@@ -394,10 +368,10 @@ public class CodeEditUtil {
   /**
    * Allows to define if given element should be reformatted later.
    *
-   * @param node  target element which <code>'reformat'</code> status should be changed
-   * @param value <code>true</code> if the element should be reformatted; <code>false</code> otherwise
+   * @param node  target element which {@code 'reformat'} status should be changed
+   * @param value {@code true} if the element should be reformatted; {@code false} otherwise
    */
-  public static void markToReformat(final ASTNode node, boolean value) {
+  public static void markToReformat(@NotNull ASTNode node, boolean value) {
     if (ALLOW_TO_MARK_NODES_TO_REFORMAT.get()) {
       node.putCopyableUserData(REFORMAT_KEY, value ? true : null);
     }
@@ -405,7 +379,7 @@ public class CodeEditUtil {
 
   /**
    * We allow to mark particular {@link ASTNode AST nodes} to be reformatted later (e.g. we may want method definition and calls
-   * to be reformatted when we perform <code>'change method signature'</code> refactoring. Hence, we mark corresponding expressions
+   * to be reformatted when we perform {@code 'change method signature'} refactoring. Hence, we mark corresponding expressions
    * to be reformatted).
    * <p/>
    * For convenience that is made automatically on AST/PSI level, i.e. every time target element change it automatically marks itself
@@ -413,13 +387,13 @@ public class CodeEditUtil {
    * <p/>
    * However, there is a possible case that particular element is changed because of formatting, hence, there is no need to mark
    * itself for postponed formatting one more time. This method allows to configure allowance of reformat markers processing
-   * for the calling thread. I.e. this method may be called with <code>'false'</code> as an argument, hence, all further attempts
+   * for the calling thread. I.e. this method may be called with {@code 'false'} as an argument, hence, all further attempts
    * to {@link #markToReformat(ASTNode, boolean) mark node for postponed formatting} will have no effect until current method is
-   * called with <code>'true'</code> as an argument. Hence, following usage scenario is expected:
+   * called with {@code 'true'} as an argument. Hence, following usage scenario is expected:
    * <ol>
-   * <li>This method is called with <code>'false'</code> argument;</li>
-   * <li>Formatting is performed at dedicated <code>'try'</code> block;</li>
-   * <li>This method is called with <code>'false'</code> argument from <code>'finally'</code> section;</li>
+   * <li>This method is called with {@code 'false'} argument;</li>
+   * <li>Formatting is performed at dedicated {@code 'try'} block;</li>
+   * <li>This method is called with {@code 'false'} argument from {@code 'finally'} section;</li>
    * </ol>
    *
    * @param allow flag that defines if new reformat markers can be added from the current thread
@@ -430,7 +404,7 @@ public class CodeEditUtil {
   }
 
   /**
-   * @return <code>'allow suspended formatting'</code> flag value
+   * @return {@code 'allow suspended formatting'} flag value
    * @see #setAllowSuspendNodesReformatting(boolean)
    */
   public static boolean isSuspendedNodesReformattingAllowed() {
@@ -447,9 +421,9 @@ public class CodeEditUtil {
    * for a while. This method allows to do that at thread-local manner. I.e. it's expected to be called as follows:
    * <pre>
    * <ol>
-   *   <li>This method is called with <code>'false'</code> argument;</li>
-   *   <li>Document is processed at dedicated <code>'try'</code> block;</li>
-   *   <li>This method is called with <code>'true'</code> argument from <code>'finally'</code> section;</li>
+   *   <li>This method is called with {@code 'false'} argument;</li>
+   *   <li>Document is processed at dedicated {@code 'try'} block;</li>
+   *   <li>This method is called with {@code 'true'} argument from {@code 'finally'} section;</li>
    * </ol>
    * </pre>
    */
@@ -461,7 +435,7 @@ public class CodeEditUtil {
    * Allows to control the same process as {@link #setAllowSuspendNodesReformatting(boolean)} but on a node level. I.e. it allows
    * to answer if particular node can be reformatted if {@link #isSuspendedNodesReformattingAllowed() global reformatting is allowed}.
    *
-   * @param strategy strategy to use; <code>null</code> as an indication that no fine-grained checking should be performed
+   * @param strategy strategy to use; {@code null} as an indication that no fine-grained checking should be performed
    */
   public static void setNodeReformatStrategy(@Nullable NotNullFunction<ASTNode, Boolean> strategy) {
     NODE_REFORMAT_STRATEGY.set(strategy);

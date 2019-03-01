@@ -1,7 +1,6 @@
-import keyword
-
 from pycharm_generator_utils.util_methods import *
-from pycharm_generator_utils.constants import *
+
+is_pregenerated = os.getenv("IS_PREGENERATED_SKELETONS", None)
 
 
 class emptylistdict(dict):
@@ -14,6 +13,7 @@ class emptylistdict(dict):
             it = []
             self.__setitem__(item, it)
             return it
+
 
 class Buf(object):
     """Buffers data in a list, can write to a file. Indentation is provided externally."""
@@ -54,6 +54,7 @@ class ClassBuf(Buf):
     def __init__(self, name, indenter):
         super(ClassBuf, self).__init__(indenter)
         self.name = name
+
 
 #noinspection PyUnresolvedReferences,PyBroadException
 class ModuleRedeclarator(object):
@@ -204,7 +205,6 @@ class ModuleRedeclarator(object):
                 # NOTE: here we could handle things like defaultdict, sets, etc if we wanted
         return "None"
 
-
     def fmt_value(self, out, p_value, indent, prefix="", postfix="", as_name=None, seen_values=None):
         """
         Formats and outputs value (it occupies an entire line or several lines).
@@ -312,7 +312,7 @@ class ModuleRedeclarator(object):
                                 real_value = "None"
                             else:
                                 notice = " # (!) forward: %s, real value is %r" % (found_name, real_value)
-                        if SANE_REPR_RE.match(real_value):
+                        if SANE_REPR_RE.match(real_value) and is_valid_expr(real_value):
                             out(indent, prefix, real_value, postfix, notice)
                         else:
                             if not found_name:
@@ -470,7 +470,6 @@ class ModuleRedeclarator(object):
         return self.doing_builtins and module_name == BUILTIN_MOD_NAME and (
             class_name, func_name) in PREDEFINED_BUILTIN_SIGS
 
-
     def redo_function(self, out, p_func, p_name, indent, p_class=None, p_modname=None, classname=None, seen=None):
         """
         Restore function argument list as best we can.
@@ -601,7 +600,6 @@ class ModuleRedeclarator(object):
             out(indent, p_name, " = ", deco, "(", p_name, ")", deco_comment)
         out(0, "") # empty line after each item
 
-
     def redo_class(self, out, p_class, p_name, indent, p_modname=None, seen=None, inspect_dir=False):
         """
         Restores a class definition.
@@ -673,6 +671,7 @@ class ModuleRedeclarator(object):
         except:
             field_keys = ()
         for item_name in field_keys:
+            item_qname = p_modname + '.' + p_name + '.' + item_name
             if item_name in ("__doc__", "__module__"):
                 if we_are_the_base_class:
                     item = "" # must be declared in base types
@@ -680,6 +679,9 @@ class ModuleRedeclarator(object):
                     continue # in all other cases must be skipped
             elif keyword.iskeyword(item_name):  # for example, PyQt4 contains definitions of methods named 'exec'
                 continue
+            elif item_qname in CLASS_ATTR_BLACKLIST:
+                note('skipping blacklisted attribute ' + item_qname)
+                item = field_source.get(item_name)
             else:
                 try:
                     item = getattr(p_class, item_name) # let getters do the magic
@@ -763,8 +765,6 @@ class ModuleRedeclarator(object):
         if not methods and not properties and not others:
             out(indent + 1, "pass")
 
-
-
     def redo_simple_header(self, p_name):
         """Puts boilerplate code on the top"""
         out = self.header_buf.out # 1st class methods rule :)
@@ -781,7 +781,9 @@ class ModuleRedeclarator(object):
         out(0, "# module ", p_name, mod_name) # line 2
 
         BUILT_IN_HEADER = "(built-in)"
-        if self.mod_filename:
+        if is_pregenerated is not None:
+            filename = '(pre-generated)'
+        elif self.mod_filename:
             filename = self.mod_filename
         elif p_name in sys.builtin_module_names:
             filename = BUILT_IN_HEADER
@@ -793,7 +795,6 @@ class ModuleRedeclarator(object):
         if p_name == BUILTIN_MOD_NAME and version[0] == 2 and version[1] >= 6:
             out(0, "from __future__ import print_function")
         out_doc_attr(out, self.module, 0)
-
 
     def redo_imports(self):
         module_type = type(sys)
@@ -815,7 +816,6 @@ class ModuleRedeclarator(object):
         if self.imports_buf.isEmpty():
             self.imports_buf.out(0, "")
             self.imports_buf.out(0, "# imports")
-
 
     def redo(self, p_name, inspect_dir):
         """
@@ -1014,6 +1014,8 @@ class ModuleRedeclarator(object):
 
             if self.doing_builtins and p_name == BUILTIN_MOD_NAME:
                 txt = create_generator()
+                self.classes_buf.out(0, txt)
+                txt = create_async_generator()
                 self.classes_buf.out(0, txt)
                 txt = create_function()
                 self.classes_buf.out(0, txt)

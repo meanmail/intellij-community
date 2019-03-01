@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xml.util;
 
 import com.intellij.codeInspection.InspectionProfile;
@@ -23,6 +9,7 @@ import com.intellij.javaee.ExternalResourceManagerEx;
 import com.intellij.lang.Language;
 import com.intellij.lang.html.HTMLLanguage;
 import com.intellij.lang.xhtml.XHTMLLanguage;
+import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileType;
@@ -38,9 +25,9 @@ import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.FileViewProvider;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.XmlRecursiveElementWalkingVisitor;
 import com.intellij.psi.html.HtmlTag;
 import com.intellij.psi.impl.source.html.HtmlDocumentImpl;
-import com.intellij.psi.impl.source.html.dtd.HtmlAttributeDescriptorImpl;
 import com.intellij.psi.impl.source.parsing.xml.HtmlBuilderDriver;
 import com.intellij.psi.impl.source.parsing.xml.XmlBuilder;
 import com.intellij.psi.impl.source.tree.CompositeElement;
@@ -50,10 +37,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xml.Html5SchemaProvider;
-import com.intellij.xml.XmlAttributeDescriptor;
-import com.intellij.xml.XmlElementDescriptor;
-import com.intellij.xml.XmlNSDescriptor;
+import com.intellij.xml.*;
 import com.intellij.xml.impl.schema.XmlAttributeDescriptorImpl;
 import com.intellij.xml.impl.schema.XmlElementDescriptorImpl;
 import com.intellij.xml.util.documentation.MimeTypeDictionary;
@@ -73,7 +57,7 @@ public class HtmlUtil {
   @NonNls private static final String JSFC = "jsfc";
   @NonNls private static final String CHARSET = "charset";
   @NonNls private static final String CHARSET_PREFIX = CHARSET+"=";
-  @NonNls private static final String HTML5_DATA_ATTR_PREFIX = "data-";
+  @NonNls public static final String HTML5_DATA_ATTR_PREFIX = "data-";
 
   public static final String SCRIPT_TAG_NAME = "script";
   public static final String STYLE_TAG_NAME = "style";
@@ -123,7 +107,7 @@ public class HtmlUtil {
 
   private static final Set<String> BLOCK_TAGS_MAP = new THashSet<>();
 
-  @NonNls private static final String[] INLINE_ELEMENTS_CONTAINER = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "dt"};
+  @NonNls private static final String[] INLINE_ELEMENTS_CONTAINER = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "pre"};
   private static final Set<String> INLINE_ELEMENTS_CONTAINER_MAP = new THashSet<>();
   
   private static final Set<String> POSSIBLY_INLINE_TAGS_MAP = new THashSet<>();
@@ -147,6 +131,13 @@ public class HtmlUtil {
     ContainerUtil.addAll(INLINE_ELEMENTS_CONTAINER_MAP, INLINE_ELEMENTS_CONTAINER);
     ContainerUtil.addAll(POSSIBLY_INLINE_TAGS_MAP, POSSIBLY_INLINE_TAGS);
     ContainerUtil.addAll(HTML5_TAGS_SET, HTML5_TAGS);
+  }
+
+  public static boolean isSingleHtmlTag(@NotNull XmlTag tag, boolean lowerCase) {
+    final XmlExtension extension = XmlExtension.getExtensionByElement(tag);
+    final String name = tag.getName();
+    boolean result = EMPTY_TAGS_MAP.contains(lowerCase ? name.toLowerCase(Locale.US) : name);
+    return result && (extension == null || !extension.isSingleTagException(tag));
   }
 
   public static boolean isSingleHtmlTag(String tagName) {
@@ -192,12 +183,16 @@ public class HtmlUtil {
 
   public static void addHtmlSpecificCompletions(final XmlElementDescriptor descriptor,
                                                 final XmlTag element,
-                                                final List<XmlElementDescriptor> variants) {
+                                                final List<? super XmlElementDescriptor> variants) {
     // add html block completions for tags with optional ends!
     String name = descriptor.getName(element);
 
     if (name != null && isOptionalEndForHtmlTag(name)) {
       PsiElement parent = element.getParent();
+
+      if (parent instanceof XmlTag && XmlChildRole.CLOSING_TAG_START_FINDER.findChild(parent.getNode()) != null) {
+        return;
+      }
 
       if (parent != null) {
         // we need grand parent since completion already uses parent's descriptor
@@ -248,7 +243,7 @@ public class HtmlUtil {
   }
 
   public static boolean isBooleanAttribute(@NotNull XmlAttributeDescriptor descriptor, @Nullable PsiElement context) {
-    if (descriptor instanceof HtmlAttributeDescriptorImpl && descriptor.isEnumerated()) {
+    if (descriptor.isEnumerated()) {
       final String[] values = descriptor.getEnumeratedValues();
       if (values == null) {
         return false;
@@ -425,11 +420,15 @@ public class HtmlUtil {
 
   public static boolean isHtml5Context(XmlElement context) {
     XmlDocument doc = PsiTreeUtil.getParentOfType(context, XmlDocument.class);
+    if (doc == null && context != null) {
+      return Html5SchemaProvider.getHtml5SchemaLocation()
+        .equals(ExternalResourceManagerEx.getInstanceEx().getDefaultHtmlDoctype(context.getProject()));
+    }
     return isHtml5Document(doc);
   }
 
   public static boolean isHtmlTag(@NotNull XmlTag tag) {
-    if (tag.getLanguage() != HTMLLanguage.INSTANCE) return false;
+    if (!tag.getLanguage().isKindOf(HTMLLanguage.INSTANCE)) return false;
 
     XmlDocument doc = PsiTreeUtil.getParentOfType(tag, XmlDocument.class);
 
@@ -587,7 +586,7 @@ public class HtmlUtil {
         }
 
         @Override
-        public void error(String message, int startOffset, int endOffset) {
+        public void error(@NotNull String message, int startOffset, int endOffset) {
         }
       });
     }
@@ -606,11 +605,11 @@ public class HtmlUtil {
     return tagName != null && "br".equalsIgnoreCase(tagName);
   }
 
-  public static boolean hasHtml(PsiFile file) {
+  public static boolean hasHtml(@NotNull PsiFile file) {
     return isHtmlFile(file) || file.getViewProvider() instanceof TemplateLanguageFileViewProvider;
   }
 
-  public static boolean supportsXmlTypedHandlers(PsiFile file) {
+  public static boolean supportsXmlTypedHandlers(@NotNull PsiFile file) {
     Language language = file.getLanguage();
     while (language != null) {
       if ("JavaScript".equals(language.getID())) return true;
@@ -756,5 +755,31 @@ public class HtmlUtil {
       child = child.getNextSibling();
     }
     return false;
+  }
+
+  public static List<XmlAttributeValue> getIncludedPathsElements(@NotNull final XmlFile file) {
+    final List<XmlAttributeValue> result = new ArrayList<>();
+    file.acceptChildren(new XmlRecursiveElementWalkingVisitor() {
+      @Override
+      public void visitXmlTag(XmlTag tag) {
+        XmlAttribute attribute = null;
+        if ("link".equalsIgnoreCase(tag.getName())) {
+          attribute = tag.getAttribute("href");
+        }
+        else if ("script".equalsIgnoreCase(tag.getName()) || "img".equalsIgnoreCase(tag.getName())) {
+          attribute = tag.getAttribute("src");
+        }
+        if (attribute != null) result.add(attribute.getValueElement());
+        super.visitXmlTag(tag);
+      }
+
+      @Override
+      public void visitElement(PsiElement element) {
+        if (element.getLanguage() instanceof XMLLanguage) {
+          super.visitElement(element);
+        }
+      }
+    });
+    return result.isEmpty() ? Collections.emptyList() : result;
   }
 }

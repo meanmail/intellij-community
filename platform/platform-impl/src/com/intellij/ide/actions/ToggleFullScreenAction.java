@@ -37,7 +37,7 @@ public class ToggleFullScreenAction extends DumbAwareAction {
   private static final String TEXT_EXIT_FULL_SCREEN = ActionsBundle.message("action.ToggleFullScreen.text.exit");
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     IdeFrameEx frame = getFrame();
     if (frame != null) {
       frame.toggleFullScreen(!frame.isInFullScreen());
@@ -66,7 +66,7 @@ public class ToggleFullScreenAction extends DumbAwareAction {
     Component focusOwner = IdeFocusManager.getGlobalInstance().getFocusOwner();
     if (focusOwner != null) {
       Window window = focusOwner instanceof JFrame ? (Window) focusOwner : SwingUtilities.getWindowAncestor(focusOwner);
-      if (!(window instanceof IdeFrameEx)) {
+      if (window != null && !(window instanceof IdeFrameEx)) {
         window = SwingUtilities.getWindowAncestor(window);
       }
       if (window instanceof IdeFrameEx) {

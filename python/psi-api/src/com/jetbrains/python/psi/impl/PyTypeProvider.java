@@ -24,6 +24,8 @@ import com.jetbrains.python.psi.types.TypeEvalContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Map;
+
 /**
  * @author yole
  */
@@ -34,7 +36,7 @@ public interface PyTypeProvider {
   PyType getReferenceExpressionType(@NotNull PyReferenceExpression referenceExpression, @NotNull TypeEvalContext context);
 
   @Nullable
-  PyType getReferenceType(@NotNull PsiElement referenceTarget, TypeEvalContext context, @Nullable PsiElement anchor);
+  Ref<PyType> getReferenceType(@NotNull PsiElement referenceTarget, @NotNull TypeEvalContext context, @Nullable PsiElement anchor);
 
   @Nullable
   Ref<PyType> getParameterType(@NotNull PyNamedParameter param, @NotNull PyFunction func, @NotNull TypeEvalContext context);
@@ -43,11 +45,27 @@ public interface PyTypeProvider {
   Ref<PyType> getReturnType(@NotNull PyCallable callable, @NotNull TypeEvalContext context);
 
   @Nullable
-  Ref<PyType> getCallType(@NotNull PyFunction function, @Nullable PyCallSiteExpression callSite, @NotNull TypeEvalContext context);
+  Ref<PyType> getCallType(@NotNull PyFunction function, @NotNull PyCallSiteExpression callSite, @NotNull TypeEvalContext context);
 
   @Nullable
   PyType getContextManagerVariableType(PyClass contextManager, PyExpression withExpression, TypeEvalContext context);
 
   @Nullable
   PyType getCallableType(@NotNull PyCallable callable, @NotNull TypeEvalContext context);
+
+  /**
+   * Returns a parameterized version of the class type.
+   *
+   * E.g. for class C(Generic[T], B[Tuple[T, str]]) it should return C[T].
+   */
+  @Nullable
+  PyType getGenericType(@NotNull PyClass cls, @NotNull TypeEvalContext context);
+
+  /**
+   * Returns a map of generic substitutions for the base classes.
+   *
+   * E.g. for class C(Generic[T], B[Tuple[T, str]]) where B(Generic[V]) it should return {V: Tuple[T, str]}.
+   */
+  @NotNull
+  Map<PyType, PyType> getGenericSubstitutions(@NotNull PyClass cls, @NotNull TypeEvalContext context);
 }

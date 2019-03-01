@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author Jeka
@@ -41,31 +27,26 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.Collection;
 
-public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigurationModule>
-                                 implements RunConfigurationWithSuppressedDefaultRunAction, RemoteRunProfile {
-
+public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigurationModule, Element>
+  implements RunConfigurationWithSuppressedDefaultRunAction, RemoteRunProfile {
   @Override
-  public void writeExternal(final Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull final Element element) throws WriteExternalException {
     super.writeExternal(element);
-    final Module module = getConfigurationModule().getModule();
-    if (module != null) { // default value
-      writeModule(element);
-    }
     DefaultJDOMExternalizer.writeExternal(this, element);
   }
 
   @Override
-  public void readExternal(final Element element) throws InvalidDataException {
+  public void readExternal(@NotNull final Element element) throws InvalidDataException {
     super.readExternal(element);
-    readModule(element);
     DefaultJDOMExternalizer.readExternal(this, element);
   }
 
-  public boolean USE_SOCKET_TRANSPORT;
+  public boolean USE_SOCKET_TRANSPORT = true;
   public boolean SERVER_MODE;
-  public String SHMEM_ADDRESS;
-  public String HOST;
-  public String PORT;
+  public String SHMEM_ADDRESS = "javadebug";
+  public String HOST = "localhost";
+  public String PORT = "5005";
+  public boolean AUTO_RESTART;
 
   public RemoteConfiguration(final Project project, ConfigurationFactory configurationFactory) {
     super(new JavaRunConfigurationModule(project, true), configurationFactory);
@@ -84,7 +65,7 @@ public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigu
       debuggerSettings.setDebugPort(USE_SOCKET_TRANSPORT ? PORT : SHMEM_ADDRESS);
       debuggerSettings.setTransport(USE_SOCKET_TRANSPORT ? DebuggerSettings.SOCKET_TRANSPORT : DebuggerSettings.SHMEM_TRANSPORT);
     }
-    return new RemoteStateState(getProject(), createRemoteConnection());
+    return new RemoteStateState(getProject(), createRemoteConnection(), AUTO_RESTART);
   }
 
   @Override
@@ -100,6 +81,4 @@ public class RemoteConfiguration extends ModuleBasedConfiguration<JavaRunConfigu
   public Collection<Module> getValidModules() {
     return getAllModules();
   }
-
-
 }

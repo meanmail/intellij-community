@@ -23,7 +23,6 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
@@ -41,16 +40,19 @@ import java.util.Collections;
 public class EditInjectionSettingsAction implements IntentionAction, LowPriorityAction {
   public static final String EDIT_INJECTION_TITLE = "Language Injection Settings";
 
+  @Override
   @NotNull
   public String getText() {
     return EDIT_INJECTION_TITLE;
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return "Edit Injection Settings";
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     final int offset = editor.getCaretModel().getOffset();
     final PsiFile psiFile = InjectedLanguageUtil.findInjectedPsiNoCommit(file, offset);
@@ -59,6 +61,7 @@ public class EditInjectionSettingsAction implements IntentionAction, LowPriority
     return support != null;
   }
 
+  @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
     ApplicationManager.getApplication().runReadAction(() -> invokeImpl(project, editor, file));
   }
@@ -76,10 +79,11 @@ public class EditInjectionSettingsAction implements IntentionAction, LowPriority
       }
     }
     finally {
-      FileContentUtil.reparseFiles(project, Collections.<VirtualFile>emptyList(), true);
+      FileContentUtil.reparseFiles(project, Collections.emptyList(), true);
     }
   }
 
+  @Override
   public boolean startInWriteAction() {
     return false;
   }

@@ -19,14 +19,17 @@ import com.intellij.ui.Gray;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
+import java.util.Objects;
+
+import static java.lang.Math.ceil;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class ColorIcon extends EmptyIcon {
   private final Color myColor;
-  private boolean myBorder;
-  private int myColorSize;
+  private final boolean myBorder;
+  private final int myColorSize;
 
   public ColorIcon(int size, int colorSize, @NotNull Color color, final boolean border) {
     super(size, size);
@@ -41,6 +44,19 @@ public class ColorIcon extends EmptyIcon {
 
   public ColorIcon(int size, @NotNull Color color) {
     this(size, color, false);
+  }
+
+  protected ColorIcon(ColorIcon icon) {
+    super(icon);
+    myColor = icon.myColor;
+    myBorder = icon.myBorder;
+    myColorSize = icon.myColorSize;
+  }
+
+  @NotNull
+  @Override
+  public ColorIcon copy() {
+    return new ColorIcon(this);
   }
 
   public Color getIconColor() {
@@ -65,14 +81,8 @@ public class ColorIcon extends EmptyIcon {
     }
   }
 
-  protected int getColorSize() {
-    return scale(myColorSize);
-  }
-
-
-  @Override
-  protected EmptyIcon createScaledInstance(float scale) {
-    return new ColorIcon(getIconWidth(), myColorSize, myColor, myBorder);
+  private int getColorSize() {
+    return (int)ceil(scaleVal(myColorSize));
   }
 
   @Override
@@ -85,7 +95,7 @@ public class ColorIcon extends EmptyIcon {
 
     if (myBorder != icon.myBorder) return false;
     if (myColorSize != icon.myColorSize) return false;
-    if (myColor != null ? !myColor.equals(icon.myColor) : icon.myColor != null) return false;
+    if (!Objects.equals(myColor, icon.myColor)) return false;
 
     return true;
   }

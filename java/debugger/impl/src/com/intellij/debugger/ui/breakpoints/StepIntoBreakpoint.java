@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,14 +19,12 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
-import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.MultiMap;
 import com.sun.jdi.*;
 import com.sun.jdi.event.LocatableEvent;
-import com.sun.jdi.request.BreakpointRequest;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,18 +33,18 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Sep 13, 2006
  */
 public class StepIntoBreakpoint extends RunToCursorBreakpoint {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.breakpoints.StepIntoBreakpoint");
   @NotNull private final BreakpointStepMethodFilter myFilter;
   @Nullable private RequestHint myHint;
 
-  StepIntoBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, @NotNull BreakpointStepMethodFilter filter) {
+  protected StepIntoBreakpoint(@NotNull Project project, @NotNull SourcePosition pos, @NotNull BreakpointStepMethodFilter filter) {
     super(project, pos, false);
     myFilter = filter;
   }
 
+  @Override
   protected void createRequestForPreparedClass(DebugProcessImpl debugProcess, ReferenceType classType) {
     try {
       final CompoundPositionManager positionManager = debugProcess.getPositionManager();
@@ -91,11 +89,7 @@ public class StepIntoBreakpoint extends RunToCursorBreakpoint {
             }
           }
         }
-        if (location != null) {
-          final RequestManagerImpl requestsManager = debugProcess.getRequestsManager();
-          final BreakpointRequest request = requestsManager.createBreakpointRequest(this, location);
-          requestsManager.enableRequest(request);
-        }
+        createLocationBreakpointRequest(this, location, debugProcess);
       }
     }
     catch (ClassNotPreparedException ex) {
@@ -108,14 +102,12 @@ public class StepIntoBreakpoint extends RunToCursorBreakpoint {
         LOG.debug("ObjectCollectedException: " + ex.getMessage());
       }
     }
-    catch (InternalException ex) {
-      LOG.info(ex);
-    }
     catch(Exception ex) {
       LOG.info(ex);
     }
   }
 
+  @Override
   protected boolean acceptLocation(DebugProcessImpl debugProcess, ReferenceType classType, Location loc) {
     try {
       return myFilter.locationMatches(debugProcess, loc);

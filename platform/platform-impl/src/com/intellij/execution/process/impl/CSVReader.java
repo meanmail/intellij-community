@@ -18,6 +18,8 @@
 
 package com.intellij.execution.process.impl;
 
+import com.intellij.util.ArrayUtil;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.Reader;
@@ -32,15 +34,15 @@ import java.util.List;
  */
 class CSVReader {
 
-    private BufferedReader br;
+    private final BufferedReader br;
 
     private boolean hasNext = true;
 
-    private char separator;
+    private final char separator;
 
-    private char quotechar;
+    private final char quotechar;
 
-    private int skipLines;
+    private final int skipLines;
 
     private boolean linesSkiped;
 
@@ -64,7 +66,7 @@ class CSVReader {
      * @param reader
      *            the reader to an underlying CSV source.
      */
-    public CSVReader(Reader reader) {
+    CSVReader(Reader reader) {
         this(reader, DEFAULT_SEPARATOR);
     }
 
@@ -76,7 +78,7 @@ class CSVReader {
      * @param separator
      *            the delimiter to use for separating entries.
      */
-    public CSVReader(Reader reader, char separator) {
+    CSVReader(Reader reader, char separator) {
         this(reader, separator, DEFAULT_QUOTE_CHARACTER);
     }
 
@@ -90,7 +92,7 @@ class CSVReader {
      * @param quotechar
      *            the character to use for quoted elements
      */
-    public CSVReader(Reader reader, char separator, char quotechar) {
+    CSVReader(Reader reader, char separator, char quotechar) {
         this(reader, separator, quotechar, DEFAULT_SKIP_LINES);
     }
 
@@ -106,7 +108,7 @@ class CSVReader {
      * @param line
      *            the line number to skip for start reading 
      */
-    public CSVReader(Reader reader, char separator, char quotechar, int line) {
+    CSVReader(Reader reader, char separator, char quotechar, int line) {
         this.br = new BufferedReader(reader);
         this.separator = separator;
         this.quotechar = quotechar;
@@ -231,7 +233,7 @@ class CSVReader {
             }
         } while (inQuotes);
         tokensOnThisLine.add(sb.toString());
-        return tokensOnThisLine.toArray(new String[0]);
+        return ArrayUtil.toStringArray(tokensOnThisLine);
 
     }
 

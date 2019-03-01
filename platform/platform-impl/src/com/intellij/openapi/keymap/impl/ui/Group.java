@@ -1,34 +1,17 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.keymap.impl.ui;
 
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.QuickList;
 import com.intellij.openapi.keymap.KeymapGroup;
 import com.intellij.openapi.util.text.StringUtil;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: Mar 18, 2005
- */
 public class Group implements KeymapGroup {
   private Group myParent;
   private final String myName;
@@ -62,11 +45,14 @@ public class Group implements KeymapGroup {
     return myIcon;
   }
 
+  @Nullable
   public String getId() {
     return myId;
   }
 
+  @Override
   public void addActionId(String id) {
+    if (myChildren.contains(id)) return;
     myChildren.add(id);
   }
 
@@ -78,8 +64,10 @@ public class Group implements KeymapGroup {
     myChildren.add(link);
   }
 
+  @Override
   public void addGroup(KeymapGroup keymapGroup) {
     Group group = (Group) keymapGroup;
+    if (myChildren.contains(group)) return;
     myChildren.add(group);
     group.myParent = this;
   }
@@ -101,7 +89,9 @@ public class Group implements KeymapGroup {
         myIds.add(((QuickList)child).getActionId());
       }
       else if (child instanceof Group) {
-        myIds.addAll(((Group)child).initIds());
+        Group childGroup = (Group)child;
+        myIds.addAll(childGroup.initIds());
+        if (childGroup.myId != null) myIds.add(childGroup.myId);
       }
     }
     return myIds;
@@ -242,6 +232,7 @@ public class Group implements KeymapGroup {
   }
 
 
+  @Override
   public boolean equals(Object object) {
     if (!(object instanceof Group)) return false;
     final Group group = ((Group)object);
@@ -263,10 +254,12 @@ public class Group implements KeymapGroup {
     return false;
   }
 
+  @Override
   public int hashCode() {
     return getName() != null ? getName().hashCode() : 0;
   }
 
+  @Override
   public String toString() {
     return getName();
   }

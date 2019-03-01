@@ -87,30 +87,31 @@ public class LibraryEditingUtil {
     final Set<Library> result = new HashSet<>(orderEntries.length);
     for (OrderEntry orderEntry : orderEntries) {
       if (orderEntry instanceof LibraryOrderEntry && orderEntry.isValid()) {
-        final LibraryImpl library = (LibraryImpl)((LibraryOrderEntry)orderEntry).getLibrary();
-        if (library != null) {
-          final Library source = library.getSource();
+        final Library library = ((LibraryOrderEntry)orderEntry).getLibrary();
+        if (library == null) continue;
+
+        if (library instanceof LibraryImpl) {
+          final Library source = ((LibraryImpl)library).getSource();
           result.add(source != null ? source : library);
+        } else {
+          result.add(library);
         }
       }
     }
-    return new Predicate<Library>() {
-      @Override
-      public boolean apply(Library library) {
-        if (result.contains(library)) return false;
-        if (library instanceof LibraryImpl) {
-          final Library source = ((LibraryImpl)library).getSource();
-          if (source != null && result.contains(source)) return false;
-        }
-        PersistentLibraryKind<?> kind = ((LibraryEx)library).getKind();
-        if (kind != null) {
-          LibraryType type = LibraryType.findByKind(kind);
-          if (type != null && !type.isSuitableModule(rootModel.getModule(), facetsProvider)) {
-            return false;
-          }
-        }
-        return true;
+    return library -> {
+      if (result.contains(library)) return false;
+      if (library instanceof LibraryImpl) {
+        final Library source = ((LibraryImpl)library).getSource();
+        if (source != null && result.contains(source)) return false;
       }
+      PersistentLibraryKind<?> kind = ((LibraryEx)library).getKind();
+      if (kind != null) {
+        LibraryType type = LibraryType.findByKind(kind);
+        if (!type.isSuitableModule(rootModel.getModule(), facetsProvider)) {
+          return false;
+        }
+      }
+      return true;
     };
   }
 
@@ -172,7 +173,7 @@ public class LibraryEditingUtil {
   }
 
   public static BaseListPopupStep<LibraryType> createChooseTypeStep(final ClasspathPanel classpathPanel,
-                                                                    final ParameterizedRunnable<LibraryType> action) {
+                                                                    final ParameterizedRunnable<? super LibraryType> action) {
     return new BaseListPopupStep<LibraryType>(IdeBundle.message("popup.title.select.library.type"), getSuitableTypes(classpathPanel)) {
           @NotNull
           @Override

@@ -20,10 +20,7 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.JpsElementChildRole;
 import org.jetbrains.jps.model.ex.JpsCompositeElementBase;
 import org.jetbrains.jps.model.ex.JpsElementChildRoleBase;
-import org.jetbrains.jps.model.java.compiler.JpsCompilerExcludes;
-import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
-import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerOptions;
-import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
+import org.jetbrains.jps.model.java.compiler.*;
 import org.jetbrains.jps.model.module.JpsModule;
 
 import java.io.File;
@@ -39,15 +36,17 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   private boolean myClearOutputDirectoryOnRebuild = true;
   private final JpsCompilerExcludes myCompilerExcludes = new JpsCompilerExcludesImpl();
   private final JpsCompilerExcludes myValidationExcludes = new JpsCompilerExcludesImpl();
-  private final List<String> myResourcePatterns = new ArrayList<String>();
-  private final List<ProcessorConfigProfile> myAnnotationProcessingProfiles = new ArrayList<ProcessorConfigProfile>();
+  private final List<String> myResourcePatterns = new ArrayList<>();
+  private final List<ProcessorConfigProfile> myAnnotationProcessingProfiles = new ArrayList<>();
   private final ProcessorConfigProfileImpl myDefaultAnnotationProcessingProfile = new ProcessorConfigProfileImpl("Default");
+  private boolean myUseReleaseOption = true;
   private String myProjectByteCodeTargetLevel;
-  private final Map<String, String> myModulesByteCodeTargetLevels = new HashMap<String, String>();
-  private final Map<String, JpsJavaCompilerOptions> myCompilerOptions = new HashMap<String, JpsJavaCompilerOptions>();
+  private final Map<String, String> myModulesByteCodeTargetLevels = new HashMap<>();
+  private final Map<String, JpsJavaCompilerOptions> myCompilerOptions = new HashMap<>();
   private String myJavaCompilerId = "Javac";
   private Map<JpsModule, ProcessorConfigProfile> myAnnotationProcessingProfileMap;
   private ResourcePatterns myCompiledPatterns;
+  private JpsValidationConfiguration myValidationConfiguration = new JpsValidationConfigurationImpl(false, Collections.emptySet());
 
   public JpsJavaCompilerConfigurationImpl() {
   }
@@ -102,6 +101,17 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   @Override
   public JpsCompilerExcludes getValidationExcludes() {
     return myValidationExcludes;
+  }
+
+  @NotNull
+  @Override
+  public JpsValidationConfiguration getValidationConfiguration() {
+    return myValidationConfiguration;
+  }
+
+  @Override
+  public void setValidationConfiguration(boolean validateOnBuild, @NotNull Set<String> disabledValidators) {
+    myValidationConfiguration = new JpsValidationConfigurationImpl(validateOnBuild, disabledValidators);
   }
 
   @NotNull
@@ -189,6 +199,16 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   }
 
   @Override
+  public boolean useReleaseOption() {
+    return myUseReleaseOption;
+  }
+
+  @Override
+  public void setUseReleaseOption(boolean useReleaseOption) {
+    myUseReleaseOption = useReleaseOption;
+  }
+
+  @Override
   public ProcessorConfigProfile addAnnotationProcessingProfile() {
     ProcessorConfigProfileImpl profile = new ProcessorConfigProfileImpl("");
     myAnnotationProcessingProfiles.add(profile);
@@ -200,8 +220,8 @@ public class JpsJavaCompilerConfigurationImpl extends JpsCompositeElementBase<Jp
   public ProcessorConfigProfile getAnnotationProcessingProfile(JpsModule module) {
     Map<JpsModule, ProcessorConfigProfile> map = myAnnotationProcessingProfileMap;
     if (map == null) {
-      map = new HashMap<JpsModule, ProcessorConfigProfile>();
-      final Map<String, JpsModule> namesMap = new HashMap<String, JpsModule>();
+      map = new HashMap<>();
+      final Map<String, JpsModule> namesMap = new HashMap<>();
       for (JpsModule m : module.getProject().getModules()) {
         namesMap.put(m.getName(), m);
       }

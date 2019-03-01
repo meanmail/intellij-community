@@ -13,13 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package com.intellij.openapi.editor.colors.impl;
 
 import com.intellij.openapi.editor.colors.ColorKey;
-import com.intellij.openapi.editor.colors.EditorFontType;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.editor.markup.TextAttributes;
+import com.intellij.openapi.options.SchemeManager;
+import com.intellij.openapi.options.SchemeState;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -27,9 +27,6 @@ import org.jetbrains.annotations.Nullable;
 import java.awt.*;
 
 public class DefaultColorsScheme extends AbstractColorsScheme implements ReadOnlyColorsScheme {
-  
-  public final static String EDITABLE_COPY_PREFIX = "_@user_";
-  
   private String myName;
 
   public DefaultColorsScheme() {
@@ -39,16 +36,22 @@ public class DefaultColorsScheme extends AbstractColorsScheme implements ReadOnl
   @Override
   @Nullable
   public TextAttributes getAttributes(TextAttributesKey key) {
-    if (key == null) return null;
-    TextAttributes attrs = myAttributesMap.get(key);
-    if (attrs == null) {
-      if (key.getFallbackAttributeKey() != null) {
-        attrs = getFallbackAttributes(key.getFallbackAttributeKey());
-        if (attrs != null && !attrs.isFallbackEnabled()) return attrs;
-      }
-      attrs = getKeyDefaults(key);
-    }
-    return attrs;
+    return key == null ? null : getAttributes(key, true);
+  }
+
+  @Nullable
+  public TextAttributes getAttributes(@NotNull TextAttributesKey key, boolean useDefaults) {
+    TextAttributes attrs = myAttributesMap.get(key.getExternalName());
+    if (attrs != null) return attrs;
+
+    TextAttributesKey fallbackKey = key.getFallbackAttributeKey();
+    TextAttributes fallback = fallbackKey == null ? null : getFallbackAttributes(fallbackKey);
+    if (fallback != null && fallback != AbstractColorsScheme.INHERITED_ATTRS_MARKER) return fallback;
+
+    if (!useDefaults) return null;
+    TextAttributes keyDefaults = getKeyDefaults(key);
+    if (keyDefaults != null) return keyDefaults;
+    return fallbackKey == null ? null : getKeyDefaults(fallbackKey);
   }
 
   @Nullable
@@ -58,14 +61,27 @@ public class DefaultColorsScheme extends AbstractColorsScheme implements ReadOnl
 
   @Nullable
   @Override
-  public Color getColor(ColorKey key) {
-    if (key == null) return null;
+  public Color getColor(@Nullable ColorKey key) {
+    return key == null ? null : getColor(key, true);
+  }
+
+  @Nullable
+  public Color getColor(@NotNull ColorKey key, boolean useDefaults) {
     Color color = myColorsMap.get(key);
-    return color != null ? color : key.getDefaultColor();
+    if (color != null) return color == NULL_COLOR_MARKER ? null : color;
+
+    ColorKey fallbackKey = key.getFallbackColorKey();
+    Color fallback = fallbackKey == null ? null : getFallbackColor(fallbackKey);
+    if (fallback != null && fallback != AbstractColorsScheme.INHERITED_COLOR_MARKER) return fallback;
+
+    if (!useDefaults) return null;
+    Color keyDefaults = key.getDefaultColor();
+    if (keyDefaults != null) return keyDefaults;
+    return fallbackKey == null ? null : fallbackKey.getDefaultColor();
   }
 
   @Override
-  public void readExternal(Element parentNode) {
+  public void readExternal(@NotNull Element parentNode) {
     super.readExternal(parentNode);
     myName = parentNode.getAttributeValue(NAME_ATTR);
   }
@@ -77,15 +93,11 @@ public class DefaultColorsScheme extends AbstractColorsScheme implements ReadOnl
   }
 
   @Override
-  public void setAttributes(TextAttributesKey key, TextAttributes attributes) {
+  public void setAttributes(@NotNull TextAttributesKey key, TextAttributes attributes) {
   }
 
   @Override
   public void setColor(ColorKey key, Color color) {
-  }
-
-  @Override
-  public void setFont(EditorFontType key, Font font) {
   }
 
   @Override
@@ -107,11 +119,17 @@ public class DefaultColorsScheme extends AbstractColorsScheme implements ReadOnl
   }
   
   public String getEditableCopyName() {
-    return EDITABLE_COPY_PREFIX + myName;
+    return SchemeManager.EDITABLE_COPY_PREFIX + myName;
   }
 
   @Override
   public boolean isVisible() {
     return false;
+  }
+
+  @NotNull
+  @Override
+  public SchemeState getSchemeState() {
+    return SchemeState.NON_PERSISTENT;
   }
 }

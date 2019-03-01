@@ -14,14 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: dsl
- * Date: 09.07.2002
- * Time: 15:20:25
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.refactoring.classMembers;
 
 import com.intellij.psi.PsiElement;
@@ -72,7 +64,7 @@ public class ANDCombinedMemberInfoModel<T extends PsiElement, M extends MemberIn
   }
 
   @Override
-  public void memberInfoChanged(MemberInfoChange<T, M> event) {
+  public void memberInfoChanged(@NotNull MemberInfoChange<T, M> event) {
     myTooltipManager.invalidate();
     myModel1.memberInfoChanged(event);
     myModel2.memberInfoChanged(event);

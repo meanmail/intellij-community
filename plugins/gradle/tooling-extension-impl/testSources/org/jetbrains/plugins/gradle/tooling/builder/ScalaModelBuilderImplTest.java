@@ -32,7 +32,6 @@ import static org.junit.Assert.assertNotNull;
 
 /**
  * @author Vladislav.Soroka
- * @since 11/29/13
  */
 public class ScalaModelBuilderImplTest extends AbstractModelBuilderTest {
 
@@ -41,15 +40,11 @@ public class ScalaModelBuilderImplTest extends AbstractModelBuilderTest {
   }
 
   @Test
-  public void testScalaModel() throws Exception {
+  public void testScalaModel() {
     DomainObjectSet<? extends IdeaModule> ideaModules = allModels.getIdeaProject().getModules();
 
-    List<ScalaModel> scalaModels = ContainerUtil.mapNotNull(ideaModules, new Function<IdeaModule, ScalaModel>() {
-      @Override
-      public ScalaModel fun(IdeaModule module) {
-        return allModels.getExtraProject(module, ScalaModel.class);
-      }
-    });
+    List<ScalaModel> scalaModels = ContainerUtil.mapNotNull(ideaModules,
+                                                            (Function<IdeaModule, ScalaModel>)module -> allModels.getExtraProject(module, ScalaModel.class));
 
     assertEquals(1, scalaModels.size());
     ScalaModel scalaModel = scalaModels.get(0);
@@ -61,6 +56,6 @@ public class ScalaModelBuilderImplTest extends AbstractModelBuilderTest {
 
   @Override
   protected Set<Class> getModels() {
-    return ContainerUtil.<Class>set(ScalaModel.class);
+    return ContainerUtil.set(ScalaModel.class);
   }
 }

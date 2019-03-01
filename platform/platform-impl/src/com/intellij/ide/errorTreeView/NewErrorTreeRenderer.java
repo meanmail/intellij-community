@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.errorTreeView;
 
 import com.intellij.icons.AllIcons;
@@ -24,9 +10,12 @@ import com.intellij.ui.MultilineTreeCellRenderer;
 import com.intellij.ui.SimpleColoredComponent;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.AbstractAccessibleContextDelegate;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.accessibility.Accessible;
+import javax.accessibility.AccessibleContext;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeCellRenderer;
@@ -74,6 +63,7 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
   private static class MyNotSelectedColoredTreeCellRenderer extends SimpleColoredComponent implements ClickableTreeCellRenderer {
     private CustomizeColoredTreeCellRenderer myCurrentCallback;
 
+    @Override
     public Component getTreeCellRendererComponent(JTree tree,
                                                   Object value,
                                                   boolean selected,
@@ -99,6 +89,7 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
       return this;
     }
 
+    @Override
     @Nullable
     public Object getTag() {
       return myCurrentCallback == null? null : myCurrentCallback.getTag();
@@ -112,7 +103,7 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
   private static class MyWrapperRenderer implements TreeCellRenderer {
     private final TreeCellRenderer myLeft;
     private final TreeCellRenderer myRight;
-    private final JPanel myPanel;
+    private final MyPanel myPanel;
 
     public TreeCellRenderer getLeft() {
       return myLeft;
@@ -122,13 +113,14 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
       return myRight;
     }
 
-    public MyWrapperRenderer(final TreeCellRenderer left, final TreeCellRenderer right) {
+    MyWrapperRenderer(final TreeCellRenderer left, final TreeCellRenderer right) {
       myLeft = left;
       myRight = right;
 
-      myPanel = new JPanel(new BorderLayout());
+      myPanel = new MyPanel(new BorderLayout());
     }
 
+    @Override
     public Component getTreeCellRendererComponent(JTree tree,
                                                   Object value,
                                                   boolean selected,
@@ -141,6 +133,88 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
       myPanel.add(myLeft.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus), BorderLayout.WEST);
       myPanel.add(myRight.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus), BorderLayout.EAST);
       return myPanel;
+    }
+
+    /**
+     * In general, a node in a {@link JTree} has 2 lists of children: the list
+     * of sub-nodes in the tree, and the list of sub-components of the
+     * component used to render the node.
+     *
+     * However, the accessibility API only allows exposing the former list.
+     * That is not a problem when the node to render is a simple {@link JLabel}
+     * for example. However, when the node is rendered as a complex component
+     * such as a {@link JPanel} with sub-components, screen readers only have
+     * access to the {@link JPanel}, without the ability to access to the
+     * sub-components.
+     *
+     * This is exactly what is happening in with our {@link MyPanel} class:
+     * each node is rendered as a {@link JPanel} with 2 children:
+     * a {@link #myLeft} and {@link #myRight} side.
+     *
+     * There is no general fix for this issue, as we are running into the
+     * limitation of the accessibility API explained above, so we implement
+     * an arbitrary best-effort approach, which works with most usages:
+     * The accessibility of the panel is the accessibility of the right
+     * side component, except for the name, which comes from the left side.
+     *
+     * This works well for the error messages in the context of
+     * {@link NewErrorTreeViewPanel}, as the left side is a simple label
+     * ("Error") and the right side is a {@link JEditorPane} containing the
+     * error message.
+     */
+    private class MyPanel extends JPanel implements Accessible {
+      private AccessibleContext myDefaultAccessibleContext;
+
+      MyPanel(LayoutManager layout) {
+        super(layout);
+      }
+
+      @Override
+      public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) {
+          accessibleContext = new AccessibleMyPanel();
+        }
+        return accessibleContext;
+      }
+
+      private AccessibleContext getDefaultAccessibleContext() {
+        if (myDefaultAccessibleContext == null) {
+          myDefaultAccessibleContext = super.getAccessibleContext();
+        }
+        return myDefaultAccessibleContext;
+      }
+
+      protected class AccessibleMyPanel extends AbstractAccessibleContextDelegate {
+        @NotNull
+        @Override
+        protected AccessibleContext getDelegate() {
+          // Most of the accessibility properties come from the right component
+          if (myPanel.getComponentCount() >= 2) {
+            Component c = myPanel.getComponent(1);
+            if (c instanceof Accessible) {
+              return c.getAccessibleContext();
+            }
+          }
+          // Fallback to JPanel if our right component is not accessible
+          return getDefaultAccessibleContext();
+        }
+
+        @Override
+        public String getAccessibleName() {
+          // Concatenate the name of all accessible child components
+          String name = StringUtil.join(getComponents(), c -> {
+            if (c instanceof Accessible) {
+              return c.getAccessibleContext().getAccessibleName();
+            }
+            return null;
+          }, " ");
+          if (StringUtil.isEmpty(name)) {
+            // Fallback to JPanel if we have no children
+            name = getDefaultAccessibleContext().getAccessibleName();
+          }
+          return name;
+        }
+      }
     }
   }
 
@@ -159,6 +233,7 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
     return "";
   }
 
+  @Override
   protected void initComponent(JTree tree, Object value, boolean selected, boolean expanded, boolean leaf, int row, boolean hasFocus) {
     final ErrorTreeElement element = getElement(value);
     if(element instanceof GroupingElement) {
@@ -182,18 +257,22 @@ public class NewErrorTreeRenderer extends MultilineTreeCellRenderer {
     if (element instanceof GroupingElement) {
       final GroupingElement groupingElement = (GroupingElement)element;
 
-      icon = groupingElement.getFile() != null ? groupingElement.getFile().getFileType().getIcon() : AllIcons.FileTypes.Java;
+      icon = groupingElement.getFile() != null ? groupingElement.getFile().getFileType().getIcon() : AllIcons.FileTypes.Any_type;
     }
     else if (element instanceof SimpleMessageElement || element instanceof NavigatableMessageElement) {
-      ErrorTreeElementKind kind = element.getKind();
-      if (ErrorTreeElementKind.ERROR.equals(kind)) {
-        icon = AllIcons.General.Error;
-      }
-      else if (ErrorTreeElementKind.WARNING.equals(kind) || ErrorTreeElementKind.NOTE.equals(kind)) {
-        icon = AllIcons.General.Warning;
-      }
-      else if (ErrorTreeElementKind.INFO.equals(kind)) {
-        icon = AllIcons.General.Information;
+      switch (element.getKind()) {
+        case ERROR:
+          icon = AllIcons.General.Error;
+          break;
+        case WARNING:
+          icon = AllIcons.General.Warning;
+          break;
+        case NOTE:
+          icon = AllIcons.General.Note;
+          break;
+        case INFO:
+          icon = AllIcons.General.Information;
+          break;
       }
     }
 

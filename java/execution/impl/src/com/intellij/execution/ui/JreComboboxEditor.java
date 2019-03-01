@@ -24,6 +24,9 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import javax.swing.plaf.basic.BasicComboBoxEditor;
+import java.awt.*;
+import java.awt.event.FocusEvent;
+import java.awt.event.FocusListener;
 
 /**
  * @author nik
@@ -32,7 +35,7 @@ class JreComboboxEditor extends BasicComboBoxEditor {
   public static final TextComponentAccessor<JComboBox> TEXT_COMPONENT_ACCESSOR = new JreComboBoxTextComponentAccessor();
   private final SortedComboBoxModel<JrePathEditor.JreComboBoxItem> myComboBoxModel;
 
-  public JreComboboxEditor(SortedComboBoxModel<JrePathEditor.JreComboBoxItem> comboBoxModel) {
+  JreComboboxEditor(SortedComboBoxModel<JrePathEditor.JreComboBoxItem> comboBoxModel) {
     myComboBoxModel = comboBoxModel;
   }
 
@@ -56,6 +59,23 @@ class JreComboboxEditor extends BasicComboBoxEditor {
   protected JTextField createEditorComponent() {
     JBTextField field = new JBTextField();
     field.setBorder(null);
+    field.addFocusListener(new FocusListener() {
+      @Override public void focusGained(FocusEvent e) {
+        update(e);
+      }
+      @Override public void focusLost(FocusEvent e) {
+        update(e);
+      }
+
+      private void update(FocusEvent e) {
+        Component c = e.getComponent().getParent();
+        if (c != null) {
+          c.revalidate();
+          c.repaint();
+        }
+      }
+    });
+
     return field;
   }
 
@@ -63,6 +83,7 @@ class JreComboboxEditor extends BasicComboBoxEditor {
     return getEditorComponent().getEmptyText();
   }
 
+  @Override
   public JBTextField getEditorComponent() {
     return (JBTextField)super.getEditorComponent();
   }

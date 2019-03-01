@@ -24,7 +24,6 @@ import com.intellij.psi.impl.source.xml.SchemaPrefixReference;
 import com.intellij.psi.xml.XmlAttribute;
 import com.intellij.psi.xml.XmlAttributeValue;
 import com.intellij.psi.xml.XmlTag;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.ProcessingContext;
 import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
@@ -37,7 +36,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  * @author Konstantin Bulenkov
  */
 public class SchemaReferencesProvider extends PsiReferenceProvider {
@@ -71,11 +70,13 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       myElement = element;
     }
 
+    @NotNull
     @Override
     public PsiElement getElement() {
       return myElement;
     }
 
+    @NotNull
     @Override
     public TextRange getRangeInElement() {
       return ElementManipulators.getValueTextRange(myElement);
@@ -95,7 +96,7 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+    public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
       return ElementManipulators.getManipulator(myElement).handleContentChange(
         myElement,
         getRangeInElement(),
@@ -109,14 +110,8 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
 
     @Override
-    public boolean isReferenceTo(PsiElement element) {
+    public boolean isReferenceTo(@NotNull PsiElement element) {
       return myElement.getManager().areElementsEquivalent(resolve(), element);
-    }
-
-    @Override
-    @NotNull
-    public Object[] getVariants() {
-      return ArrayUtil.EMPTY_OBJECT_ARRAY;
     }
 
     @Override
@@ -150,7 +145,7 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
       }
 
       if (lastIndex != testLength - 1) result.add( new TypeOrElementOrAttributeReference(element, new TextRange(lastIndex, testLength - 1) ) );
-      return result.toArray(new PsiReference[result.size()]);
+      return result.toArray(PsiReference.EMPTY_ARRAY);
     } else {
       final PsiReference prefix = createSchemaPrefixReference(element);
       final PsiReference ref = createTypeOrElementOrAttributeReference(element, prefix == null ? null : prefix.getCanonicalText());
@@ -158,11 +153,11 @@ public class SchemaReferencesProvider extends PsiReferenceProvider {
     }
   }
 
-  public static PsiReference createTypeOrElementOrAttributeReference(final PsiElement element) {
+  public static PsiReference createTypeOrElementOrAttributeReference(@NotNull final PsiElement element) {
     return createTypeOrElementOrAttributeReference(element, null);
   }
 
-  public static PsiReference createTypeOrElementOrAttributeReference(final PsiElement element, String ns) {
+  public static PsiReference createTypeOrElementOrAttributeReference(@NotNull final PsiElement element, String ns) {
     final int length = element.getTextLength();
     int offset = (element instanceof XmlAttributeValue) ?
       XmlUtil.findPrefixByQualifiedName(((XmlAttributeValue)element).getValue()).length() : 0;

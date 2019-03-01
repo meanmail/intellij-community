@@ -16,21 +16,32 @@
 package com.intellij.util.containers;
 
 import com.intellij.util.Function;
+import com.intellij.util.Functions;
 import org.jetbrains.annotations.NotNull;
 
 public class JBTreeTraverser<T> extends FilteredTraverserBase<T, JBTreeTraverser<T>> {
 
-  public JBTreeTraverser(Function<T, ? extends Iterable<? extends T>> treeStructure) {
+  @NotNull
+  public static <T> JBTreeTraverser<T> from(@NotNull Function<? super T, ? extends Iterable<? extends T>> treeStructure) {
+    return new JBTreeTraverser<>(treeStructure);
+  }
+
+  @NotNull
+  public static <T> JBTreeTraverser<T> of(@NotNull Function<? super T, T[]> treeStructure) {
+    return new JBTreeTraverser<>(Functions.compose(treeStructure, Functions.wrapArray()));
+  }
+
+  public JBTreeTraverser(Function<? super T, ? extends Iterable<? extends T>> treeStructure) {
     super(null, treeStructure);
   }
 
-  protected JBTreeTraverser(Meta<T> meta, Function<T, ? extends Iterable<? extends T>> treeStructure) {
+  protected JBTreeTraverser(Meta<T> meta, Function<? super T, ? extends Iterable<? extends T>> treeStructure) {
     super(meta, treeStructure);
   }
 
   @NotNull
   @Override
   protected JBTreeTraverser<T> newInstance(Meta<T> meta) {
-    return new JBTreeTraverser<T>(meta, tree);
+    return new JBTreeTraverser<>(meta, getTree());
   }
 }

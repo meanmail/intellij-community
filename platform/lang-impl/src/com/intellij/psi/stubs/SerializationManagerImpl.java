@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,9 +15,10 @@
  */
 package com.intellij.psi.stubs;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.PathManager;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.ShutDownTracker;
 import com.intellij.util.io.AbstractStringEnumerator;
 import com.intellij.util.io.IOUtil;
@@ -33,22 +34,27 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /*
  * @author max
  */
-public class SerializationManagerImpl extends SerializationManagerEx implements ApplicationComponent {
+public class SerializationManagerImpl extends SerializationManagerEx implements Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.stubs.SerializationManagerImpl");
 
   private final AtomicBoolean myNameStorageCrashed = new AtomicBoolean(false);
-  private final File myFile = new File(PathManager.getIndexRoot(), "rep.names");
+  private final File myFile;
   private final AtomicBoolean myShutdownPerformed = new AtomicBoolean(false);
   private AbstractStringEnumerator myNameStorage;
   private StubSerializationHelper myStubSerializationHelper;
 
   public SerializationManagerImpl() {
+    this(new File(PathManager.getIndexRoot(), "rep.names"));
+  }
+
+  public SerializationManagerImpl(@NotNull File nameStorageFile) {
+    myFile = nameStorageFile;
     myFile.getParentFile().mkdirs();
     try {
       // we need to cache last id -> String mappings due to StringRefs and stubs indexing that initially creates stubs (doing enumerate on String)
       // and then index them (valueOf), also similar string items are expected to be enumerated during stubs processing
       myNameStorage = new PersistentStringEnumerator(myFile, true);
-      myStubSerializationHelper = new StubSerializationHelper(myNameStorage);
+      myStubSerializationHelper = new StubSerializationHelper(myNameStorage, this);
     }
     catch (IOException e) {
       nameStorageCrashed();
@@ -58,7 +64,7 @@ public class SerializationManagerImpl extends SerializationManagerEx implements 
     }
     finally {
       registerSerializer(PsiFileStubImpl.TYPE);
-      ShutDownTracker.getInstance().registerShutdownTask(() -> performShutdown());
+      ShutDownTracker.getInstance().registerShutdownTask(this::performShutdown);
     }
   }
 
@@ -76,12 +82,12 @@ public class SerializationManagerImpl extends SerializationManagerEx implements 
           myNameStorage.close();
         }
 
+        StubSerializationHelper prevHelper = myStubSerializationHelper;
+
         IOUtil.deleteAllFilesStartingWith(myFile);
         myNameStorage = new PersistentStringEnumerator(myFile, true);
-        myStubSerializationHelper = new StubSerializationHelper(myNameStorage);
-        for (ObjectStubSerializer serializer : myAllSerializers) {
-          myStubSerializationHelper.assignId(serializer);
-        }
+        myStubSerializationHelper = new StubSerializationHelper(myNameStorage, this);
+        myStubSerializationHelper.copyFrom(prevHelper);
       }
       catch (IOException e) {
         LOG.info(e);
@@ -108,22 +114,12 @@ public class SerializationManagerImpl extends SerializationManagerEx implements 
     repairNameStorage();
   }
 
-  protected void nameStorageCrashed() {
+  private void nameStorageCrashed() {
     myNameStorageCrashed.set(true);
   }
 
   @Override
-  @NotNull
-  public String getComponentName() {
-    return "PSI.SerializationManager";
-  }
-
-  @Override
-  public void initComponent() {
-  }
-
-  @Override
-  public void disposeComponent() {
+  public void dispose() {
     performShutdown();
   }
 
@@ -142,10 +138,9 @@ public class SerializationManagerImpl extends SerializationManagerEx implements 
   }
 
   @Override
-  public void registerSerializer(@NotNull ObjectStubSerializer serializer) {
-    super.registerSerializer(serializer);
+  protected void registerSerializer(String externalId, Computable<ObjectStubSerializer> lazySerializer) {
     try {
-      myStubSerializationHelper.assignId(serializer);
+      myStubSerializationHelper.assignId(lazySerializer, externalId);
     }
     catch (IOException e) {
       LOG.info(e);

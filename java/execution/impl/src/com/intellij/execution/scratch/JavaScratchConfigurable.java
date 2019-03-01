@@ -1,25 +1,12 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.execution.scratch;
 
-import com.intellij.application.options.ModulesComboBox;
-import com.intellij.execution.ui.CommonJavaParametersPanel;
-import com.intellij.execution.ui.ConfigurationModuleSelector;
-import com.intellij.execution.ui.DefaultJreSelector;
-import com.intellij.execution.ui.JrePathEditor;
+import com.intellij.application.options.ModuleDescriptionsComboBox;
+import com.intellij.execution.ExecutionBundle;
+import com.intellij.execution.JavaExecutionUtil;
+import com.intellij.execution.ui.*;
 import com.intellij.ide.scratch.ScratchFileService;
 import com.intellij.ide.scratch.ScratchRootType;
 import com.intellij.openapi.fileChooser.FileChooser;
@@ -33,8 +20,8 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileWithId;
 import com.intellij.ui.PanelWithAnchor;
+import com.intellij.ui.components.JBCheckBox;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -49,18 +36,19 @@ import static java.awt.GridBagConstraints.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 30-Sep-15
  */
 public class JavaScratchConfigurable extends SettingsEditor<JavaScratchConfiguration> implements PanelWithAnchor {
 
   private final CommonJavaParametersPanel myCommonProgramParameters;
   private final LabeledComponent<JTextField> myMainClass;
   private final LabeledComponent<TextFieldWithBrowseButton> myScratchPathField;
-  private final LabeledComponent<ModulesComboBox> myModule;
-  private JPanel myWholePanel;
+  private final LabeledComponent<ModuleDescriptionsComboBox> myModule;
+  private final JPanel myWholePanel;
 
   private final ConfigurationModuleSelector myModuleSelector;
-  private JrePathEditor myJrePathEditor;
+  private final LabeledComponent<JBCheckBox> myIncludeProvidedDeps;
+  private final JrePathEditor myJrePathEditor;
+  private final LabeledComponent<ShortenCommandLineModeCombo> myShortenClasspathModeCombo;
   private JComponent myAnchor;
 
   public JavaScratchConfigurable(final Project project) {
@@ -90,39 +78,54 @@ public class JavaScratchConfigurable extends SettingsEditor<JavaScratchConfigura
 
     myModule = new LabeledComponent<>();
     myModule.setLabelLocation(BorderLayout.WEST);
-    myModule.setComponent(new ModulesComboBox());
+    myModule.setComponent(new ModuleDescriptionsComboBox());
     myModule.setText("Use classpath of &module:");
     myModuleSelector = new ConfigurationModuleSelector(project, myModule.getComponent());
 
     myCommonProgramParameters = new CommonJavaParametersPanel();
     myCommonProgramParameters.setModuleContext(myModuleSelector.getModule());
     myModule.getComponent().addActionListener(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         myCommonProgramParameters.setModuleContext(myModuleSelector.getModule());
       }
     });
     myJrePathEditor = new JrePathEditor(DefaultJreSelector.projectSdk(project));
 
+    myIncludeProvidedDeps = new LabeledComponent<>();
+    myIncludeProvidedDeps.setLabelLocation(BorderLayout.WEST);
+    myIncludeProvidedDeps.setComponent(new JBCheckBox(ExecutionBundle.message("application.configuration.include.provided.scope")));
+    myShortenClasspathModeCombo = new LabeledComponent<>();
+    myShortenClasspathModeCombo.setLabelLocation(BorderLayout.WEST);
+    myShortenClasspathModeCombo.setText(ExecutionBundle.message("application.configuration.shorten.command.line.label"));
+    myShortenClasspathModeCombo.setComponent(new ShortenCommandLineModeCombo(project, myJrePathEditor, myModule.getComponent()));
+
     myWholePanel = new JPanel(new GridBagLayout());
     myWholePanel.add(myMainClass, new GridBagConstraints(0, 0, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(6), 0, 0 ));
     myWholePanel.add(myScratchPathField, new GridBagConstraints(RELATIVE, 1, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(6), 0, 0 ));
     myWholePanel.add(myCommonProgramParameters, new GridBagConstraints(RELATIVE, 2, 1, 1, 1.0, 1.0, NORTHWEST, BOTH, JBUI.insets(12, 0), 0, 0 ));
     myWholePanel.add(myModule, new GridBagConstraints(RELATIVE, 3, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.emptyInsets(), 0, 0 ));
-    myWholePanel.add(myJrePathEditor, new GridBagConstraints(RELATIVE, 4, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(6), 0, 0 ));
+    myWholePanel.add(myIncludeProvidedDeps, new GridBagConstraints(RELATIVE, 4, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(6), 0, 0 ));
+    myWholePanel.add(myJrePathEditor, new GridBagConstraints(RELATIVE, 5, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(12), 0, 0 ));
+    myWholePanel.add(myShortenClasspathModeCombo, new GridBagConstraints(RELATIVE, 6, 1, 1, 1.0, 0.0, NORTHWEST, HORIZONTAL, JBUI.insetsTop(6), 0, 0 ));
 
-    myAnchor = UIUtil.mergeComponentsWithAnchor(myMainClass, myScratchPathField, myCommonProgramParameters, myJrePathEditor, myModule);
+    myAnchor = UIUtil.mergeComponentsWithAnchor(myMainClass, myScratchPathField, myCommonProgramParameters, myJrePathEditor, myModule,
+                                                myShortenClasspathModeCombo, myIncludeProvidedDeps);
   }
 
   @Override
-  public void applyEditorTo(JavaScratchConfiguration configuration) throws ConfigurationException {
+  public void applyEditorTo(@NotNull JavaScratchConfiguration configuration) throws ConfigurationException {
     myCommonProgramParameters.applyTo(configuration);
     myModuleSelector.applyTo(configuration);
-    configuration.MAIN_CLASS_NAME = myMainClass.getComponent().getText().trim();
-    configuration.ALTERNATIVE_JRE_PATH = myJrePathEditor.getJrePathOrName();
-    configuration.ALTERNATIVE_JRE_PATH_ENABLED = myJrePathEditor.isAlternativeJreSelected();
+
+    configuration.setMainClassName(myMainClass.getComponent().getText().trim());
+    configuration.setAlternativeJrePath(myJrePathEditor.getJrePathOrName());
+    configuration.setAlternativeJrePathEnabled(myJrePathEditor.isAlternativeJreSelected());
+    configuration.setShortenCommandLine(myShortenClasspathModeCombo.getComponent().getSelectedItem());
+    configuration.setIncludeProvidedScope(myIncludeProvidedDeps.getComponent().isSelected());
 
     final VirtualFile vFile = getVFileFromEditor();
-    configuration.SCRATCH_FILE_ID = vFile instanceof VirtualFileWithId ? ((VirtualFileWithId)vFile).getId() : 0;
+    configuration.setScratchFileUrl(vFile != null ? vFile.getUrl() : null);
   }
 
   @Nullable
@@ -132,11 +135,14 @@ public class JavaScratchConfigurable extends SettingsEditor<JavaScratchConfigura
   }
 
   @Override
-  public void resetEditorFrom(JavaScratchConfiguration configuration) {
+  public void resetEditorFrom(@NotNull JavaScratchConfiguration configuration) {
     myCommonProgramParameters.reset(configuration);
     myModuleSelector.reset(configuration);
-    myMainClass.getComponent().setText(configuration.MAIN_CLASS_NAME != null ? configuration.MAIN_CLASS_NAME.replaceAll("\\$", "\\.") : "");
-    myJrePathEditor.setPathOrName(configuration.ALTERNATIVE_JRE_PATH, configuration.ALTERNATIVE_JRE_PATH_ENABLED);
+
+    myMainClass.getComponent().setText(configuration.getMainClassName() != null ? configuration.getMainClassName().replaceAll("\\$", "\\.") : "");
+    myJrePathEditor.setPathOrName(configuration.getAlternativeJrePath(), configuration.isAlternativeJrePathEnabled());
+    myShortenClasspathModeCombo.getComponent().setSelectedItem(configuration.getShortenCommandLine());
+    myIncludeProvidedDeps.getComponent().setSelected(configuration.isProvidedScopeIncluded());
     setVFileToEditor(configuration.getScratchVirtualFile());
   }
 
@@ -163,5 +169,6 @@ public class JavaScratchConfigurable extends SettingsEditor<JavaScratchConfigura
     myCommonProgramParameters.setAnchor(anchor);
     myJrePathEditor.setAnchor(anchor);
     myModule.setAnchor(anchor);
+    myShortenClasspathModeCombo.setAnchor(anchor);
   }
 }

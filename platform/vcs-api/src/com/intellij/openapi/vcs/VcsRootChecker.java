@@ -16,41 +16,47 @@
 package com.intellij.openapi.vcs;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
-import org.jetbrains.annotations.NonNls;
+import com.intellij.openapi.vcs.roots.VcsRootDetector;
+import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 /**
- * Checks VCS roots, revealing invalid roots (registered in the settings, but not related to real VCS roots on disk)
+ * Provides methods to check if the given directory is a root of the given VCS. This is used e.g. by the {@link VcsRootDetector}
+ * to detect invalid roots (registered in the settings, but not related to real VCS roots on disk)
  * and unregistered roots (real roots on disk not registered in the settings).
- *
- * @author Kirill Likhodedov
  */
 public abstract class VcsRootChecker {
 
-  @NonNls public static final ExtensionPointName<VcsRootChecker> EXTENSION_POINT_NAME =
-    new ExtensionPointName<>("com.intellij.vcsRootChecker");
+  public static final ExtensionPointName<VcsRootChecker> EXTENSION_POINT_NAME = new ExtensionPointName<>("com.intellij.vcsRootChecker");
 
   /**
-   * @param path path to check if it is vcs root directory
-   * @return true if it is vcs root
+   * Checks if the given path represents a root of the supported VCS.
    */
   public boolean isRoot(@NotNull String path) {
     return false;
   }
 
   /**
-   * @return - return vcs for current checker
+   * Returns the VCS supported by this checker.
    */
+  @NotNull
   public abstract VcsKey getSupportedVcs();
 
   /**
-   * Check if the "dot" directory changed during scan
-   *
-   * @param path - path to check
-   * @return true if it is a DOT_DIR
+   * Checks if the given directory looks like a VCS special directory, e.g. "{@code .git}".
+   * <br/><br/>
+   * This is a quick rough check. A more precise is done in {@link #isRoot(String)}.
    */
-  public boolean isVcsDir(@Nullable String path) {
+  public boolean isVcsDir(@NotNull String dirName) {
+    return false;
+  }
+
+  /**
+   * Check if the given directory is ignored in the given VCS root.
+   * Such situation can happen, when we detect a VCS root above the directory: in that case we should detect the root only if the directory
+   * is not ignored from that root (e.g. the root is the home directory, and the VCS is used for storing configs, ignoring everything else).
+   */
+  public boolean isIgnored(@NotNull VirtualFile root, @NotNull VirtualFile checkForIgnore) {
     return false;
   }
 }

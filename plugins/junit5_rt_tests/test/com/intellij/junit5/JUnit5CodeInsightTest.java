@@ -23,7 +23,7 @@ import com.intellij.util.ThrowableRunnable;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 
-class JUnit5CodeInsightTest {
+abstract class JUnit5CodeInsightTest {
   protected JavaCodeInsightTestFixture myFixture;
 
   @BeforeEach
@@ -46,6 +46,8 @@ class JUnit5CodeInsightTest {
     EdtTestUtil.runInEdtAndWait(() -> {
       myFixture.addClass("package org.junit.jupiter.api; public @interface Test {}");
       myFixture.addClass("package org.junit.jupiter.api; public @interface Nested {}");
+      myFixture.addClass("package org.junit.jupiter.api; public @interface TestFactory {}");
+      myFixture.addClass("package org.junit.jupiter.params.provider; public @interface MethodSource {}");
     });
     EdtTestUtil.runInEdtAndWait(run);
   }

@@ -15,7 +15,6 @@
  */
 package com.intellij.framework.addSupport.impl;
 
-import com.intellij.CommonBundle;
 import com.intellij.facet.impl.DefaultFacetsProvider;
 import com.intellij.facet.impl.ui.libraries.LibraryCompositionSettings;
 import com.intellij.framework.FrameworkTypeEx;
@@ -25,11 +24,8 @@ import com.intellij.ide.util.frameworkSupport.FrameworkSupportModelImpl;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportUtil;
 import com.intellij.ide.util.newProjectWizard.FrameworkSupportOptionsComponent;
 import com.intellij.ide.util.newProjectWizard.impl.FrameworkSupportModelBase;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
@@ -40,7 +36,6 @@ import com.intellij.openapi.roots.ui.configuration.projectRoot.LibrariesContaine
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 
@@ -89,11 +84,9 @@ public class AddSupportForSingleFrameworkDialog extends DialogWrapper {
     return new AddSupportForSingleFrameworkDialog(module, provider.getFrameworkType(), provider, container, modifiableModelsProvider);
   }
 
+  @Override
   protected void doOKAction() {
-    final Ref<Boolean> result = Ref.create(false);
-    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> result.set(addSupport()));
-
-    if (result.get()) {
+    if (addSupport()) {
       super.doOKAction();
     }
   }
@@ -110,33 +103,27 @@ public class AddSupportForSingleFrameworkDialog extends DialogWrapper {
         return false;
       }
 
-      new WriteAction() {
-        protected void run(@NotNull final Result result) {
-          myModifiableModelsProvider.commitModuleModifiableModel(modifiableModel);
-        }
-      }.execute();
+      WriteAction.run(() -> myModifiableModelsProvider.commitModuleModifiableModel(modifiableModel));
 
       final boolean downloaded = librarySettings.downloadFiles(getRootPane());
       if (!downloaded) {
         int answer = Messages.showYesNoDialog(getRootPane(),
                                               ProjectBundle.message("warning.message.some.required.libraries.wasn.t.downloaded"),
-                                              CommonBundle.getWarningTitle(), Messages.getWarningIcon());
+                                              "Libraries Are Required", Messages.getWarningIcon());
         if (answer != Messages.YES) {
           return false;
         }
       }
     }
 
-    new WriteAction() {
-      protected void run(@NotNull final Result result) {
-        final ModifiableRootModel rootModel = myModifiableModelsProvider.getModuleModifiableModel(myModule);
-        if (librarySettings != null) {
-          librarySettings.addLibraries(rootModel, new ArrayList<>(), myModel.getLibrariesContainer());
-        }
-        myConfigurable.addSupport(myModule, rootModel, myModifiableModelsProvider);
-        myModifiableModelsProvider.commitModuleModifiableModel(rootModel);
+    WriteAction.run(() -> {
+      final ModifiableRootModel rootModel = myModifiableModelsProvider.getModuleModifiableModel(myModule);
+      if (librarySettings != null) {
+        librarySettings.addLibraries(rootModel, new ArrayList<>(), myModel.getLibrariesContainer());
       }
-    }.execute();
+      myConfigurable.addSupport(myModule, rootModel, myModifiableModelsProvider);
+      myModifiableModelsProvider.commitModuleModifiableModel(rootModel);
+    });
     return true;
   }
 
@@ -150,6 +137,7 @@ public class AddSupportForSingleFrameworkDialog extends DialogWrapper {
     return "reference.frameworks.support.dialog";//todo[nik]
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myComponent.getMainPanel();
   }

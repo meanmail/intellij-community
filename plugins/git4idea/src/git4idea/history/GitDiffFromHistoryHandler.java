@@ -40,7 +40,6 @@ import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.history.VcsHistorySession;
 import com.intellij.openapi.vcs.ui.VcsBalloonProblemNotifier;
 import com.intellij.ui.awt.RelativePoint;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitFileRevision;
@@ -61,8 +60,8 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * {@link DiffFromHistoryHandler#showDiffForTwo(com.intellij.openapi.project.Project, com.intellij.openapi.vcs.FilePath, com.intellij.openapi.vcs.history.VcsFileRevision, com.intellij.openapi.vcs.history.VcsFileRevision) "Show Diff" for 2 revision} calls the common code.
- * {@link DiffFromHistoryHandler#showDiffForOne(com.intellij.openapi.actionSystem.AnActionEvent, com.intellij.openapi.vcs.FilePath, com.intellij.openapi.vcs.history.VcsFileRevision, com.intellij.openapi.vcs.history.VcsFileRevision) "Show diff" for 1 revision}
+ * {@link DiffFromHistoryHandler#showDiffForTwo(Project, FilePath, VcsFileRevision, VcsFileRevision) "Show Diff" for 2 revision} calls the common code.
+ * {@link DiffFromHistoryHandler#showDiffForOne(AnActionEvent, Project, FilePath, VcsFileRevision, VcsFileRevision) "Show diff" for 1 revision}
  * behaves differently for merge commits: for them it shown a popup displaying the parents of the selected commit. Selecting a parent
  * from the popup shows the difference with this parent.
  * If an ordinary (not merge) revision with 1 parent, it is the same as usual: just compare with the parent;
@@ -103,10 +102,15 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
     throws VcsException {
     GitRepository repository = getRepository(path);
     String hash1 = rev1.getHash();
-    String hash2 = rev2 != null ? rev2.getHash() : null;
 
-    return ContainerUtil
-      .newArrayList(GitChangeUtils.getDiff(repository.getProject(), repository.getRoot(), hash1, hash2, Collections.singletonList(path)));
+    if (rev2 == null) {
+      return ContainerUtil.newArrayList(GitChangeUtils.getDiffWithWorkingDir(myProject, repository.getRoot(), hash1,
+                                                                             Collections.singleton(path), false));
+    }
+
+    String hash2 = rev2.getHash();
+    return ContainerUtil.newArrayList(GitChangeUtils.getDiff(myProject, repository.getRoot(), hash1, hash2,
+                                                             Collections.singletonList(path)));
   }
 
   @NotNull
@@ -135,16 +139,13 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
                                       @NotNull final GitFileRevision rev, @NotNull final Collection<String> parents) {
     VcsHistorySession session = event.getData(VcsDataKeys.HISTORY_SESSION);
     List<VcsFileRevision> revisions = session != null ? session.getRevisionList() : null;
-    checkIfFileWasTouchedAndFindParentsInBackground(filePath, rev, parents, revisions, new Consumer<MergeCommitPreCheckInfo>() {
-      @Override
-      public void consume(MergeCommitPreCheckInfo info) {
-        if (!info.wasFileTouched()) {
-          String message = String.format("There were no changes in %s in this merge commit, besides those which were made in both branches",
-                                         filePath.getName());
-          VcsBalloonProblemNotifier.showOverVersionControlView(GitDiffFromHistoryHandler.this.myProject, message, MessageType.INFO);
-        }
-        showPopup(event, rev, filePath, info.getParents());
+    checkIfFileWasTouchedAndFindParentsInBackground(filePath, rev, parents, revisions, info -> {
+      if (!info.wasFileTouched()) {
+        String message = String.format("There were no changes in %s in this merge commit, besides those which were made in both branches",
+                                       filePath.getName());
+        VcsBalloonProblemNotifier.showOverVersionControlView(this.myProject, message, MessageType.INFO);
       }
+      showPopup(event, rev, filePath, info.getParents());
     });
   }
 
@@ -174,7 +175,8 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
     new Task.Backgroundable(myProject, "Loading changes...", true) {
       private MergeCommitPreCheckInfo myInfo;
 
-      @Override public void run(@NotNull ProgressIndicator indicator) {
+      @Override
+      public void run(@NotNull ProgressIndicator indicator) {
         try {
           GitRepository repository = getRepository(filePath);
           boolean fileTouched = wasFileTouched(repository, rev);
@@ -271,12 +273,14 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
   }
 
   @NotNull
-  private ActionGroup createActionGroup(@NotNull GitFileRevision rev, @NotNull FilePath filePath, @NotNull Collection<GitFileRevision> parents) {
+  private ActionGroup createActionGroup(@NotNull GitFileRevision rev,
+                                        @NotNull FilePath filePath,
+                                        @NotNull Collection<GitFileRevision> parents) {
     Collection<AnAction> actions = new ArrayList<>(2);
     for (GitFileRevision parent : parents) {
       actions.add(createParentAction(rev, filePath, parent));
     }
-    return new DefaultActionGroup(ArrayUtil.toObjectArray(actions, AnAction.class));
+    return new DefaultActionGroup(actions.toArray(AnAction.EMPTY_ARRAY));
   }
 
   @NotNull
@@ -333,7 +337,7 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
     @NotNull private final GitFileRevision myRevision;
     @NotNull private final GitFileRevision myParentRevision;
 
-    public ShowDiffWithParentAction(@NotNull FilePath filePath, @NotNull GitFileRevision rev, @NotNull GitFileRevision parent) {
+    ShowDiffWithParentAction(@NotNull FilePath filePath, @NotNull GitFileRevision rev, @NotNull GitFileRevision parent) {
       super(getRevisionDescription(parent), parent.getCommitMessage(), null);
       myFilePath = filePath;
       myRevision = rev;
@@ -341,9 +345,8 @@ public class GitDiffFromHistoryHandler extends BaseDiffFromHistoryHandler<GitFil
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       doShowDiff(myFilePath, myParentRevision, myRevision);
     }
-
   }
 }

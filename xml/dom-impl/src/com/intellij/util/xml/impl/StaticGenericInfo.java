@@ -16,15 +16,16 @@
 package com.intellij.util.xml.impl;
 
 import com.intellij.openapi.util.Pair;
-import com.intellij.psi.xml.XmlElement;
 import com.intellij.util.*;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.xml.*;
-import com.intellij.util.xml.reflect.*;
+import com.intellij.util.xml.reflect.DomAttributeChildDescription;
+import com.intellij.util.xml.reflect.DomCollectionChildDescription;
+import com.intellij.util.xml.reflect.DomFixedChildDescription;
 import gnu.trove.THashMap;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.NonNls;
 
 import java.lang.reflect.Type;
 import java.util.*;
@@ -142,9 +143,9 @@ public class StaticGenericInfo extends DomGenericInfoEx {
 
     if (myCustomDescription != null && method.equals(myCustomDescription.getGetterMethod())) {
       return new Invocation() {
+        @NotNull
         @Override
-        @Nullable
-        public Object invoke(final DomInvocationHandler<?, ?> handler, final Object[] args) throws Throwable {
+        public Object invoke(DomInvocationHandler<?, ?> handler, Object[] args) {
           return myCustomDescription.getValues(handler);
         }
       };
@@ -197,22 +198,6 @@ public class StaticGenericInfo extends DomGenericInfoEx {
 
   @Override
   @Nullable
-  public XmlElement getNameElement(DomElement element) {
-    buildMethodMaps();
-
-    Object o = getNameObject(element);
-    if (o instanceof GenericAttributeValue) {
-      return ((GenericAttributeValue)o).getXmlAttributeValue();
-    } else if (o instanceof DomElement) {
-      return ((DomElement)o).getXmlTag();
-    }
-    else {
-      return null;
-    }
-  }
-
-  @Override
-  @Nullable
   public GenericDomValue getNameDomElement(DomElement element) {
     buildMethodMaps();
 
@@ -223,7 +208,7 @@ public class StaticGenericInfo extends DomGenericInfoEx {
   @Override
   @NotNull
   public List<? extends CustomDomChildrenDescriptionImpl> getCustomNameChildrenDescription() {
-    return myCustomDescription == null ? Collections.<CustomDomChildrenDescriptionImpl>emptyList() : Collections.singletonList(myCustomDescription);
+    return myCustomDescription == null ? Collections.emptyList() : Collections.singletonList(myCustomDescription);
   }
 
   @Nullable
@@ -279,7 +264,7 @@ public class StaticGenericInfo extends DomGenericInfoEx {
   }
 
   @Override
-  public boolean processAttributeChildrenDescriptions(Processor<AttributeChildDescriptionImpl> processor) {
+  public boolean processAttributeChildrenDescriptions(Processor<? super AttributeChildDescriptionImpl> processor) {
     List<AttributeChildDescriptionImpl> descriptions = getAttributeChildrenDescriptions();
     return ContainerUtil.process(descriptions, processor);
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package org.jetbrains.idea.eclipse.importWizard;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationType;
 import com.intellij.notification.Notifications;
@@ -27,6 +28,7 @@ import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.StdModuleTypes;
+import com.intellij.openapi.module.impl.ModuleManagerImpl;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
@@ -54,9 +56,7 @@ import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.packaging.artifacts.ModifiableArtifactModel;
 import com.intellij.projectImport.ProjectImportBuilder;
-import com.intellij.util.Function;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashMap;
+import com.intellij.psi.codeStyle.CodeStyleSettings;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import icons.EclipseIcons;
@@ -70,6 +70,7 @@ import org.jetbrains.idea.eclipse.EclipseXml;
 import org.jetbrains.idea.eclipse.IdeaXml;
 import org.jetbrains.idea.eclipse.conversion.EclipseClasspathReader;
 import org.jetbrains.idea.eclipse.conversion.EclipseUserLibrariesHelper;
+import org.jetbrains.idea.eclipse.importer.EclipseProjectCodeStyleData;
 import org.jetbrains.jps.eclipse.model.JpsEclipseClasspathSerializer;
 
 import javax.swing.*;
@@ -78,7 +79,7 @@ import java.io.IOException;
 import java.util.*;
 
 public class EclipseImportBuilder extends ProjectImportBuilder<String> implements EclipseProjectWizardContext {
-  private static final Logger LOG = Logger.getInstance("#" + EclipseImportBuilder.class.getName());
+  private static final Logger LOG = Logger.getInstance(EclipseImportBuilder.class);
 
   public static class Parameters {
     public String root;
@@ -88,27 +89,33 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
     public boolean openModuleSettings;
     public Options converterOptions = new Options();
     public Set<String> existingModuleNames;
+    public @Nullable EclipseProjectCodeStyleData codeStyleData;
   }
 
   private Parameters parameters;
 
 
+  @Override
   @NotNull
   public String getName() {
     return EclipseBundle.message("eclipse.name");
   }
 
+  @Override
   public Icon getIcon() {
     return EclipseIcons.Eclipse;
   }
 
+  @Override
   @Nullable
   public String getRootDirectory() {
     return getParameters().root;
   }
 
+  @Override
   public boolean setRootDirectory(final String path) {
     ProgressManager.getInstance().run(new Task.Modal(getCurrentProject(), EclipseBundle.message("eclipse.import.scanning"), true) {
+      @Override
       public void run(@NotNull ProgressIndicator indicator) {
         final ArrayList<String> roots = new ArrayList<>();
         EclipseProjectFinder.findModuleRoots(roots, path, path12 -> {
@@ -128,6 +135,7 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
         getParameters().root = path;
       }
 
+      @Override
       public void onCancel() {
         getParameters().workspace = null;
         getParameters().root = null;
@@ -138,10 +146,12 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
     return getParameters().workspace != null;
   }
 
+  @Override
   public List<String> getList() {
     return getParameters().workspace;
   }
 
+  @Override
   public boolean isMarked(final String element) {
     if (getParameters().projectsToConvert != null) {
       return getParameters().projectsToConvert.contains(element);
@@ -149,23 +159,28 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
     return !getParameters().existingModuleNames.contains(EclipseProjectFinder.findProjectName(element));
   }
 
+  @Override
   public void setList(List<String> list) {
     getParameters().projectsToConvert = list;
   }
 
+  @Override
   public boolean isOpenProjectSettingsAfter() {
     return getParameters().openModuleSettings;
   }
 
+  @Override
   public void setOpenProjectSettingsAfter(boolean on) {
     getParameters().openModuleSettings = on;
   }
 
+  @Override
   public void cleanup() {
     super.cleanup();
     parameters = null;
   }
 
+  @Override
   public boolean validate(final Project currentProject, final Project dstProject) {
     final Ref<Exception> refEx = new Ref<>();
     final Set<String> variables = new THashSet<>();
@@ -183,10 +198,7 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
           collectUnknownNatures(path, naturesNames, separator);
         }
       }
-      catch (IOException e) {
-        refEx.set(e);
-      }
-      catch (JDOMException e) {
+      catch (IOException | JDOMException e) {
         refEx.set(e);
       }
     }, EclipseBundle.message("eclipse.import.converting"), false, currentProject);
@@ -238,7 +250,7 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
         }
         final String moduleName = EclipseProjectFinder.findProjectName(path);
         moduleNames.add(moduleName);
-        final File imlFile = new File(modulesDirectory + File.separator + moduleName + IdeaXml.IML_EXT);
+        final File imlFile = new File(modulesDirectory + File.separator + moduleName + ModuleManagerImpl.IML_EXTENSION);
         if (imlFile.isFile()) {
           files.add(imlFile);
         }
@@ -282,7 +294,7 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
         if (modulesDirectory == null) {
           modulesDirectory = path;
         }
-        final Module module = moduleModel.newModule(modulesDirectory + "/" + EclipseProjectFinder.findProjectName(path) + IdeaXml.IML_EXT,
+        final Module module = moduleModel.newModule(modulesDirectory + "/" + EclipseProjectFinder.findProjectName(path) + ModuleManagerImpl.IML_EXTENSION,
                                                     StdModuleTypes.JAVA.getId());
         result.add(module);
         final Set<String> natures = collectNatures(path);
@@ -376,11 +388,30 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
       }
     }
 
+    setupProjectCodeStyle(project, message);
+
     if (message.length() > 0) {
       Messages.showErrorDialog(project, message.toString(), getTitle());
     }
 
     return result;
+  }
+
+
+  private void setupProjectCodeStyle(@NotNull Project project, @NotNull StringBuilder messageBuilder) {
+    try {
+      EclipseProjectCodeStyleData codeStyleData = getParameters().codeStyleData;
+      if (codeStyleData != null) {
+        CodeStyleSettings projectSettings = codeStyleData.importCodeStyle();
+        if (projectSettings != null) {
+          CodeStyle.setMainProjectSettings(project, projectSettings);
+        }
+      }
+    }
+    catch (Exception e) {
+      if (messageBuilder.length() > 0) messageBuilder.append('\n');
+      messageBuilder.append("Error while importing project code style: ").append(e.getMessage());
+    }
   }
 
   private static void scheduleNaturesImporting(@NotNull final Project project,
@@ -412,7 +443,7 @@ public class EclipseImportBuilder extends ProjectImportBuilder<String> implement
   private static void createEclipseLibrary(final Project project, final Collection<String> libraries, final String libraryName) {
     if (libraries.contains(libraryName)) {
       final FileChooserDescriptor fileChooserDescriptor = new FileChooserDescriptor(false, true, false, false, false, false) {
-
+        @Override
         public Icon getIcon(final VirtualFile file) {
           return looksLikeEclipse(file) ? dressIcon(file, EclipseIcons.Eclipse) : super.getIcon(file);
         }

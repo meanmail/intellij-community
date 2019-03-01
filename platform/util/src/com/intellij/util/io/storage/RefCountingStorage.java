@@ -20,7 +20,7 @@
 package com.intellij.util.io.storage;
 
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
-import com.intellij.openapi.util.io.ByteSequence;
+import com.intellij.openapi.util.io.ByteArraySequence;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.IncorrectOperationException;
@@ -46,7 +46,7 @@ public class RefCountingStorage extends AbstractStorage {
 
   @NotNull
   protected ExecutorService createExecutor() {
-    return new ThreadPoolExecutor(1, 1, Long.MAX_VALUE, TimeUnit.DAYS, new LinkedBlockingQueue<Runnable>(), ConcurrencyUtil
+    return new ThreadPoolExecutor(1, 1, Long.MAX_VALUE, TimeUnit.DAYS, new LinkedBlockingQueue<>(), ConcurrencyUtil
       .newNamedThreadFactory("RefCountingStorage write content helper"));
   }
 
@@ -70,7 +70,7 @@ public class RefCountingStorage extends AbstractStorage {
   public DataInputStream readStream(int record) throws IOException {
     if (myDoNotZipCaches) return super.readStream(record);
     BufferExposingByteArrayOutputStream stream = internalReadStream(record);
-    return new DataInputStream(new UnsyncByteArrayInputStream(stream.getInternalBuffer(), 0, stream.size()));
+    return new DataInputStream(stream.toInputStream());
   }
 
   @Override
@@ -87,19 +87,15 @@ public class RefCountingStorage extends AbstractStorage {
       result = super.readBytes(record);
     }
 
-    InflaterInputStream in = new CustomInflaterInputStream(result);
-    try {
+    try (InflaterInputStream in = new CustomInflaterInputStream(result)) {
       final BufferExposingByteArrayOutputStream outputStream = new BufferExposingByteArrayOutputStream();
       StreamUtil.copyStreamContent(in, outputStream);
       return outputStream;
     }
-    finally {
-      in.close();
-    }
   }
 
   private static class CustomInflaterInputStream extends InflaterInputStream {
-    public CustomInflaterInputStream(byte[] compressedData) {
+    CustomInflaterInputStream(byte[] compressedData) {
       super(new UnsyncByteArrayInputStream(compressedData), new Inflater(), 1);
       // force to directly use compressed data, this ensures less round trips with native extraction code and copy streams
       this.buf = compressedData;
@@ -133,12 +129,12 @@ public class RefCountingStorage extends AbstractStorage {
   }
 
   @Override
-  protected void appendBytes(int record, ByteSequence bytes) throws IOException {
+  protected void appendBytes(int record, ByteArraySequence bytes) throws IOException {
     throw new IncorrectOperationException("Appending is not supported");
   }
 
   @Override
-  public void writeBytes(final int record, final ByteSequence bytes, final boolean fixedSize) throws IOException {
+  public void writeBytes(final int record, final ByteArraySequence bytes, final boolean fixedSize) throws IOException {
 
     if (myDoNotZipCaches) {
       super.writeBytes(record, bytes, fixedSize);
@@ -152,25 +148,18 @@ public class RefCountingStorage extends AbstractStorage {
       if (myPendingWriteRequestsSize > MAX_PENDING_WRITE_SIZE) {
         zipAndWrite(bytes, record, fixedSize);
       } else {
-        myPendingWriteRequests.put(record, myPendingWriteRequestsExecutor.submit(new Callable<Object>() {
-          @Override
-          public Object call() throws IOException {
-            zipAndWrite(bytes, record, fixedSize);
-            return null;
-          }
+        myPendingWriteRequests.put(record, myPendingWriteRequestsExecutor.submit(() -> {
+          zipAndWrite(bytes, record, fixedSize);
+          return null;
         }));
       }
     }
   }
 
-  private void zipAndWrite(ByteSequence bytes, int record, boolean fixedSize) throws IOException {
+  private void zipAndWrite(ByteArraySequence bytes, int record, boolean fixedSize) throws IOException {
     BufferExposingByteArrayOutputStream s = new BufferExposingByteArrayOutputStream();
-    DeflaterOutputStream out = new DeflaterOutputStream(s);
-    try {
+    try (DeflaterOutputStream out = new DeflaterOutputStream(s)) {
       out.write(bytes.getBytes(), bytes.getOffset(), bytes.getLength());
-    }
-    finally {
-      out.close();
     }
 
     synchronized (myLock) {
@@ -181,7 +170,7 @@ public class RefCountingStorage extends AbstractStorage {
   }
 
   private void doWrite(int record, boolean fixedSize, BufferExposingByteArrayOutputStream s) throws IOException {
-    super.writeBytes(record, new ByteSequence(s.getInternalBuffer(), 0, s.size()), fixedSize);
+    super.writeBytes(record, s.toByteArraySequence(), fixedSize);
   }
 
   @Override

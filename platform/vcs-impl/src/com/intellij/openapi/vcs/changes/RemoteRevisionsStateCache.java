@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes;
 
 import com.intellij.openapi.project.Project;
@@ -21,6 +7,7 @@ import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.containers.MultiMap;
 import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -50,6 +37,7 @@ public class RemoteRevisionsStateCache implements ChangesOnServerTracker {
     myVcsConfiguration = VcsConfiguration.getInstance(project);
   }
 
+  @Override
   public void invalidate(final Collection<String> paths) {
     synchronized (myLock) {
       for (String path : paths) {
@@ -62,8 +50,11 @@ public class RemoteRevisionsStateCache implements ChangesOnServerTracker {
   private VirtualFile getRootForPath(final String s) {
     return myVcsManager.getVcsRootFor(VcsUtil.getFilePath(s, false));
   }
-  
-  public boolean isUpToDate(final Change change) {
+
+  @Override
+  public boolean isUpToDate(@NotNull Change change, @NotNull AbstractVcs vcs) {
+    if (!isSupportedFor(vcs)) return true;
+
     final List<File> files = ChangesUtil.getIoFilesFromChanges(Collections.singletonList(change));
     synchronized (myLock) {
       for (File file : files) {
@@ -75,26 +66,33 @@ public class RemoteRevisionsStateCache implements ChangesOnServerTracker {
     return true;
   }
 
-  public void plus(final Pair<String, AbstractVcs> pair) {
-    final VirtualFile root = getRootForPath(pair.getFirst());
+  @Override
+  public void changeUpdated(@NotNull String path, @NotNull AbstractVcs vcs) {
+    if (!isSupportedFor(vcs)) return;
+
+    final VirtualFile root = getRootForPath(path);
     if (root == null) return;
     synchronized (myLock) {
-      myQueries.putValue(new VcsRoot(pair.getSecond(), root), pair.getFirst());
+      myQueries.putValue(new VcsRoot(vcs, root), path);
     }
   }
 
-  public void minus(Pair<String, AbstractVcs> pair) {
-    final VirtualFile root = getRootForPath(pair.getFirst());
+  @Override
+  public void changeRemoved(@NotNull String path, @NotNull AbstractVcs vcs) {
+    if (!isSupportedFor(vcs)) return;
+
+    final VirtualFile root = getRootForPath(path);
     if (root == null) return;
     synchronized (myLock) {
-      final VcsRoot key = new VcsRoot(pair.getSecond(), root);
+      final VcsRoot key = new VcsRoot(vcs, root);
       if (myQueries.containsKey(key)) {
-        myQueries.remove(key, pair.getFirst());
+        myQueries.remove(key, path);
       }
-      myChanged.remove(pair.getFirst());
+      myChanged.remove(path);
     }
   }
 
+  @Override
   public void directoryMappingChanged() {
     // todo will work?
     synchronized (myLock) {
@@ -103,10 +101,11 @@ public class RemoteRevisionsStateCache implements ChangesOnServerTracker {
     }
   }
 
+  @Override
   public boolean updateStep() {
     final MultiMap<VcsRoot, String> dirty = new MultiMap<>();
     final long oldPoint = System.currentTimeMillis() - (myVcsConfiguration.CHANGED_ON_SERVER_INTERVAL > 0 ?
-                                                        myVcsConfiguration.CHANGED_ON_SERVER_INTERVAL * 60000 : DISCRETE);
+                                                        myVcsConfiguration.CHANGED_ON_SERVER_INTERVAL * 60000L : DISCRETE);
 
     synchronized (myLock) {
       // just copies myQueries MultiMap to dirty MultiMap
@@ -171,5 +170,9 @@ public class RemoteRevisionsStateCache implements ChangesOnServerTracker {
     }
 
     return true;
+  }
+
+  private static boolean isSupportedFor(@NotNull AbstractVcs vcs) {
+    return vcs.getTreeDiffProvider() != null;
   }
 }

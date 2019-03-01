@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,9 +25,9 @@ import com.intellij.psi.codeStyle.arrangement.match.StdArrangementEntryMatcher;
 import com.intellij.psi.codeStyle.arrangement.match.StdArrangementMatchRule;
 import com.intellij.psi.codeStyle.arrangement.model.ArrangementMatchCondition;
 import com.intellij.psi.codeStyle.arrangement.std.*;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.ui.GridBag;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.MultiRowFlowPanel;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -46,7 +46,6 @@ import java.util.List;
  * Not thread-safe.
  *
  * @author Denis Zhdanov
- * @since 8/14/12 9:54 AM
  */
 public class ArrangementMatchingRuleEditor extends JPanel implements ArrangementUiComponent.Listener {
 
@@ -73,7 +72,7 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
   }
 
   public ArrangementMatchingRuleEditor(@NotNull ArrangementStandardSettingsManager settingsManager,
-                                       @Nullable List<CompositeArrangementSettingsToken> tokens,
+                                       @Nullable List<? extends CompositeArrangementSettingsToken> tokens,
                                        @NotNull ArrangementColorsProvider colorsProvider,
                                        @NotNull ArrangementMatchingRulesControl control)
   {
@@ -89,9 +88,9 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
     });
   }
 
-  private void init(@Nullable List<CompositeArrangementSettingsToken> tokens) {
+  private void init(@Nullable List<? extends CompositeArrangementSettingsToken> tokens) {
     setLayout(new GridBagLayout());
-    setBorder(IdeBorderFactory.createEmptyBorder(5));
+    setBorder(JBUI.Borders.empty(5));
 
     if (tokens != null) {
       for (CompositeArrangementSettingsToken token : tokens) {
@@ -221,7 +220,7 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
       if (orderType == null) {
         orderType = StdArrangementTokens.Order.KEEP;
       }
-      return Pair.create(ArrangementUtil.combine(conditions.toArray(new ArrangementMatchCondition[conditions.size()])), orderType);
+      return Pair.create(ArrangementUtil.combine(conditions.toArray(new ArrangementMatchCondition[0])), orderType);
     }
     else {
       return null;
@@ -245,7 +244,7 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
    * Asks current editor to refresh its state in accordance with the arrangement rule shown at the given row.
    *
    * @param row  row index of the rule which match condition should be edited (if defined);
-   *              <code>'-1'</code> as an indication that no settings should be active
+   *              {@code '-1'} as an indication that no settings should be active
    */
   public void reset(int row) {
     // Reset state.
@@ -317,7 +316,7 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
    */
   private void refreshConditions() {
     Pair<ArrangementMatchCondition, ArrangementSettingsToken> pair = buildCondition();
-    ArrangementMatchCondition condition = pair == null ? null : pair.first;
+    ArrangementMatchCondition condition = Pair.getFirst(pair);
     for (ArrangementUiComponent component : myComponents.values()) {
       ArrangementSettingsToken token = component.getToken();
       if (token == null) {
@@ -409,7 +408,7 @@ public class ArrangementMatchingRuleEditor extends JPanel implements Arrangement
     }
   }
 
-  private void updateMutexConditions(@NotNull ArrangementUiComponent component, @NotNull Set<ArrangementSettingsToken> mutex) {
+  private void updateMutexConditions(@NotNull ArrangementUiComponent component, @NotNull Set<? extends ArrangementSettingsToken> mutex) {
     if (!mutex.contains(component.getToken())) {
       return;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import com.intellij.openapi.projectRoots.JavaSdkVersion;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.LanguageLevelProjectExtension;
 import com.intellij.openapi.roots.ProjectExtension;
+import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.util.ObjectUtils;
 import org.jdom.Element;
@@ -29,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author anna
- * @since 26-Dec-2007
  */
 public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExtension {
   private static final String LANGUAGE_LEVEL = "languageLevel";
@@ -54,19 +54,31 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
       myLanguageLevel = null;
     }
     else {
-      myLanguageLevel = LanguageLevel.valueOf(level);
+      myLanguageLevel = readLanguageLevel(level);
     }
     String aDefault = element.getAttributeValue(DEFAULT_ATTRIBUTE);
     setDefault(aDefault == null ? null : Boolean.parseBoolean(aDefault));
+  }
+
+  private static LanguageLevel readLanguageLevel(String level) {
+    for (LanguageLevel languageLevel : LanguageLevel.values()) {
+      if (level.equals(languageLevel.name())) {
+        return languageLevel;
+      }
+    }
+    return LanguageLevel.HIGHEST;
   }
 
   private void writeExternal(final Element element) {
     if (myLanguageLevel != null) {
       element.setAttribute(LANGUAGE_LEVEL, myLanguageLevel.name());
     }
-    Boolean aBoolean = getDefault();
-    if (aBoolean != null) {
-      element.setAttribute(DEFAULT_ATTRIBUTE, Boolean.toString(aBoolean));
+
+    if (!myProject.isDefault()) {
+      Boolean aBoolean = getDefault();
+      if (aBoolean != null) {
+        element.setAttribute(DEFAULT_ATTRIBUTE, Boolean.toString(aBoolean));
+      }
     }
   }
 
@@ -93,6 +105,7 @@ public class LanguageLevelProjectExtensionImpl extends LanguageLevelProjectExten
   @Override
   public void languageLevelsChanged() {
     if (!myProject.isDefault()) {
+      ProjectRootManager.getInstance(myProject).incModificationCount();
       JavaLanguageLevelPusher.pushLanguageLevel(myProject);
     }
   }

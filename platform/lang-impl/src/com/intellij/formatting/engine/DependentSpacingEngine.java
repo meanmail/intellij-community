@@ -20,7 +20,10 @@ import com.intellij.formatting.SpacingImpl;
 import com.intellij.formatting.WhiteSpace;
 import com.intellij.openapi.util.TextRange;
 
-import java.util.*;
+import java.util.List;
+import java.util.Map;
+import java.util.SortedMap;
+import java.util.TreeMap;
 
 /**
  * Formatter provides a notion of {@link DependantSpacingImpl dependent spacing}, i.e. spacing that insist on line feed if target
@@ -37,9 +40,9 @@ import java.util.*;
  *      }                 |
  * </pre>
  * There is a possible case that particular block has dependent spacing property that targets region that lays beyond the
- * current block. E.g. consider example above - <code>'1'</code> block has dependent spacing that targets the whole
- * <code>'{1, 2, 3}'</code> block. So, it's not possible to answer whether line feed should be used during processing block
- * <code>'1'</code>.
+ * current block. E.g. consider example above - {@code '1'} block has dependent spacing that targets the whole
+ * {@code '{1, 2, 3}'} block. So, it's not possible to answer whether line feed should be used during processing block
+ * {@code '1'}.
  * <p/>
  * We store such 'forward dependencies' at the current collection where the key is the range of the target 'dependent forward
  * region' and value is dependent spacing object.
@@ -48,10 +51,10 @@ import java.util.*;
  * {@link DependantSpacingImpl#setDependentRegionLinefeedStatusChanged() mark} the dependent spacing as changed and schedule one more
  * formatting iteration.
  */
-public class DependentSpacingEngine {
+class DependentSpacingEngine {
   private final BlockRangesMap myBlockRangesMap;
   
-  private SortedMap<TextRange, DependantSpacingImpl> myPreviousDependencies =
+  private final SortedMap<TextRange, DependantSpacingImpl> myPreviousDependencies =
     new TreeMap<>((o1, o2) -> {
       int offsetsDelta = o1.getEndOffset() - o2.getEndOffset();
 
@@ -61,11 +64,11 @@ public class DependentSpacingEngine {
       return offsetsDelta;
     });
 
-  public DependentSpacingEngine(BlockRangesMap helper) {
+  DependentSpacingEngine(BlockRangesMap helper) {
     myBlockRangesMap = helper;
   }
 
-  public boolean shouldReformatPreviouslyLocatedDependentSpacing(WhiteSpace space) {
+  boolean shouldReformatPreviouslyLocatedDependentSpacing(WhiteSpace space) {
     final TextRange changed = space.getTextRange();
     final SortedMap<TextRange, DependantSpacingImpl> sortedHeadMap = myPreviousDependencies.tailMap(changed);
 
@@ -79,7 +82,7 @@ public class DependentSpacingEngine {
         }
 
         final boolean containedLineFeeds = spacing.getMinLineFeeds() > 0;
-        final boolean containsLineFeeds = myBlockRangesMap.containsLineFeeds(textRange);
+        final boolean containsLineFeeds = myBlockRangesMap.containsLineFeedsOrTooLong(textRange);
 
         if (containedLineFeeds != containsLineFeeds) {
           spacing.setDependentRegionLinefeedStatusChanged();
@@ -91,7 +94,7 @@ public class DependentSpacingEngine {
     return false;
   }
   
-  public void registerUnresolvedDependentSpacingRanges(final SpacingImpl spaceProperty, List<TextRange> unprocessedRanges) {
+  void registerUnresolvedDependentSpacingRanges(final SpacingImpl spaceProperty, List<TextRange> unprocessedRanges) {
     final DependantSpacingImpl dependantSpaceProperty = (DependantSpacingImpl)spaceProperty;
     if (dependantSpaceProperty.isDependentRegionLinefeedStatusChanged()) return;
 
@@ -100,7 +103,7 @@ public class DependentSpacingEngine {
     }
   }
   
-  public void clear() {
+  void clear() {
     myPreviousDependencies.clear();
   }
 }

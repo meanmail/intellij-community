@@ -45,6 +45,7 @@ public class ExpressionOccurrenceManager extends BaseOccurrenceManager {
     myScope = scope;
     myMaintainStaticContext = maintainStaticContext;
   }
+  @Override
   protected PsiExpression[] defaultOccurrences() {
     return new PsiExpression[]{myMainOccurence};
   }
@@ -53,6 +54,7 @@ public class ExpressionOccurrenceManager extends BaseOccurrenceManager {
     return myMainOccurence;
   }
 
+  @Override
   protected PsiExpression[] findOccurrences() {
     if("null".equals(myMainOccurence.getText())) {
       return defaultOccurrences();
@@ -70,7 +72,7 @@ public class ExpressionOccurrenceManager extends BaseOccurrenceManager {
           iterator.remove();
         }
       }
-      return expressions.toArray(new PsiExpression[expressions.size()]);
+      return expressions.toArray(PsiExpression.EMPTY_ARRAY);
     }
     else {
       return expressionOccurrences;
@@ -84,10 +86,10 @@ public class ExpressionOccurrenceManager extends BaseOccurrenceManager {
   public PsiExpression[] findExpressionOccurrences() {
     if (myMainOccurence instanceof PsiLiteralExpression && !myMainOccurence.isPhysical()) {
       final FindManager findManager = FindManager.getInstance(getScope().getProject());
-      final FindModel findModel = (FindModel)findManager.getFindInFileModel().clone();
+      final FindModel findModel = findManager.getFindInFileModel().clone();
       findModel.setCaseSensitive(true);
       findModel.setRegularExpressions(false);
-      String value = StringUtil.stripQuotesAroundValue(myMainOccurence.getText());
+      String value = StringUtil.unquoteString(myMainOccurence.getText());
       if (value.length() > 0) {
         findModel.setStringToFind(value);
         final List<PsiExpression> results = new ArrayList<>();
@@ -111,7 +113,7 @@ public class ExpressionOccurrenceManager extends BaseOccurrenceManager {
           }
           result = findManager.findString(text, endOffset, findModel);
         }
-        return results.toArray(new PsiExpression[results.size()]);
+        return results.toArray(PsiExpression.EMPTY_ARRAY);
       }
     }
     return CodeInsightUtil.findExpressionOccurrences(myScope, myMainOccurence);

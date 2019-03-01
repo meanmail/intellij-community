@@ -15,9 +15,9 @@
  */
 package com.intellij.openapi.vcs.changes.actions.diff;
 
+import com.intellij.diff.DiffDialogHints;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.util.Key;
-import com.intellij.diff.DiffDialogHints;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -55,8 +55,7 @@ public class ShowDiffContext {
 
   @NotNull
   public Map<Key, Object> getChainContext() {
-    if (myChainContext == null) return Collections.emptyMap();
-    return myChainContext;
+    return ContainerUtil.notNullize(myChainContext);
   }
 
   @NotNull
@@ -67,7 +66,7 @@ public class ShowDiffContext {
     return map;
   }
 
-  public void addActions(@NotNull List<AnAction> action) {
+  public void addActions(@NotNull List<? extends AnAction> action) {
     if (myActions == null) myActions = ContainerUtil.newArrayList();
     myActions.addAll(action);
   }
@@ -84,7 +83,7 @@ public class ShowDiffContext {
 
   public <T> void putChangeContext(@NotNull Change change, @NotNull Key<T> key, T value) {
     if (myRequestContext == null) myRequestContext = ContainerUtil.newHashMap();
-    if (!myRequestContext.containsKey(change)) myRequestContext.put(change, ContainerUtil.<Key, Object>newHashMap());
+    if (!myRequestContext.containsKey(change)) myRequestContext.put(change, ContainerUtil.newHashMap());
     myRequestContext.get(change).put(key, value);
   }
 }

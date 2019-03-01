@@ -18,14 +18,10 @@ package org.jetbrains.plugins.gradle.model;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/14/2014
  */
 public class DefaultExternalSourceDirectorySet implements ExternalSourceDirectorySet {
   private static final long serialVersionUID = 1L;
@@ -35,11 +31,8 @@ public class DefaultExternalSourceDirectorySet implements ExternalSourceDirector
   @NotNull
   private Set<File> mySrcDirs;
   private File myOutputDir;
-  private File myGradleOutputDir;
-  @NotNull
-  private Set<String> myExcludes;
-  @NotNull
-  private Set<String> myIncludes;
+  private final List<File> myGradleOutputDirs;
+  private final FilePatternSet myPatterns;
   @NotNull
   private List<ExternalFilter> myFilters;
 
@@ -47,9 +40,9 @@ public class DefaultExternalSourceDirectorySet implements ExternalSourceDirector
 
   public DefaultExternalSourceDirectorySet() {
     mySrcDirs = new HashSet<File>();
-    myExcludes = new HashSet<String>();
-    myIncludes = new HashSet<String>();
     myFilters = new ArrayList<ExternalFilter>();
+    myGradleOutputDirs = new ArrayList<File>();
+    myPatterns = new FilePatternSetImpl(new LinkedHashSet<String>(), new LinkedHashSet<String>());
   }
 
   public DefaultExternalSourceDirectorySet(ExternalSourceDirectorySet sourceDirectorySet) {
@@ -57,9 +50,10 @@ public class DefaultExternalSourceDirectorySet implements ExternalSourceDirector
     myName = sourceDirectorySet.getName();
     mySrcDirs = new HashSet<File>(sourceDirectorySet.getSrcDirs());
     myOutputDir = sourceDirectorySet.getOutputDir();
-    myGradleOutputDir = sourceDirectorySet.getGradleOutputDir();
-    myExcludes = new HashSet<String>(sourceDirectorySet.getExcludes());
-    myIncludes = new HashSet<String>(sourceDirectorySet.getIncludes());
+    myGradleOutputDirs.addAll(sourceDirectorySet.getGradleOutputDirs());
+
+    myPatterns.getIncludes().addAll(sourceDirectorySet.getPatterns().getIncludes());
+    myPatterns.getExcludes().addAll(sourceDirectorySet.getPatterns().getExcludes());
     for (ExternalFilter filter : sourceDirectorySet.getFilters()) {
       myFilters.add(new DefaultExternalFilter(filter));
     }
@@ -99,14 +93,18 @@ public class DefaultExternalSourceDirectorySet implements ExternalSourceDirector
   @NotNull
   @Override
   public File getGradleOutputDir() {
-    return myGradleOutputDir;
+    assert myGradleOutputDirs.size() > 0;
+    return myGradleOutputDirs.get(0);
   }
 
-  public void setGradleOutputDir(@NotNull File outputDir) {
-    myGradleOutputDir = outputDir;
-    if (myOutputDir == null) {
-      myOutputDir = outputDir;
-    }
+  @NotNull
+  @Override
+  public Collection<File> getGradleOutputDirs() {
+    return myGradleOutputDirs;
+  }
+
+  public void addGradleOutputDir(@NotNull File outputDir) {
+    myGradleOutputDirs.add(outputDir);
   }
 
   @Override
@@ -114,28 +112,36 @@ public class DefaultExternalSourceDirectorySet implements ExternalSourceDirector
     return myInheritedCompilerOutput;
   }
 
-  public void setInheritedCompilerOutput(boolean inheritedCompilerOutput) {
-    myInheritedCompilerOutput = inheritedCompilerOutput;
+  @NotNull
+  @Override
+  public Set<String> getExcludes() {
+    return myPatterns.getExcludes();
+  }
+
+  public void setExcludes(Set<String> excludes) {
+    myPatterns.getExcludes().clear();
+    myPatterns.getExcludes().addAll(excludes);
   }
 
   @NotNull
   @Override
   public Set<String> getIncludes() {
-    return myIncludes;
+    return myPatterns.getIncludes();
   }
 
-  public void setIncludes(@NotNull Set<String> includes) {
-    myIncludes = includes;
+  public void setIncludes(Set<String> includes) {
+    myPatterns.getIncludes().clear();
+    myPatterns.getIncludes().addAll(includes);
   }
 
   @NotNull
   @Override
-  public Set<String> getExcludes() {
-    return myExcludes;
+  public FilePatternSet getPatterns() {
+    return myPatterns;
   }
 
-  public void setExcludes(@NotNull Set<String> excludes) {
-    myExcludes = excludes;
+  public void setInheritedCompilerOutput(boolean inheritedCompilerOutput) {
+    myInheritedCompilerOutput = inheritedCompilerOutput;
   }
 
   @NotNull

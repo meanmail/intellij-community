@@ -14,21 +14,14 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 27-Aug-2008
- */
 package com.intellij.refactoring.inlineSuperClass.usageInfo;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.refactoring.util.FixableUsageInfo;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
 
 public class ReplaceReferenceUsageInfo extends FixableUsageInfo {
-  public static final Logger LOG = Logger.getInstance("#" + ReplaceReferenceUsageInfo.class.getName());
   private final PsiClass myTargetClass;
   private final String myConflict;
 
@@ -39,10 +32,11 @@ public class ReplaceReferenceUsageInfo extends FixableUsageInfo {
                                                                                                                              psiClass -> psiClass.getQualifiedName(), ", ") : null;
   }
 
+  @Override
   public void fixUsage() throws IncorrectOperationException {
     final PsiElement referenceExpression = getElement();
     if (referenceExpression != null) {
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(getProject()).getElementFactory();
+      final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(getProject());
       referenceExpression.replace(referenceExpression instanceof PsiReferenceExpression ? elementFactory.createReferenceExpression(myTargetClass) : elementFactory.createClassReferenceElement(myTargetClass));
     }
   }

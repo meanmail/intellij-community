@@ -18,9 +18,9 @@ package com.jetbrains.python.inspections;
 import com.google.common.collect.ImmutableSet;
 import com.intellij.codeInsight.intention.LowPriorityAction;
 import com.intellij.codeInspection.*;
+import com.intellij.codeInspection.ex.InspectionProfileModifiableModelKt;
 import com.intellij.codeInspection.ui.ListEditForm;
 import com.intellij.openapi.project.Project;
-import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiNameIdentifierOwner;
@@ -70,7 +70,7 @@ public class PyShadowingBuiltinsInspection extends PyInspection {
   private static class Visitor extends PyInspectionVisitor {
     private final Set<String> myIgnoredNames;
 
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session, @NotNull Collection<String> ignoredNames) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session, @NotNull Collection<String> ignoredNames) {
       super(holder, session);
       myIgnoredNames = ImmutableSet.copyOf(ignoredNames);
     }
@@ -110,7 +110,7 @@ public class PyShadowingBuiltinsInspection extends PyInspection {
           final PsiElement identifier = element.getNameIdentifier();
           final PsiElement problemElement = identifier != null ? identifier : element;
           registerProblem(problemElement, String.format("Shadows built-in name '%s'", name),
-                          ProblemHighlightType.WEAK_WARNING, null, new PyRenameElementQuickFix(), new PyIgnoreBuiltinQuickFix(name));
+                          ProblemHighlightType.WEAK_WARNING, null, new PyRenameElementQuickFix(problemElement), new PyIgnoreBuiltinQuickFix(name));
         }
       }
     }
@@ -128,6 +128,11 @@ public class PyShadowingBuiltinsInspection extends PyInspection {
         return getFamilyName() + " \"" + myName + "\"";
       }
 
+      @Override
+      public boolean startInWriteAction() {
+        return false;
+      }
+
       @NotNull
       @Override
       public String getFamilyName() {
@@ -138,10 +143,9 @@ public class PyShadowingBuiltinsInspection extends PyInspection {
       public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
         final PsiElement element = descriptor.getPsiElement();
         if (element != null) {
-          final InspectionProfile profile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
-          profile.modifyProfile(model -> {
+          InspectionProfileModifiableModelKt.modifyAndCommitProjectProfile(project, it -> {
             final String toolName = PyShadowingBuiltinsInspection.class.getSimpleName();
-            final PyShadowingBuiltinsInspection inspection = (PyShadowingBuiltinsInspection)model.getUnwrappedTool(toolName, element);
+            final PyShadowingBuiltinsInspection inspection = (PyShadowingBuiltinsInspection)it.getUnwrappedTool(toolName, element);
             if (inspection != null) {
               if (!inspection.ignoredNames.contains(myName)) {
                 inspection.ignoredNames.add(myName);

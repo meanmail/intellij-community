@@ -14,36 +14,29 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Jan 26, 2002
- * Time: 10:48:06 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow.instructions;
 
-import com.intellij.codeInspection.dataFlow.*;
+import com.intellij.codeInspection.dataFlow.DataFlowRunner;
+import com.intellij.codeInspection.dataFlow.DfaInstructionState;
+import com.intellij.codeInspection.dataFlow.DfaMemoryState;
+import com.intellij.codeInspection.dataFlow.InstructionVisitor;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
+import org.jetbrains.annotations.NotNull;
 
+/**
+ * Flush single variable
+ */
 public class FlushVariableInstruction extends Instruction {
-  private final DfaVariableValue myVariable;
-  private final boolean myDependentsOnly;
+  private final @NotNull DfaVariableValue myVariable;
 
-  public FlushVariableInstruction(DfaVariableValue expr) {
-    this(expr, false);
-  }
-
-  public FlushVariableInstruction(DfaVariableValue variable, boolean dependentsOnly) {
+  /**
+   * @param variable variable to flush
+   */
+  public FlushVariableInstruction(@NotNull DfaVariableValue variable) {
     myVariable = variable;
-    myDependentsOnly = dependentsOnly;
   }
 
-  public boolean isDependentsOnly() {
-    return myDependentsOnly;
-  }
-
+  @NotNull
   public DfaVariableValue getVariable() {
     return myVariable;
   }
@@ -54,6 +47,6 @@ public class FlushVariableInstruction extends Instruction {
   }
 
   public String toString() {
-    return "FLUSH " + (myVariable != null ? myVariable.toString() : " all fields");
+    return "FLUSH " + myVariable.toString();
   }
 }

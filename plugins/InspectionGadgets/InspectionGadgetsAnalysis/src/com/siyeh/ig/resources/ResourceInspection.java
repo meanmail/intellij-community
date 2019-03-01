@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2016 Bas Leijdekkers
+ * Copyright 2008-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,7 @@
  */
 package com.siyeh.ig.resources;
 
+import com.intellij.codeInspection.dataFlow.JavaMethodContractUtil;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.WriteExternalException;
@@ -27,6 +28,7 @@ import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.ControlFlowUtils;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jdom.Element;
@@ -126,12 +128,13 @@ public abstract class ResourceInspection extends BaseInspection {
       }
       return (PsiVariable)referent;
     }
-    else if (parent instanceof PsiVariable) {
+    if (parent instanceof PsiVariable) {
       return (PsiVariable)parent;
     }
-    else {
-      return null;
+    if (parent instanceof PsiConditionalExpression) {
+      return getVariable((PsiExpression)parent);
     }
+    return null;
   }
 
   private static PsiElement getParent(PsiExpression expression) {
@@ -319,10 +322,7 @@ public abstract class ResourceInspection extends BaseInspection {
         }
       }
     }
-    PsiElement parent = ParenthesesUtils.getParentSkipParentheses(resourceCreationExpression);
-    if (parent instanceof PsiConditionalExpression) {
-      parent = ParenthesesUtils.getParentSkipParentheses(parent);
-    }
+    final PsiElement parent = ExpressionUtils.getPassThroughParent(resourceCreationExpression);
     if (parent instanceof PsiReturnStatement) {
       return true;
     }
@@ -442,12 +442,15 @@ public abstract class ResourceInspection extends BaseInspection {
     private final PsiVariable boundVariable;
     private boolean escaped;
 
-    public EscapeVisitor(@NotNull PsiVariable boundVariable) {
+    EscapeVisitor(@NotNull PsiVariable boundVariable) {
       this.boundVariable = boundVariable;
     }
 
     @Override
-    public void visitAnonymousClass(PsiAnonymousClass aClass) {}
+    public void visitLambdaExpression(PsiLambdaExpression expression) {}
+
+    @Override
+    public void visitClass(PsiClass aClass) {}
 
     @Override
     public void visitElement(PsiElement element) {
@@ -504,14 +507,16 @@ public abstract class ResourceInspection extends BaseInspection {
         return;
       }
       final PsiExpression[] expressions = argumentList.getExpressions();
-      for (PsiExpression expression : expressions) {
-        final PsiExpression expression1 = PsiUtil.deparenthesizeExpression(expression);
-        if (!(expression1 instanceof PsiReferenceExpression)) {
+      for (PsiExpression argument : expressions) {
+        final PsiExpression maybeReferenceExpression = PsiUtil.deparenthesizeExpression(argument);
+        if (!(maybeReferenceExpression instanceof PsiReferenceExpression)) {
           continue;
         }
-        final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)expression1;
-        final PsiElement target = referenceExpression.resolve();
-        if (boundVariable.equals(target)) {
+        if (ExpressionUtils.isReferenceTo(maybeReferenceExpression, boundVariable)) {
+          if (callExpression instanceof PsiMethodCallExpression) {
+            PsiExpression returnedValue = JavaMethodContractUtil.findReturnedValue((PsiMethodCallExpression)callExpression);
+            if (returnedValue != null && returnedValue == maybeReferenceExpression) return;
+          }
           escaped = true;
           break;
         }

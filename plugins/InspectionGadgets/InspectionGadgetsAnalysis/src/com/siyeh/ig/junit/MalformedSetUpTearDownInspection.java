@@ -15,7 +15,10 @@
  */
 package com.siyeh.ig.junit;
 
-import com.intellij.psi.*;
+import com.intellij.psi.PsiClass;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiType;
 import com.intellij.psi.util.InheritanceUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -56,10 +59,10 @@ public class MalformedSetUpTearDownInspection extends BaseInspection {
         return;
       }
       final PsiClass targetClass = method.getContainingClass();
-      if (!InheritanceUtil.isInheritor(targetClass, "junit.framework.TestCase")) {
+      if (!InheritanceUtil.isInheritor(targetClass, JUnitCommonClassNames.JUNIT_FRAMEWORK_TEST_CASE)) {
         return;
       }
-      if (method.getParameterList().getParametersCount() != 0 ||
+      if (!method.getParameterList().isEmpty() ||
           !PsiType.VOID.equals(method.getReturnType()) ||
           !method.hasModifierProperty(PsiModifier.PUBLIC) &&
           !method.hasModifierProperty(PsiModifier.PROTECTED)) {

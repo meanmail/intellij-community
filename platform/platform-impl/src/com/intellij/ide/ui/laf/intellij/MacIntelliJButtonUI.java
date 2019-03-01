@@ -1,39 +1,22 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.intellij;
 
-import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.laf.darcula.ui.DarculaButtonUI;
 import com.intellij.ui.Gray;
-import sun.swing.SwingUtilities2;
+import com.intellij.util.ui.*;
 
 import javax.swing.*;
 import javax.swing.plaf.ComponentUI;
-import javax.swing.plaf.basic.BasicHTML;
-import javax.swing.text.View;
 import java.awt.*;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
+
+import static com.intellij.ide.ui.laf.intellij.MacIntelliJTextBorder.*;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class MacIntelliJButtonUI extends DarculaButtonUI {
-  private static Rectangle viewRect = new Rectangle();
-  private static Rectangle textRect = new Rectangle();
-  private static Rectangle iconRect = new Rectangle();
-
   @SuppressWarnings({"MethodOverridesStaticMethodOfSuperclass", "UnusedDeclaration"})
   public static ComponentUI createUI(JComponent c) {
     return new MacIntelliJButtonUI();
@@ -41,124 +24,102 @@ public class MacIntelliJButtonUI extends DarculaButtonUI {
 
   @Override
   public void paint(Graphics g, JComponent c) {
-    if (!(c.getBorder() instanceof MacIntelliJButtonBorder) && !isComboButton(c)) {
+    if (!(c.getBorder() instanceof MacIntelliJButtonBorder)) {
       super.paint(g, c);
       return;
     }
     int w = c.getWidth();
     int h = c.getHeight();
-    if (isHelpButton(c)) {
-      Icon icon = MacIntelliJIconCache.getIcon("helpButton", false, c.hasFocus());
+    if (UIUtil.isHelpButton(c)) {
+      Icon icon = LafIconLookup.getIcon("help", false, c.hasFocus(), true);
       int x = (w - icon.getIconWidth()) / 2;
       int y = (h - icon.getIconHeight()) / 2;
       icon.paintIcon(c, g, x, y);
     } else {
       AbstractButton b = (AbstractButton) c;
-      String text = layout(b, SwingUtilities2.getFontMetrics(b, g),
-                           b.getWidth(), b.getHeight());
+      Graphics2D g2 = (Graphics2D)g.create();
+      try {
+        g2.translate(0, 0);
+        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, MacUIUtil.USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
 
-      boolean isFocused = c.hasFocus();
-      if (isSquare(c)) {
-        Icon icon = MacIntelliJIconCache.getIcon("browseButton");
-        int x = (c.getWidth() - icon.getIconWidth()) / 2;
-        int y = (c.getHeight() - icon.getIconHeight()) / 2;
-        icon.paintIcon(c, g, x, y);
-        return;
-      } else {
-        int x = isFocused ? 0 : 2;
-        int y = isFocused ? 0 : (h - viewRect.height) / 2;
-        Icon icon;
-        icon = getLeftIcon(b);
-        icon.paintIcon(b, g, x, y);
-        x += icon.getIconWidth();
-        int stop = w - (isFocused ? 0 : 2) - (getRightIcon(b).getIconWidth());
-        Graphics gg = g.create(0, 0, w, h);
-        gg.setClip(x, y, stop - x, h);
-        icon = getMiddleIcon(b);
-        while (x < stop) {
-          icon.paintIcon(b, gg, x, y);
-          x += icon.getIconWidth();
-        }
-        gg.dispose();
-        icon = getRightIcon(b);
-        icon.paintIcon(b, g, stop, y);
+        float lw = LW(g2);
+        float arc = ARC.getFloat();
+        Insets i = isSmallComboButton(c) ? JBUI.insets(1) : c.getInsets();
 
-        clearTextShiftOffset();
-      }
+        // Draw background
+        Shape outerRect = new RoundRectangle2D.Float(i.left, i.top, w - (i.left + i.right), h - (i.top + i.bottom), arc, arc);
+        g2.setPaint(getBackgroundPaint(c));
+        g2.fill(outerRect);
 
-      // Paint the Icon
-      if(b.getIcon() != null) {
-        paintIcon(g,c,iconRect);
-      }
+        // Draw  outline
+        Path2D outline = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+        outline.append(outerRect, false);
+        outline.append(new RoundRectangle2D.Float(i.left + lw, i.top + lw,
+                                                   w - lw*2 - (i.left + i.right),
+                                                   h - lw*2 - (i.top + i.bottom),
+                                                   arc - lw, arc - lw), false);
+        g2.setPaint(getBorderPaint(c));
+        g2.fill(outline);
 
-      if (text != null && !text.isEmpty()){
-        View v = (View) c.getClientProperty(BasicHTML.propertyKey);
-        if (v != null) {
-          v.paint(g, textRect);
-        } else {
-          UISettings.setupAntialiasing(g);
-          paintText(g, b, textRect, text);
-        }
+        paintContents(g2, b);
+      } finally {
+        g2.dispose();
       }
     }
   }
 
-  protected static boolean isComboButton(JComponent c) {
-    return c instanceof AbstractButton && c.getClientProperty("styleCombo") == Boolean.TRUE;
-  }
-
-  private static Icon getLeftIcon(AbstractButton button) {
-    return getIcon("Left", button);
-  }
-
-  private static Icon getMiddleIcon(AbstractButton button) {
-    return getIcon("Middle", button);
-  }
-
-  private static Icon getRightIcon(AbstractButton button) {
-    return getIcon("Right", button);
-  }
-
-  private static Icon getIcon(String suffix, AbstractButton button) {
-    boolean isDefault = isDefaultButton(button);
-    boolean isFocused = button.hasFocus();
-    boolean combo = isComboButton(button);
-    String comboPrefix = combo ? "Combo" : "";
-    String iconName = "button" + comboPrefix + suffix;
-    return MacIntelliJIconCache.getIcon(iconName, isDefault, isFocused && !combo);
-  }
-
-  private String layout(AbstractButton b, FontMetrics fm,
-                        int width, int height) {
+  @SuppressWarnings("UseJBColor")
+  private static Paint getBackgroundPaint(JComponent b) {
+    int h = b.getHeight();
     Insets i = b.getInsets();
-    viewRect.x = i.left;
-    viewRect.y = i.top;
-    viewRect.width = width - (i.right + viewRect.x);
-    viewRect.height = height - (i.bottom + viewRect.y);
 
-    textRect.x = textRect.y = textRect.width = textRect.height = 0;
-    iconRect.x = iconRect.y = iconRect.width = iconRect.height = 0;
-
-    if (isComboButton(b)) {
-      viewRect.x += 6;
+    if (!b.isEnabled()) {
+      return Gray.xF1;
+    } else if (isDefaultButton(b)) {
+      return UIUtil.isGraphite() ?
+          new GradientPaint(0, i.top, new Color(0xb2b2b7), 0, h - (i.top + i.bottom), new Color(0x929297)) :
+          new GradientPaint(0, i.top, new Color(0x68b2fa), 0, b.getHeight() - (i.top + i.bottom), new Color(0x0e80ff));
+    } else {
+      Color backgroundColor = (Color)b.getClientProperty("JButton.backgroundColor");
+      return backgroundColor != null ? backgroundColor : Gray.xFF;
     }
+  }
 
-    // layout the text and icon
-    return SwingUtilities.layoutCompoundLabel(
-      b, fm, b.getText(), b.getIcon(),
-      b.getVerticalAlignment(), b.getHorizontalAlignment(),
-      b.getVerticalTextPosition(), b.getHorizontalTextPosition(),
-      viewRect, iconRect, textRect,
-      b.getText() == null ? 0 : b.getIconTextGap());
+  @SuppressWarnings("UseJBColor")
+  public static Paint getBorderPaint(JComponent b) {
+    int h = b.getHeight();
+    Insets i = b.getBorder().getBorderInsets(b);
+
+    if (!b.isEnabled()) {
+      return new GradientPaint(0, i.top, Gray.xD2, 0, h - (i.top + i.bottom), Gray.xC3);
+    } else if (isDefaultButton(b)) {
+      return UIUtil.isGraphite() ?
+          new GradientPaint(0, i.top, new Color(0xa5a5ab), 0, h - (i.top + i.bottom), new Color(0x7d7d83)) :
+          new GradientPaint(0, i.top, new Color(0x4ba0f8), 0, h - (i.top + i.bottom), new Color(0x095eff));
+    } else {
+      Color borderColor = (Color)b.getClientProperty("JButton.borderColor");
+      return borderColor != null ? borderColor : new GradientPaint(0, i.top, Gray.xC9, 0, h - (i.top + i.bottom), Gray.xAC);
+    }
   }
 
   @Override
-  public Dimension getPreferredSize(JComponent c) {
-    Dimension size = super.getPreferredSize(c);
-    if (c.getBorder() instanceof MacIntelliJButtonBorder || isComboButton(c)) {
-      return new Dimension(size.width + (isComboButton(c) ? 8 : 16), 27);
+  protected Dimension getDarculaButtonSize(JComponent c, Dimension prefSize) {
+    if (UIUtil.isHelpButton(c)) {
+      Icon icon = LafIconLookup.getIcon("help");
+      return new Dimension(icon.getIconWidth(), icon.getIconHeight());
+    } else {
+      Insets i = c.getInsets();
+      return new Dimension(getComboAction(c) != null ?
+                           prefSize.width:
+                           Math.max(HORIZONTAL_PADDING.get() * 2 + prefSize.width, MINIMUM_BUTTON_WIDTH.get() + i.left + i.right),
+                           Math.max(prefSize.height, getMinimumHeight() + i.top + i.bottom));
     }
-    return size;
+  }
+
+  @Override
+  protected int getMinimumHeight() {
+    return MINIMUM_HEIGHT.get();
   }
 
   @Override
@@ -170,6 +131,6 @@ public class MacIntelliJButtonUI extends DarculaButtonUI {
     } else {
       g.setColor(UIManager.getColor("Button.disabledText"));
     }
-    SwingUtilities2.drawStringUnderlineCharAt(c, g, text, -1, x, y);
+    UIUtilities.drawStringUnderlineCharAt(c, g, text, -1, x, y);
   }
 }

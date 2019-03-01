@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.problems;
 
@@ -20,9 +6,8 @@ import com.intellij.codeInsight.daemon.impl.*;
 import com.intellij.codeInsight.daemon.impl.analysis.HighlightInfoHolder;
 import com.intellij.lang.annotation.HighlightSeverity;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -33,15 +18,25 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Condition;
+import com.intellij.openapi.util.ProperTextRange;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vcs.FileStatusListener;
 import com.intellij.openapi.vcs.FileStatusManager;
-import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.VfsUtilCore;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.newvfs.BulkFileListener;
+import com.intellij.openapi.vfs.newvfs.events.VFileDeleteEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent;
 import com.intellij.problems.Problem;
 import com.intellij.problems.WolfTheProblemSolver;
 import com.intellij.psi.*;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.messages.MessageBus;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
 import org.jetbrains.annotations.NotNull;
@@ -56,34 +51,12 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
   private final Map<VirtualFile, ProblemFileInfo> myProblems = new THashMap<>(); // guarded by myProblems
+  private final Map<VirtualFile, Set<Object>> myProblemsFromExternalSources = new THashMap<>(); // guarded by myProblemsFromExternalSources
   private final Collection<VirtualFile> myCheckingQueue = new THashSet<>(10);
 
   private final Project myProject;
-  private final List<ProblemListener> myProblemListeners = ContainerUtil.createLockFreeCopyOnWriteList();
   private final List<Condition<VirtualFile>> myFilters = ContainerUtil.createLockFreeCopyOnWriteList();
-  private boolean myFiltersLoaded = false;
-  private final ProblemListener fireProblemListeners = new ProblemListener() {
-    @Override
-    public void problemsAppeared(@NotNull VirtualFile file) {
-      for (final ProblemListener problemListener : myProblemListeners) {
-        problemListener.problemsAppeared(file);
-      }
-    }
-
-    @Override
-    public void problemsChanged(@NotNull VirtualFile file) {
-      for (final ProblemListener problemListener : myProblemListeners) {
-        problemListener.problemsChanged(file);
-      }
-    }
-
-    @Override
-    public void problemsDisappeared(@NotNull VirtualFile file) {
-      for (final ProblemListener problemListener : myProblemListeners) {
-        problemListener.problemsDisappeared(file);
-      }
-    }
-  };
+  private boolean myFiltersLoaded;
 
   private void doRemove(@NotNull VirtualFile problemFile) {
     ProblemFileInfo old;
@@ -95,7 +68,12 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
     }
     if (old != null) {
       // firing outside lock
-      fireProblemListeners.problemsDisappeared(problemFile);
+      if (hasProblemsFromExternalSources(problemFile)) {
+        fireProblemsChanged(problemFile);
+      }
+      else {
+        fireProblemsDisappeared(problemFile);
+      }
     }
   }
 
@@ -103,6 +81,7 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
     private final Collection<Problem> problems = new THashSet<>();
     private boolean hasSyntaxErrors;
 
+    @Override
     public boolean equals(@Nullable final Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
@@ -112,6 +91,7 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
       return hasSyntaxErrors == that.hasSyntaxErrors && problems.equals(that.problems);
     }
 
+    @Override
     public int hashCode() {
       int result = problems.hashCode();
       result = 31 * result + (hasSyntaxErrors ? 1 : 0);
@@ -119,9 +99,9 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
     }
   }
 
-  public WolfTheProblemSolverImpl(@NotNull Project project,
-                                  @NotNull PsiManager psiManager,
-                                  @NotNull VirtualFileManager virtualFileManager) {
+  WolfTheProblemSolverImpl(@NotNull Project project,
+                           @NotNull PsiManager psiManager,
+                           @NotNull MessageBus messageBus) {
     myProject = project;
     PsiTreeChangeListener changeListener = new PsiTreeChangeAdapter() {
       @Override
@@ -155,27 +135,30 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
       }
     };
     psiManager.addPsiTreeChangeListener(changeListener);
-    VirtualFileListener virtualFileListener = new VirtualFileAdapter() {
+    messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
-      public void fileDeleted(@NotNull final VirtualFileEvent event) {
-        onDeleted(event.getFile());
-      }
-
-      @Override
-      public void fileMoved(@NotNull final VirtualFileMoveEvent event) {
-        onDeleted(event.getFile());
-      }
-
-      private void onDeleted(@NotNull final VirtualFile file) {
-        if (file.isDirectory()) {
+      public void after(@NotNull List<? extends VFileEvent> events) {
+        boolean dirChanged = false;
+        Set<VirtualFile> toRemove = new THashSet<>();
+        for (VFileEvent event : events) {
+          if (event instanceof VFileDeleteEvent || event instanceof VFileMoveEvent) {
+            VirtualFile file = event.getFile();
+            if (file.isDirectory()) {
+              dirChanged = true;
+            }
+            else {
+              toRemove.add(file);
+            }
+          }
+        }
+        if (dirChanged) {
           clearInvalidFiles();
         }
-        else {
+        for (VirtualFile file : toRemove) {
           doRemove(file);
         }
       }
-    };
-    virtualFileManager.addVirtualFileListener(virtualFileListener, myProject);
+    });
     FileStatusManager fileStatusManager = FileStatusManager.getInstance(myProject);
     if (fileStatusManager != null) { //tests?
       fileStatusManager.addFileStatusListener(new FileStatusListener() {
@@ -193,9 +176,14 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
   }
 
   private void clearInvalidFiles() {
+    clearInvalidFilesFrom(myProblems);
+    clearInvalidFilesFrom(myProblemsFromExternalSources);
+  }
+
+  private void clearInvalidFilesFrom(Map<VirtualFile, ?> problems) {
     VirtualFile[] files;
-    synchronized (myProblems) {
-      files = VfsUtilCore.toVirtualFileArray(myProblems.keySet());
+    synchronized (problems) {
+      files = VfsUtilCore.toVirtualFileArray(problems.keySet());
     }
     for (VirtualFile problemFile : files) {
       if (!problemFile.isValid() || !isToBeHighlighted(problemFile)) {
@@ -316,9 +304,15 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
   @Override
   public boolean hasProblemFilesBeneath(@NotNull Condition<VirtualFile> condition) {
     if (!myProject.isOpen()) return false;
-    synchronized (myProblems) {
-      if (!myProblems.isEmpty()) {
-        for (VirtualFile problemFile : myProblems.keySet()) {
+    return checkProblemFilesInMap(condition, myProblems) ||
+           checkProblemFilesInMap(condition, myProblemsFromExternalSources);
+  }
+
+  private static boolean checkProblemFilesInMap(@NotNull Condition<VirtualFile> condition,
+                                                Map<VirtualFile, ?> map) {
+    synchronized (map) {
+      if (!map.isEmpty()) {
+        for (VirtualFile problemFile : map.keySet()) {
           if (problemFile.isValid() && condition.value(problemFile)) return true;
         }
       }
@@ -332,35 +326,8 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
   }
 
   @Override
-  public void addProblemListener(@NotNull ProblemListener listener) {
-    myProblemListeners.add(listener);
-  }
-
-  @Override
-  public void addProblemListener(@NotNull final ProblemListener listener, @NotNull Disposable parentDisposable) {
-    addProblemListener(listener);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        removeProblemListener(listener);
-      }
-    });
-  }
-
-  @Override
-  public void removeProblemListener(@NotNull ProblemListener listener) {
-    myProblemListeners.remove(listener);
-  }
-
-  @Override
-  public void registerFileHighlightFilter(@NotNull final Condition<VirtualFile> filter, @NotNull Disposable parentDisposable) {
-    myFilters.add(filter);
-    Disposer.register(parentDisposable, new Disposable() {
-      @Override
-      public void dispose() {
-        myFilters.remove(filter);
-      }
-    });
+  public void addProblemListener(@NotNull WolfTheProblemSolver.ProblemListener listener, @NotNull Disposable parentDisposable) {
+    myProject.getMessageBus().connect(parentDisposable).subscribe(com.intellij.problems.ProblemListener.TOPIC, listener);
   }
 
   @Override
@@ -377,9 +344,21 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
 
   @Override
   public boolean isProblemFile(VirtualFile virtualFile) {
+    return hasRegularProblems(virtualFile) || hasProblemsFromExternalSources(virtualFile);
+  }
+
+  private boolean hasRegularProblems(VirtualFile virtualFile) {
     synchronized (myProblems) {
-      return myProblems.containsKey(virtualFile);
+      if (myProblems.containsKey(virtualFile)) return true;
     }
+    return false;
+  }
+
+  private boolean hasProblemsFromExternalSources(VirtualFile virtualFile) {
+    synchronized (myProblemsFromExternalSources) {
+      if (myProblemsFromExternalSources.containsKey(virtualFile)) return true;
+    }
+    return false;
   }
 
   private boolean isToBeHighlighted(@Nullable VirtualFile virtualFile) {
@@ -388,7 +367,7 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
     synchronized (myFilters) {
       if (!myFiltersLoaded) {
         myFiltersLoaded = true;
-        myFilters.addAll(Arrays.asList(Extensions.getExtensions(FILTER_EP_NAME, myProject)));
+        myFilters.addAll(Arrays.asList(FILTER_EP_NAME.getExtensions(myProject)));
       }
     }
     for (final Condition<VirtualFile> filter : myFilters) {
@@ -424,8 +403,25 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
     }
     doQueue(virtualFile);
     if (fireListener) {
-      fireProblemListeners.problemsAppeared(virtualFile);
+      if (hasProblemsFromExternalSources(virtualFile)) {
+        fireProblemsChanged(virtualFile);
+      }
+      else {
+        fireProblemsAppeared(virtualFile);
+      }
     }
+  }
+
+  private void fireProblemsAppeared(@NotNull VirtualFile file) {
+    myProject.getMessageBus().syncPublisher(com.intellij.problems.ProblemListener.TOPIC).problemsAppeared(file);
+  }
+
+  private void fireProblemsChanged(@NotNull VirtualFile virtualFile) {
+    myProject.getMessageBus().syncPublisher(com.intellij.problems.ProblemListener.TOPIC).problemsChanged(virtualFile);
+  }
+
+  private void fireProblemsDisappeared(@NotNull VirtualFile problemFile) {
+    myProject.getMessageBus().syncPublisher(com.intellij.problems.ProblemListener.TOPIC).problemsDisappeared(problemFile);
   }
 
   @Override
@@ -439,7 +435,7 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
                                   final int column,
                                   @NotNull final String[] message) {
     if (virtualFile == null || virtualFile.isDirectory() || virtualFile.getFileType().isBinary()) return null;
-    HighlightInfo info = ApplicationManager.getApplication().runReadAction((Computable<HighlightInfo>)() -> {
+    HighlightInfo info = ReadAction.compute(() -> {
       TextRange textRange = getTextRange(virtualFile, line, column);
       String description = StringUtil.join(message, "\n");
       return HighlightInfo.newHighlightInfo(HighlightInfoType.ERROR).range(textRange).descriptionAndTooltip(description).create();
@@ -469,11 +465,65 @@ public class WolfTheProblemSolverImpl extends WolfTheProblemSolver {
       fireChanged = hasProblemsBefore && !oldInfo.equals(newInfo);
     }
     doQueue(file);
-    if (!hasProblemsBefore) {
-      fireProblemListeners.problemsAppeared(file);
+    boolean hasExternal = hasProblemsFromExternalSources(file);
+    if (!hasProblemsBefore && !hasExternal) {
+      fireProblemsAppeared(file);
     }
-    else if (fireChanged) {
-      fireProblemListeners.problemsChanged(file);
+    else if (fireChanged || hasExternal) {
+      fireProblemsChanged(file);
+    }
+  }
+
+  @Override
+  public void reportProblemsFromExternalSource(@NotNull VirtualFile file, @NotNull Object source) {
+    if (!isToBeHighlighted(file)) return;
+
+    boolean isNewFileForExternalSource;
+    synchronized (myProblemsFromExternalSources) {
+      if (myProblemsFromExternalSources.containsKey(file)) {
+        isNewFileForExternalSource = false;
+        myProblemsFromExternalSources.get(file).add(source);
+      }
+      else {
+        myProblemsFromExternalSources.put(file, ContainerUtil.newHashSet(source));
+        isNewFileForExternalSource = true;
+      }
+    }
+
+    boolean hasRegularProblems;
+    synchronized (myProblems) {
+      hasRegularProblems = myProblems.containsKey(file);
+    }
+
+    if (isNewFileForExternalSource && !hasRegularProblems(file)) {
+      fireProblemsAppeared(file);
+    }
+    else {
+      fireProblemsChanged(file);
+    }
+  }
+
+
+  @Override
+  public void clearProblemsFromExternalSource(@NotNull VirtualFile file, @NotNull Object source) {
+    boolean isLastExternalSource = false;
+    synchronized (myProblemsFromExternalSources) {
+      Set<Object> sources = myProblemsFromExternalSources.get(file);
+      if (sources == null) return;
+
+      sources.remove(source);
+      if (sources.isEmpty()) {
+        isLastExternalSource = true;
+        myProblemsFromExternalSources.remove(file);
+      }
+    }
+
+
+    if (isLastExternalSource && !hasRegularProblems(file)) {
+      fireProblemsDisappeared(file);
+    }
+    else {
+      fireProblemsChanged(file);
     }
   }
 

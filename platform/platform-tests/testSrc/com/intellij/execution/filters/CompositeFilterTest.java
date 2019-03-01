@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,9 @@
 package com.intellij.execution.filters;
 
 import com.intellij.mock.MockDumbService;
-import org.junit.Assert;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -28,13 +29,13 @@ public class CompositeFilterTest {
   protected CompositeFilter myCompositeFilter;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     myCompositeFilter = new CompositeFilter(new MockDumbService(null));
     myCompositeFilter.setForceUseAllFilters(false);
   }
 
   @Test
-  public void testApplyNextFilter() throws Exception {
+  public void testApplyNextFilter() {
     Assert.assertNull(applyFilter());
 
     myCompositeFilter.addFilter(returnNullFilter());
@@ -62,7 +63,7 @@ public class CompositeFilterTest {
   }
 
   @Test
-  public void testApplyBadFilter() throws Exception {
+  public void testApplyBadFilter() {
     myCompositeFilter.addFilter(throwSOEFilter());
     try {
       Assert.assertNull(applyFilter());
@@ -92,7 +93,7 @@ public class CompositeFilterTest {
     return new Filter() {
       @Nullable
       @Override
-      public Result applyFilter(String line, int entireLength) {
+      public Result applyFilter(@NotNull String line, int entireLength) {
         return applyFilter(line, entireLength);
       }
     };
@@ -102,7 +103,7 @@ public class CompositeFilterTest {
     return new Filter() {
       @Nullable
       @Override
-      public Result applyFilter(String line, int entireLength) {
+      public Result applyFilter(@NotNull String line, int entireLength) {
         return null;
       }
     };
@@ -112,7 +113,7 @@ public class CompositeFilterTest {
     return new Filter() {
       @Nullable
       @Override
-      public Result applyFilter(String line, int entireLength) {
+      public Result applyFilter(@NotNull String line, int entireLength) {
         return createResult();
       }
     };
@@ -122,7 +123,7 @@ public class CompositeFilterTest {
     return new Filter() {
       @Nullable
       @Override
-      public Result applyFilter(String line, int entireLength) {
+      public Result applyFilter(@NotNull String line, int entireLength) {
         Result result = createResult();
         result.setNextAction(NextAction.CONTINUE_FILTERING);
         return result;

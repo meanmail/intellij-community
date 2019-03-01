@@ -27,7 +27,6 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFrame;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.ImageLoader;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.JBUI;
@@ -38,7 +37,9 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
-import java.awt.image.VolatileImage;
+import java.awt.geom.Point2D;
+import java.awt.geom.Rectangle2D;
+import java.awt.image.*;
 import java.io.File;
 import java.net.URL;
 import java.util.Iterator;
@@ -46,6 +47,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
+import static com.intellij.openapi.wm.impl.IdeBackgroundUtil.Anchor.*;
+import static com.intellij.openapi.wm.impl.IdeBackgroundUtil.Fill.SCALE;
+import static com.intellij.openapi.wm.impl.IdeBackgroundUtil.Fill.TILE;
 import static com.intellij.openapi.wm.impl.IdeBackgroundUtil.getBackgroundSpec;
 
 final class PaintersHelper implements Painter.Listener {
@@ -56,7 +60,7 @@ final class PaintersHelper implements Painter.Listener {
 
   private final JComponent myRootComponent;
 
-  public PaintersHelper(@NotNull JComponent component) {
+  PaintersHelper(@NotNull JComponent component) {
     myRootComponent = component;
   }
 
@@ -95,36 +99,31 @@ final class PaintersHelper implements Painter.Listener {
     runAllPainters(g, computeOffsets(g, myRootComponent));
   }
 
-  void runAllPainters(Graphics gg, int[] offsets) {
-    if (myPainters.isEmpty()) return;
+  void runAllPainters(Graphics gg, @Nullable Offsets offsets) {
+    if (myPainters.isEmpty() || offsets == null) return;
     Graphics2D g = (Graphics2D)gg;
     AffineTransform orig = g.getTransform();
     int i = 0;
-    // restore transform at the time of computeOffset()
-    AffineTransform t = new AffineTransform();
-    t.translate(offsets[i++], offsets[i++]);
-
     for (Painter painter : myPainters) {
       if (!painter.needsRepaint()) continue;
       Component cur = myPainter2Component.get(painter);
-
-      g.setTransform(t);
-      g.translate(offsets[i++], offsets[i++]);
+      // restore transform at the time of computeOffset()
+      g.setTransform(offsets.transform);
+      g.translate(offsets.offsets[i++], offsets.offsets[i++]);
       painter.paint(cur, g);
     }
     g.setTransform(orig);
   }
 
-  @NotNull
-  int[] computeOffsets(Graphics gg, @NotNull JComponent component) {
-    if (myPainters.isEmpty()) return ArrayUtil.EMPTY_INT_ARRAY;
+  @Nullable
+  Offsets computeOffsets(Graphics gg, @NotNull JComponent component) {
+    if (myPainters.isEmpty()) return null;
+    Offsets offsets = new Offsets();
     int i = 0;
-    int[] offsets = new int[2 + myPainters.size() * 2];
+    offsets.offsets = new int[myPainters.size() * 2];
     // store current graphics transform
     Graphics2D g = (Graphics2D)gg;
-    AffineTransform transform = g.getTransform();
-    offsets[i++] = (int)transform.getTranslateX();
-    offsets[i++] = (int)transform.getTranslateY();
+    offsets.transform = new AffineTransform(g.getTransform());
     // calculate relative offsets for painters
     Rectangle r = null;
     Component prev = null;
@@ -138,14 +137,20 @@ final class PaintersHelper implements Painter.Listener {
         r = SwingUtilities.convertRectangle(curParent, cur.getBounds(), component);
         prev = cur;
       }
-      offsets[i++] = r.x;
-      offsets[i++] = r.y;
+      // component offsets don't include graphics scale, so compensate
+      offsets.offsets[i++] = r.x;
+      offsets.offsets[i++] = r.y;
     }
     return offsets;
   }
 
+  public static class Offsets {
+    AffineTransform transform;
+    int[] offsets;
+  }
+
   @Override
-  public void onNeedsRepaint(Painter painter, JComponent dirtyComponent) {
+  public void onNeedsRepaint(@NotNull Painter painter, JComponent dirtyComponent) {
     if (dirtyComponent != null && dirtyComponent.isShowing()) {
       Rectangle rec = SwingUtilities.convertRectangle(dirtyComponent, dirtyComponent.getBounds(), myRootComponent);
       myRootComponent.repaint(rec);
@@ -155,28 +160,19 @@ final class PaintersHelper implements Painter.Listener {
     }
   }
 
-  public enum Fill {
-    PLAIN, SCALE, TILE
-  }
-
-  public enum Place {
-    CENTER, TOP_CENTER, BOTTOM_CENTER,
-    TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT
-  }
-
   public static void initWallpaperPainter(@NotNull String propertyName, @NotNull PaintersHelper painters) {
     ImagePainter painter = (ImagePainter)newWallpaperPainter(propertyName, painters.myRootComponent);
     painters.addPainter(painter, null);
   }
 
-  private static AbstractPainter newWallpaperPainter(@NotNull final String propertyName,
-                                                     @NotNull final JComponent rootComponent) {
+  private static AbstractPainter newWallpaperPainter(@NotNull String propertyName,
+                                                     @NotNull JComponent rootComponent) {
     return new ImagePainter() {
       Image image;
       float alpha;
       Insets insets;
-      Fill fillType;
-      Place place;
+      IdeBackgroundUtil.Fill fillType;
+      IdeBackgroundUtil.Anchor anchor;
 
       String current;
 
@@ -188,7 +184,7 @@ final class PaintersHelper implements Painter.Listener {
       @Override
       public void executePaint(Component component, Graphics2D g) {
         if (image == null) return; // covered by needsRepaint()
-        executePaint(g, component, image, fillType, place, alpha, insets);
+        executePaint(g, component, image, fillType, anchor, alpha, insets);
       }
 
       boolean ensureImageLoaded() {
@@ -203,7 +199,7 @@ final class PaintersHelper implements Painter.Listener {
         return image != null;
       }
 
-      private void resetImage(String value, Image newImage, float newAlpha, Fill newFill, Place newPlace) {
+      private void resetImage(String value, Image newImage, float newAlpha, IdeBackgroundUtil.Fill newFill, IdeBackgroundUtil.Anchor newAnchor) {
         if (!Comparing.equal(current, value)) return;
         boolean prevOk = image != null;
         clearImages(-1);
@@ -211,7 +207,7 @@ final class PaintersHelper implements Painter.Listener {
         insets = JBUI.emptyInsets();
         alpha = newAlpha;
         fillType = newFill;
-        place = newPlace;
+        anchor = newAnchor;
         boolean newOk = newImage != null;
         if (prevOk || newOk) {
           ModalityState modalityState = ModalityState.stateForComponent(rootComponent);
@@ -224,14 +220,17 @@ final class PaintersHelper implements Painter.Listener {
         }
       }
 
-      private void loadImageAsync(final String propertyValue) {
+      private void loadImageAsync(@Nullable String propertyValue) {
         String[] parts = (propertyValue != null ? propertyValue : propertyName + ".png").split(",");
-        final float newAlpha = Math.abs(Math.min(StringUtil.parseInt(parts.length > 1 ? parts[1] : "", 10) / 100f, 1f));
-        final Fill newFillType = StringUtil.parseEnum(parts.length > 2 ? parts[2].toUpperCase(Locale.ENGLISH) : "", Fill.SCALE, Fill.class);
-        final Place newPlace = StringUtil.parseEnum(parts.length > 3 ? parts[3].toUpperCase(Locale.ENGLISH) : "", Place.CENTER, Place.class);
+        float newAlpha = Math.abs(Math.min(StringUtil.parseInt(parts.length > 1 ? parts[1] : "", 10) / 100f, 1f));
+        IdeBackgroundUtil.Fill newFillType = StringUtil.parseEnum(parts.length > 2 ? parts[2].toUpperCase(Locale.ENGLISH) : "", SCALE, IdeBackgroundUtil.Fill.class);
+        IdeBackgroundUtil.Anchor newAnchor = StringUtil.parseEnum(parts.length > 3 ? parts[3].toUpperCase(Locale.ENGLISH) : "", CENTER, IdeBackgroundUtil.Anchor.class);
+        String flip = parts.length > 4 ? parts[4] : "none";
+        boolean flipH = "flipHV".equals(flip) || "flipH".equals(flip);
+        boolean flipV = "flipHV".equals(flip) || "flipV".equals(flip);
         String filePath = parts[0];
         if (StringUtil.isEmpty(filePath)) {
-          resetImage(propertyValue, null, newAlpha, newFillType, newPlace);
+          resetImage(propertyValue, null, newAlpha, newFillType, newAnchor);
           return;
         }
         try {
@@ -239,20 +238,25 @@ final class PaintersHelper implements Painter.Listener {
                     (FileUtil.isAbsolutePlatformIndependent(filePath)
                      ? new File(filePath)
                      : new File(PathManager.getConfigPath(), filePath)).toURI().toURL();
+          ModalityState modalityState = ModalityState.stateForComponent(rootComponent);
           ApplicationManager.getApplication().executeOnPooledThread(() -> {
-            final Image m = ImageLoader.loadFromUrl(url);
-            ModalityState modalityState = ModalityState.stateForComponent(rootComponent);
-            ApplicationManager.getApplication().invokeLater(() -> resetImage(propertyValue, m, newAlpha, newFillType, newPlace), modalityState);
+            BufferedImageFilter flipFilter = flipV || flipH ? flipFilter(flipV, flipH) : null;
+            Image m = ImageLoader.loadFromUrl(url, true, true, new ImageFilter[]{flipFilter}, JBUI.ScaleContext.create());
+            ApplicationManager.getApplication().invokeLater(() -> resetImage(propertyValue, m, newAlpha, newFillType, newAnchor), modalityState);
           });
         }
         catch (Exception e) {
-          resetImage(propertyValue, null, newAlpha, newFillType, newPlace);
+          resetImage(propertyValue, null, newAlpha, newFillType, newAnchor);
         }
       }
     };
   }
 
-  public static AbstractPainter newImagePainter(@NotNull final Image image, final Fill fillType, final Place place, final float alpha, final Insets insets) {
+  public static AbstractPainter newImagePainter(@NotNull Image image,
+                                                @NotNull IdeBackgroundUtil.Fill fillType,
+                                                @NotNull IdeBackgroundUtil.Anchor anchor,
+                                                float alpha,
+                                                @NotNull Insets insets) {
     return new ImagePainter() {
       @Override
       public boolean needsRepaint() {
@@ -261,19 +265,21 @@ final class PaintersHelper implements Painter.Listener {
 
       @Override
       public void executePaint(Component component, Graphics2D g) {
-        executePaint(g, component, image, fillType, place, alpha, insets);
+        executePaint(g, component, image, fillType, anchor, alpha, insets);
       }
     };
   }
 
   private static class Cached {
     final VolatileImage image;
-    final Dimension used;
+    final Rectangle src;
+    final Rectangle dst;
     long touched;
 
-    Cached(VolatileImage image, Dimension dim) {
+    Cached(VolatileImage image, Rectangle src, Rectangle dst) {
       this.image = image;
-      used = dim;
+      this.src = src;
+      this.dst = dst;
     }
   }
   
@@ -281,7 +287,13 @@ final class PaintersHelper implements Painter.Listener {
 
     final Map<GraphicsConfiguration, Cached> cachedMap = ContainerUtil.newHashMap();
 
-    public void executePaint(Graphics2D g, Component component, Image image, Fill fillType, Place place, float alpha, Insets insets) {
+    public void executePaint(@NotNull Graphics2D g,
+                             @NotNull Component component,
+                             @NotNull Image image,
+                             @NotNull IdeBackgroundUtil.Fill fillType,
+                             @NotNull IdeBackgroundUtil.Anchor anchor,
+                             float alpha,
+                             @NotNull Insets insets) {
       int cw0 = component.getWidth();
       int ch0 = component.getHeight();
       Insets i = JBUI.insets(insets.top * ch0 / 100, insets.left * cw0 / 100, insets.bottom * ch0 / 100, insets.right * cw0 / 100);
@@ -295,85 +307,111 @@ final class PaintersHelper implements Painter.Listener {
       GraphicsConfiguration cfg = g.getDeviceConfiguration();
       Cached cached = cachedMap.get(cfg);
       VolatileImage scaled = cached == null ? null : cached.image;
-      if (fillType == Fill.SCALE || fillType == Fill.TILE) {
-        int sw, sh;
-        if (fillType == Fill.SCALE) {
-          boolean useWidth = cw * h > ch * w;
-          sw = useWidth ? cw : w * ch / h;
-          sh = useWidth ? h * cw / w : ch;
+      Rectangle src0 = new Rectangle();
+      Rectangle dst0 = new Rectangle();
+      calcSrcDst(src0, dst0, w, h, cw, ch, fillType);
+      alignRect(src0, w, h, anchor);
+      if (fillType == TILE) {
+        alignRect(dst0, cw, ch, anchor);
+      }
+      int sw0 = scaled == null ? -1 : scaled.getWidth(null);
+      int sh0 = scaled == null ? -1 : scaled.getHeight(null);
+      boolean repaint = cached == null || !cached.src.equals(src0) || !cached.dst.equals(dst0);
+      while ((scaled = validateImage(cfg, scaled)) == null || repaint) {
+        int sw = Math.min(cw, dst0.width);
+        int sh = Math.min(ch, dst0.height);
+        if (scaled == null || sw0 < sw || sh0 < sh) {
+          scaled = createImage(cfg, sw, sh);
+          cachedMap.put(cfg, cached = new Cached(scaled, src0, dst0));
         }
         else {
-          sw = cw < w ? w : (cw + w) / w * w;
-          sh = ch < h ? h : (ch + h) / h * h;
+          cached.src.setBounds(src0);
+          cached.dst.setBounds(dst0);
         }
-        int sw0 = scaled == null ? -1 : scaled.getWidth(null);
-        int sh0 = scaled == null ? -1 : scaled.getHeight(null);
-        boolean rescale = cached == null || cached.used.width != sw || cached.used.height != sh;
-        while ((scaled = validateImage(cfg, scaled)) == null || rescale) {
-          if (scaled == null || sw0 < sw || sh0 < sh) {
-            scaled = createImage(cfg, sw + sw / 10, sh + sh / 10); // + 10 percent
-            cachedMap.put(cfg, cached = new Cached(scaled, new Dimension(sw, sh)));
-          }
-          else {
-            cached.used.setSize(sw, sh);
-          }
-          Graphics2D gg = scaled.createGraphics();
-          gg.setComposite(AlphaComposite.Src);
-          if (fillType == Fill.SCALE) {
-            gg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
-                                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            gg.drawImage(image, 0, 0, sw, sh, null);
-          }
-          else {
-            for (int x = 0; x < sw; x += w) {
-              for (int y = 0; y < sh; y += h) {
-                UIUtil.drawImage(gg, image, x, y, null);
-              }
+        Graphics2D gg = scaled.createGraphics();
+        gg.setComposite(AlphaComposite.Src);
+        if (fillType == SCALE) {
+          gg.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                              RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+          UIUtil.drawImage(gg, image, dst0, src0, null);
+        }
+        else if (fillType == TILE) {
+          Rectangle r = new Rectangle(0, 0, 0, 0);
+          for (int x = 0; x < dst0.width; x += w) {
+            for (int y = 0; y < dst0.height; y += h) {
+              r.setBounds(dst0.x + x, dst0.y + y, src0.width, src0.height);
+              UIUtil.drawImage(gg, image, r, src0, null);
             }
           }
-          gg.dispose();
-          rescale = false;
         }
-        w = sw;
-        h = sh;
-      }
-      else {
-        while ((scaled = validateImage(cfg, scaled)) == null) {
-          scaled = createImage(cfg, w, h);
-          cachedMap.put(cfg, cached = new Cached(scaled, new Dimension(w, h)));
-          Graphics2D gg = scaled.createGraphics();
-          gg.setComposite(AlphaComposite.Src);
-          gg.drawImage(image, 0, 0, null);
-          gg.dispose();
+        else {
+          UIUtil.drawImage(gg, image, dst0, src0, null);
         }
+        gg.dispose();
+        repaint = false;
       }
       long currentTime = System.currentTimeMillis();
       cached.touched = currentTime;
       if (cachedMap.size() > 2) {
         clearImages(currentTime);
       }
-
-      int x, y;
-      if (place == Place.CENTER ||
-          place == Place.TOP_CENTER || place == Place.BOTTOM_CENTER) {
-        x = i.left + (cw - w) / 2;
-        y = place == Place.TOP_CENTER ? i.top :
-            place == Place.BOTTOM_CENTER ? ch0 - i.bottom - h :
-            i.top + (ch - h) / 2;
+      Rectangle src = new Rectangle(0, 0, cw, ch);
+      Rectangle dst = new Rectangle(i.left, i.top, cw, ch);
+      if (fillType != TILE) {
+        alignRect(src, dst0.width, dst0.height, anchor);
       }
-      else if (place == Place.TOP_LEFT || place == Place.TOP_RIGHT ||
-               place == Place.BOTTOM_LEFT || place == Place.BOTTOM_RIGHT) {
-        x = place == Place.TOP_LEFT || place == Place.BOTTOM_LEFT ? i.left : cw0 - i.right - w;
-        y = place == Place.TOP_LEFT || place == Place.TOP_RIGHT ? i.top : ch0 - i.bottom - h;
+
+      float adjustedAlpha = Boolean.TRUE.equals(g.getRenderingHint(IdeBackgroundUtil.ADJUST_ALPHA)) ? 0.65f * alpha : alpha;
+      GraphicsConfig gc = new GraphicsConfig(g).setAlpha(adjustedAlpha);
+      UIUtil.drawImage(g, scaled, dst, src, null, null);
+      gc.restore();
+    }
+
+    void calcSrcDst(Rectangle src,
+                    Rectangle dst,
+                    int w,
+                    int h,
+                    int cw,
+                    int ch,
+                    IdeBackgroundUtil.Fill fillType) {
+      if (fillType == SCALE) {
+        boolean useWidth = cw * h > ch * w;
+        int sw = useWidth ? w : cw * h / ch;
+        int sh = useWidth ? ch * w / cw : h;
+
+        src.setBounds(0, 0, sw, sh);
+        dst.setBounds(0, 0, cw, ch);
+      }
+      else if (fillType == TILE) {
+        int dw = cw < w ? w : ((cw / w + 1) / 2 * 2 + 1) * w;
+        int dh = ch < h ? h : ((ch / h + 1) / 2 * 2 + 1) * h;
+        // tile rectangles are not clipped for proper anchor support
+        src.setBounds(0, 0, w, h);
+        dst.setBounds(0, 0, dw, dh);
       }
       else {
-        return;
+        src.setBounds(0, 0, Math.min(w, cw), Math.min(h, ch));
+        dst.setBounds(src);
       }
+    }
 
-      GraphicsConfig gc = new GraphicsConfig(g).setAlpha(alpha);
-      UIUtil.drawImage(g, scaled, x, y, w, h, null);
-
-      gc.restore();
+    void alignRect(Rectangle r, int w, int h, IdeBackgroundUtil.Anchor anchor) {
+      if (anchor == TOP_CENTER ||
+          anchor == CENTER ||
+          anchor == BOTTOM_CENTER) {
+        r.x = (w - r.width) / 2;
+        r.y = anchor == TOP_CENTER ? 0 :
+              anchor == BOTTOM_CENTER ? h - r.height :
+              (h - r.height) / 2;
+      }
+      else {
+        r.x = anchor == TOP_LEFT ||
+              anchor == MIDDLE_LEFT ||
+              anchor == BOTTOM_LEFT ? 0 : w - r.width;
+        r.y = anchor == TOP_LEFT || anchor == TOP_RIGHT ? 0 :
+              anchor == BOTTOM_LEFT || anchor == BOTTOM_RIGHT ? h - r.height :
+              (h - r.height) / 2;
+      }
     }
 
     void clearImages(long currentTime) {
@@ -432,6 +470,31 @@ final class PaintersHelper implements Painter.Listener {
     private static String logPrefix(@Nullable GraphicsConfiguration cfg, @NotNull VolatileImage image) {
       return "(" + (cfg == null ? "null" : cfg.getClass().getSimpleName()) + ") "
              + image.getWidth() + "x" + image.getHeight() + " ";
+    }
+
+    @NotNull
+    static BufferedImageFilter flipFilter(boolean flipV, boolean flipH) {
+      return new BufferedImageFilter(new BufferedImageOp() {
+        @Override
+        public BufferedImage filter(BufferedImage src, BufferedImage dest) {
+          AffineTransform tx = AffineTransform.getScaleInstance(flipH ? -1 : 1, flipV ? -1 : 1);
+          tx.translate(flipH ? -src.getWidth(null) : 0, flipV ? -src.getHeight(null) : 0);
+          AffineTransformOp op = new AffineTransformOp(tx, AffineTransformOp.TYPE_NEAREST_NEIGHBOR);
+          return op.filter(src, dest);
+        }
+
+        @Override
+        public Rectangle2D getBounds2D(BufferedImage src) { return null;}
+
+        @Override
+        public BufferedImage createCompatibleDestImage(BufferedImage src, ColorModel destCM) { return null;}
+
+        @Override
+        public Point2D getPoint2D(Point2D srcPt, Point2D dstPt) { return null;}
+
+        @Override
+        public RenderingHints getRenderingHints() { return null;}
+      });
     }
   }
 }

@@ -67,4 +67,19 @@ public interface PsiCodeBlock extends PsiElement, PsiModifiableCodeBlock {
    */
   @Nullable
   PsiJavaToken getRBrace();
+
+  /**
+   * @return number of statements this code block contains.
+   */
+  default int getStatementCount() {
+    return getStatements().length;
+  }
+
+  /**
+   * @return true if this code block contains no statements. Note that if code block contains
+   * empty statements or empty code blocks inside, this method will return false.
+   */
+  default boolean isEmpty() {
+    return getStatementCount() == 0;
+  }
 }

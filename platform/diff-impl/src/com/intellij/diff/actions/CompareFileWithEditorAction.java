@@ -1,25 +1,12 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.diff.actions;
 
-import com.intellij.diff.DiffRequestFactory;
+import com.intellij.diff.actions.impl.MutableDiffRequestChain;
+import com.intellij.diff.chains.DiffRequestChain;
 import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.DocumentContent;
-import com.intellij.diff.requests.ContentDiffRequest;
-import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.util.DiffUserDataKeys;
 import com.intellij.diff.util.Side;
 import com.intellij.openapi.actionSystem.AnActionEvent;
@@ -27,6 +14,8 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
+import com.intellij.openapi.fileEditor.impl.EditorWindow;
+import com.intellij.openapi.fileEditor.impl.EditorWithProviderComposite;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -68,7 +57,10 @@ public class CompareFileWithEditorAction extends BaseShowDiffAction {
     Project project = e.getProject();
     if (project == null) return null;
 
-    return FileEditorManagerEx.getInstanceEx(project).getCurrentFile();
+    EditorWindow window = FileEditorManagerEx.getInstanceEx(project).getCurrentWindow();
+    if (window == null) return null;
+    EditorWithProviderComposite editor = window.getSelectedEditor(true);
+    return editor == null ? null : editor.getFile();
   }
 
   private static boolean canCompare(@NotNull VirtualFile file1, @NotNull VirtualFile file2) {
@@ -77,24 +69,24 @@ public class CompareFileWithEditorAction extends BaseShowDiffAction {
 
   @Nullable
   @Override
-  protected DiffRequest getDiffRequest(@NotNull AnActionEvent e) {
+  protected DiffRequestChain getDiffRequestChain(@NotNull AnActionEvent e) {
     Project project = e.getProject();
 
     VirtualFile selectedFile = getSelectedFile(e);
     VirtualFile currentFile = getEditingFile(e);
-
     assert selectedFile != null && currentFile != null;
 
-    ContentDiffRequest request = DiffRequestFactory.getInstance().createFromFiles(project, selectedFile, currentFile);
+    MutableDiffRequestChain chain = createMutableChainFromFiles(project, selectedFile, currentFile);
 
-    DiffContent editorContent = request.getContents().get(1);
+    DiffContent editorContent = chain.getContent2();
     if (editorContent instanceof DocumentContent) {
       Editor[] editors = EditorFactory.getInstance().getEditors(((DocumentContent)editorContent).getDocument());
       if (editors.length != 0) {
-        request.putUserData(DiffUserDataKeys.SCROLL_TO_LINE, Pair.create(Side.RIGHT, editors[0].getCaretModel().getLogicalPosition().line));
+        int currentLine = editors[0].getCaretModel().getLogicalPosition().line;
+        chain.putRequestUserData(DiffUserDataKeys.SCROLL_TO_LINE, Pair.create(Side.RIGHT, currentLine));
       }
     }
 
-    return request;
+    return chain;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,7 +27,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.picocontainer.MutablePicoContainer;
 
-import java.io.IOException;
 import java.util.Set;
 
 import static com.intellij.psi.search.GlobalSearchScopesCore.directoryScope;
@@ -56,12 +55,22 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
 
   @Override
   public void tearDown() throws Exception {
-    if (myRealCodeStyleManger != null) registerCodeStyleManager(myRealCodeStyleManger);
-    if (myMockPlainTextFormattingModelBuilder != null) {
-      LanguageFormatting.INSTANCE.removeExplicitExtension(PlainTextLanguage.INSTANCE, myMockPlainTextFormattingModelBuilder);
+    try {
+      if (myRealCodeStyleManger != null) registerCodeStyleManager(myRealCodeStyleManger);
+      if (myMockPlainTextFormattingModelBuilder != null) {
+        LanguageFormatting.INSTANCE.removeExplicitExtension(PlainTextLanguage.INSTANCE, myMockPlainTextFormattingModelBuilder);
+      }
+      if (myWorkingDirectory != null) TestFileStructure.delete(myWorkingDirectory.getVirtualFile());
     }
-    if (myWorkingDirectory != null) TestFileStructure.delete(myWorkingDirectory.getVirtualFile());
-    super.tearDown();
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      myRealCodeStyleManger = null;
+      myMockCodeStyleManager = null;
+      myMockPlainTextFormattingModelBuilder = null;
+      super.tearDown();
+    }
   }
 
   private static void registerCodeStyleManager(@NotNull CodeStyleManager manager) {
@@ -71,7 +80,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
     container.registerComponentInstance(componentKey, manager);
   }
 
-  public void testReformatWithoutMask() throws IOException {
+  public void testReformatWithoutMask() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
 
     PsiFile java1 = fileTree.addTestFile("Test.java", "empty content");
@@ -85,7 +94,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
     assertWasFormatted(java1, java2, java3, php, js);
   }
 
-  public void testFormatByOnlyOneMask() throws IOException {
+  public void testFormatByOnlyOneMask() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
 
     PsiFile java1 = fileTree.addTestFile("Test.java", "empty content");
@@ -105,7 +114,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
 
   }
 
-  public void testFormatByMultiMask() throws IOException {
+  public void testFormatByMultiMask() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
 
     PsiFile java1 = fileTree.addTestFile("Test.java", "empty content");
@@ -142,7 +151,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
     assertWasNotFormatted(js1, js2, js3, php1, php2, java1, java2, java3, py1, py2, py3);
   }
 
-  public void testDirectoryScope() throws IOException {
+  public void testDirectoryScope() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
     PsiFile java1 = fileTree.addTestFile("Test1.java", "empty content");
     PsiFile php1 = fileTree.addTestFile("Pair1.php", "empty content");
@@ -178,7 +187,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
     assertWasNotFormatted(java2, php2, js2);
   }
 
-  public void testDirectoryScopeWithMask() throws IOException {
+  public void testDirectoryScopeWithMask() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
     PsiFile java1 = fileTree.addTestFile("Test1.java", "empty content");
     PsiFile php1 = fileTree.addTestFile("Pair1.php", "empty content");
@@ -208,7 +217,7 @@ public class ReformatFilesWithFiltersTest extends LightPlatformTestCase {
     assertWasNotFormatted(java2, php2, js1, js2, js3);
   }
 
-  public void testIDEA126830() throws IOException {
+  public void testIDEA126830() {
     TestFileStructure fileTree = new TestFileStructure(getModule(), myWorkingDirectory);
 
     fileTree.createDirectoryAndMakeItCurrent("src");

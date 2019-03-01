@@ -15,24 +15,26 @@
  */
 package com.intellij.util;
 
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.impl.LaterInvocator;
-import com.intellij.testFramework.PlatformTestCase;
-import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.NotNull;
+ import com.intellij.diagnostic.PerformanceWatcher;
+ import com.intellij.openapi.application.ApplicationManager;
+ import com.intellij.openapi.application.ModalityState;
+ import com.intellij.openapi.application.impl.LaterInvocator;
+ import com.intellij.testFramework.LightPlatformTestCase;
+ import com.intellij.util.containers.ContainerUtil;
+ import com.intellij.util.ui.UIUtil;
+ import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
+ import java.util.List;
+ import java.util.Set;
+ import java.util.concurrent.ExecutionException;
+ import java.util.concurrent.Future;
+ import java.util.concurrent.TimeUnit;
+ import java.util.concurrent.TimeoutException;
+ import java.util.concurrent.atomic.AtomicInteger;
+ import java.util.stream.Collectors;
+ import java.util.stream.Stream;
 
-public class AlarmTest extends PlatformTestCase {
+public class AlarmTest extends LightPlatformTestCase {
   public void testTwoAddsWithZeroDelayMustExecuteSequentially() throws Exception {
     Alarm alarm = new Alarm(getTestRootDisposable());
     assertRequestsExecuteSequentially(alarm);
@@ -53,7 +55,7 @@ public class AlarmTest extends PlatformTestCase {
     assertRequestsExecuteSequentially(alarm);
   }
 
-  private static void assertRequestsExecuteSequentially(@NotNull Alarm alarm) throws InterruptedException, ExecutionException, TimeoutException {
+  private static void assertRequestsExecuteSequentially(@NotNull Alarm alarm) throws InterruptedException, ExecutionException {
     int N = 10000;
     StringBuffer log = new StringBuffer(N*4);
     StringBuilder expected = new StringBuilder(N * 4);
@@ -81,34 +83,41 @@ public class AlarmTest extends PlatformTestCase {
     assertEquals(expected.toString(), log.toString());
   }
 
-  public void testOneAlarmDoesNotStartTooManyThreads() throws InterruptedException, ExecutionException, TimeoutException {
+  public void testOneAlarmDoesNotStartTooManyThreads() {
     Alarm alarm = new Alarm(getTestRootDisposable());
-    Map<Thread, StackTraceElement[]> before = Thread.getAllStackTraces();
     AtomicInteger executed = new AtomicInteger();
     int N = 100000;
+    Set<Thread> used = ContainerUtil.newConcurrentSet();
     for (int i = 0; i < N; i++) {
-      alarm.addRequest(executed::incrementAndGet, 10);
+      alarm.addRequest(() -> {
+        executed.incrementAndGet();
+        used.add(Thread.currentThread());
+      }, 10);
     }
     while (executed.get() != N) {
       UIUtil.dispatchAllInvocationEvents();
     }
-    Map<Thread, StackTraceElement[]> after = Thread.getAllStackTraces();
-    assertTrue("before: "+before.size()+"; after: "+after.size(), after.size() - before.size() < 10);
+    if (used.size() > 10) {
+      fail(used.size()+" threads created: "+used.stream().map(t->PerformanceWatcher.printStacktrace("", t, t.getStackTrace())).collect(Collectors.joining()));
+    }
   }
 
-  public void testManyAlarmsDoNotStartTooManyThreads() throws InterruptedException, ExecutionException, TimeoutException {
-    Map<Thread, StackTraceElement[]> before = Thread.getAllStackTraces();
+  public void testManyAlarmsDoNotStartTooManyThreads() {
+    Set<Thread> used = ContainerUtil.newConcurrentSet();
     AtomicInteger executed = new AtomicInteger();
     int N = 100000;
-    List<Alarm> alarms = Collections.nCopies(N, "").stream().map(__ -> new Alarm(getTestRootDisposable())).collect(Collectors.toList());
-    alarms.forEach(alarm -> alarm.addRequest(executed::incrementAndGet, 10));
+    List<Alarm> alarms = Stream.generate(() -> new Alarm(getTestRootDisposable())).limit(N).collect(Collectors.toList());
+    alarms.forEach(alarm -> alarm.addRequest(() -> {
+      executed.incrementAndGet();
+      used.add(Thread.currentThread());
+    }, 10));
 
     while (executed.get() != N) {
       UIUtil.dispatchAllInvocationEvents();
     }
-    Map<Thread, StackTraceElement[]> after = Thread.getAllStackTraces();
-    System.out.println("before: "+before.size()+"; after: "+after.size());
-    assertTrue(after.size() - before.size() < 10);
+    if (used.size() > 10) {
+      fail(used.size()+" threads created: "+used.stream().map(t->PerformanceWatcher.printStacktrace("", t, t.getStackTrace())).collect(Collectors.joining()));
+    }
   }
 
   public void testOrderIsPreservedAfterModalitySwitching() {
@@ -142,8 +151,42 @@ public class AlarmTest extends PlatformTestCase {
     alarm.addRequest(() -> sb.append("1"), 0, ModalityState.NON_MODAL);
     alarm.addRequest(() -> sb.append("2"), 5, ModalityState.NON_MODAL);
     assertEquals("", sb.toString());
-    alarm.flush();
+    alarm.drainRequestsInTest();
     assertEquals("12", sb.toString());
   }
 
+  public void testWaitForAllExecutedMustWaitUntilExecutionFinish() throws Exception {
+    Alarm alarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, getTestRootDisposable());
+    StringBuffer sb = new StringBuffer();
+    long start = System.currentTimeMillis();
+    int delay = 100;
+    alarm.addRequest(() -> {
+      TimeoutUtil.sleep(1000);
+      sb.append("1");
+    }, delay);
+    alarm.addRequest(() -> {
+      TimeoutUtil.sleep(1000);
+      sb.append("2");
+    }, delay*2);
+
+    String s = sb.toString();
+    long elapsed = System.currentTimeMillis() - start;
+    if (elapsed > delay/2) {
+      System.err.println("No no no no this agent is so overloaded I quit");
+      return;
+    }
+    assertEquals(2, alarm.getActiveRequestCount());
+    assertEquals("", s);
+    try {
+      // started to execute but not finished yet
+      alarm.waitForAllExecuted(1000, TimeUnit.MILLISECONDS);
+      fail();
+    }
+    catch (TimeoutException ignored) {
+    }
+
+    alarm.waitForAllExecuted(3000, TimeUnit.MILLISECONDS);
+
+    assertEquals(2, sb.length());
+  }
 }

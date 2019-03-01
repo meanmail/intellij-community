@@ -28,14 +28,8 @@ import org.jetbrains.annotations.NotNull;
 public class PyConvertToNewStyleQuickFix implements LocalQuickFix {
   @NotNull
   @Override
-  public String getName() {
-    return PyBundle.message("QFIX.convert.to.new.style");
-  }
-
-  @NotNull
-  @Override
   public String getFamilyName() {
-    return getName();
+    return PyBundle.message("QFIX.convert.to.new.style");
   }
 
   @Override
@@ -56,7 +50,10 @@ public class PyConvertToNewStyleQuickFix implements LocalQuickFix {
       assert list != null;
       final ASTNode node = pyClass.getNameNode();
       assert node != null;
-      pyClass.addAfter(list, node.getPsi());
+      final PsiElement oldArgList = node.getPsi().getNextSibling();
+      if (oldArgList instanceof PyArgumentList) {
+        oldArgList.replace(list);
+      }
     }
   }
 }

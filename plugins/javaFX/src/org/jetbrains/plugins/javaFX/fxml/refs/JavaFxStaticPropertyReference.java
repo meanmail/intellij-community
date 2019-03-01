@@ -1,8 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.refs;
 
 import com.intellij.psi.*;
 import com.intellij.psi.xml.XmlAttribute;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -12,8 +12,8 @@ import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
  * @author Pavel.Dolgov
  */
 public class JavaFxStaticPropertyReference extends JavaFxPropertyReference<XmlAttribute> {
-  private String myPropertyName;
-  private PsiMethod myStaticMethod;
+  private final String myPropertyName;
+  private final PsiMethod myStaticMethod;
 
   public JavaFxStaticPropertyReference(@NotNull XmlAttribute xmlAttribute,
                                        @Nullable PsiClass psiClass,
@@ -75,14 +75,8 @@ public class JavaFxStaticPropertyReference extends JavaFxPropertyReference<XmlAt
     return myPropertyName;
   }
 
-  @NotNull
   @Override
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
-  }
-
-  @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final String newPropertyName = JavaFxPsiUtil.getPropertyName(newElementName, true);
     return super.handleElementRename(newPropertyName);
   }

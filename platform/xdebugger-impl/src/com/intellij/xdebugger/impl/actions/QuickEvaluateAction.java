@@ -44,7 +44,7 @@ public class QuickEvaluateAction extends XDebuggerActionBase {
   private static class QuickEvaluateHandlerWrapper extends DebuggerActionHandler {
     private final QuickEvaluateHandler myHandler;
 
-    public QuickEvaluateHandlerWrapper(final QuickEvaluateHandler handler) {
+    QuickEvaluateHandlerWrapper(final QuickEvaluateHandler handler) {
       myHandler = handler;
     }
 
@@ -60,7 +60,7 @@ public class QuickEvaluateAction extends XDebuggerActionBase {
 
     @Override
     public boolean isEnabled(@NotNull final Project project, final AnActionEvent event) {
-      if (!myHandler.isEnabled(project)) {
+      if (!myHandler.isEnabled(project, event)) {
         return false;
       }
 

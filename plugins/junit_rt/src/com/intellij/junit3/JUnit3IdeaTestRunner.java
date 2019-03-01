@@ -32,18 +32,17 @@ public class JUnit3IdeaTestRunner extends TestRunner implements IdeaTestRunner {
     super(DeafStream.DEAF_PRINT_STREAM);
   }
 
-  public int startRunnerWithArgs(String[] args, ArrayList listeners, String name, int count, boolean sendTree) {
+  public void createListeners(ArrayList listeners, int count) {
     myTestsListener = new SMTestListener();
     myListeners = listeners;
+  }
+
+  public int startRunnerWithArgs(String[] args, String name, int count, boolean sendTree) {
     setPrinter(new MockResultPrinter());
     try {
       Test suite = TestRunnerUtil.getTestSuite(this, args);
       if (suite == null) return -1;
-      TestResult result = doRun(suite);
-      if (!result.wasSuccessful()) {
-        return -1;
-      }
-      return 0;
+      return doRun(suite).wasSuccessful() ? 0 : -1;
     }
     catch (Exception e) {
       e.printStackTrace(System.err);
@@ -204,8 +203,8 @@ public class JUnit3IdeaTestRunner extends TestRunner implements IdeaTestRunner {
 
     public void endTest(Test test) {
       final long duration = System.currentTimeMillis() - myCurrentTestStart;
-      System.out.println("\n##teamcity[testFinished name=\'" + escapeName(getMethodName(test)) + 
-                         (duration > 0 ? "\' duration=\'"  + Long.toString(duration) : "") + "\']");
+      System.out.println("\n##teamcity[testFinished name=\'" + escapeName(getMethodName(test)) +
+                         (duration > 0 ? "\' duration=\'" + duration : "") + "\']");
     }
 
     public void startTest(Test test) {
@@ -219,7 +218,7 @@ public class JUnit3IdeaTestRunner extends TestRunner implements IdeaTestRunner {
       }
       final String methodName = getMethodName(test);
       System.out.println("##teamcity[testStarted name=\'" + escapeName(methodName) + 
-                         "\' locationHint=\'java:test://" + escapeName(className + "." + methodName) + "\']");
+                         "\' locationHint=\'java:test://" + escapeName(className + "/" + methodName) + "\']");
     }
 
     protected void finishSuite() {

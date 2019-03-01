@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,27 +17,23 @@ package org.jetbrains.plugins.gradle.util;
 
 import com.intellij.openapi.fileEditor.impl.EditorTabTitleProvider;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootManager;
+import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/5/14
  */
-public class GradleEditorTabTitleProvider implements EditorTabTitleProvider {
-  public String getEditorTabTitle(Project project, VirtualFile file) {
-    if (GradleConstants.EXTENSION.equals(file.getExtension()) && GradleConstants.DEFAULT_SCRIPT_NAME.equals(file.getName())) {
-      for (Module module : ModuleManager.getInstance(project).getModules()) {
-        if (module.isDisposed()) return null;
-
-        final ModuleRootManager moduleRootManager = ModuleRootManager.getInstance(module);
-        for (VirtualFile virtualFile : moduleRootManager.getContentRoots()) {
-          if (virtualFile.equals(file.getParent())) return module.getName();
-        }
-      }
+public class GradleEditorTabTitleProvider implements EditorTabTitleProvider, DumbAware {
+  @Override
+  public String getEditorTabTitle(@NotNull Project project, @NotNull VirtualFile file) {
+    if (GradleConstants.DEFAULT_SCRIPT_NAME.equals(file.getName()) || GradleConstants.KOTLIN_DSL_SCRIPT_NAME.equals(file.getName())) {
+      Module module = ProjectFileIndex.SERVICE.getInstance(project).getModuleForFile(file);
+      return module == null ? null : module.getName();
     }
+
     return null;
   }
 }

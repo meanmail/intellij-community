@@ -29,23 +29,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 
 public class GroovyConstantConditionalInspection extends BaseInspection {
 
-    @Override
-    @NotNull
-    public String getGroupDisplayName() {
-        return CONTROL_FLOW;
-    }
-
-    @Override
-    @NotNull
-    public String getDisplayName() {
-        return "Constant conditional expression";
-    }
-
-    @Override
-    public boolean isEnabledByDefault() {
-        return true;
-    }
-
     @NotNull
     @Override
     public BaseInspectionVisitor buildVisitor() {
@@ -81,7 +64,7 @@ public class GroovyConstantConditionalInspection extends BaseInspection {
 
         @Override
         @NotNull
-        public String getName() {
+        public String getFamilyName() {
             return "Simplify";
         }
 

@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.refactoring.rename;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.scratch.ScratchFileType;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
@@ -26,7 +13,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.impl.NonProjectFileWritingAccessProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -57,7 +43,7 @@ public class PsiElementRenameHandler implements RenameHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.rename.PsiElementRenameHandler");
 
   public static final ExtensionPointName<Condition<PsiElement>> VETO_RENAME_CONDITION_EP = ExtensionPointName.create("com.intellij.vetoRenameCondition");
-  public static DataKey<String> DEFAULT_NAME = DataKey.create("DEFAULT_NAME");
+  public static final DataKey<String> DEFAULT_NAME = DataKey.create("DEFAULT_NAME");
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
@@ -76,7 +62,7 @@ public class PsiElementRenameHandler implements RenameHandler {
 
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
     final PsiElement nameSuggestionContext = InjectedLanguageUtil.findElementAtNoCommit(file, editor.getCaretModel().getOffset());
-    invoke(element, project, nameSuggestionContext, editor);
+    invoke(element, project, nameSuggestionContext, editor, shouldCheckInProject());
   }
 
   @Override
@@ -91,18 +77,26 @@ public class PsiElementRenameHandler implements RenameHandler {
       rename(element, project, element, editor, newName);
     }
     else {
-      invoke(element, project, element, editor);
+      invoke(element, project, element, editor, shouldCheckInProject());
     }
   }
 
+  protected boolean shouldCheckInProject() {
+    return true;
+  }
+
   public static void invoke(PsiElement element, Project project, PsiElement nameSuggestionContext, @Nullable Editor editor) {
+    invoke(element, project, nameSuggestionContext, editor, true);
+  }
+
+  public static void invoke(PsiElement element, Project project, PsiElement nameSuggestionContext, @Nullable Editor editor, boolean checkInProject) {
     if (element != null && !canRename(project, editor, element)) {
       return;
     }
 
     VirtualFile contextFile = PsiUtilCore.getVirtualFile(nameSuggestionContext);
 
-    if (nameSuggestionContext != null &&
+    if (checkInProject && nameSuggestionContext != null &&
         nameSuggestionContext.isPhysical() &&
         (contextFile == null || contextFile.getFileType() != ScratchFileType.INSTANCE) &&
         !PsiManager.getInstance(project).isInProject(nameSuggestionContext)) {
@@ -162,6 +156,7 @@ public class PsiElementRenameHandler implements RenameHandler {
   }
 
   static void showErrorMessage(Project project, @Nullable Editor editor, String message) {
+    IdeEventQueue.getInstance().getPopupManager().closeAllPopups(false);
     CommonRefactoringUtil.showErrorHint(project, editor, message, RefactoringBundle.message("rename.title"), null);
   }
 
@@ -200,13 +195,13 @@ public class PsiElementRenameHandler implements RenameHandler {
   }
 
   @Override
-  public boolean isAvailableOnDataContext(DataContext dataContext) {
+  public boolean isAvailableOnDataContext(@NotNull DataContext dataContext) {
     return !isVetoed(getElement(dataContext));
   }
 
   public static boolean isVetoed(PsiElement element) {
     if (element == null || element instanceof SyntheticElement) return true;
-    for(Condition<PsiElement> condition: Extensions.getExtensions(VETO_RENAME_CONDITION_EP)) {
+    for(Condition<PsiElement> condition: VETO_RENAME_CONDITION_EP.getExtensionList()) {
       if (condition.value(element)) return true;
     }
     return false;
@@ -223,7 +218,7 @@ public class PsiElementRenameHandler implements RenameHandler {
   }
 
   @Override
-  public boolean isRenaming(DataContext dataContext) {
+  public boolean isRenaming(@NotNull DataContext dataContext) {
     return isAvailableOnDataContext(dataContext);
   }
 }

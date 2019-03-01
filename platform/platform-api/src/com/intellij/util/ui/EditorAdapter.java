@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -37,7 +37,7 @@ class Line {
   private final String myValue;
   private final TextAttributes myTextAttributes;
 
-  public Line(String value, TextAttributes textAttributes) {
+  Line(String value, TextAttributes textAttributes) {
     myValue = value.replaceAll("\r", "") + "\n";
     myTextAttributes = textAttributes;
   }
@@ -67,6 +67,7 @@ public class EditorAdapter {
       lines = new ArrayList<>(myLines);
       myLines.clear();
     }
+    if (myEditor.isDisposed() || myProject != null && myProject.isDisposed()) return;
     ApplicationManager.getApplication().runWriteAction(writingCommand(lines));
   }
 

@@ -7,13 +7,14 @@ class T {
             // end of line
         }
         else if (s.startsWith("@")) {
+            /* inline 1 */
             return s.substring(1); // return comment
-    /* inline 1 *//* inline 2 */
+            /* inline 2 */
         }
         else if (s.startsWith("#")) {
             return "#"; // return comment
-    /* inline */
+            /* inline */
         }
-        return s; // return comment
+        return (s); // return comment
     }
 }

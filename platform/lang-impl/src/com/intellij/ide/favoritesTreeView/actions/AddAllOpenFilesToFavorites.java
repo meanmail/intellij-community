@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,13 +25,10 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 
-/**
- * User: anna
- * Date: Apr 5, 2005
- */
 public class AddAllOpenFilesToFavorites extends AnAction implements DumbAware {
   private final String myFavoritesName;
 
@@ -41,7 +38,7 @@ public class AddAllOpenFilesToFavorites extends AnAction implements DumbAware {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) {
       return;
@@ -59,8 +56,7 @@ public class AddAllOpenFilesToFavorites extends AnAction implements DumbAware {
     ArrayList<PsiFile> result = new ArrayList<>();
     final FileEditorManager editorManager = FileEditorManager.getInstance(project);
     final PsiManager psiManager = PsiManager.getInstance(project);
-    final VirtualFile[] openFiles = editorManager.getOpenFiles();
-    for (VirtualFile openFile : openFiles) {
+    for (VirtualFile openFile : editorManager.getOpenFiles()) {
       if (!openFile.isValid()) continue;
       final PsiFile psiFile = psiManager.findFile(openFile);
       if (psiFile != null) {
@@ -71,7 +67,7 @@ public class AddAllOpenFilesToFavorites extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) {
       e.getPresentation().setEnabled(false);

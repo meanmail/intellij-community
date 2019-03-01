@@ -1,81 +1,50 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs.ex.dummy;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerAdapter;
+import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.project.ex.ProjectManagerEx;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.containers.BidirectionalMap;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.annotations.TestOnly;
 
-import java.io.IOException;
 import java.util.Collection;
-import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentMap;
+import java.util.stream.Collectors;
 
 /**
  * @author gregsh
  */
 public abstract class DummyCachingFileSystem<T extends VirtualFile> extends DummyFileSystem {
-  private static final Logger LOG = Logger.getInstance("com.intellij.openapi.vfs.ex.dummy.DummyCachingFileSystem");
-
   private final String myProtocol;
-
-  private final BidirectionalMap<Project, String> myProject2Id = new BidirectionalMap<>();
-
-  private final FactoryMap<String, T> myCachedFiles = new ConcurrentFactoryMap<String, T>() {
-    @Override
-    protected T create(String key) {
-      if (ApplicationManager.getApplication().isUnitTestMode()) {
-        //noinspection TestOnlyProblems
-        cleanup();
-        initProjectMap();
-      }
-      return findFileByPathInner(key);
-    }
-
-    @Override
-    public T get(Object key) {
-      T file = super.get(key);
-      if (file != null && !file.isValid()) {
-        remove(key);
-        return super.get(key);
-      }
-      return file;
-    }
-  };
+  private final ConcurrentMap<String, T> myCachedFiles = ConcurrentFactoryMap.createMap(
+    this::findFileByPathInner, ContainerUtil::createConcurrentWeakValueMap);
 
   public DummyCachingFileSystem(String protocol) {
     myProtocol = protocol;
 
     final Application application = ApplicationManager.getApplication();
-    application.getMessageBus().connect(application).subscribe(ProjectManager.TOPIC, new ProjectManagerAdapter() {
+    application.getMessageBus().connect(application).subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
       @Override
-      public void projectOpened(final Project project) {
+      public void projectOpened(@NotNull final Project project) {
         onProjectOpened(project);
+      }
+
+      @Override
+      public void projectClosed(@NotNull Project project) {
+        registerDisposeCallback(project);
       }
     });
     initProjectMap();
@@ -116,39 +85,46 @@ public abstract class DummyCachingFileSystem<T extends VirtualFile> extends Dumm
   }
 
   @Nullable
-  public Project getProject(String projectId) {
-    List<Project> list = myProject2Id.getKeysByValue(projectId);
-    return list == null || list.size() > 1 ? null : list.get(0);
+  public Project getProject(@Nullable String projectId) {
+    Project project = ProjectManagerEx.getInstanceEx().findOpenProjectByHash(projectId);
+    if (ApplicationManager.getApplication().isUnitTestMode() && project != null) {
+      registerDisposeCallback(project);
+      DISPOSE_CALLBACK.set(project, Boolean.TRUE);
+    }
+    return project;
   }
 
   @NotNull
   public Collection<T> getCachedFiles() {
-    return myCachedFiles.notNullValues();
+    return myCachedFiles.values().stream()
+      .filter(Objects::nonNull)
+      .filter(VirtualFile::isValid)
+      .collect(Collectors.toList());
   }
 
-  public void onProjectClosed(Project project) {
-    myProject2Id.remove(project);
+  public void onProjectClosed() {
     clearCache();
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      cleanup();
+    }
   }
 
   public void onProjectOpened(final Project project) {
+    clearCache();
+  }
+
+  private static final Key<Boolean> DISPOSE_CALLBACK = Key.create("DISPOSE_CALLBACK");
+
+  private void registerDisposeCallback(Project project) {
+    if (Boolean.TRUE.equals(DISPOSE_CALLBACK.get(project))) return;
     // use Disposer instead of ProjectManagerListener#projectClosed() because Disposer.dispose(project)
     // is called later and some cached files should stay valid till the last moment
     Disposer.register(project, new Disposable() {
       @Override
       public void dispose() {
-        onProjectClosed(project);
+        onProjectClosed();
       }
     });
-
-    clearCache();
-    String projectId = project.getLocationHash();
-    myProject2Id.put(project, projectId);
-
-    List<Project> projects = myProject2Id.getKeysByValue(projectId);
-    if (projects != null && projects.size() > 1) {
-      LOG.error("project " + projectId + " already registered: " + projects);
-    }
   }
 
   private void initProjectMap() {
@@ -158,25 +134,25 @@ public abstract class DummyCachingFileSystem<T extends VirtualFile> extends Dumm
   }
 
   protected void clearCache() {
-    clearInvalidFiles();
+    retainFiles(VirtualFile::isValid);
   }
 
-  protected void clearInvalidFiles() {
-    for (T t : myCachedFiles.notNullValues()) {
-      if (!t.isValid()) myCachedFiles.removeValue(t);
+  protected void retainFiles(@NotNull Condition<? super VirtualFile> c) {
+    for (Map.Entry<String, T> entry : myCachedFiles.entrySet()) {
+      T t = entry.getValue();
+      if (t == null || !c.value(t)) {
+        //CFM::entrySet returns copy
+        myCachedFiles.remove(entry.getKey());
+      }
     }
-    //noinspection StatementWithEmptyBody
-    while (myCachedFiles.removeValue(null)) ;
   }
 
-  @TestOnly
-  public void cleanup() {
+  private void cleanup() {
     myCachedFiles.clear();
-    myProject2Id.clear();
   }
 
   @Override
-  public void renameFile(Object requestor, @NotNull VirtualFile vFile, @NotNull String newName) throws IOException {
+  public void renameFile(Object requestor, @NotNull VirtualFile vFile, @NotNull String newName) {
     String oldName = vFile.getName();
     beforeFileRename(vFile, requestor, oldName, newName);
     try {

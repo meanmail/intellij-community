@@ -28,47 +28,8 @@ import java.util.List;
  * Extends {@link SoftWrapModel} in order to define implementation-specific contract.
  *
  * @author Denis Zhdanov
- * @since Jun 16, 2010 10:53:59 AM
  */
 public interface SoftWrapModelEx extends SoftWrapModel {
-
-  /**
-   * Asks current model to map given visual position to logical.
-   *
-   * @param visual            target visual position for which logical position should be mapped
-   * @return                  logical position that corresponds to the given visual position
-   */
-  @NotNull
-  LogicalPosition visualToLogicalPosition(@NotNull VisualPosition visual);
-
-  /**
-   * Asks current model to map given document offset to logical position.
-   *
-   * @param offset    target editor document offset
-   * @return          logical position for the given editor document offset
-   */
-  @NotNull
-  LogicalPosition offsetToLogicalPosition(int offset);
-
-  /**
-   * Asks current model to map given logical position to document offset
-   *
-   * @param logicalPosition target editor logical position
-   * @return                document offset for the given editor logical position
-   */
-  int logicalPositionToOffset(@NotNull LogicalPosition logicalPosition);
-
-  /**
-   * Asks current model to adjust visual position that corresponds to the given logical position if necessary.
-   * <p/>
-   * Given visual position is assumed to be the one that is obtained during soft wraps unaware processing.
-   *
-   * @param logical         target logical position for {@code 'logical' -> visual} conversion
-   * @param defaultVisual   visual position of {@code 'logical' -> visual} conversion that is unaware about soft wraps
-   * @return                resulting visual position for the given logical position
-   */
-  @NotNull
-  VisualPosition adjustVisualPosition(@NotNull LogicalPosition logical, @NotNull VisualPosition defaultVisual);
 
   /**
    * @return    unmodifiable collection of soft wraps currently registered within the current model
@@ -77,11 +38,11 @@ public interface SoftWrapModelEx extends SoftWrapModel {
 
   /**
    * Tries to find index of the target soft wrap at {@link #getRegisteredSoftWraps() soft wraps collection}.
-   * <code>'Target'</code> soft wrap is the one that starts at the given offset.
+   * {@code 'Target'} soft wrap is the one that starts at the given offset.
    *
    * @param offset    target offset
    * @return          index that conforms to {@link Collections#binarySearch(List, Object)} contract, i.e. non-negative returned
-   *                  index points to soft wrap that starts at the given offset; <code>'-(negative value) - 1'</code> points
+   *                  index points to soft wrap that starts at the given offset; {@code '-(negative value) - 1'} points
    *                  to position at {@link #getRegisteredSoftWraps() soft wraps collection} where soft wrap for the given index
    *                  should be inserted
    */
@@ -92,8 +53,8 @@ public interface SoftWrapModelEx extends SoftWrapModel {
    *
    * @param g             target graphics buffer to draw in
    * @param drawingType   target drawing type
-   * @param x             target <code>'x'</code> coordinate to use
-   * @param y             target <code>'y'</code> coordinate to use
+   * @param x             target {@code 'x'} coordinate to use
+   * @param y             target {@code 'y'} coordinate to use
    * @param lineHeight    line height used at editor
    * @return              painted drawing width
    */
@@ -111,7 +72,7 @@ public interface SoftWrapModelEx extends SoftWrapModel {
    * Registers given listener within the current model
    *
    * @param listener    listener to register
-   * @return            <code>true</code> if given listener was not registered before; <code>false</code> otherwise
+   * @return            {@code true} if given listener was not registered before; {@code false} otherwise
    */
   boolean addSoftWrapChangeListener(@NotNull SoftWrapChangeListener listener);
 
@@ -122,13 +83,13 @@ public interface SoftWrapModelEx extends SoftWrapModel {
    * <p/>
    * The main idea of soft wraps is to avoid horizontal scrolling, so, when soft wrapping is enabled and succeeds (so that resulting
    * text layout fits view area's width), additional columns wont be added to the preferred editor width.
-   * This method answers whether the above behaviour should be overridden, and additional columns setting should be respected regardless of 
+   * This method answers whether the above behaviour should be overridden, and additional columns setting should be respected regardless of
    * soft wrapping success. This happens when {@link #forceAdditionalColumnsUsage()} has been invoked previously.
    */
   boolean isRespectAdditionalColumns();
 
   /**
-   * Allows to instruct current model to return <code>'true'</code> from {@link #isRespectAdditionalColumns()}.
+   * Allows to instruct current model to return {@code 'true'} from {@link #isRespectAdditionalColumns()}.
    */
   void forceAdditionalColumnsUsage();
 

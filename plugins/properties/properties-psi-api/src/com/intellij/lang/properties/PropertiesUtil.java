@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.lang.properties;
 
@@ -19,15 +7,18 @@ import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDirectory;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.reference.SoftLazyValue;
 import com.intellij.util.Function;
 import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -50,7 +41,7 @@ public class PropertiesUtil {
     protected Set<String> compute() {
       final HashSet<String> locales =
         new HashSet<>(ContainerUtil.flatten(ContainerUtil.map(Locale.getAvailableLocales(),
-                                                              (Function<Locale, List<String>>)locale -> {
+                                                                        (Function<Locale, List<String>>)locale -> {
                                                                 final ArrayList<String> languages =
                                                                   ContainerUtil.newArrayList(locale.getLanguage());
                                                                 try {
@@ -77,7 +68,7 @@ public class PropertiesUtil {
   }
 
   @NotNull
-  public static String getDefaultBaseName(final Collection<PropertiesFile> files) {
+  public static String getDefaultBaseName(final Collection<? extends PropertiesFile> files) {
     String commonPrefix = null;
     for (PropertiesFile file : files) {
       final String baseName = file.getVirtualFile().getNameWithoutExtension();
@@ -98,32 +89,42 @@ public class PropertiesUtil {
   }
 
   @NotNull
-  static String getDefaultBaseName(@NotNull final VirtualFile file) {
-    final String name = file.getName();
+  static String getDefaultBaseName(@NotNull final PsiFile file) {
+    return CachedValuesManager.getCachedValue(file, new CachedValueProvider<String>() {
+      @NotNull
+      @Override
+      public Result<String> compute() {
+        return Result.create(computeBaseName(), file);
+      }
 
-    if (!StringUtil.containsChar(name, '_')) {
-      return FileUtil.getNameWithoutExtension(name);
-    }
+      private String computeBaseName() {
+        final String name = file.getName();
 
-    final Matcher matcher = LOCALE_PATTERN.matcher(name);
-    final String baseNameWithExtension;
-
-    int matchIndex = 0;
-    while (matcher.find(matchIndex)) {
-      final MatchResult matchResult = matcher.toMatchResult();
-      final String[] splitted = matchResult.group(1).split("_");
-      if (splitted.length > 1) {
-        final String langCode = splitted[1];
-        if (!LOCALES_LANGUAGE_CODES.getValue().contains(langCode)) {
-          matchIndex = matchResult.start(1) + 1;
-          continue;
+        if (!StringUtil.containsChar(name, '_')) {
+          return FileUtil.getNameWithoutExtension(name);
         }
-        baseNameWithExtension = name.substring(0, matchResult.start(1)) + name.substring(matchResult.end(1));
+
+        final Matcher matcher = LOCALE_PATTERN.matcher(name);
+        final String baseNameWithExtension;
+
+        int matchIndex = 0;
+        while (matcher.find(matchIndex)) {
+          final MatchResult matchResult = matcher.toMatchResult();
+          final String[] splitted = matchResult.group(1).split("_");
+          if (splitted.length > 1) {
+            final String langCode = splitted[1];
+            if (!LOCALES_LANGUAGE_CODES.getValue().contains(langCode)) {
+              matchIndex = matchResult.start(1) + 1;
+              continue;
+            }
+            baseNameWithExtension = name.substring(0, matchResult.start(1)) + name.substring(matchResult.end(1));
+            return FileUtil.getNameWithoutExtension(baseNameWithExtension);
+          }
+        }
+        baseNameWithExtension = name;
         return FileUtil.getNameWithoutExtension(baseNameWithExtension);
       }
-    }
-    baseNameWithExtension = name;
-    return FileUtil.getNameWithoutExtension(baseNameWithExtension);
+    });
   }
 
   @NotNull
@@ -135,26 +136,41 @@ public class PropertiesUtil {
     return getLocale(name.substring(containingResourceBundleBaseName.length()));
   }
 
+  @NotNull
   public static Locale getLocale(String suffix) {
+    return getLocaleAndTrimmedSuffix(suffix).getFirst();
+  }
+
+  @NotNull
+  public static Pair<Locale, String> getLocaleAndTrimmedSuffix(String suffix) {
     final Matcher matcher = LOCALE_PATTERN.matcher(suffix);
     if (matcher.find()) {
       final String rawLocale = matcher.group(1);
-      final String[] splittedRawLocale = rawLocale.split("_");
-      if (splittedRawLocale.length > 1 && splittedRawLocale[1].length() >= 2) {
-        final String language = splittedRawLocale[1];
-        final String country = splittedRawLocale.length > 2 ? splittedRawLocale[2] : "";
-        final String variant = splittedRawLocale.length > 3 ? splittedRawLocale[3] : "";
-        return new Locale(language, country, variant);
+      final String[] splitRawLocale = rawLocale.split("_");
+      if (splitRawLocale.length > 1 && splitRawLocale[1].length() >= 2) {
+        final String language = splitRawLocale[1];
+        final String country = splitRawLocale.length > 2 ? splitRawLocale[2] : "";
+        final String variant = splitRawLocale.length > 3 ? splitRawLocale[3] : "";
+
+        StringBuilder trimmedSuffix = new StringBuilder(language);
+        if (!country.isEmpty()) {
+          trimmedSuffix.append("_").append(country);
+        }
+        if (!variant.isEmpty()) {
+          trimmedSuffix.append("_").append(variant);
+        }
+
+        return Pair.create(new Locale(language, country, variant), trimmedSuffix.toString());
       }
     }
-    return DEFAULT_LOCALE;
+    return Pair.create(DEFAULT_LOCALE, "");
   }
 
   /**
    * messages_en.properties is a parent of the messages_en_US.properties
    */
   @Nullable
-  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<PropertiesFile> candidates) {
+  public static PropertiesFile getParent(@NotNull PropertiesFile file, @NotNull Collection<? extends PropertiesFile> candidates) {
     VirtualFile virtualFile = file.getVirtualFile();
     if (virtualFile == null) return null;
     String name = virtualFile.getNameWithoutExtension();

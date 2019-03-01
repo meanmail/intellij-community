@@ -21,7 +21,7 @@ import com.intellij.codeHighlighting.Pass;
 import com.intellij.codeHighlighting.TextEditorHighlightingPassRegistrar;
 import com.intellij.codeInsight.daemon.ProblemHighlightFilter;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.RangeMarker;
@@ -32,7 +32,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.ConcurrencyUtil;
-import com.intellij.util.containers.WeakHashMap;
+import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.TIntObjectHashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -41,12 +41,14 @@ import org.jetbrains.annotations.TestOnly;
 
 import java.util.Arrays;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
 public class FileStatusMap implements Disposable {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.daemon.impl.FileStatusMap");
+  public static final String CHANGES_NOT_ALLOWED_DURING_HIGHLIGHTING =
+    "PSI/document/model changes are not allowed during highlighting";
   private final Project myProject;
-  private final Map<Document,FileStatus> myDocumentToStatusMap = new WeakHashMap<>(); // all dirty if absent
+  private final Map<Document,FileStatus> myDocumentToStatusMap = ContainerUtil.createWeakMap(); // all dirty if absent
   private volatile boolean myAllowDirt = true;
 
   // Don't reduce visibility rules here because this class is used in Upsource as well.
@@ -159,15 +161,17 @@ public class FileStatusMap implements Disposable {
 
   void markAllFilesDirty(@NotNull @NonNls Object reason) {
     assertAllowModifications();
-    log("Mark all dirty: ", reason);
     synchronized (myDocumentToStatusMap) {
+      if (!myDocumentToStatusMap.isEmpty()) {
+        log("Mark all dirty: ", reason);
+      }
       myDocumentToStatusMap.clear();
     }
   }
 
   private void assertAllowModifications() {
     try {
-      assert myAllowDirt : "PSI/document/model changes are not allowed during highlighting";
+      assert myAllowDirt : CHANGES_NOT_ALLOWED_DURING_HIGHLIGHTING;
     }
     finally {
       myAllowDirt = true; //give next test a chance
@@ -176,11 +180,7 @@ public class FileStatusMap implements Disposable {
 
   public void markFileUpToDate(@NotNull Document document, int passId) {
     synchronized(myDocumentToStatusMap){
-      FileStatus status = myDocumentToStatusMap.get(document);
-      if (status == null){
-        status = new FileStatus(myProject);
-        myDocumentToStatusMap.put(document, status);
-      }
+      FileStatus status = myDocumentToStatusMap.computeIfAbsent(document, __ -> new FileStatus(myProject));
       status.defensivelyMarked=false;
       if (passId == Pass.WOLF) {
         status.wolfPassFinished = true;
@@ -346,29 +346,14 @@ public class FileStatusMap implements Disposable {
   };
 
   // logging
-  private static final ConcurrentMap<Thread, Integer> threads = new ConcurrentHashMap<>();
+  private static final ConcurrentMap<Thread, Integer> threads = ContainerUtil.createConcurrentWeakMap();
   private static int getThreadNum() {
     return ConcurrencyUtil.cacheOrGet(threads, Thread.currentThread(), threads.size());
   }
-  private static final StringBuilder log = new StringBuilder();
-  private static final boolean IN_TESTS = ApplicationManager.getApplication().isUnitTestMode();
   public static void log(@NonNls @NotNull Object... info) {
-    if (IN_TESTS) {
-      synchronized (log) {
-        if (log.length() > 10000) {
-          log.replace(0, log.length()-5000, "");
-        }
-        String s = StringUtil.repeatSymbol(' ', getThreadNum() * 4) + Arrays.asList(info) + "\n";
-        log.append(s);
-      }
-    }
-  }
-  @NotNull
-  static String getAndClearLog() {
-    synchronized (log) {
-      String l = log.toString();
-      log.setLength(0);
-      return l;
+    if (LOG.isDebugEnabled()) {
+      String s = StringUtil.repeatSymbol(' ', getThreadNum() * 4) + Arrays.asList(info) + "\n";
+      LOG.debug(s);
     }
   }
 }

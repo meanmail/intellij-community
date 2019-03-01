@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.impl.source.tree.java;
 
+import com.intellij.codeInsight.BlockUtils;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.psi.*;
@@ -77,12 +78,12 @@ public class PsiTryStatementImpl extends CompositePsiElement implements PsiTrySt
       if (catchSections.length == 0) return PsiParameter.EMPTY_ARRAY;
       boolean lastIncomplete = catchSections[catchSections.length - 1].getCatchBlock() == null;
       int limit = lastIncomplete ? catchSections.length - 1 : catchSections.length;
-      ArrayList<PsiParameter> parameters = new ArrayList<PsiParameter>();
+      ArrayList<PsiParameter> parameters = new ArrayList<>();
       for (int i = 0; i < limit; i++) {
         PsiParameter parameter = catchSections[i].getParameter();
         if (parameter != null) parameters.add(parameter);
       }
-      myCachedCatchParameters = catchParameters = parameters.toArray(new PsiParameter[parameters.size()]);
+      myCachedCatchParameters = catchParameters = parameters.toArray(PsiParameter.EMPTY_ARRAY);
     }
     return catchParameters;
   }
@@ -120,21 +121,19 @@ public class PsiTryStatementImpl extends CompositePsiElement implements PsiTrySt
         return findChildByType(FINALLY_KEYWORD);
 
       case ChildRole.FINALLY_BLOCK:
-        {
-          ASTNode finallyKeyword = findChildByRole(ChildRole.FINALLY_KEYWORD);
-          if (finallyKeyword == null) return null;
-          for(ASTNode child = finallyKeyword.getTreeNext(); child != null; child = child.getTreeNext()){
-            if (child.getElementType() == CODE_BLOCK){
-              return child;
-            }
+        ASTNode finallyKeyword = findChildByRole(ChildRole.FINALLY_KEYWORD);
+        if (finallyKeyword == null) return null;
+        for(ASTNode child = finallyKeyword.getTreeNext(); child != null; child = child.getTreeNext()){
+          if (child.getElementType() == CODE_BLOCK){
+            return child;
           }
-          return null;
         }
+        return null;
     }
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     IElementType i = child.getElementType();
     if (i == TRY_KEYWORD) {
@@ -186,21 +185,14 @@ public class PsiTryStatementImpl extends CompositePsiElement implements PsiTrySt
     if (child.getPsi() instanceof PsiResourceList && getCatchBlocks().length == 0 && getFinallyBlock() == null) {
       final PsiCodeBlock tryBlock = getTryBlock();
       if (tryBlock != null) {
-        final PsiCodeBlock block = (PsiCodeBlock)replace(tryBlock);
-        final PsiJavaToken lBrace = block.getLBrace();
-        final PsiJavaToken rBrace = block.getRBrace();
-        if (lBrace != null) {
-          lBrace.delete();
-        }
-        if (rBrace != null) {
-          rBrace.delete();
-        }
+        BlockUtils.unwrapTryBlock(this);
         return;
       }
     }
     super.deleteChildInternal(child);
   }
 
+  @Override
   public String toString() {
     return "PsiTryStatement";
   }

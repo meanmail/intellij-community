@@ -1,25 +1,16 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.openapi.editor;
 
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.codeStyle.CodeStyleFacade;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.textarea.TextComponentEditor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.text.LineTokenizer;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.util.Producer;
@@ -35,6 +26,8 @@ import java.util.LinkedList;
 import java.util.List;
 
 public class EditorModificationUtil {
+  public static final Key<String> READ_ONLY_VIEW_MESSAGE_KEY = Key.create("READ_ONLY_VIEW_MESSAGE_KEY");
+
   private EditorModificationUtil() { }
 
   public static void deleteSelectedText(Editor editor) {
@@ -57,12 +50,7 @@ public class EditorModificationUtil {
   }
 
   public static void deleteSelectedTextForAllCarets(@NotNull final Editor editor) {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        deleteSelectedText(editor);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(__ -> deleteSelectedText(editor));
   }
 
   public static void zeroWidthBlockSelectionAtCaretColumn(final Editor editor, final int startLine, final int endLine) {
@@ -95,31 +83,20 @@ public class EditorModificationUtil {
   }
 
   private static int insertStringAtCaretNoScrolling(Editor editor, @NotNull String s, boolean toProcessOverwriteMode, boolean toMoveCaret, int caretShift) {
-    final SelectionModel selectionModel = editor.getSelectionModel();
-    if (selectionModel.hasSelection()) {
-      VisualPosition startPosition = selectionModel.getSelectionStartPosition();
-      if (editor.isColumnMode() && editor.getCaretModel().supportsMultipleCarets() && startPosition != null) {
-        editor.getCaretModel().moveToVisualPosition(startPosition);
-      }
-      else {
-        editor.getCaretModel().moveToOffset(selectionModel.getSelectionStart(), true);
-      }
-    }
-
     // There is a possible case that particular soft wraps become hard wraps if the caret is located at soft wrap-introduced virtual
     // space, hence, we need to give editor a chance to react accordingly.
     editor.getSoftWrapModel().beforeDocumentChangeAtCaret();
-    int oldOffset = editor.getCaretModel().getOffset();
+    int oldOffset = editor.getSelectionModel().getSelectionStart();
 
-    String filler = calcStringToFillVirtualSpace(editor);
+    String filler = editor.getSelectionModel().hasSelection() ? "" : calcStringToFillVirtualSpace(editor);
     if (filler.length() > 0) {
       s = filler + s;
     }
 
     Document document = editor.getDocument();
+    SelectionModel selectionModel = editor.getSelectionModel();
     if (editor.isInsertMode() || !toProcessOverwriteMode) {
       if (selectionModel.hasSelection()) {
-        oldOffset = selectionModel.getSelectionStart();
         document.replaceString(selectionModel.getSelectionStart(), selectionModel.getSelectionEnd(), s);
       } else {
         document.insertString(oldOffset, s);
@@ -137,7 +114,7 @@ public class EditorModificationUtil {
 
     int offset = oldOffset + filler.length() + caretShift;
     if (toMoveCaret){
-      editor.getCaretModel().moveToOffset(offset, true);
+      editor.getCaretModel().moveToVisualPosition(editor.offsetToVisualPosition(offset, false, true));
       selectionModel.removeSelection();
     }
     else if (editor.getCaretModel().getOffset() != oldOffset) { // handling the case when caret model tracks document changes
@@ -147,7 +124,7 @@ public class EditorModificationUtil {
     return offset;
   }
 
-  public static void pasteTransferableAsBlock(Editor editor, @Nullable Producer<Transferable> producer) {
+  public static void pasteTransferableAsBlock(Editor editor, @Nullable Producer<? extends Transferable> producer) {
     Transferable content = getTransferable(producer);
     if (content == null) return;
     String text = getStringContent(content);
@@ -172,7 +149,7 @@ public class EditorModificationUtil {
   }
 
   @Nullable
-  public static Transferable getContentsToPasteToEditor(@Nullable Producer<Transferable> producer) {
+  public static Transferable getContentsToPasteToEditor(@Nullable Producer<? extends Transferable> producer) {
     if (producer == null) {
       CopyPasteManager manager = CopyPasteManager.getInstance();
       return manager.areDataFlavorsAvailable(DataFlavor.stringFlavor) ? manager.getContents() : null;
@@ -190,13 +167,12 @@ public class EditorModificationUtil {
     try {
       return (String)content.getTransferData(DataFlavor.stringFlavor);
     }
-    catch (UnsupportedFlavorException ignore) { }
-    catch (IOException ignore) { }
+    catch (UnsupportedFlavorException | IOException ignore) { }
 
     return null;
   }
 
-  private static Transferable getTransferable(Producer<Transferable> producer) {
+  private static Transferable getTransferable(Producer<? extends Transferable> producer) {
     Transferable content = null;
     if (producer != null) {
       content = producer.produce();
@@ -323,27 +299,17 @@ public class EditorModificationUtil {
   }
 
   /**
-   * Inserts given string at each caret's position. Effective caret shift will be equal to <code>caretShift</code> for each caret.
+   * Inserts given string at each caret's position. Effective caret shift will be equal to {@code caretShift} for each caret.
    */
   public static void typeInStringAtCaretHonorMultipleCarets(final Editor editor, @NotNull final String str, final boolean toProcessOverwriteMode, final int caretShift)
     throws ReadOnlyFragmentModificationException
   {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(__ -> insertStringAtCaretNoScrolling(editor, str, toProcessOverwriteMode, true, caretShift));
     editor.getScrollingModel().scrollToCaret(ScrollType.RELATIVE);
   }
 
   public static void moveAllCaretsRelatively(@NotNull Editor editor, final int caretShift) {
-    editor.getCaretModel().runForEachCaret(new CaretAction() {
-      @Override
-      public void perform(Caret caret) {
-        caret.moveToOffset(caret.getOffset() + caretShift);
-      }
-    });
+    editor.getCaretModel().runForEachCaret(caret -> caret.moveToOffset(caret.getOffset() + caretShift));
   }
 
   public static void moveCaretRelatively(@NotNull Editor editor, final int caretShift) {
@@ -411,5 +377,18 @@ public class EditorModificationUtil {
       return false;
     }
     return true;
+  }
+
+  /**
+   * @return true when not viewer
+   *         false otherwise, additionally information hint with warning would be shown
+   */
+  public static boolean checkModificationAllowed(Editor editor) {
+    if (!editor.isViewer()) return true;
+    if (ApplicationManager.getApplication().isHeadlessEnvironment() || editor instanceof TextComponentEditor) return false;
+
+    String data = READ_ONLY_VIEW_MESSAGE_KEY.get(editor);
+    HintManager.getInstance().showInformationHint(editor, data == null ? EditorBundle.message("editing.viewer.hint") : data);
+    return false;
   }
 }

@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: catherine
- */
 package com.jetbrains.python.testing.doctest;
 
 import com.intellij.execution.Location;
+import com.intellij.execution.actions.ConfigurationFromContext;
+import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -31,28 +16,29 @@ import com.jetbrains.python.psi.PyElement;
 import com.jetbrains.python.psi.PyFile;
 import com.jetbrains.python.psi.PyFunction;
 import com.jetbrains.python.psi.types.TypeEvalContext;
-import com.jetbrains.python.testing.AbstractPythonTestRunConfiguration;
-import com.jetbrains.python.testing.PythonTestConfigurationProducer;
+import com.jetbrains.python.testing.AbstractPythonLegacyTestRunConfiguration;
 import com.jetbrains.python.testing.PythonTestConfigurationType;
+import com.jetbrains.python.testing.PythonTestLegacyConfigurationProducer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class PythonDocTestConfigurationProducer extends PythonTestConfigurationProducer {
-
-  public PythonDocTestConfigurationProducer() {
-    super(PythonTestConfigurationType.getInstance().PY_DOCTEST_FACTORY);
+public final class PythonDocTestConfigurationProducer extends PythonTestLegacyConfigurationProducer {
+  @NotNull
+  @Override
+  public ConfigurationFactory getConfigurationFactory() {
+    return PythonTestConfigurationType.getInstance().PY_DOCTEST_FACTORY;
   }
 
   @Override
-  protected boolean isTestFunction(@NotNull final PyFunction pyFunction, @Nullable final AbstractPythonTestRunConfiguration configuration) {
+  protected boolean isTestFunction(@NotNull final PyFunction pyFunction, @Nullable final AbstractPythonLegacyTestRunConfiguration configuration) {
     return PythonDocTestUtil.isDocTestFunction(pyFunction);
   }
 
   @Override
   protected boolean isTestClass(@NotNull PyClass pyClass,
-                                @Nullable final AbstractPythonTestRunConfiguration configuration,
+                                @Nullable final AbstractPythonLegacyTestRunConfiguration configuration,
                                 @Nullable final TypeEvalContext context) {
     return PythonDocTestUtil.isDocTestClass(pyClass);
   }
@@ -63,6 +49,7 @@ public class PythonDocTestConfigurationProducer extends PythonTestConfigurationP
     return !testCases.isEmpty();
   }
 
+  @Override
   protected boolean isAvailable(@NotNull final Location location) {
     final Module module = location.getModule();
     if (!isPythonModule(module)) return false;
@@ -73,6 +60,12 @@ public class PythonDocTestConfigurationProducer extends PythonTestConfigurationP
       return visitor.hasTests;
     }
     else return true;
+  }
+
+  // test configuration is always prefered over regular one
+  @Override
+  public boolean shouldReplace(@NotNull ConfigurationFromContext self, @NotNull ConfigurationFromContext other) {
+    return self.isProducedBy(getClass());
   }
 
   private static class PyDocTestVisitor extends PsiRecursiveElementVisitor {

@@ -20,6 +20,7 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.vfs.SavingRequestor;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
@@ -39,7 +40,7 @@ public abstract class FileDocumentManager implements SavingRequestor {
    * Returns the document for the specified virtual file.<p/>
    * 
    * Documents are cached on weak or strong references, depending on the nature of the virtual file. If the document for the given virtual file is not yet cached,
-   * the file's contents are read from VFS and loaded into heap memory. An appropriate encoding is used. All line separators are converted to <code>\n</code>.<p/>
+   * the file's contents are read from VFS and loaded into heap memory. An appropriate encoding is used. All line separators are converted to {@code \n}.<p/>
    * 
    * Should be invoked in a read action.
    * 
@@ -74,7 +75,7 @@ public abstract class FileDocumentManager implements SavingRequestor {
 
   /**
    * Saves all unsaved documents to disk. This operation can modify documents that will be saved
-   * (due to 'Strip trailing spaces on Save' functionality). When saving, <code>\n</code> line separators are converted into 
+   * (due to 'Strip trailing spaces on Save' functionality). When saving, {@code \n} line separators are converted into
    * the ones used normally on the system, or the ones explicitly specified by the user. Encoding settings are honored.<p/>
    * 
    * Should be invoked on the event dispatch thread.
@@ -83,7 +84,7 @@ public abstract class FileDocumentManager implements SavingRequestor {
 
   /**
    * Saves the specified document to disk. This operation can modify the document (due to 'Strip
-   * trailing spaces on Save' functionality). When saving, <code>\n</code> line separators are converted into 
+   * trailing spaces on Save' functionality). When saving, {@code \n} line separators are converted into
    * the ones used normally on the system, or the ones explicitly specified by the user. Encoding settings are honored.<p/>
    * 
    * Should be invoked on the event dispatch thread.
@@ -122,6 +123,13 @@ public abstract class FileDocumentManager implements SavingRequestor {
    * @return true if the file has unsaved changes, false otherwise.
    */
   public abstract boolean isFileModified(@NotNull VirtualFile file);
+
+  /**
+   * Check if only beginning of the file was loaded for Document.
+   *
+   * @see FileUtilRt#isTooLarge
+   */
+  public abstract boolean isPartialPreviewOfALargeFile(@NotNull Document document);
 
   /**
    * Discards unsaved changes for the specified document and reloads it from disk.

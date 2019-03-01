@@ -1,10 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch;
 
-import com.intellij.dupLocator.PsiElementRole;
 import com.intellij.dupLocator.equivalence.EquivalenceDescriptor;
 import com.intellij.dupLocator.equivalence.EquivalenceDescriptorProvider;
-import com.intellij.dupLocator.equivalence.MultiChildDescriptor;
-import com.intellij.dupLocator.equivalence.SingleChildDescriptor;
 import com.intellij.dupLocator.iterators.FilteringNodeIterator;
 import com.intellij.dupLocator.iterators.NodeIterator;
 import com.intellij.dupLocator.util.DuplocatorUtil;
@@ -26,23 +24,16 @@ import com.intellij.structuralsearch.impl.matcher.GlobalMatchingVisitor;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.structuralsearch.impl.matcher.PatternTreeContext;
 import com.intellij.structuralsearch.impl.matcher.compiler.GlobalCompilingVisitor;
-import com.intellij.structuralsearch.impl.matcher.compiler.PatternCompiler;
-import com.intellij.structuralsearch.impl.matcher.filters.LexicalNodesFilter;
 import com.intellij.structuralsearch.impl.matcher.handlers.*;
 import com.intellij.structuralsearch.impl.matcher.iterators.SsrFilteringNodeIterator;
 import com.intellij.structuralsearch.impl.matcher.strategies.MatchingStrategy;
 import com.intellij.structuralsearch.plugin.replace.ReplaceOptions;
-import com.intellij.structuralsearch.plugin.replace.impl.ReplacementContext;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.LocalTimeCounter;
-import com.intellij.util.containers.HashSet;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -51,7 +42,6 @@ import java.util.regex.Pattern;
 public abstract class StructuralSearchProfileBase extends StructuralSearchProfile {
   private static final String DELIMETER_CHARS = ",;.[]{}():";
   protected static final String PATTERN_PLACEHOLDER = "$$PATTERN_PLACEHOLDER$$";
-  private PsiElementVisitor myLexicalNodesFilter;
 
   @Override
   public void compile(PsiElement[] elements, @NotNull final GlobalCompilingVisitor globalVisitor) {
@@ -127,19 +117,8 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
 
   @NotNull
   @Override
-  public PsiElementVisitor getLexicalNodesFilter(@NotNull final LexicalNodesFilter filter) {
-    if (myLexicalNodesFilter == null) {
-      myLexicalNodesFilter = new PsiElementVisitor() {
-        @Override
-        public void visitElement(PsiElement element) {
-          super.visitElement(element);
-          if (DuplocatorUtil.isIgnoredNode(element)) {
-            filter.setResult(true);
-          }
-        }
-      };
-    }
-    return myLexicalNodesFilter;
+  public NodeFilter getLexicalNodesFilter() {
+    return element -> DuplocatorUtil.isIgnoredNode(element);
   }
 
   public static boolean containsOnlyDelimeters(String s) {
@@ -222,88 +201,11 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
   }
 
   @Override
-  public void checkReplacementPattern(Project project, ReplaceOptions options) {
-    final CompiledPattern compiledPattern = PatternCompiler.compilePattern(project, options.getMatchOptions());
-    if (compiledPattern == null) {
-      return;
-    }
-
-    final NodeIterator it = compiledPattern.getNodes();
-    if (!it.hasNext()) {
-      return;
-    }
-
-    final PsiElement root = it.current().getParent();
-
-    if (!checkOptionalChildren(root) ||
-        !checkErrorElements(root)) {
-      throw new UnsupportedPatternException(": Partial and expression patterns are not supported");
-    }
-  }
-
-  private static boolean checkErrorElements(PsiElement element) {
-    final boolean[] result = {true};
-    final int endOffset = element.getTextRange().getEndOffset();
-
-    element.accept(new PsiRecursiveElementWalkingVisitor() {
-      @Override
-      public void visitElement(PsiElement element) {
-        super.visitElement(element);
-
-        if (element instanceof PsiErrorElement && element.getTextRange().getEndOffset() == endOffset) {
-          result[0] = false;
-        }
-      }
-    });
-
-    return result[0];
-  }
-
-  private static boolean checkOptionalChildren(PsiElement root) {
-    final boolean[] result = {true};
-
-    root.accept(new PsiRecursiveElementWalkingVisitor() {
-      @Override
-      public void visitElement(PsiElement element) {
-        super.visitElement(element);
-
-        if (element instanceof LeafElement) {
-          return;
-        }
-
-        final EquivalenceDescriptorProvider provider = EquivalenceDescriptorProvider.getInstance(element);
-        if (provider == null) {
-          return;
-        }
-
-        final EquivalenceDescriptor descriptor = provider.buildDescriptor(element);
-        if (descriptor == null) {
-          return;
-        }
-
-        for (SingleChildDescriptor childDescriptor : descriptor.getSingleChildDescriptors()) {
-          if (childDescriptor.getType() == SingleChildDescriptor.MyType.OPTIONALLY_IN_PATTERN &&
-              childDescriptor.getElement() == null) {
-            result[0] = false;
-          }
-        }
-
-        for (MultiChildDescriptor childDescriptor : descriptor.getMultiChildDescriptors()) {
-          if (childDescriptor.getType() == MultiChildDescriptor.MyType.OPTIONALLY_IN_PATTERN) {
-            PsiElement[] elements = childDescriptor.getElements();
-            if (elements == null || elements.length == 0) {
-              result[0] = false;
-            }
-          }
-        }
-      }
-    });
-    return result[0];
-  }
+  public void checkReplacementPattern(Project project, ReplaceOptions options) {}
 
   @Override
-  public StructuralReplaceHandler getReplaceHandler(@NotNull ReplacementContext context) {
-    return new DocumentBasedReplaceHandler(context.getProject());
+  public StructuralReplaceHandler getReplaceHandler(@NotNull Project project, @NotNull ReplaceOptions replaceOptionss) {
+    return new DocumentBasedReplaceHandler(project);
   }
 
   @NotNull
@@ -411,7 +313,7 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
       topElement = topElement.getNextSibling();
     }
 
-    return result.toArray(new PsiElement[result.size()]);
+    return result.toArray(PsiElement.EMPTY_ARRAY);
   }
 
   // todo: support expression patterns
@@ -449,6 +351,7 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
         myGlobalVisitor.handle(element);
         final MatchingHandler handler = pattern.getHandler(element);
         handler.setFilter(new NodeFilter() {
+          @Override
           public boolean accepts(PsiElement other) {
             return canBePatternVariableValue(other);
           }
@@ -500,7 +403,7 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
       final Pattern[] patterns = new Pattern[prefixes.length];
 
       for (int i = 0; i < prefixes.length; i++) {
-        final String s = StructuralSearchUtil.shieldSpecialChars(prefixes[i]);
+        final String s = StructuralSearchUtil.shieldRegExpMetaChars(prefixes[i]);
         patterns[i] = Pattern.compile("\\b(" + s + "\\w+)\\b");
       }
       return patterns;
@@ -575,7 +478,7 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
 
         if (descriptor1 != null && descriptor2 != null) {
           final boolean result = DuplocatorUtil
-            .match(descriptor1, descriptor2, myGlobalVisitor, Collections.<PsiElementRole>emptySet(), null);
+            .match(descriptor1, descriptor2, myGlobalVisitor, Collections.emptySet(), null);
           myGlobalVisitor.setResult(result);
           return;
         }
@@ -653,21 +556,21 @@ public abstract class StructuralSearchProfileBase extends StructuralSearchProfil
   private static class MySubstitutionHandler extends SubstitutionHandler {
     final Set<PsiElement> myExceptedNodes;
 
-    public MySubstitutionHandler(String name, boolean target, int minOccurs, int maxOccurs, boolean greedy) {
+    MySubstitutionHandler(String name, boolean target, int minOccurs, int maxOccurs, boolean greedy) {
       super(name, target, minOccurs, maxOccurs, greedy);
       myExceptedNodes = new HashSet<>();
     }
 
     @Override
-    public boolean matchSequentially(NodeIterator nodes, NodeIterator nodes2, MatchContext context) {
-      if (doMatchSequentially(nodes, nodes2, context)) {
+    public boolean matchSequentially(NodeIterator patternNodes, NodeIterator matchNodes, MatchContext context) {
+      if (doMatchSequentially(patternNodes, matchNodes, context)) {
         return true;
       }
-      final PsiElement current = nodes.current();
+      final PsiElement current = patternNodes.current();
       if (current != null) {
         myExceptedNodes.add(current);
       }
-      final boolean result = doMatchSequentiallyBySimpleHandler(nodes, nodes2, context);
+      final boolean result = doMatchSequentiallyBySimpleHandler(patternNodes, matchNodes, context);
       myExceptedNodes.remove(current);
       return result;
     }

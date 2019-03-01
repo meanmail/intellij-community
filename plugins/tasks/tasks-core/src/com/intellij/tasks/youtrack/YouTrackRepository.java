@@ -25,9 +25,9 @@ import com.intellij.tasks.impl.BaseRepository;
 import com.intellij.tasks.impl.BaseRepositoryImpl;
 import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskUtil;
-import com.intellij.util.Function;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.io.HttpRequests;
 import com.intellij.util.text.VersionComparatorUtil;
 import com.intellij.util.xmlb.annotations.Tag;
 import org.apache.axis.utils.XMLChar;
@@ -81,6 +81,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     myDefaultSearch = other.getDefaultSearch();
   }
 
+  @Override
   public Task[] getIssues(@Nullable String request, int max, long since) throws Exception {
 
     String query = getDefaultSearch();
@@ -118,7 +119,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
       List<Element> children = element.getChildren("issue");
 
       final List<Task> tasks = ContainerUtil.mapNotNull(children, (NullableFunction<Element, Task>)o -> createIssue(o));
-      return tasks.toArray(new Task[tasks.size()]);
+      return tasks.toArray(Task.EMPTY_ARRAY);
     }
     finally {
       method.releaseConnection();
@@ -148,7 +149,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     String response;
     try {
       if (method.getStatusCode() != 200) {
-        throw new Exception("Cannot login: HTTP status code " + method.getStatusCode());
+        throw new HttpRequests.HttpStatusException("Cannot login", method.getStatusCode(), method.getPath());
       }
       response = method.getResponseBodyAsString(1000);
     }
@@ -169,6 +170,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     return client;
   }
 
+  @Override
   @Nullable
   public Task findTask(@NotNull String id) throws Exception {
     final Element element = fetchRequestAsElement(id);
@@ -275,6 +277,7 @@ public class YouTrackRepository extends BaseRepositoryImpl {
         return summary;
       }
 
+      @Override
       public String getDescription() {
         return description;
       }
@@ -332,7 +335,6 @@ public class YouTrackRepository extends BaseRepositoryImpl {
     }
   }
 
-  @SuppressWarnings({"EqualsWhichDoesntCheckParameterClass"})
   @Override
   public boolean equals(Object o) {
     if (!super.equals(o)) return false;
@@ -383,5 +385,11 @@ public class YouTrackRepository extends BaseRepositoryImpl {
   @Override
   public HttpClient getHttpClient() {
     return super.getHttpClient();
+  }
+
+  @NotNull
+  @Override
+  protected String getDefaultScheme() {
+    return "https";
   }
 }

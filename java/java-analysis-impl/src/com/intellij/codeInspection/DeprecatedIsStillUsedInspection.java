@@ -1,44 +1,18 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
+import com.intellij.codeInspection.deprecation.DeprecationInspectionBase;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiSearchHelper;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import org.jetbrains.annotations.NotNull;
 
 /**
  * @author cdr
  */
 public class DeprecatedIsStillUsedInspection extends LocalInspectionTool {
-  //@Override
-  //@NotNull
-  //public String getDisplayName() {
-  //  return "Deprecated member is used";
-  //}
-  //
-  //@Override
-  //@NotNull
-  //public String getShortName() {
-  //  return "DeprecatedIsUsed";
-  //}
-  //
-
   @NotNull
   @Override
   public PsiElementVisitor buildVisitor(@NotNull final ProblemsHolder holder,
@@ -56,12 +30,12 @@ public class DeprecatedIsStillUsedInspection extends LocalInspectionTool {
     };
   }
 
-  private void checkMember(@NotNull PsiMember member, @NotNull PsiIdentifier identifier, @NotNull ProblemsHolder holder) {
+  private static void checkMember(@NotNull PsiMember member, @NotNull PsiIdentifier identifier, @NotNull ProblemsHolder holder) {
     if (!(member instanceof PsiDocCommentOwner) || !isDeprecated((PsiDocCommentOwner)member)) {
       return;
     }
 
-    PsiSearchHelper searchHelper = PsiSearchHelper.SERVICE.getInstance(member.getProject());
+    PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(member.getProject());
     String name = member.getName();
     if (name != null && hasUsages(member, name, searchHelper, member.getResolveScope())) {
       holder.registerProblem(identifier, "Deprecated member '" + name + "' is still used");
@@ -69,7 +43,7 @@ public class DeprecatedIsStillUsedInspection extends LocalInspectionTool {
   }
 
   private static boolean isDeprecated(PsiDocCommentOwner element) {
-    return element.isDeprecated() || element.getContainingClass() != null && element.getContainingClass().isDeprecated();
+    return element.isDeprecated();
   }
 
 
@@ -83,17 +57,11 @@ public class DeprecatedIsStillUsedInspection extends LocalInspectionTool {
       return false;
     }
 
-    return !ReferencesSearch.search(element, searchScope, false).forEach(reference -> {
-      PsiElement referenceElement = reference.getElement();
-      return isInsideDeprecated(referenceElement);
-    });
-  }
-
-  private static boolean isInsideDeprecated(PsiElement element) {
-    PsiElement parent = element;
-    while ((parent = PsiTreeUtil.getParentOfType(parent, PsiDocCommentOwner.class, true)) != null) {
-      if (((PsiDocCommentOwner)parent).isDeprecated()) return true;
-    }
-    return false;
+    return ReferencesSearch.search(element, searchScope, false)
+      .anyMatch(reference -> {
+        PsiElement referenceElement = reference.getElement();
+        return !DeprecationInspectionBase.isElementInsideDeprecated(referenceElement) && 
+               !PsiUtil.isInsideJavadocComment(referenceElement);
+      });
   }
 }

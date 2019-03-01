@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,9 @@ import com.intellij.psi.PsiFileSystemItem;
 import com.intellij.psi.PsiReference;
 import com.intellij.reference.SoftReference;
 import com.intellij.ui.JBColor;
+import com.intellij.util.SVGLoader;
+import com.intellij.util.ui.ImageUtil;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -62,7 +65,7 @@ public class ImagePreviewComponent extends JPanel implements PreviewHintComponen
   private ImagePreviewComponent(@NotNull final BufferedImage image, final long imageFileSize) {
     setLayout(new BorderLayout());
 
-    myImage = image;
+    myImage = (BufferedImage)ImageUtil.ensureHiDPI(image, JBUI.ScaleContext.create(this));
     add(new ImageComp(), BorderLayout.CENTER);
     add(createLabel(image, imageFileSize), BorderLayout.SOUTH);
 
@@ -119,9 +122,13 @@ public class ImagePreviewComponent extends JPanel implements PreviewHintComponen
 
   @NotNull
   public static BufferedImage readImageFromBytes(@NotNull byte[] content) throws IOException {
-    InputStream inputStream = new ByteArrayInputStream(content, 0, content.length);
-    ImageInputStream imageInputStream = ImageIO.createImageInputStream(inputStream);
     try {
+      Image image = SVGLoader.load(new ByteArrayInputStream(content), JBUI.sysScale());
+      if (image != null) return ImageUtil.toBufferedImage(image);
+    } catch (IOException ignored) {}
+
+    InputStream inputStream = new ByteArrayInputStream(content, 0, content.length);
+    try (ImageInputStream imageInputStream = ImageIO.createImageInputStream(inputStream)) {
       Iterator<ImageReader> imageReaders = ImageIO.getImageReaders(imageInputStream);
       if (imageReaders.hasNext()) {
         ImageReader imageReader = imageReaders.next();
@@ -131,13 +138,13 @@ public class ImagePreviewComponent extends JPanel implements PreviewHintComponen
           int minIndex = imageReader.getMinIndex();
           return imageReader.read(minIndex, param);
         }
+        catch (Exception e) {
+          throw new IOException("Can't read image from given content", e);
+        }
         finally {
           imageReader.dispose();
         }
       }
-    }
-    finally {
-      imageInputStream.close();
     }
     throw new IOException("Can't read image from given content");
   }
@@ -201,7 +208,7 @@ public class ImagePreviewComponent extends JPanel implements PreviewHintComponen
       final int width = myImage.getWidth();
       final int height = myImage.getHeight();
 
-      g.drawImage(myImage, 0, 0, r.width > width ? width : r.width, r.height > height ? height : r.height, this);
+      UIUtil.drawImage(g, myImage, new Rectangle(0, 0, r.width > width ? width : r.width, r.height > height ? height : r.height), null, this);
     }
 
     @Override

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl;
 
 import com.intellij.lang.*;
@@ -21,8 +7,6 @@ import com.intellij.lang.java.parser.JavaParser;
 import com.intellij.lang.java.parser.JavaParserUtil;
 import com.intellij.lexer.Lexer;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.AtomicNotNullLazyValue;
-import com.intellij.openapi.util.NotNullLazyValue;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
@@ -40,55 +24,38 @@ import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 
 public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements PsiElementFactory {
-  private final NotNullLazyValue<PsiClass> myArrayClass = new AtomicNotNullLazyValue<PsiClass>() {
-    @NotNull
-    @Override
-    protected PsiClass compute() {
-      return createArrayClass("public class __Array__{\n public final int length;\n public Object clone() {}\n}", LanguageLevel.JDK_1_3);
-    }
-  };
-
-  private final NotNullLazyValue<PsiClass> myArrayClass15 = new AtomicNotNullLazyValue<PsiClass>() {
-    @NotNull
-    @Override
-    protected PsiClass compute() {
-      return createArrayClass("public class __Array__<T> {\n public final int length;\n public T[] clone() {}\n}", LanguageLevel.JDK_1_5);
-    }
-  };
-
+  private final ConcurrentMap<LanguageLevel, PsiClass> myArrayClasses = ContainerUtil.newConcurrentMap();
   private final ConcurrentMap<GlobalSearchScope, PsiClassType> myCachedObjectType = ContainerUtil.newConcurrentMap();
 
   public PsiElementFactoryImpl(final PsiManagerEx manager) {
     super(manager);
-    manager.registerRunnableToRunOnChange(new Runnable() {
-      @Override
-      public void run() {
-        myCachedObjectType.clear();
-      }
-    });
+    manager.registerRunnableToRunOnChange(myCachedObjectType::clear);
   }
 
   @NotNull
   @Override
   public PsiClass getArrayClass(@NotNull LanguageLevel languageLevel) {
-    return (languageLevel.isAtLeast(LanguageLevel.JDK_1_5) ? myArrayClass15 : myArrayClass).getValue();
+    return myArrayClasses.computeIfAbsent(languageLevel, this::createArrayClass);
   }
 
-  private PsiClass createArrayClass(String text, LanguageLevel level) {
+  private PsiClass createArrayClass(LanguageLevel level) {
+    String text = level.isAtLeast(LanguageLevel.JDK_1_5) ?
+                  "public class __Array__<T> {\n public final int length;\n public T[] clone() {}\n}" :
+                  "public class __Array__{\n public final int length;\n public Object clone() {}\n}";
     PsiClass psiClass = ((PsiExtensibleClass)createClassFromText(text, null)).getOwnInnerClasses().get(0);
     ensureNonWritable(psiClass);
     PsiFile file = psiClass.getContainingFile();
-    ((PsiJavaFileBaseImpl)file).clearCaches();
+    file.clearCaches();
     PsiUtil.FILE_LANGUAGE_LEVEL_KEY.set(file, level);
     return psiClass;
   }
@@ -226,7 +193,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
       throw new IncorrectOperationException("Cannot create field with type \"null\".");
     }
 
-    @NonNls final String text = "class _Dummy_ { private " + type.getCanonicalText(true) + " " + name + "; }";
+    @NonNls final String text = "class _Dummy_ { private " + GenericsUtil.getVariableTypeByExpressionType(type).getCanonicalText(true) + " " + name + "; }";
     final PsiJavaFile aFile = createDummyJavaFile(text);
     final PsiClass[] classes = aFile.getClasses();
     if (classes.length < 1) {
@@ -250,7 +217,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
       throw new IncorrectOperationException("Cannot create method with type \"null\".");
     }
 
-    final String canonicalText = returnType.getCanonicalText(true);
+    final String canonicalText = GenericsUtil.getVariableTypeByExpressionType(returnType).getCanonicalText(true);
     final PsiJavaFile aFile = createDummyJavaFile("class _Dummy_ { public " + canonicalText + " " + name + "() {\n} }");
     final PsiClass[] classes = aFile.getClasses();
     if (classes.length < 1) {
@@ -268,7 +235,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
   @NotNull
   @Override
   public PsiMethod createMethod(@NotNull @NonNls String name, PsiType returnType, PsiElement context) throws IncorrectOperationException {
-    return createMethodFromText("public " + returnType.getCanonicalText(true) + " " + name + "() {}", context);
+    return createMethodFromText("public " + GenericsUtil.getVariableTypeByExpressionType(returnType).getCanonicalText(true) + " " + name + "() {}", context);
   }
 
   @NotNull
@@ -362,7 +329,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
   public PsiSubstitutor createRawSubstitutor(@NotNull final PsiTypeParameterListOwner owner) {
     Map<PsiTypeParameter, PsiType> substitutorMap = null;
     for (PsiTypeParameter parameter : PsiUtil.typeParametersIterable(owner)) {
-      if (substitutorMap == null) substitutorMap = new HashMap<PsiTypeParameter, PsiType>();
+      if (substitutorMap == null) substitutorMap = new HashMap<>();
       substitutorMap.put(parameter, null);
     }
     return PsiSubstitutorImpl.createSubstitutor(substitutorMap);
@@ -373,7 +340,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
   public PsiSubstitutor createRawSubstitutor(@NotNull final PsiSubstitutor baseSubstitutor, @NotNull final PsiTypeParameter[] typeParameters) {
     Map<PsiTypeParameter, PsiType> substitutorMap = null;
     for (PsiTypeParameter parameter : typeParameters) {
-      if (substitutorMap == null) substitutorMap = new HashMap<PsiTypeParameter, PsiType>();
+      if (substitutorMap == null) substitutorMap = new HashMap<>();
       substitutorMap.put(parameter, null);
     }
     return PsiSubstitutorImpl.createSubstitutor(substitutorMap).putAll(baseSubstitutor);
@@ -641,7 +608,7 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
     PsiDeclarationStatement statement = (PsiDeclarationStatement)createStatementFromText(text, context);
 
     PsiVariable variable = (PsiVariable)statement.getDeclaredElements()[0];
-    replace(variable.getTypeElement(), createTypeElement(type), text);
+    replace(variable.getTypeElement(), createTypeElement(GenericsUtil.getVariableTypeByExpressionType(type)), text);
 
     boolean generateFinalLocals = JavaCodeStyleSettingsFacade.getInstance(myManager.getProject()).isGenerateFinalLocals();
     PsiUtil.setModifierProperty(variable, PsiModifier.FINAL, generateFinalLocals);
@@ -652,6 +619,25 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
 
     GeneratedMarkerVisitor.markGenerated(statement);
     return statement;
+  }
+
+  @Override
+  public PsiResourceVariable createResourceVariable(@NonNls @NotNull String name,
+                                                    @NotNull PsiType type,
+                                                    @Nullable PsiExpression initializer,
+                                                    @Nullable PsiElement context) {
+    PsiTryStatement tryStatement = (PsiTryStatement)createStatementFromText("try (X x = null){}", context);
+    PsiResourceList resourceList = tryStatement.getResourceList();
+    assert resourceList != null;
+    PsiResourceVariable resourceVariable = (PsiResourceVariable)resourceList.iterator().next();
+    resourceVariable.getTypeElement().replace(createTypeElement(type));
+    PsiIdentifier nameIdentifier = resourceVariable.getNameIdentifier();
+    assert nameIdentifier != null;
+    nameIdentifier.replace(createIdentifier(name));
+    if (initializer != null) {
+      resourceVariable.setInitializer(initializer);
+    }
+    return resourceVariable;
   }
 
   private static void replace(@Nullable PsiElement original, @NotNull PsiElement replacement, @NotNull String message) {
@@ -679,6 +665,16 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
   public PsiAnnotation createAnnotationFromText(@NotNull final String annotationText, @Nullable final PsiElement context) throws IncorrectOperationException {
     final PsiAnnotation psiAnnotation = super.createAnnotationFromText(annotationText, context);
     GeneratedMarkerVisitor.markGenerated(psiAnnotation);
+    return psiAnnotation;
+  }
+
+  public PsiAnnotation createAnnotationFromText(@NotNull final String annotationText,
+                                                @Nullable final PsiElement context,
+                                                boolean markGenerated) throws IncorrectOperationException {
+    final PsiAnnotation psiAnnotation = super.createAnnotationFromText(annotationText, context);
+    if (markGenerated) {
+      GeneratedMarkerVisitor.markGenerated(psiAnnotation);
+    }
     return psiAnnotation;
   }
 
@@ -763,12 +759,8 @@ public class PsiElementFactoryImpl extends PsiJavaParserFacadeImpl implements Ps
     return statements[0];
   }
 
-  private static final JavaParserUtil.ParserWrapper CATCH_SECTION = new JavaParserUtil.ParserWrapper() {
-    @Override
-    public void parse(final PsiBuilder builder) {
-      JavaParser.INSTANCE.getStatementParser().parseCatchBlock(builder);
-    }
-  };
+  private static final JavaParserUtil.ParserWrapper CATCH_SECTION =
+    builder -> JavaParser.INSTANCE.getStatementParser().parseCatchBlock(builder);
 
   @NotNull
   @Override

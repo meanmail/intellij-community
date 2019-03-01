@@ -22,6 +22,7 @@ import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.impl.DelegateMarker;
 import com.intellij.lang.impl.PsiBuilderAdapter;
 import com.intellij.lang.impl.PsiBuilderImpl;
+import com.intellij.openapi.diagnostic.Attachment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.tree.IElementType;
@@ -77,6 +78,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     initShrunkSequence();
   }
 
+  @NotNull
   @Override
   public CharSequence getOriginalText() {
     return myShrunkCharSequence;
@@ -106,7 +108,10 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     if (delegate.getCurrentOffset() > myShrunkSequence.get(myLexPosition).realStart) {
-      LOG.error("delegate is ahead of my builder!");
+      LOG.error("delegate is ahead of my builder!",
+                new Attachment("offset = " + delegate.getCurrentOffset(), getOriginalText().toString()),
+                new Attachment("myShrunkSequence", myShrunkSequence.toString())
+      );
       return;
     }
 
@@ -316,7 +321,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     public final int shrunkStart;
     public final int shrunkEnd;
 
-    public MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
+    MyShiftedToken(IElementType elementType, int realStart, int realEnd, int shrunkStart, int shrunkEnd) {
       this.elementType = elementType;
       this.realStart = realStart;
       this.realEnd = realEnd;
@@ -336,7 +341,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
 
     private final Marker myOriginalPositionMarker;
 
-    public MyMarker(Marker delegate, Marker originalPositionMarker, int builderPosition) {
+    MyMarker(Marker delegate, Marker originalPositionMarker, int builderPosition) {
       super(delegate);
 
       myBuilderPosition = builderPosition;
@@ -362,7 +367,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     @Override
-    public void doneBefore(@NotNull IElementType type, @NotNull Marker before, String errorMessage) {
+    public void doneBefore(@NotNull IElementType type, @NotNull Marker before, @NotNull String errorMessage) {
       if (myOriginalPositionMarker != null) {
         myOriginalPositionMarker.drop();
       }
@@ -394,7 +399,7 @@ public class MasqueradingPsiBuilderAdapter extends PsiBuilderAdapter {
     }
 
     @Override
-    public void error(String message) {
+    public void error(@NotNull String message) {
       if (myOriginalPositionMarker != null) {
         myOriginalPositionMarker.drop();
       }

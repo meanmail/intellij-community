@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -35,13 +21,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-/**
- * Created by IntelliJ IDEA.
- * User: ik
- * Date: 02.12.2003
- * Time: 16:49:25
- * To change this template use Options | File Templates.
- */
 public class AllClassesGetter {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.completion.AllClassesGetter");
   public static final InsertHandler<JavaPsiClassReferenceElement> TRY_SHORTENING = new InsertHandler<JavaPsiClassReferenceElement>() {
@@ -105,7 +84,7 @@ public class AllClassesGetter {
           }
         }
       }
-      if (toDelete.isValid()) {
+      if (toDelete != null && toDelete.isValid()) {
         document.deleteString(toDelete.getStartOffset(), toDelete.getEndOffset());
         context.setTailOffset(toDelete.getStartOffset());
       }
@@ -116,7 +95,7 @@ public class AllClassesGetter {
     }
 
     @Override
-    public void handleInsert(final InsertionContext context, final JavaPsiClassReferenceElement item) {
+    public void handleInsert(@NotNull final InsertionContext context, @NotNull final JavaPsiClassReferenceElement item) {
       _handleInsert(context, item);
       item.getTailType().processTail(context.getEditor(), context.getEditor().getCaretModel().getOffset());
     }
@@ -135,7 +114,7 @@ public class AllClassesGetter {
   public static void processJavaClasses(@NotNull final CompletionParameters parameters,
                                         @NotNull final PrefixMatcher prefixMatcher,
                                         final boolean filterByScope,
-                                        @NotNull final Consumer<PsiClass> consumer) {
+                                        @NotNull final Consumer<? super PsiClass> consumer) {
     final PsiElement context = parameters.getPosition();
     final Project project = context.getProject();
     final GlobalSearchScope scope = filterByScope ? context.getContainingFile().getResolveScope() : GlobalSearchScope.allScope(project);
@@ -146,7 +125,7 @@ public class AllClassesGetter {
   public static void processJavaClasses(@NotNull final PrefixMatcher prefixMatcher,
                                         @NotNull Project project,
                                         @NotNull GlobalSearchScope scope,
-                                        @NotNull Processor<PsiClass> processor) {
+                                        @NotNull Processor<? super PsiClass> processor) {
     final Set<String> names = new THashSet<>(10000);
     AllClassesSearchExecutor.processClassNames(project, scope, s -> {
       if (prefixMatcher.prefixMatches(s)) {

@@ -51,11 +51,6 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 26.07.2007
- */
 public class UnusedDefineInspection extends BaseInspection {
   @Override
   public boolean isEnabledByDefault() {
@@ -92,7 +87,7 @@ public class UnusedDefineInspection extends BaseInspection {
       }
     };
 
-    public MyElementVisitor(ProblemsHolder holder) {
+    MyElementVisitor(ProblemsHolder holder) {
       myHolder = holder;
     }
 
@@ -206,20 +201,14 @@ public class UnusedDefineInspection extends BaseInspection {
     private static class MyFix<T extends PsiElement> implements LocalQuickFix {
       private final T myTag;
 
-      public MyFix(T tag) {
+      MyFix(T tag) {
         myTag = tag;
       }
 
       @Override
       @NotNull
-      public String getName() {
-        return "Remove define";
-      }
-
-      @Override
-      @NotNull
       public String getFamilyName() {
-        return getName();
+        return "Remove define";
       }
 
       @Override

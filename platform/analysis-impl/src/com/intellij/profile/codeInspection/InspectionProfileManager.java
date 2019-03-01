@@ -1,30 +1,27 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.profile.codeInspection;
 
+import com.intellij.codeInsight.daemon.impl.SeverityRegistrar;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.profile.Profile;
-import com.intellij.profile.ProfileChangeAdapter;
-import com.intellij.profile.ProfileManager;
+import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public interface InspectionProfileManager extends ProfileManager, SeverityProvider {
+import java.util.Collection;
+
+public interface InspectionProfileManager {
   String INSPECTION_DIR = "inspection";
+
+  @NotNull
+  Collection<InspectionProfileImpl> getProfiles();
+
+  @Nullable
+  default NamedScopesHolder getScopesManager() {
+    return null;
+  }
 
   @NotNull
   static InspectionProfileManager getInstance() {
@@ -36,21 +33,25 @@ public interface InspectionProfileManager extends ProfileManager, SeverityProvid
     return InspectionProjectProfileManager.getInstance(project);
   }
 
-  @Deprecated
-  void addProfileChangeListener(@NotNull ProfileChangeAdapter listener);
-
-  @Deprecated
-  void removeProfileChangeListener(@NotNull ProfileChangeAdapter listener);
-
-  void fireProfileChanged(@Nullable Profile profile);
-
-  void fireProfileChanged(@Nullable Profile oldProfile, @NotNull Profile profile);
-
   void setRootProfile(@Nullable String name);
 
   @NotNull
+  InspectionProfileImpl getCurrentProfile();
+
+  @Contract("_,true -> !null")
+  InspectionProfileImpl getProfile(@NotNull String name, boolean returnRootProfileIfNamedIsAbsent);
+
+  @NotNull
+  default InspectionProfileImpl getProfile(@NotNull String name) {
+    return getProfile(name, true);
+  }
+
+  @NotNull
+  SeverityRegistrar getSeverityRegistrar();
+
+  @NotNull
   @Deprecated
-  default Profile getRootProfile() {
-    return getCurrentProfile();
+  default SeverityRegistrar getOwnSeverityRegistrar() {
+    return getSeverityRegistrar();
   }
 }

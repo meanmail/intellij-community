@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.application;
 
 import com.intellij.openapi.Disposable;
@@ -21,6 +7,8 @@ import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.ThrowableComputable;
+import com.intellij.util.ThrowableRunnable;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
@@ -42,7 +30,9 @@ import java.util.concurrent.Future;
 public interface Application extends ComponentManager {
   /**
    * Runs the specified read action. Can be called from any thread. The action is executed immediately
-   * if no write action is currently running, or blocked until the currently running write action completes.
+   * if no write action is currently running, or blocked until the currently running write action completes.<p></p>
+   *
+   * See also {@link ReadAction#run} for a more lambda-friendly version.
    *
    * @param action the action to run.
    */
@@ -51,7 +41,9 @@ public interface Application extends ComponentManager {
   /**
    * Runs the specified computation in a read action. Can be called from any thread. The action is executed
    * immediately if no write action is currently running, or blocked until the currently running write action
-   * completes.
+   * completes.<p></p>
+   *
+   * See also {@link ReadAction#compute} for a more lambda-friendly version.
    *
    * @param computation the computation to perform.
    * @return the result returned by the computation.
@@ -61,7 +53,9 @@ public interface Application extends ComponentManager {
   /**
    * Runs the specified computation in a read action. Can be called from any thread. The action is executed
    * immediately if no write action is currently running, or blocked until the currently running write action
-   * completes.
+   * completes.<p></p>
+   *
+   * See also {@link ReadAction#compute} for a more lambda-friendly version.
    *
    * @param computation the computation to perform.
    * @return the result returned by the computation.
@@ -71,7 +65,9 @@ public interface Application extends ComponentManager {
 
   /**
    * Runs the specified write action. Must be called from the Swing dispatch thread. The action is executed
-   * immediately if no read actions are currently running, or blocked until all read actions complete.
+   * immediately if no read actions are currently running, or blocked until all read actions complete.<p></p>
+   *
+   * See also {@link WriteAction#run} for a more lambda-friendly version.
    *
    * @param action the action to run
    */
@@ -80,7 +76,9 @@ public interface Application extends ComponentManager {
   /**
    * Runs the specified computation in a write action. Must be called from the Swing dispatch thread.
    * The action is executed immediately if no read actions or write actions are currently running,
-   * or blocked until all read actions and write actions complete.
+   * or blocked until all read actions and write actions complete.<p></p>
+   *
+   * See also {@link WriteAction#compute} for a more lambda-friendly version.
    *
    * @param computation the computation to run
    * @return the result returned by the computation.
@@ -90,7 +88,9 @@ public interface Application extends ComponentManager {
   /**
    * Runs the specified computation in a write action. Must be called from the Swing dispatch thread.
    * The action is executed immediately if no read actions or write actions are currently running,
-   * or blocked until all read actions and write actions complete.
+   * or blocked until all read actions and write actions complete.<p></p>
+   *
+   * See also {@link WriteAction#compute} for a more lambda-friendly version.
    *
    * @param computation the computation to run
    * @return the result returned by the computation.
@@ -149,7 +149,7 @@ public interface Application extends ComponentManager {
   void saveAll();
 
   /**
-   * Saves all application settings.
+   * Saves application settings.
    */
   void saveSettings();
 
@@ -165,6 +165,7 @@ public interface Application extends ComponentManager {
    * @see #assertWriteAccessAllowed()
    * @see #runWriteAction(Runnable)
    */
+  @Contract(pure=true)
   boolean isWriteAccessAllowed();
 
   /**
@@ -174,6 +175,7 @@ public interface Application extends ComponentManager {
    * @see #assertReadAccessAllowed()
    * @see #runReadAction(Runnable)
    */
+  @Contract(pure=true)
   boolean isReadAccessAllowed();
 
   /**
@@ -181,6 +183,7 @@ public interface Application extends ComponentManager {
    *
    * @return true if the current thread is the Swing dispatch thread, false otherwise.
    */
+  @Contract(pure=true)
   boolean isDispatchThread();
 
   /**
@@ -267,49 +270,36 @@ public interface Application extends ComponentManager {
   void invokeAndWait(@NotNull Runnable runnable) throws ProcessCanceledException;
 
   /**
-   * Returns current modality state corresponding to the currently opened modal dialogs. Can only be invoked on AWT thread.
-   *
+   * Please use {@link ModalityState#current()} instead.
    * @return the current modality state.
-   * @see ModalityState#current()
    */
   @NotNull
   ModalityState getCurrentModalityState();
 
   /**
-   * Returns the modality state for the dialog to which the specified component belongs.
-   *
-   * @param c the component for which the modality state is requested.
-   * @return the modality state.
-   * @see ModalityState#stateForComponent(Component)
+   * Please use {@link ModalityState#stateForComponent(Component)} instead.
+   * @return the modality state for the dialog to which the specified component belongs.
    */
   @NotNull
   ModalityState getModalityStateForComponent(@NotNull Component c);
 
   /**
-   * When invoked on AWT thread, returns {@link #getCurrentModalityState()} ()}. When invoked in the thread of some modal progress, returns modality state
-   * corresponding to that progress' dialog. Otherwise, returns {@link #getNoneModalityState()}.
-   *
+   * Please use {@link ModalityState#defaultModalityState()} instead.
    * @return the modality state for the current thread.
-   * @see ModalityState#defaultModalityState()
    */
   @NotNull
   ModalityState getDefaultModalityState();
 
   /**
-   * Returns the modality state representing the state when no modal dialogs
-   * are active.
-   *
+   * Please use {@link ModalityState#NON_MODAL} instead of this method.
    * @return the modality state for no modal dialogs.
-   * @see ModalityState#NON_MODAL
    */
   @NotNull
   ModalityState getNoneModalityState();
 
   /**
-   * Returns modality state which is active anytime. Please don't use it unless absolutely needed for the reasons described in
-   * {@link ModalityState} documentation.
-   * @return modality state
-   * @see ModalityState#any()
+   * Please use {@link ModalityState#any()} instead of this method, and only if you absolutely must, after carefully reading its documentation.
+   * @return modality state which is always applicable
    */
   @NotNull
   ModalityState getAnyModalityState();
@@ -387,37 +377,39 @@ public interface Application extends ComponentManager {
    * Checks if IDEA is capable of restarting itself on the current platform and with the current execution mode.
    *
    * @return true if IDEA can restart itself, false otherwise.
-   * @since 8.1
    */
   boolean isRestartCapable();
 
   /**
    * Exits and restarts IDEA. If the current platform is not restart capable, only exits.
-   *
-   * @since 8.1
    */
   void restart();
 
   /**
    * Checks if the application is active
    * @return true if one of application windows is focused, false -- otherwise
-   * @since 9.0
    */
   boolean isActive();
 
   /**
-   * Returns lock used for read operations, should be closed in finally block
+   * Use {@link #runReadAction(Runnable)} instead
    */
   @NotNull
+  @Deprecated
   AccessToken acquireReadActionLock();
 
   /**
    * Returns lock used for write operations, should be closed in finally block
+   * @see #runWriteAction
+   * @see WriteAction#run(ThrowableRunnable)
+   * @see WriteAction#compute(ThrowableComputable)
    */
   @NotNull
+  @Deprecated
   AccessToken acquireWriteActionLock(@NotNull Class marker);
 
   boolean isInternal();
 
   boolean isEAP();
+
 }

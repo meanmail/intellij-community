@@ -48,7 +48,7 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    if (!myClass.isValid() || !myParameterList.isValid()) {
+    if (!myClass.isValid() || !myParameterList.isValid() || myClass instanceof PsiCompiledElement) {
       return false;
     }
 
@@ -151,11 +151,11 @@ public class ChangeClassSignatureFromUsageFix extends BaseIntentionAction {
   private static class TypeParameterNameSuggester {
     private final Set<String> usedNames = new HashSet<>();
 
-    public TypeParameterNameSuggester(@NotNull PsiTypeParameter... typeParameters) {
+    TypeParameterNameSuggester(@NotNull PsiTypeParameter... typeParameters) {
       this(Arrays.asList(typeParameters));
     }
 
-    public TypeParameterNameSuggester(@NotNull Collection<PsiTypeParameter> typeParameters) {
+    TypeParameterNameSuggester(@NotNull Collection<? extends PsiTypeParameter> typeParameters) {
       for (PsiTypeParameter p : typeParameters) {
         usedNames.add(p.getName());
       }

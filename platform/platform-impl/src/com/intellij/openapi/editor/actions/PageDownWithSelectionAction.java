@@ -14,28 +14,20 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 13, 2002
- * Time: 3:16:36 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Caret;
-import com.intellij.openapi.editor.CaretAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 public class PageDownWithSelectionAction extends EditorAction {
   public static class Handler extends EditorActionHandler {
     @Override
-    public void doExecute(final Editor editor, @Nullable Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull final Editor editor, @Nullable Caret caret, DataContext dataContext) {
       if (!editor.getCaretModel().supportsMultipleCarets()) {
         EditorActionUtil.moveCaretPageDown(editor, true);
         return;
@@ -50,12 +42,7 @@ public class PageDownWithSelectionAction extends EditorAction {
       }
       else {
         if (caret == null) {
-          editor.getCaretModel().runForEachCaret(new CaretAction() {
-            @Override
-            public void perform(Caret caret) {
-              EditorActionUtil.moveCaretPageDown(editor, true);
-            }
-          });
+          editor.getCaretModel().runForEachCaret(__ -> EditorActionUtil.moveCaretPageDown(editor, true));
         }
         else {
           // assuming caret is equal to CaretModel.getCurrentCaret()

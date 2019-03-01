@@ -24,7 +24,6 @@ import java.io.IOException;
 
 /**
  * @author Denis Zhdanov
- * @since 3/25/13 1:19 PM
  */
 public class SyntaxInfo {
   private final int myOutputInfoCount;
@@ -155,12 +154,7 @@ public class SyntaxInfo {
       myDefaultForeground = myColorRegistry.getId(defaultForeground);
       myDefaultBackground = myColorRegistry.getId(defaultBackground);
       myFontSize = fontSize;
-      try {
-        myOutputInfoStream = new OutputInfoSerializer.OutputStream(myStream);
-      }
-      catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      myOutputInfoStream = new OutputInfoSerializer.OutputStream(myStream);
     }
 
     public void addFontStyle(int fontStyle) {
@@ -231,12 +225,7 @@ public class SyntaxInfo {
     private final OutputInfoSerializer.InputStream myOutputInfoStream;
 
     public MarkupIterator() {
-      try {
-        myOutputInfoStream = new OutputInfoSerializer.InputStream(new ByteArrayInputStream(myOutputInfosSerialized));
-      }
-      catch (IOException e) {
-        throw new RuntimeException(e);
-      }
+      myOutputInfoStream = new OutputInfoSerializer.InputStream(new ByteArrayInputStream(myOutputInfosSerialized));
     }
 
     public boolean hasNext() {

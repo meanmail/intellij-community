@@ -15,6 +15,7 @@
  */
 package com.intellij.remote;
 
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -35,13 +36,9 @@ public interface MutableRemoteCredentials extends RemoteCredentials {
 
   void setStorePassphrase(boolean storePassphrase);
 
-  void setAnonymous(boolean anonymous);
-
   void setPrivateKeyFile(String privateKeyFile);
-
-  void setKnownHostsFile(String knownHostsFile);
 
   void setPassphrase(@Nullable String passphrase);
 
-  void setUseKeyPair(boolean useKeyPair);
+  void setAuthType(@NotNull AuthType authType);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,8 +36,8 @@ import com.intellij.ui.roots.IconActionComponent;
 import com.intellij.ui.roots.ResizingWrapper;
 import com.intellij.uiDesigner.core.GridConstraints;
 import com.intellij.uiDesigner.core.GridLayoutManager;
-import com.intellij.util.NotNullProducer;
 import com.intellij.util.containers.MultiMap;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +57,6 @@ import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 19, 2004
  */
 public abstract class ContentRootPanel extends JPanel {
   private static final Color EXCLUDED_COLOR = new JBColor(new Color(0x992E00), DarculaColors.RED);
@@ -69,7 +68,7 @@ public abstract class ContentRootPanel extends JPanel {
   private static final Color UNSELECTED_TEXT_COLOR = Gray._51;
 
   protected final ActionCallback myCallback;
-  private final List<ModuleSourceRootEditHandler<?>> myModuleSourceRootEditHandlers;
+  private final List<? extends ModuleSourceRootEditHandler<?>> myModuleSourceRootEditHandlers;
   private JComponent myHeader;
   private JComponent myBottom;
   private final Map<JComponent, Color> myComponentToForegroundMap = new HashMap<>();
@@ -81,7 +80,7 @@ public abstract class ContentRootPanel extends JPanel {
     void onSourceRootPropertiesChanged(@NotNull SourceFolder folder);
   }
 
-  public ContentRootPanel(ActionCallback callback, List<ModuleSourceRootEditHandler<?>> moduleSourceRootEditHandlers) {
+  public ContentRootPanel(ActionCallback callback, List<? extends ModuleSourceRootEditHandler<?>> moduleSourceRootEditHandlers) {
     super(new GridBagLayout());
     myCallback = callback;
     myModuleSourceRootEditHandlers = moduleSourceRootEditHandlers;
@@ -93,13 +92,15 @@ public abstract class ContentRootPanel extends JPanel {
   public void initUI() {
     myHeader = createHeader();
     myHeader.setBorder(new EmptyBorder(0, 8, 0, 0));
-    this.add(myHeader, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(0, 0, 8, 0), 0, 0));
+    this.add(myHeader, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
+                                              JBUI.insetsBottom(8), 0, 0));
 
     addFolderGroupComponents();
 
     myBottom = new JPanel(new BorderLayout());
     myBottom.add(Box.createVerticalStrut(3), BorderLayout.NORTH);
-    this.add(myBottom, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTH, GridBagConstraints.HORIZONTAL, new Insets(0, 0, 0, 0), 0, 0));
+    this.add(myBottom, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTH, GridBagConstraints.HORIZONTAL,
+                                              JBUI.emptyInsets(), 0, 0));
 
     setSelected(false);
   }
@@ -108,23 +109,18 @@ public abstract class ContentRootPanel extends JPanel {
     final SourceFolder[] sourceFolders = getContentEntry().getSourceFolders();
     MultiMap<JpsModuleSourceRootType<?>, SourceFolder> folderByType = new MultiMap<>();
     for (SourceFolder folder : sourceFolders) {
-      if (folder.isSynthetic()) {
-        continue;
+      if (!folder.isSynthetic()) {
+        folderByType.putValue(folder.getRootType(), folder);
       }
-      final VirtualFile folderFile = folder.getFile();
-      if (folderFile != null && isExcludedOrUnderExcludedDirectory(folderFile)) {
-        continue;
-      }
-      folderByType.putValue(folder.getRootType(), folder);
     }
 
-    Insets insets = new Insets(0, 0, 10, 0);
+    Insets insets = JBUI.insetsBottom(10);
     GridBagConstraints constraints = new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 0.0, GridBagConstraints.NORTH, GridBagConstraints.HORIZONTAL, insets, 0, 0);
     for (ModuleSourceRootEditHandler<?> editor : myModuleSourceRootEditHandlers) {
       Collection<SourceFolder> folders = folderByType.get(editor.getRootType());
       if (folders.isEmpty()) continue;
 
-      ContentFolder[] foldersArray = folders.toArray(new ContentFolder[folders.size()]);
+      ContentFolder[] foldersArray = folders.toArray(new ContentFolder[0]);
       final JComponent sourcesComponent = createFolderGroupComponent(editor.getRootsGroupTitle(), foldersArray, editor.getRootsGroupColor(),
                                                                      editor);
       add(sourcesComponent, constraints);
@@ -146,13 +142,15 @@ public abstract class ContentRootPanel extends JPanel {
     if (getContentEntry().getFile() == null) {
       headerLabel.setForeground(JBColor.RED);
     }
-    final IconActionComponent deleteIconComponent = new IconActionComponent(AllIcons.Modules.DeleteContentRoot,
-                                                                            AllIcons.Modules.DeleteContentRootRollover,
+    final IconActionComponent deleteIconComponent = new IconActionComponent(AllIcons.Actions.Close,
+                                                                            AllIcons.Actions.CloseHovered,
                                                                             ProjectBundle.message("module.paths.remove.content.tooltip"),
                                                                             () -> myCallback.deleteContentEntry());
     final ResizingWrapper wrapper = new ResizingWrapper(headerLabel);
-    panel.add(wrapper, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL, new Insets(0, 2, 0, 0), 0, 0));
-    panel.add(deleteIconComponent, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 0.0, 1.0, GridBagConstraints.EAST, GridBagConstraints.NONE, new Insets(0, 0, 0, 2), 0, 0));
+    panel.add(wrapper, new GridBagConstraints(0, GridBagConstraints.RELATIVE, 1, 1, 1.0, 1.0, GridBagConstraints.NORTHWEST, GridBagConstraints.HORIZONTAL,
+                                              JBUI.insetsLeft(2), 0, 0));
+    panel.add(deleteIconComponent, new GridBagConstraints(1, GridBagConstraints.RELATIVE, 1, 1, 0.0, 1.0, GridBagConstraints.EAST, GridBagConstraints.NONE,
+                                                          JBUI.insetsRight(5), 0, 0));
     FilePathClipper.install(headerLabel, wrapper);
     return panel;
   }
@@ -161,7 +159,7 @@ public abstract class ContentRootPanel extends JPanel {
                                                   ContentFolder[] folders,
                                                   Color foregroundColor,
                                                   @Nullable ModuleSourceRootEditHandler<?> editor) {
-    final JPanel panel = new JPanel(new GridLayoutManager(folders.length, 3, new Insets(1, 17, 0, 2), 0, 1));
+    final JPanel panel = new JPanel(new GridLayoutManager(folders.length, 3, JBUI.insets(1, 17, 0, 5), 0, 1));
     panel.setOpaque(false);
 
     for (int idx = 0; idx < folders.length; idx++) {
@@ -249,7 +247,7 @@ public abstract class ContentRootPanel extends JPanel {
     else {
       tooltipText = ProjectBundle.message("module.paths.remove.tooltip");
     }
-    return new IconActionComponent(AllIcons.Modules.DeleteContentFolder, AllIcons.Modules.DeleteContentFolderRollover, tooltipText,
+    return new IconActionComponent(AllIcons.Actions.Close, AllIcons.Actions.CloseHovered, tooltipText,
                                    () -> myCallback.deleteContentFolder(getContentEntry(), folder));
   }
 
@@ -304,7 +302,7 @@ public abstract class ContentRootPanel extends JPanel {
     private static final float[] DASH = {0, 2, 0, 2};
     private static final Color DASH_LINE_COLOR = new JBColor(Gray._201, Gray._100);
 
-    public UnderlinedPathLabel(JLabel wrappedComponent) {
+    UnderlinedPathLabel(JLabel wrappedComponent) {
       super(wrappedComponent);
       FilePathClipper.install(wrappedComponent, this);
     }

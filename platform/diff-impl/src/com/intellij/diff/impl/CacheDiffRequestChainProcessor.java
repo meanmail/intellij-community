@@ -16,12 +16,14 @@
 package com.intellij.diff.impl;
 
 import com.intellij.diff.actions.impl.GoToChangePopupBuilder;
+import com.intellij.diff.chains.AsyncDiffRequestChain;
 import com.intellij.diff.chains.DiffRequestChain;
 import com.intellij.diff.chains.DiffRequestProducer;
 import com.intellij.diff.chains.DiffRequestProducerException;
 import com.intellij.diff.requests.DiffRequest;
 import com.intellij.diff.util.DiffUserDataKeysEx.ScrollToPolicy;
 import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -32,7 +34,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public abstract class CacheDiffRequestChainProcessor extends CacheDiffRequestProcessor<DiffRequestProducer> {
+public class CacheDiffRequestChainProcessor extends CacheDiffRequestProcessor<DiffRequestProducer> {
   private static final Logger LOG = Logger.getInstance(CacheDiffRequestChainProcessor.class);
 
   @NotNull private final DiffRequestChain myRequestChain;
@@ -40,6 +42,20 @@ public abstract class CacheDiffRequestChainProcessor extends CacheDiffRequestPro
   public CacheDiffRequestChainProcessor(@Nullable Project project, @NotNull DiffRequestChain requestChain) {
     super(project, requestChain);
     myRequestChain = requestChain;
+
+    if (myRequestChain instanceof AsyncDiffRequestChain) {
+      ((AsyncDiffRequestChain)myRequestChain).onAssigned(true);
+      ((AsyncDiffRequestChain)myRequestChain).addListener(new MyChangeListener(), this);
+    }
+  }
+
+  @Override
+  protected void onDispose() {
+    if (myRequestChain instanceof AsyncDiffRequestChain) {
+      ((AsyncDiffRequestChain)myRequestChain).onAssigned(false);
+    }
+
+    super.onDispose();
   }
 
   //
@@ -87,6 +103,8 @@ public abstract class CacheDiffRequestChainProcessor extends CacheDiffRequestPro
     return ContainerUtil.list(
       new MyPrevDifferenceAction(),
       new MyNextDifferenceAction(),
+      new MyOpenInEditorAction(),
+      Separator.getInstance(),
       new MyPrevChangeAction(),
       new MyNextChangeAction(),
       createGoToChangeAction()
@@ -128,5 +146,13 @@ public abstract class CacheDiffRequestChainProcessor extends CacheDiffRequestPro
         updateRequest();
       }
     });
+  }
+
+  private class MyChangeListener implements AsyncDiffRequestChain.Listener {
+    @Override
+    public void onRequestsLoaded() {
+      dropCaches();
+      updateRequest(true);
+    }
   }
 }

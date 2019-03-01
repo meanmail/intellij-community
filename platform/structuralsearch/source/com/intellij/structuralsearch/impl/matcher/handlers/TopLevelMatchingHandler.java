@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.dupLocator.iterators.NodeIterator;
@@ -20,6 +21,7 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
     setFilter(_delegate.getFilter());
   }
 
+  @Override
   public boolean match(final PsiElement patternNode, final PsiElement matchedNode, final MatchContext matchContext) {
     final boolean matched = delegate.match(patternNode, matchedNode, matchContext);
 
@@ -56,21 +58,17 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
   }
 
   @Override
-  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode) {
-    return delegate.canMatch(patternNode, matchedNode);
+  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode, MatchContext context) {
+    return delegate.canMatch(patternNode, matchedNode, context);
   }
 
   @Override
-  public boolean matchSequentially(final NodeIterator nodes, final NodeIterator nodes2, final MatchContext context) {
-    return delegate.matchSequentially(nodes, nodes2, context);
+  public boolean matchSequentially(final NodeIterator patternNodes, final NodeIterator matchNodes, final MatchContext context) {
+    return delegate.matchSequentially(patternNodes, matchNodes, context);
   }
 
-  public boolean match(final PsiElement patternNode,
-                       final PsiElement matchedNode, final int start, final int end, final MatchContext context) {
-    return match(patternNode, matchedNode, context);
-  }
-
-  public boolean isMatchSequentiallySucceeded(final NodeIterator nodes2) {
+  @Override
+  public boolean isMatchSequentiallySucceeded(final NodeIterator matchNodes) {
     return true;
   }
 
@@ -79,6 +77,7 @@ public final class TopLevelMatchingHandler extends MatchingHandler implements De
     return delegate.shouldAdvanceTheMatchFor(patternElement, matchedElement);
   }
 
+  @Override
   public MatchingHandler getDelegate() {
     return delegate;
   }

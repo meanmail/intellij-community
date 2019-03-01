@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: yole
- * Date: 24.11.2006
- * Time: 20:20:04
- */
 package com.intellij.openapi.vcs.changes.shelf;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -48,6 +42,7 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
   @NonNls private static final String ATTRIBUTE_DATE = "date";
   @NonNls private static final String ATTRIBUTE_RECYCLED_CHANGELIST = "recycled";
   @NonNls private static final String ATTRIBUTE_TOBE_DELETED_CHANGELIST = "toDelete";
+  @NonNls private static final String ATTRIBUTE_DELETED_CHANGELIST = "deleted";
   @NonNls private static final String ELEMENT_BINARY = "binary";
 
   public String PATH;
@@ -57,6 +52,7 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
   private List<ShelvedBinaryFile> myBinaryFiles;
   private boolean myRecycled;
   private boolean myToDelete;
+  private boolean myIsDeleted;
   private String mySchemeName;
 
   public ShelvedChangeList() {
@@ -72,6 +68,22 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
     DATE = new Date(time);
     myBinaryFiles = binaryFiles;
     mySchemeName = DESCRIPTION;
+  }
+
+  static ShelvedChangeList copy(@NotNull ShelvedChangeList list) {
+    ShelvedChangeList copied = new ShelvedChangeList();
+    copied.PATH = list.PATH;
+    copied.DESCRIPTION = list.DESCRIPTION;
+    copied.DATE = list.DATE;
+    copied.myBinaryFiles = new ArrayList<>();
+    for (ShelvedBinaryFile file : list.getBinaryFiles()) {
+      copied.myBinaryFiles.add(new ShelvedBinaryFile(file.BEFORE_PATH, file.AFTER_PATH, file.SHELVED_PATH));
+    }
+    copied.mySchemeName = list.DESCRIPTION;
+    copied.myRecycled = list.isRecycled();
+    copied.myToDelete = list.isMarkedToDelete();
+    copied.myIsDeleted = list.isDeleted();
+    return copied;
   }
 
   public boolean isRecycled() {
@@ -90,7 +102,7 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
     DATE = new Date(Long.parseLong(element.getAttributeValue(ATTRIBUTE_DATE)));
     myRecycled = Boolean.parseBoolean(element.getAttributeValue(ATTRIBUTE_RECYCLED_CHANGELIST));
     myToDelete = Boolean.parseBoolean(element.getAttributeValue(ATTRIBUTE_TOBE_DELETED_CHANGELIST));
-    //noinspection unchecked
+    myIsDeleted = Boolean.parseBoolean(element.getAttributeValue(ATTRIBUTE_DELETED_CHANGELIST));
     final List<Element> children = element.getChildren(ELEMENT_BINARY);
     myBinaryFiles = new ArrayList<>(children.size());
     for (Element child : children) {
@@ -112,6 +124,9 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
     element.setAttribute(ATTRIBUTE_RECYCLED_CHANGELIST, Boolean.toString(shelvedChangeList.isRecycled()));
     if (shelvedChangeList.isMarkedToDelete()) {
       element.setAttribute(ATTRIBUTE_TOBE_DELETED_CHANGELIST, Boolean.toString(shelvedChangeList.isMarkedToDelete()));
+    }
+    if (shelvedChangeList.isDeleted()) {
+      element.setAttribute(ATTRIBUTE_DELETED_CHANGELIST, Boolean.toString(shelvedChangeList.isDeleted()));
     }
     for (ShelvedBinaryFile file : shelvedChangeList.getBinaryFiles()) {
       Element child = new Element(ELEMENT_BINARY);
@@ -180,6 +195,14 @@ public class ShelvedChangeList implements JDOMExternalizable, ExternalizableSche
 
   public boolean isMarkedToDelete() {
     return myToDelete;
+  }
+
+  public void setDeleted(boolean isDeleted) {
+    myIsDeleted = isDeleted;
+  }
+
+  public boolean isDeleted() {
+    return myIsDeleted;
   }
 
   /**

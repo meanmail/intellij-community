@@ -1,32 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 11-Mar-2008
- */
 package com.jetbrains.python.codeInsight.imports;
 
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.application.options.CodeStyle;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.*;
 import com.intellij.psi.search.FilenameIndex;
 import com.intellij.psi.search.GlobalSearchScope;
@@ -36,6 +17,7 @@ import com.jetbrains.python.PyNames;
 import com.jetbrains.python.codeInsight.PyCodeInsightSettings;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
+import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.inspections.unresolvedReference.PyPackageAliasesProvider;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyFileImpl;
@@ -91,13 +73,10 @@ public final class PythonImportUtils {
     Set<String> seenCandidateNames = new HashSet<>(); // true import names
 
     PsiFile existingImportFile = addCandidatesFromExistingImports(node, refText, fix, seenCandidateNames);
-    if (fix.getCandidates().isEmpty()|| fix.hasProjectImports() || Registry.is("python.import.always.ask")) {
-      // maybe some unimported file has it, too
-      ProgressManager.checkCanceled(); // before expensive index searches
-      addSymbolImportCandidates(node, refText, asName, fix, seenCandidateNames, existingImportFile);
-    }
+    ProgressManager.checkCanceled(); // before expensive index searches
+    addSymbolImportCandidates(node, refText, asName, fix, seenCandidateNames, existingImportFile);
 
-    for(PyImportCandidateProvider provider: Extensions.getExtensions(PyImportCandidateProvider.EP_NAME)) {
+    for(PyImportCandidateProvider provider: PyImportCandidateProvider.EP_NAME.getExtensionList()) {
       provider.addImportCandidates(reference, refText, fix);
     }
     if (!fix.getCandidates().isEmpty()) {
@@ -123,10 +102,13 @@ public final class PythonImportUtils {
       for (PyImportElement importElement : pyFile.getImportTargets()) {
         existingImportFile = addImportViaElement(refText, fix, seenCandidateNames, existingImportFile, importElement, importElement.resolve());
       }
-      for (PyFromImportStatement fromImportStatement : pyFile.getFromImports()) {
-        if (!fromImportStatement.isStarImport() && fromImportStatement.getImportElements().length > 0) {
-          PsiElement source = fromImportStatement.resolveImportSource();
-          existingImportFile = addImportViaElement(refText, fix, seenCandidateNames, existingImportFile, fromImportStatement.getImportElements()[0], source);
+      final PyCodeStyleSettings pySettings = CodeStyle.getCustomSettings(node.getContainingFile(), PyCodeStyleSettings.class);
+      if (!pySettings.OPTIMIZE_IMPORTS_ALWAYS_SPLIT_FROM_IMPORTS) {
+        for (PyFromImportStatement fromImportStatement : pyFile.getFromImports()) {
+          if (!fromImportStatement.isStarImport() && fromImportStatement.getImportElements().length > 0) {
+            PsiElement source = fromImportStatement.resolveImportSource();
+            existingImportFile = addImportViaElement(refText, fix, seenCandidateNames, existingImportFile, fromImportStatement.getImportElements()[0], source);
+          }
         }
       }
     }
@@ -163,8 +145,7 @@ public final class PythonImportUtils {
   private static void addSymbolImportCandidates(PyElement node, String refText, @Nullable String asName, AutoImportQuickFix fix,
                                                 Set<String> seenCandidateNames, PsiFile existingImportFile) {
     Project project = node.getProject();
-    List<PsiElement> symbols = new ArrayList<>();
-    symbols.addAll(PyClassNameIndex.find(refText, project, true));
+    List<PsiElement> symbols = new ArrayList<>(PyClassNameIndex.find(refText, project, true));
     GlobalSearchScope scope = PyProjectScopeBuilder.excludeSdkTestsScope(node);
     if (!isQualifier(node)) {
       symbols.addAll(PyFunctionNameIndex.find(refText, project, scope));
@@ -221,8 +202,11 @@ public final class PythonImportUtils {
   }
 
   private static boolean isPossibleModuleReference(PyElement node) {
-    if (node.getParent() instanceof PyCallExpression && node == ((PyCallExpression) node.getParent()).getCallee()) {
-      return false;
+    final PyCallExpression callExpression = as(node.getParent(), PyCallExpression.class);
+    if (callExpression != null && node == callExpression.getCallee()) {
+      final PyDecorator decorator = as(callExpression, PyDecorator.class);
+      // getArgumentList() still returns empty (but not null) element in this case
+      return decorator != null && !decorator.hasArgumentList();
     }
     if (node.getParent() instanceof PyArgumentList) {
       final PyArgumentList argumentList = (PyArgumentList)node.getParent();
@@ -236,31 +220,39 @@ public final class PythonImportUtils {
     return true;
   }
 
-  private static Collection<PsiElement> findImportableModules(PsiFile targetFile, String reftext, Project project, GlobalSearchScope scope) {
+  private static Collection<PsiElement> findImportableModules(PsiFile targetFile, String refText, Project project,
+                                                              GlobalSearchScope scope) {
     List<PsiElement> result = new ArrayList<>();
-    PsiFile[] files = FilenameIndex.getFilesByName(project, reftext + ".py", scope);
-    for (PsiFile file : files) {
-      if (isImportableModule(targetFile, file)) {
-        result.add(file);
+    // Add packages
+    FilenameIndex.processFilesByName(refText, true, item -> {
+      ProgressManager.checkCanceled();
+      final PsiDirectory candidatePackageDir = as(item, PsiDirectory.class);
+      if (candidatePackageDir != null && candidatePackageDir.findFile(PyNames.INIT_DOT_PY) != null) {
+        result.add(candidatePackageDir);
       }
-    }
-    // perhaps the module is a directory, not a file
-    PsiFile[] initFiles = FilenameIndex.getFilesByName(project, PyNames.INIT_DOT_PY, scope);
-    for (PsiFile initFile : initFiles) {
-      PsiDirectory parent = initFile.getParent();
-      if (parent != null && parent.getName().equals(reftext)) {
-        result.add(parent);
+      return true;
+    }, scope, project, null);
+    // Add modules
+    FilenameIndex.processFilesByName(refText + ".py", false, true, item -> {
+      ProgressManager.checkCanceled();
+      if (isImportable(targetFile, item)) {
+        result.add(item);
       }
-    }
+      return true;
+    }, scope, project, null);
+
     return result;
   }
 
-  public static boolean isImportableModule(PsiFile targetFile, @NotNull PsiFileSystemItem file) {
+  /**
+   * Checks whether {@param file} representing Python module or package can be imported into {@param file}.
+   */
+  public static boolean isImportable(PsiFile targetFile, @NotNull PsiFileSystemItem file) {
     PsiDirectory parent = (PsiDirectory)file.getParent();
     return parent != null && file != targetFile &&
-           (parent.findFile(PyNames.INIT_DOT_PY) != null ||
-            ImportFromExistingAction.isRoot(parent) ||
-            parent == targetFile.getParent());
+           (ImportFromExistingAction.isRoot(parent) ||
+            parent == targetFile.getParent() ||
+            PyUtil.isPackage(parent, false, null));
   }
 
   private static boolean isIndexableTopLevel(PsiElement symbol) {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +19,12 @@ import com.intellij.designer.DesignerEditorPanelFacade;
 import com.intellij.designer.LightToolWindow;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeBundle;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.ui.content.Content;
@@ -40,6 +43,9 @@ public class PaletteToolWindowManager extends AbstractToolWindowManager {
   public PaletteToolWindowManager(Project project, FileEditorManager fileEditorManager) {
     super(project, fileEditorManager);
     myToolWindowPanel = ApplicationManager.getApplication().isHeadlessEnvironment() ? null : new PaletteWindow(project);
+    if (myToolWindowPanel != null) {
+      Disposer.register(this, () -> myToolWindowPanel.dispose());
+    }
   }
 
   public static PaletteWindow getInstance(GuiEditor designer) {
@@ -103,16 +109,18 @@ public class PaletteToolWindowManager extends AbstractToolWindowManager {
                          null);
   }
 
-  @Override
-  public void disposeComponent() {
-    if (myToolWindowPanel != null) {
-      myToolWindowPanel.dispose();
-    }
-  }
-
   @NotNull
   @Override
   public String getComponentName() {
     return "PaletteManager";
+  }
+
+  @Override
+  public AnAction createGearActions() {
+    DefaultActionGroup group = new DefaultActionGroup("In Editor Mode", true);
+    group.add(createToggleAction(ToolWindowAnchor.LEFT));
+    group.add(createToggleAction(ToolWindowAnchor.RIGHT));
+    group.add(createToggleAction(null));
+    return group;
   }
 }

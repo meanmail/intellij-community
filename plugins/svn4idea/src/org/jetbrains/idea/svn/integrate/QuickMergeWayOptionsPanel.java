@@ -18,17 +18,11 @@ package org.jetbrains.idea.svn.integrate;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MultiLineLabelUI;
 import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 3/29/13
- * Time: 7:27 PM
- */
 public class QuickMergeWayOptionsPanel {
   private JButton myMergeAllButton;
   private JButton myQuickManualSelectButton;
@@ -57,13 +51,10 @@ public class QuickMergeWayOptionsPanel {
     myFindsWhereOneOfLabel.setBorder(JBUI.Borders.emptyBottom(10));
   }
 
-  private ActionListener setCodeAndClose(final QuickMergeContentsVariants variant) {
-    return new ActionListener() {
-      @Override
-      public void actionPerformed(ActionEvent e) {
-        myVariant = variant;
-        close();
-      }
+  private ActionListener setCodeAndClose(@NotNull QuickMergeContentsVariants variant) {
+    return e -> {
+      myVariant = variant;
+      close();
     };
   }
 
@@ -75,6 +66,7 @@ public class QuickMergeWayOptionsPanel {
     myWrapper = wrapper;
   }
 
+  @NotNull
   public QuickMergeContentsVariants getVariant() {
     return myVariant;
   }

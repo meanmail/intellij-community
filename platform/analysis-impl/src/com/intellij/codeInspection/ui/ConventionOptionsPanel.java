@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.ui;
 
 import com.intellij.codeInspection.InspectionProfileEntry;
@@ -37,9 +23,15 @@ import java.util.regex.Pattern;
  */
 public class ConventionOptionsPanel extends JPanel {
 
-  private static final Logger LOG = Logger.getInstance("#" + ConventionOptionsPanel.class.getName());
-
+  private static final Logger LOG = Logger.getInstance(ConventionOptionsPanel.class);
   public ConventionOptionsPanel(@NotNull final InspectionProfileEntry owner,
+                                @NonNls final String minLengthProperty, @NonNls final String maxLengthProperty,
+                                @NonNls final String regexProperty, @NonNls final String regexPatternProperty,
+                                JComponent... extraOptions) {
+    this((Object)owner, minLengthProperty, maxLengthProperty, regexProperty, regexPatternProperty, extraOptions);
+  }
+
+  public ConventionOptionsPanel(@NotNull final Object owner,
                                 @NonNls final String minLengthProperty, @NonNls final String maxLengthProperty,
                                 @NonNls final String regexProperty, @NonNls final String regexPatternProperty,
                                 JComponent... extraOptions) {
@@ -75,7 +67,7 @@ public class ConventionOptionsPanel extends JPanel {
     UIUtil.fixFormattedField(regexField);
     final DocumentListener listener = new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent evt) {
+      public void textChanged(@NotNull DocumentEvent evt) {
         try {
           regexField.commitEdit();
           minLengthField.commitEdit();
@@ -149,19 +141,19 @@ public class ConventionOptionsPanel extends JPanel {
     add(new JPanel(), constraints);
   }
 
-  private static void setPropertyIntegerValue(InspectionProfileEntry owner, String property, Integer value) {
+  private static void setPropertyIntegerValue(Object owner, String property, Integer value) {
     setPropertyValue(owner, property, value);
   }
 
-  private static Integer getPropertyIntegerValue(InspectionProfileEntry owner, String property) {
+  private static Integer getPropertyIntegerValue(Object owner, String property) {
     return (Integer)getPropertyValue(owner, property);
   }
 
-  private static void setPropertyValue(@NotNull InspectionProfileEntry owner, String property, Object value) {
+  private static void setPropertyValue(@NotNull Object owner, String property, Object value) {
     ReflectionUtil.setField(owner.getClass(), owner, null, property, value);
   }
 
-  private static Object getPropertyValue(InspectionProfileEntry owner, String property) {
+  private static Object getPropertyValue(Object owner, String property) {
     return ReflectionUtil.getField(owner.getClass(), owner, null, property);
   }
 }

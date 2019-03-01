@@ -16,7 +16,10 @@
 package org.jetbrains.plugins.terminal.cloud;
 
 import com.intellij.execution.process.ProcessHandler;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.terminal.JBTerminalWidget;
 import com.jediterm.terminal.ProcessTtyConnector;
 import com.jediterm.terminal.TtyConnector;
 import org.jetbrains.annotations.NotNull;
@@ -29,12 +32,18 @@ import java.util.concurrent.ExecutionException;
 
 public class CloudTerminalRunner extends AbstractTerminalRunner<CloudTerminalProcess> {
   private final String myPipeName;
-  private CloudTerminalProcess myProcess;
+  private final CloudTerminalProcess myProcess;
 
   public CloudTerminalRunner(@NotNull Project project, String pipeName, CloudTerminalProcess process) {
     super(project);
     myPipeName = pipeName;
     myProcess = process;
+  }
+
+  @NotNull
+  @Override
+  public JBTerminalWidget createTerminalWidget(@NotNull Disposable parent, @Nullable VirtualFile currentWorkingDirectory) {
+    return super.createTerminalWidget(parent, currentWorkingDirectory, false);
   }
 
   @Override

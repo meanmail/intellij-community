@@ -48,10 +48,12 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
     myThread = thread;
   }
 
+  @Override
   public String getName() {
     return myName;
   }
 
+  @Override
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener) throws EvaluateException {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     ThreadReferenceProxyImpl thread = getThreadReference();
@@ -71,6 +73,7 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
     }
   }
 
+  @Override
   public ThreadReferenceProxyImpl getThreadReference() {
     return myThread;
   }
@@ -83,10 +86,12 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
     return myIsFrozen;
   }
 
+  @Override
   public boolean isExpandable() {
     return myIsExpandable;
   }
 
+  @Override
   public void setContext(EvaluationContextImpl context) {
     final ThreadReferenceProxyImpl thread = getThreadReference();
     final SuspendManager suspendManager = context != null? context.getDebugProcess().getSuspendManager() : null;
@@ -129,7 +134,7 @@ public class ThreadDescriptorImpl extends NodeDescriptorImpl implements ThreadDe
       //    try {
       //      Thread.sleep(100000);
       //    } catch (InterruptedException e) {
-      //      e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+      //      e.printStackTrace();
       //    }
       //  }
       return false;

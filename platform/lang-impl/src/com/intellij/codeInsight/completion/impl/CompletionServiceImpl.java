@@ -1,34 +1,27 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion.impl;
 
 import com.intellij.codeInsight.completion.*;
 import com.intellij.codeInsight.lookup.*;
+import com.intellij.codeInsight.lookup.impl.LookupImpl;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Caret;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.project.ProjectManagerAdapter;
+import com.intellij.openapi.project.ProjectManagerListener;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.TextRange;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.Weigher;
 import com.intellij.psi.WeighingService;
 import com.intellij.psi.impl.DebugUtil;
 import com.intellij.util.Consumer;
+import com.intellij.util.ExceptionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -38,45 +31,71 @@ import java.util.ArrayList;
 /**
  * @author peter
  */
-public final class CompletionServiceImpl extends CompletionService{
+public final class CompletionServiceImpl extends CompletionService {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.completion.impl.CompletionServiceImpl");
   private static volatile CompletionPhase ourPhase = CompletionPhase.NoCompletion;
-  private static String ourPhaseTrace;
+  private static Throwable ourPhaseTrace;
+
+  @Nullable private CompletionProcess myApiCompletionProcess;
 
   public CompletionServiceImpl() {
-    ProjectManager.getInstance().addProjectManagerListener(new ProjectManagerAdapter() {
+    ApplicationManager.getApplication().getMessageBus().connect().subscribe(ProjectManager.TOPIC, new ProjectManagerListener() {
       @Override
-      public void projectClosing(Project project) {
-        CompletionProgressIndicator indicator = getCurrentCompletion();
+      public void projectClosing(@NotNull Project project) {
+        CompletionProgressIndicator indicator = getCurrentCompletionProgressIndicator();
         if (indicator != null && indicator.getProject() == project) {
           indicator.closeAndFinish(true);
           setCompletionPhase(CompletionPhase.NoCompletion);
-        }
-        else if (indicator == null) {
+        } else if (indicator == null) {
           setCompletionPhase(CompletionPhase.NoCompletion);
         }
       }
     });
   }
 
+  @Override
+  public void performCompletion(final CompletionParameters parameters, final Consumer<? super CompletionResult> consumer) {
+    myApiCompletionProcess = parameters.getProcess();
+    try {
+      super.performCompletion(parameters, consumer);
+    }
+    finally {
+      myApiCompletionProcess = null;
+    }
+  }
+
   @SuppressWarnings({"MethodOverridesStaticMethodOfSuperclass"})
   public static CompletionServiceImpl getCompletionService() {
-    return (CompletionServiceImpl)CompletionService.getCompletionService();
+    return (CompletionServiceImpl) CompletionService.getCompletionService();
   }
 
   @Override
   public String getAdvertisementText() {
-    final CompletionProgressIndicator completion = getCompletionService().getCurrentCompletion();
+    final CompletionProgressIndicator completion = getCurrentCompletionProgressIndicator();
     return completion == null ? null : ContainerUtil.getFirstItem(completion.getLookup().getAdvertisements());
   }
 
   @Override
   public void setAdvertisementText(@Nullable final String text) {
     if (text == null) return;
-    final CompletionProgressIndicator completion = getCompletionService().getCurrentCompletion();
+    final CompletionProgressIndicator completion = getCurrentCompletionProgressIndicator();
     if (completion != null) {
       completion.addAdvertisement(text, null);
     }
+  }
+
+  @Override
+  public CompletionParameters createCompletionParameters(@NotNull Project project,
+                                                         @NotNull Editor editor,
+                                                         @NotNull Caret caret,
+                                                         int invocationCount,
+                                                         CompletionType completionType,
+                                                         @NotNull Disposable parentDisposable) {
+    CompletionInitializationContext context = CompletionInitializationUtil.createCompletionInitializationContext(project, editor, caret,
+                                                                                                                     invocationCount, completionType);
+    CompletionProcessBase progress = new CompletionProcessBase(context);
+    Disposer.register(parentDisposable, progress);
+    return CompletionInitializationUtil.prepareCompletionParameters(context, progress);
   }
 
   @Override
@@ -84,16 +103,22 @@ public final class CompletionServiceImpl extends CompletionService{
                                              @NotNull final CompletionContributor contributor) {
     final PsiElement position = parameters.getPosition();
     final int offset = parameters.getOffset();
-    assert position.getTextRange().containsOffset(offset) : position;
+    TextRange range = position.getTextRange();
+    assert range.containsOffset(offset) : position + "; " + offset + " not in " + range;
     //noinspection deprecation
     final String prefix = CompletionData.findPrefixStatic(position, offset);
     CamelHumpMatcher matcher = new CamelHumpMatcher(prefix);
     CompletionSorterImpl sorter = defaultSorter(parameters, matcher);
-    return new CompletionResultSetImpl(consumer, offset, matcher, contributor,parameters, sorter, null);
+    return new CompletionResultSetImpl(consumer, offset, matcher, contributor, parameters, sorter, null);
   }
 
   @Override
-  public CompletionProgressIndicator getCurrentCompletion() {
+  public CompletionProcess getCurrentCompletion() {
+    CompletionProgressIndicator indicator = getCurrentCompletionProgressIndicator();
+    return indicator != null ? indicator : myApiCompletionProcess;
+  }
+
+  public static CompletionProgressIndicator getCurrentCompletionProgressIndicator() {
     if (isPhase(CompletionPhase.BgCalculation.class, CompletionPhase.ItemsCalculated.class, CompletionPhase.CommittingDocuments.class,
                 CompletionPhase.Synchronous.class)) {
       return ourPhase.indicator;
@@ -105,14 +130,12 @@ public final class CompletionServiceImpl extends CompletionService{
     private final int myLengthOfTextBeforePosition;
     private final CompletionParameters myParameters;
     private final CompletionSorterImpl mySorter;
-    @Nullable private final CompletionResultSetImpl myOriginal;
+    @Nullable
+    private final CompletionResultSetImpl myOriginal;
 
-    public CompletionResultSetImpl(final Consumer<CompletionResult> consumer, final int lengthOfTextBeforePosition,
-                                   final PrefixMatcher prefixMatcher,
-                                   CompletionContributor contributor,
-                                   CompletionParameters parameters,
-                                   @NotNull CompletionSorterImpl sorter,
-                                   @Nullable CompletionResultSetImpl original) {
+    CompletionResultSetImpl(Consumer<CompletionResult> consumer, int lengthOfTextBeforePosition, PrefixMatcher prefixMatcher,
+                            CompletionContributor contributor, CompletionParameters parameters,
+                            @NotNull CompletionSorterImpl sorter, @Nullable CompletionResultSetImpl original) {
       super(prefixMatcher, consumer, contributor);
       myLengthOfTextBeforePosition = lengthOfTextBeforePosition;
       myParameters = parameters;
@@ -121,10 +144,16 @@ public final class CompletionServiceImpl extends CompletionService{
     }
 
     @Override
+    public void addAllElements(@NotNull Iterable<? extends LookupElement> elements) {
+      CompletionThreadingBase.withBatchUpdate(() -> super.addAllElements(elements), myParameters.getProcess());
+    }
+
+    @Override
     public void addElement(@NotNull final LookupElement element) {
+      ProgressManager.checkCanceled();
       if (!element.isValid()) {
         LOG.error("Invalid lookup element: " + element + " of " + element.getClass() +
-                  " in " + myParameters.getOriginalFile() + " of " + myParameters.getOriginalFile().getClass());
+          " in " + myParameters.getOriginalFile() + " of " + myParameters.getOriginalFile().getClass());
         return;
       }
 
@@ -137,6 +166,10 @@ public final class CompletionServiceImpl extends CompletionService{
     @Override
     @NotNull
     public CompletionResultSet withPrefixMatcher(@NotNull final PrefixMatcher matcher) {
+      if (matcher.equals(getPrefixMatcher())) {
+        return this;
+      }
+      
       return new CompletionResultSetImpl(getConsumer(), myLengthOfTextBeforePosition, matcher, myContributor, myParameters, mySorter, this);
     }
 
@@ -154,14 +187,14 @@ public final class CompletionServiceImpl extends CompletionService{
     @Override
     @NotNull
     public CompletionResultSet withPrefixMatcher(@NotNull final String prefix) {
-      return withPrefixMatcher(new CamelHumpMatcher(prefix));
+      return withPrefixMatcher(getPrefixMatcher().cloneWithPrefix(prefix));
     }
 
     @NotNull
     @Override
     public CompletionResultSet withRelevanceSorter(@NotNull CompletionSorter sorter) {
-      return new CompletionResultSetImpl(getConsumer(), myLengthOfTextBeforePosition, getPrefixMatcher(), myContributor, myParameters, (CompletionSorterImpl)sorter,
-                                         this);
+      return new CompletionResultSetImpl(getConsumer(), myLengthOfTextBeforePosition, getPrefixMatcher(), myContributor, myParameters, (CompletionSorterImpl) sorter,
+        this);
     }
 
     @Override
@@ -177,30 +210,30 @@ public final class CompletionServiceImpl extends CompletionService{
 
     @Override
     public void restartCompletionOnPrefixChange(ElementPattern<String> prefixCondition) {
-      final CompletionProgressIndicator indicator = getCompletionService().getCurrentCompletion();
-      if (indicator != null) {
-        indicator.addWatchedPrefix(myLengthOfTextBeforePosition - getPrefixMatcher().getPrefix().length(), prefixCondition);
+      CompletionProcess process = myParameters.getProcess();
+      if (process instanceof CompletionProgressIndicator) {
+        ((CompletionProgressIndicator)process).addWatchedPrefix(myLengthOfTextBeforePosition - getPrefixMatcher().getPrefix().length(), prefixCondition);
       }
     }
 
     @Override
     public void restartCompletionWhenNothingMatches() {
-      final CompletionProgressIndicator indicator = getCompletionService().getCurrentCompletion();
-      if (indicator != null) {
-        indicator.getLookup().setStartCompletionWhenNothingMatches(true);
+      CompletionProcess process = myParameters.getProcess();
+      if (process instanceof CompletionProgressIndicator) {
+        ((CompletionProgressIndicator)process).getLookup().setStartCompletionWhenNothingMatches(true);
       }
     }
   }
 
-  public static boolean assertPhase(Class<? extends CompletionPhase>... possibilities) {
+  @SafeVarargs
+  public static void assertPhase(@NotNull Class<? extends CompletionPhase>... possibilities) {
     if (!isPhase(possibilities)) {
-      LOG.error(ourPhase + "; set at " + ourPhaseTrace);
-      return false;
+      LOG.error(ourPhase + "; set at " + ExceptionUtil.getThrowableText(ourPhaseTrace));
     }
-    return true;
   }
 
-  public static boolean isPhase(Class<? extends CompletionPhase>... possibilities) {
+  @SafeVarargs
+  public static boolean isPhase(@NotNull Class<? extends CompletionPhase>... possibilities) {
     CompletionPhase phase = getCompletionPhase();
     for (Class<? extends CompletionPhase> possibility : possibilities) {
       if (possibility.isInstance(phase)) {
@@ -217,11 +250,22 @@ public final class CompletionServiceImpl extends CompletionService{
     if (oldIndicator != null && !(phase instanceof CompletionPhase.BgCalculation)) {
       LOG.assertTrue(!oldIndicator.isRunning() || oldIndicator.isCanceled(), "don't change phase during running completion: oldPhase=" + oldPhase);
     }
+    boolean wasCompletionRunning = isRunningPhase(oldPhase);
+    boolean isCompletionRunning = isRunningPhase(phase);
+    if (isCompletionRunning != wasCompletionRunning) {
+      ApplicationManager.getApplication().getMessageBus().syncPublisher(CompletionPhaseListener.TOPIC).completionPhaseChanged(isCompletionRunning);
+    }
 
     Disposer.dispose(oldPhase);
     ourPhase = phase;
-    ourPhaseTrace = DebugUtil.currentStackTrace();
+    ourPhaseTrace = new Throwable();
   }
+
+  private static boolean isRunningPhase(@NotNull CompletionPhase phase) {
+    return phase != CompletionPhase.NoCompletion && !(phase instanceof CompletionPhase.ZombiePhase) &&
+           !(phase instanceof CompletionPhase.ItemsCalculated);
+  }
+
 
   public static CompletionPhase getCompletionPhase() {
     return ourPhase;
@@ -239,16 +283,14 @@ public final class CompletionServiceImpl extends CompletionService{
       final String id = weigher.toString();
       if ("prefix".equals(id)) {
         sorter = sorter.withClassifier(CompletionSorterImpl.weighingFactory(new RealPrefixMatchingWeigher()));
-      }
-      else if ("stats".equals(id)) {
+      } else if ("stats".equals(id)) {
         sorter = sorter.withClassifier(new ClassifierFactory<LookupElement>("stats") {
           @Override
           public Classifier<LookupElement> createClassifier(Classifier<LookupElement> next) {
             return new StatisticsWeigher.LookupStatisticsWeigher(location, next);
           }
         });
-      }
-      else {
+      } else {
         sorter = sorter.weigh(new LookupElementWeigher(id, true, false) {
           @Override
           public Comparable weigh(@NotNull LookupElement element) {
@@ -270,6 +312,26 @@ public final class CompletionServiceImpl extends CompletionService{
   @Override
   public CompletionSorterImpl emptySorter() {
     return new CompletionSorterImpl(new ArrayList<>());
+  }
+
+  public CompletionLookupArranger createLookupArranger(CompletionParameters parameters) {
+    return new CompletionLookupArrangerImpl(parameters).withAllItemsVisible();
+  }
+
+  public void handleCompletionItemSelected(CompletionParameters parameters,
+                                           LookupElement lookupElement,
+                                           PrefixMatcher prefixMatcher,
+                                           String additionalPrefix,
+                                           char completionChar) {
+
+    String itemPattern = prefixMatcher.getPrefix() + additionalPrefix;
+    LookupImpl.insertLookupString(parameters.getPosition().getProject(),
+                                  parameters.getEditor(),
+                                  lookupElement,
+                                  prefixMatcher, itemPattern, itemPattern.length());
+    CodeCompletionHandlerBase handler =
+      CodeCompletionHandlerBase.createHandler(parameters.getCompletionType(), true, parameters.isAutoPopup(), true);
+    handler.handleCompletionElementSelected(parameters, lookupElement, completionChar);
   }
 
   public static boolean isStartMatch(LookupElement element, WeighingContext context) {

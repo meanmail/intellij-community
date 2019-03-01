@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 07-May-2008
- */
 package com.intellij.refactoring.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
@@ -30,6 +26,7 @@ import com.intellij.refactoring.replaceConstructorWithBuilder.ReplaceConstructor
 import org.jetbrains.annotations.NotNull;
 
 public class ReplaceConstructorWithBuilderAction extends BaseRefactoringAction{
+  @Override
   protected boolean isAvailableInEditorOnly() {
     return true;
   }
@@ -42,10 +39,12 @@ public class ReplaceConstructorWithBuilderAction extends BaseRefactoringAction{
     return psiClass != null && psiClass.getConstructors().length > 0 && !psiClass.isEnum();
   }
 
+  @Override
   protected boolean isEnabledOnElements(@NotNull final PsiElement[] elements) {
     return false;
   }
 
+  @Override
   protected RefactoringActionHandler getHandler(@NotNull final DataContext dataContext) {
     return new ReplaceConstructorWithBuilderHandler();
   }

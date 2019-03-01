@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 28-Oct-2008
- */
 package com.intellij.psi.util;
 
 import com.intellij.psi.*;
@@ -104,6 +100,28 @@ public class PsiExpressionTrimRenderer extends JavaRecursiveElementWalkingVisito
       }
       operand.accept(this);
     }
+  }
+
+  @Override
+  public void visitLambdaExpression(PsiLambdaExpression expression) {
+    PsiParameterList parameterList = expression.getParameterList();
+    PsiParameter[] parameters = parameterList.getParameters();
+
+    PsiElement firstChild = parameterList.getFirstChild();
+    boolean addParenthesis = PsiUtil.isJavaToken(firstChild, JavaTokenType.LPARENTH);
+
+    if (addParenthesis) myBuf.append('(');
+    for (int i = 0; i < parameters.length; i++) {
+      PsiParameter parameter = parameters[i];
+      if (i != 0) {
+        myBuf.append(", ");
+      }
+      PsiTypeElement typeElement = parameter.getTypeElement();
+      int formatOptions = PsiFormatUtilBase.SHOW_NAME | (typeElement == null ? 0 : PsiFormatUtilBase.SHOW_TYPE);
+      myBuf.append(PsiFormatUtil.formatVariable(parameter, formatOptions, PsiSubstitutor.EMPTY));
+    }
+    if (addParenthesis) myBuf.append(')');
+    myBuf.append(" -> {...}");
   }
 
   @Override
@@ -237,11 +255,15 @@ public class PsiExpressionTrimRenderer extends JavaRecursiveElementWalkingVisito
   }
 
   public static String render(PsiExpression expression) {
+    return render(expression, 100);
+  }
+
+  public static String render(PsiExpression expression, int maxLength) {
     StringBuilder buf = new StringBuilder();
     expression.accept(new PsiExpressionTrimRenderer(buf));
     final String text = buf.toString();
     int firstNewLinePos = text.indexOf('\n');
-    String trimmedText = text.substring(0, firstNewLinePos != -1 ? firstNewLinePos : Math.min(100, text.length()));
+    String trimmedText = text.substring(0, firstNewLinePos != -1 ? firstNewLinePos : Math.min(maxLength, text.length()));
     if (trimmedText.length() != text.length()) trimmedText += " ...";
     return trimmedText;
   }

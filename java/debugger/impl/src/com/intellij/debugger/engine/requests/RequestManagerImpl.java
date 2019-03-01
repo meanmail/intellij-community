@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine.requests;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -20,19 +6,19 @@ import com.intellij.debugger.SourcePosition;
 import com.intellij.debugger.engine.*;
 import com.intellij.debugger.engine.evaluation.EvaluateException;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.jdi.JvmtiError;
 import com.intellij.debugger.requests.ClassPrepareRequestor;
 import com.intellij.debugger.requests.RequestManager;
 import com.intellij.debugger.requests.Requestor;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.ui.breakpoints.FilteredRequestor;
 import com.intellij.diagnostic.ThreadDumper;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiClass;
 import com.intellij.ui.classFilter.ClassFilter;
-import com.intellij.util.containers.HashMap;
 import com.sun.jdi.*;
 import com.sun.jdi.event.ClassPrepareEvent;
 import com.sun.jdi.request.*;
@@ -42,8 +28,6 @@ import java.util.*;
 
 /**
  * @author lex
- * Date: May 6, 2003
- * Time: 5:32:38 PM
  */
 public class RequestManagerImpl extends DebugProcessAdapterImpl implements RequestManager {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.RequestManagerImpl");
@@ -86,49 +70,37 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
   }
 
   @Nullable
-  public Requestor findRequestor(EventRequest request) {
+  public static Requestor findRequestor(EventRequest request) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     return request != null? (Requestor)request.getProperty(REQUESTOR) : null;
   }
 
   private static void addClassFilter(EventRequest request, String pattern){
-    if(request instanceof AccessWatchpointRequest){
-      ((AccessWatchpointRequest) request).addClassFilter(pattern);
+    if (request instanceof ExceptionRequest) {
+      ((ExceptionRequest)request).addClassFilter(pattern);
     }
-    else if(request instanceof ExceptionRequest){
-      ((ExceptionRequest) request).addClassFilter(pattern);
-    }
-    else if(request instanceof MethodEntryRequest) {
+    else if (request instanceof MethodEntryRequest) {
       ((MethodEntryRequest)request).addClassFilter(pattern);
     }
-    else if(request instanceof MethodExitRequest) {
+    else if (request instanceof MethodExitRequest) {
       ((MethodExitRequest)request).addClassFilter(pattern);
     }
-    else if(request instanceof ModificationWatchpointRequest) {
-      ((ModificationWatchpointRequest)request).addClassFilter(pattern);
-    }
-    else if(request instanceof WatchpointRequest) {
+    else if (request instanceof WatchpointRequest) {
       ((WatchpointRequest)request).addClassFilter(pattern);
     }
   }
 
   private static void addClassExclusionFilter(EventRequest request, String pattern){
-    if(request instanceof AccessWatchpointRequest){
-      ((AccessWatchpointRequest) request).addClassExclusionFilter(pattern);
+    if (request instanceof ExceptionRequest) {
+      ((ExceptionRequest)request).addClassExclusionFilter(pattern);
     }
-    else if(request instanceof ExceptionRequest){
-      ((ExceptionRequest) request).addClassExclusionFilter(pattern);
-    }
-    else if(request instanceof MethodEntryRequest) {
+    else if (request instanceof MethodEntryRequest) {
       ((MethodEntryRequest)request).addClassExclusionFilter(pattern);
     }
-    else if(request instanceof MethodExitRequest) {
+    else if (request instanceof MethodExitRequest) {
       ((MethodExitRequest)request).addClassExclusionFilter(pattern);
     }
-    else if(request instanceof ModificationWatchpointRequest) {
-      ((ModificationWatchpointRequest)request).addClassExclusionFilter(pattern);
-    }
-    else if(request instanceof WatchpointRequest) {
+    else if (request instanceof WatchpointRequest) {
       ((WatchpointRequest)request).addClassExclusionFilter(pattern);
     }
   }
@@ -143,48 +115,50 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
       request.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
     }
 
-    if (requestor.isCountFilterEnabled() && requestor.getCountFilter() > 0) {
+    // count filter has to be applied manually if condition is specified
+    if (requestor.isCountFilterEnabled() && !requestor.isConditionEnabled()) {
       request.addCountFilter(requestor.getCountFilter());
     }
 
     if (requestor.isClassFiltersEnabled() && !(request instanceof BreakpointRequest) /*no built-in class filters support for breakpoint requests*/ ) {
-      ClassFilter[] classFilters = requestor.getClassFilters();
-      if (DebuggerUtilsEx.getEnabledNumber(classFilters) == 1) {
-        for (final ClassFilter filter : classFilters) {
-          if (!filter.isEnabled()) {
-            continue;
-          }
-          final JVMName jvmClassName = ApplicationManager.getApplication().runReadAction(new Computable<JVMName>() {
-            public JVMName compute() {
-              PsiClass psiClass = DebuggerUtils.findClass(filter.getPattern(), myDebugProcess.getProject(), myDebugProcess.getSearchScope());
-              if (psiClass == null) {
-                return null;
-              }
-              return JVMNameUtil.getJVMQualifiedName(psiClass);
-            }
-          });
-          String pattern = filter.getPattern();
-          try {
-            if (jvmClassName != null) {
-              pattern = jvmClassName.getName(myDebugProcess);
-            }
-          }
-          catch (EvaluateException ignored) {
-          }
-
-          addClassFilter(request, pattern);
-          break; // adding more than one inclusion filter does not work, only events that satisfy ALL filters are placed in the event queue.
-        }
-      }
-
-      for (ClassFilter filter : requestor.getClassExclusionFilters()) {
-        if (filter.isEnabled()) {
-          addClassExclusionFilter(request, filter.getPattern());
-        }
-      }
+      addClassFilters(request, requestor.getClassFilters(), requestor.getClassExclusionFilters());
     }
 
     registerRequestInternal(requestor, request);
+  }
+
+  public void addClassFilters(EventRequest request, ClassFilter[] classFilters, ClassFilter[] classExclusionFilters) {
+    if (DebuggerUtilsEx.getEnabledNumber(classFilters) == 1) {
+      for (final ClassFilter filter : classFilters) {
+        if (!filter.isEnabled()) {
+          continue;
+        }
+        final JVMName jvmClassName = ReadAction.compute(() -> {
+          PsiClass psiClass = DebuggerUtils.findClass(filter.getPattern(), myDebugProcess.getProject(), myDebugProcess.getSearchScope());
+          if (psiClass == null) {
+            return null;
+          }
+          return JVMNameUtil.getJVMQualifiedName(psiClass);
+        });
+        String pattern = filter.getPattern();
+        try {
+          if (jvmClassName != null) {
+            pattern = jvmClassName.getName(myDebugProcess);
+          }
+        }
+        catch (EvaluateException ignored) {
+        }
+
+        addClassFilter(request, pattern);
+        break; // adding more than one inclusion filter does not work, only events that satisfy ALL filters are placed in the event queue.
+      }
+    }
+
+    for (ClassFilter filter : classExclusionFilters) {
+      if (filter.isEnabled()) {
+        addClassExclusionFilter(request, filter.getPattern());
+      }
+    }
   }
 
   public void registerRequestInternal(final Requestor requestor, final EventRequest request) {
@@ -192,11 +166,12 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     request.putProperty(REQUESTOR, requestor);
   }
 
-  private void registerRequest(Requestor requestor, EventRequest request) {
+  public void registerRequest(Requestor requestor, EventRequest request) {
     myRequestorToBelongedRequests.computeIfAbsent(requestor, r -> new HashSet<>()).add(request);
   }
 
   // requests creation
+  @Override
   @Nullable
   public ClassPrepareRequest createClassPrepareRequest(ClassPrepareRequestor requestor, String pattern) {
     if (myEventRequestManager == null) { // detached already
@@ -205,8 +180,10 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
 
     ClassPrepareRequest classPrepareRequest = myEventRequestManager.createClassPrepareRequest();
     classPrepareRequest.setSuspendPolicy(EventRequest.SUSPEND_EVENT_THREAD);
-    classPrepareRequest.addClassFilter(pattern);
-    classPrepareRequest.putProperty(CLASS_NAME, pattern);
+    if (!StringUtil.isEmpty(pattern)) {
+      classPrepareRequest.addClassFilter(pattern);
+      classPrepareRequest.putProperty(CLASS_NAME, pattern);
+    }
 
     registerRequestInternal(requestor, classPrepareRequest);
     return classPrepareRequest;
@@ -290,8 +267,7 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
         // request is already deleted
       }
       catch (InternalException e) {
-        //noinspection StatementWithEmptyBody
-        if (e.errorCode() == 41) {
+        if (e.errorCode() == JvmtiError.NOT_FOUND) {
           //event request not found
           //there could be no requests after hotswap
         }
@@ -302,8 +278,11 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     }
   }
 
+  @Override
   public void callbackOnPrepareClasses(final ClassPrepareRequestor requestor, final SourcePosition classPosition) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
+
+    if (checkReadOnly(requestor)) return;
 
     List<ClassPrepareRequest> prepareRequests = myDebugProcess.getPositionManager().createPrepareRequests(requestor, classPosition);
     if(prepareRequests.isEmpty()) {
@@ -312,13 +291,19 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     }
 
     for (ClassPrepareRequest prepareRequest : prepareRequests) {
-      registerRequest(requestor, prepareRequest);
-      prepareRequest.enable();
+      if (prepareRequest != null) {
+        registerRequest(requestor, prepareRequest);
+        prepareRequest.enable();
+      }
     }
   }
 
+  @Override
   public void callbackOnPrepareClasses(ClassPrepareRequestor requestor, String classOrPatternToBeLoaded) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
+
+    if (checkReadOnly(requestor)) return;
+
     ClassPrepareRequest classPrepareRequest = createClassPrepareRequest(requestor, classOrPatternToBeLoaded);
 
     if (classPrepareRequest != null) {
@@ -330,6 +315,7 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     }
   }
 
+  @Override
   public void enableRequest(EventRequest request) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     LOG.assertTrue(findRequestor(request) != null);
@@ -349,9 +335,9 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
       request.enable();
     } catch (InternalException e) {
       switch (e.errorCode()) {
-        case 40 /* DUPLICATE */ : LOG.info(e); break;
+        case JvmtiError.DUPLICATE : LOG.info(e); break;
 
-        case 41 /* NOT_FOUND */ : break;
+        case JvmtiError.NOT_FOUND : break;
         //event request not found
         //there could be no requests after hotswap
 
@@ -360,6 +346,7 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     }
   }
 
+  @Override
   public void setInvalid(Requestor requestor, String message) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     //deleteRequest(requestor);
@@ -368,7 +355,7 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
       myRequestWarnings.put(requestor, message);
     }
   }
-  
+
   public @Nullable String getWarning(Requestor requestor) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     return myRequestWarnings.get(requestor);
@@ -376,15 +363,11 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
 
   public boolean isVerified(Requestor requestor) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    for (EventRequest request : findRequests(requestor)) {
-      /*ClassPrepareRequest is added in any case, so do not count it*/
-      if (!(request instanceof ClassPrepareRequest)) {
-        return true;
-      }
-    }
-    return false;
+    //ClassPrepareRequest is added in any case, so do not count it
+    return findRequests(requestor).stream().anyMatch(r -> !(r instanceof ClassPrepareRequest));
   }
 
+  @Override
   public void processDetached(DebugProcessImpl process, boolean closedByUser) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     myEventRequestManager = null;
@@ -392,8 +375,11 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
     myRequestorToBelongedRequests.clear();
   }
 
+  @Override
   public void processAttached(DebugProcessImpl process) {
-    myEventRequestManager = myDebugProcess.getVirtualMachineProxy().eventRequestManager();
+    if (myDebugProcess.getVirtualMachineProxy().canBeModified()) {
+      myEventRequestManager = myDebugProcess.getVirtualMachineProxy().eventRequestManager();
+    }
   }
 
   public void processClassPrepared(final ClassPrepareEvent event) {
@@ -419,5 +405,13 @@ public class RequestManagerImpl extends DebugProcessAdapterImpl implements Reque
 
   public void clearWarnings() {
     myRequestWarnings.clear();
+  }
+
+  public boolean checkReadOnly(Requestor requestor) {
+    if (!myDebugProcess.getVirtualMachineProxy().canBeModified()) {
+      setInvalid(requestor, "Not available in read only mode");
+      return true;
+    }
+    return false;
   }
 }

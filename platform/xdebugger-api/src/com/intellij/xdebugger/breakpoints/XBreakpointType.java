@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.xdebugger.breakpoints;
 
 import com.intellij.icons.AllIcons;
+import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
+import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointCustomPropertiesPanel;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroupingRule;
@@ -64,7 +52,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @param id                     an unique id of breakpoint type
    * @param title                  title of tab in the breakpoints dialog
-   * @param suspendThreadSupported <code>true</code> if suspending only one thread is supported for this type of breakpoints
+   * @param suspendThreadSupported {@code true} if suspending only one thread is supported for this type of breakpoints
    */
   protected XBreakpointType(@NonNls @NotNull final String id, @Nls @NotNull final String title, boolean suspendThreadSupported) {
     myId = id;
@@ -115,6 +103,11 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   }
 
   @NotNull
+  public Icon getSuspendNoneIcon() {
+    return AllIcons.Debugger.Db_no_suspend_breakpoint;
+  }
+
+  @NotNull
   public Icon getMutedEnabledIcon() {
     return AllIcons.Debugger.Db_muted_breakpoint;
   }
@@ -122,6 +115,14 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   @NotNull
   public Icon getMutedDisabledIcon() {
     return AllIcons.Debugger.Db_muted_disabled_breakpoint;
+  }
+
+  /**
+   * @return the icon shown for a breakpoint which is scheduled but not yet set (validated, resolved) in the debugger engine
+   */
+  @Nullable
+  public Icon getPendingIcon() {
+    return null;
   }
 
   /**
@@ -135,6 +136,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @deprecated override {@link #getInactiveDependentIcon()} instead
    */
+  @Deprecated
   @NotNull
   public Icon getDisabledDependentIcon() {
     return AllIcons.Debugger.Db_dep_line_breakpoint;
@@ -155,6 +157,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @deprecated override {@link #createCustomPropertiesPanel(Project)} instead
    */
+  @Deprecated
   @Nullable
   public XBreakpointCustomPropertiesPanel<B> createCustomPropertiesPanel() {
     return null;
@@ -173,6 +176,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   /**
    * @deprecated override {@link #getEditorsProvider(B, Project)} instead
    */
+  @Deprecated
   @Nullable
   public XDebuggerEditorsProvider getEditorsProvider() {
     return null;
@@ -194,9 +198,9 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   }
 
   /**
-   * Return <code>true</code> from this method in order to allow adding breakpoints from the "Breakpoints" dialog. Also override
+   * Return {@code true} from this method in order to allow adding breakpoints from the "Breakpoints" dialog. Also override
    * {@link XBreakpointType#addBreakpoint(Project,JComponent)} method.
-   * @return <code>true</code> if "Add" button should be visible in "Breakpoints" dialog
+   * @return {@code true} if "Add" button should be visible in "Breakpoints" dialog
    */
   public boolean isAddBreakpointButtonVisible() {
     return false;
@@ -206,7 +210,7 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
    * This method is called then "Add" button is pressed in the "Breakpoints" dialog 
    * @param project
    * @param parentComponent
-   * @return the created breakpoint or <code>null</code> if breakpoint wasn't created
+   * @return the created breakpoint or {@code null} if breakpoint wasn't created
    */
   @Nullable
   public B addBreakpoint(final Project project, JComponent parentComponent) {
@@ -248,5 +252,14 @@ public abstract class XBreakpointType<B extends XBreakpoint<P>, P extends XBreak
   public interface XBreakpointCreator<P extends XBreakpointProperties> {
     @NotNull
     XBreakpoint<P> createBreakpoint(@Nullable P properties);
+  }
+
+  public List<? extends AnAction> getAdditionalPopupMenuActions(@NotNull B breakpoint, @Nullable XDebugSession currentSession) {
+    return Collections.emptyList();
+  }
+
+  @Override
+  public String toString() {
+    return myId;
   }
 }

@@ -15,14 +15,11 @@
  */
 package com.intellij.codeInspection.util;
 
-import com.intellij.codeInsight.AnnotationUtil;
-import com.intellij.codeInspection.InspectionProfile;
+import com.intellij.codeInsight.NullableNotNullManager;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.profile.codeInspection.InspectionProfileManager;
-import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
+import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
 import com.intellij.psi.PsiAnnotation;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiModifierList;
@@ -54,6 +51,11 @@ public class SpecialAnnotationsUtilBase {
       }
 
       @Override
+      public boolean startInWriteAction() {
+        return false;
+      }
+
+      @Override
       public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
         doQuickFixInternal(project, targetList, qualifiedName);
       }
@@ -63,11 +65,10 @@ public class SpecialAnnotationsUtilBase {
   static void doQuickFixInternal(@NotNull Project project, @NotNull List<String> targetList, @NotNull String qualifiedName) {
     targetList.add(qualifiedName);
     Collections.sort(targetList);
-    final InspectionProfile inspectionProfile = InspectionProjectProfileManager.getInstance(project).getCurrentProfile();
     //correct save settings
 
     //TODO lesya
-    InspectionProfileManager.getInstance().fireProfileChanged(inspectionProfile);
+    ProjectInspectionProfileManager.getInstance(project).fireProfileChanged();
     /*
     try {
       inspectionProfile.save();
@@ -79,15 +80,17 @@ public class SpecialAnnotationsUtilBase {
     */
   }
 
-  public static void createAddToSpecialAnnotationFixes(@NotNull PsiModifierListOwner owner, @NotNull Processor<String> processor) {
+  public static void createAddToSpecialAnnotationFixes(@NotNull PsiModifierListOwner owner, @NotNull Processor<? super String> processor) {
     final PsiModifierList modifierList = owner.getModifierList();
     if (modifierList != null) {
       final PsiAnnotation[] psiAnnotations = modifierList.getAnnotations();
       for (PsiAnnotation psiAnnotation : psiAnnotations) {
         @NonNls final String name = psiAnnotation.getQualifiedName();
         if (name == null) continue;
-        if (name.startsWith("java.") || name.startsWith("javax.") ||
-            name.startsWith("org.jetbrains.") && AnnotationUtil.isJetbrainsAnnotation(StringUtil.getShortName(name))) continue;
+        if (name.startsWith("java.") || //name.startsWith("javax.") ||
+            name.startsWith("org.jetbrains.") ||
+            NullableNotNullManager.isNullableAnnotation(psiAnnotation) ||
+            NullableNotNullManager.isNotNullAnnotation(psiAnnotation)) continue;
         if (!processor.process(name)) break;
       }
     }

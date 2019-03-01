@@ -45,8 +45,12 @@ public abstract class DiffElement<T> {
   @NotNull
   public abstract String getName();
 
-  public String getPresentablePath() {
+  public String getPresentableName() {
     return getName();
+  }
+
+  public String getPresentablePath() {
+    return getPresentableName();
   }
 
   public abstract long getSize();
@@ -81,7 +85,7 @@ public abstract class DiffElement<T> {
 
   public abstract T getValue();
 
-  public String getSeparator() {
+  public static String getSeparator() {
     return "/";
   }
 
@@ -107,7 +111,7 @@ public abstract class DiffElement<T> {
       byte[] content = getContent();
       if (content == null) throw new DiffRequestProducerException("Can't get content");
 
-      return DiffContentFactory.getInstance().create(new String(content, getCharset()), getFileType());
+      return DiffContentFactory.getInstance().create(project, new String(content, getCharset()), getFileType());
     }
     catch (IOException e) {
       throw new DiffRequestProducerException(e);
@@ -115,15 +119,15 @@ public abstract class DiffElement<T> {
   }
 
   @Nullable
-  public Callable<DiffElement<T>> getElementChooser(Project project) {
+  public Callable<DiffElement<T>> getElementChooser(@Nullable Project project) {
     return null;
   }
 
   /**
    * Defines is it possible to perform such operations as copy or delete through Diff Panel
    *
-   * @return <code>true</code> if copy, delete, etc operations are allowed,
-   *        <code>false</code> otherwise
+   * @return {@code true} if copy, delete, etc operations are allowed,
+   *        {@code false} otherwise
    */
   public boolean isOperationsEnabled() {
     return false;
@@ -134,8 +138,8 @@ public abstract class DiffElement<T> {
    *
    * @param container file directory or other container
    * @param relativePath relative path from root
-   * @return <code>true</code> if coping was completed successfully,
-   *        <code>false</code> otherwise
+   * @return {@code true} if coping was completed successfully,
+   *        {@code false} otherwise
    */
   @Nullable
   public DiffElement<?> copyTo(DiffElement<T> container, String relativePath) {
@@ -144,8 +148,8 @@ public abstract class DiffElement<T> {
 
   /**
    * Deletes element
-   * @return <code>true</code> if deletion was completed successfully,
-   *        <code>false</code> otherwise
+   * @return {@code true} if deletion was completed successfully,
+   *        {@code false} otherwise
    */
   public boolean delete() {
     return false;

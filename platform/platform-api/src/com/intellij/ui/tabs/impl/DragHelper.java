@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.tabs.impl;
 
 import com.intellij.ide.IdeBundle;
@@ -25,6 +11,7 @@ import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.tabs.JBTabsPosition;
 import com.intellij.ui.tabs.TabInfo;
 import com.intellij.ui.util.Axis;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -45,14 +32,14 @@ class DragHelper extends MouseDragHelper {
   private TabInfo myDragOutSource;
   private Reference<TabLabel> myPressedTabLabel;
 
-  public DragHelper(JBTabsImpl tabs) {
+  DragHelper(JBTabsImpl tabs) {
     super(tabs, tabs);
     myTabs = tabs;
   }
 
 
   @Override
-  protected boolean isDragOut(MouseEvent event, Point dragToScreenPoint, Point startScreenPoint) {
+  protected boolean isDragOut(@NotNull MouseEvent event, @NotNull Point dragToScreenPoint, @NotNull Point startScreenPoint) {
     if (myDragSource == null || !myDragSource.canBeDraggedOut()) return false;
 
     TabLabel label = myTabs.myInfo2Label.get(myDragSource);
@@ -65,7 +52,7 @@ class DragHelper extends MouseDragHelper {
   }
 
   @Override
-  protected void processDragOut(MouseEvent event, Point dragToScreenPoint, Point startScreenPoint, boolean justStarted) {
+  protected void processDragOut(@NotNull MouseEvent event, @NotNull Point dragToScreenPoint, @NotNull Point startScreenPoint, boolean justStarted) {
     TabInfo.DragOutDelegate delegate = myDragOutSource.getDragOutDelegate();
     if (justStarted) {
       delegate.dragOutStarted(event, myDragOutSource);
@@ -76,7 +63,7 @@ class DragHelper extends MouseDragHelper {
   }
 
   @Override
-  protected void processDragOutFinish(MouseEvent event) {
+  protected void processDragOutFinish(@NotNull MouseEvent event) {
     super.processDragOutFinish(event);
 
     myDragOutSource.getDragOutDelegate().dragOutFinished(event, myDragOutSource);
@@ -95,7 +82,8 @@ class DragHelper extends MouseDragHelper {
     myPressedTabLabel = label == null ? null : new WeakReference<>(label);
   }
 
-  protected void processDrag(MouseEvent event, Point targetScreenPoint, Point startPointScreen) {
+  @Override
+  protected void processDrag(@NotNull MouseEvent event, @NotNull Point targetScreenPoint, @NotNull Point startPointScreen) {
     if (!myTabs.isTabDraggingEnabled() || !isDragSource(event) || !MouseDragHelper.checkModifiers(event)) return;
 
     SwingUtilities.convertPointFromScreen(startPointScreen, myTabs);
@@ -236,7 +224,7 @@ class DragHelper extends MouseDragHelper {
   }
 
   @Override
-  protected void processDragFinish(MouseEvent event, boolean willDragOutStart) {
+  protected void processDragFinish(@NotNull MouseEvent event, boolean willDragOutStart) {
     super.processDragFinish(event, willDragOutStart);
 
     endDrag(willDragOutStart);
@@ -249,10 +237,11 @@ class DragHelper extends MouseDragHelper {
       if (myTabs.getVisibleRect().contains(p) && myPressedOnScreenPoint.distance(new RelativePoint(event).getScreenPoint()) > 15) {
         final int answer = Messages.showOkCancelDialog(myTabs,
                                                        IdeBundle.message("alphabetical.mode.is.on.warning"),
-                                                       IdeBundle.message("title.warning"),
+                                                       "Reorder Tabs",
+                                                       "Off", "On",
                                                        Messages.getQuestionIcon());
         if (answer == Messages.OK) {
-          JBEditorTabs.setAlphabeticalMode(false);
+          JBEditorTabs.setEditorTabsAlphabeticalMode(false);
           myTabs.relayout(true, false);
           myTabs.revalidate();
         }

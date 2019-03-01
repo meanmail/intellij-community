@@ -26,7 +26,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Denis Zhdanov
- * @since 8/9/13 4:00 PM
  */
 public class InProcessExternalSystemCommunicationManager implements ExternalSystemCommunicationManager {
 
@@ -49,7 +48,7 @@ public class InProcessExternalSystemCommunicationManager implements ExternalSyst
   }
 
   @Override
-  public void release(@NotNull String id, @NotNull ProjectSystemId externalSystemId) throws Exception {
+  public void release(@NotNull String id, @NotNull ProjectSystemId externalSystemId) {
   }
 
   @Override

@@ -32,11 +32,13 @@ import java.util.Collection;
 import static com.intellij.openapi.vfs.VfsUtilCore.virtualToIoFile;
 
 /**
- * Stores paths to Git service files (from .git/ directory) that are used by IDEA, and provides test-methods to check if a file
+ * Stores paths to Git service files that are used by IDEA, and provides test-methods to check if a file
  * matches once of them.
  */
 public class GitRepositoryFiles {
   private static final Logger LOG = Logger.getInstance("#git4idea.repo.GitRepositoryFiles");
+
+  public static final String GITIGNORE = ".gitignore";
 
   private static final String CHERRY_PICK_HEAD = "CHERRY_PICK_HEAD";
   private static final String COMMIT_EDITMSG = "COMMIT_EDITMSG";
@@ -56,6 +58,11 @@ public class GitRepositoryFiles {
   private static final String TAGS = "tags";
   private static final String REMOTES = "remotes";
   private static final String SQUASH_MSG = "SQUASH_MSG";
+  private static final String HOOKS = "hooks";
+  private static final String PRE_COMMIT_HOOK = "pre-commit";
+  private static final String PRE_PUSH_HOOK = "pre-push";
+  private static final String COMMIT_MSG_HOOK = "commit-msg";
+  private static final String SHALLOW = "shallow";
 
   private final VirtualFile myMainDir;
   private final VirtualFile myWorktreeDir;
@@ -77,6 +84,8 @@ public class GitRepositoryFiles {
   private final String myMergeSquashPath;
   private final String myInfoDirPath;
   private final String myExcludePath;
+  private final String myHooksDirPath;
+  private final String myShallow;
 
   private GitRepositoryFiles(@NotNull VirtualFile mainDir, @NotNull VirtualFile worktreeDir) {
     myMainDir = mainDir;
@@ -91,6 +100,8 @@ public class GitRepositoryFiles {
     myRefsRemotesDirPath = refsPath + slash(REMOTES);
     myInfoDirPath = mainPath + slash(INFO);
     myExcludePath = mainPath + slash(INFO_EXCLUDE);
+    myHooksDirPath = mainPath + slash(HOOKS);
+    myShallow = mainPath + slash(SHALLOW);
 
     String worktreePath = myWorktreeDir.getPath();
     myHeadFilePath = worktreePath + slash(HEAD);
@@ -148,7 +159,7 @@ public class GitRepositoryFiles {
    */
   @NotNull
   Collection<String> getDirsToWatch() {
-    return Arrays.asList(myRefsHeadsDirPath, myRefsRemotesDirPath, myRefsTagsPath, myInfoDirPath);
+    return Arrays.asList(myRefsHeadsDirPath, myRefsRemotesDirPath, myRefsTagsPath, myInfoDirPath, myHooksDirPath);
   }
 
   @NotNull
@@ -209,6 +220,26 @@ public class GitRepositoryFiles {
   @NotNull
   public File getSquashMessageFile() {
     return file(myMergeSquashPath);
+  }
+
+  @NotNull
+  public File getPreCommitHookFile() {
+    return file(myHooksDirPath + slash(PRE_COMMIT_HOOK));
+  }
+
+  @NotNull
+  public File getPrePushHookFile() {
+    return file(myHooksDirPath + slash(PRE_PUSH_HOOK));
+  }
+
+  @NotNull
+  public File getCommitMsgHookFile() {
+    return file(myHooksDirPath + slash(COMMIT_MSG_HOOK));
+  }
+
+  @NotNull
+  public File getShallowFile() {
+    return file(myShallow);
   }
 
   @NotNull
@@ -308,8 +339,16 @@ public class GitRepositoryFiles {
     return path.equals(myExcludePath);
   }
 
-  public void refresh(boolean async) {
-    VfsUtil.markDirtyAndRefresh(async, true, false, myMainDir, myWorktreeDir);
+  /**
+   * Refresh that part of .git repository files, which is not covered by {@link GitRepository#update()}, e.g. the {@code refs/tags/} dir.
+   *
+   * The call to this method should be probably be done together with a call to update(): thus all information will be updated,
+   * but some of it will be updated synchronously, the rest - asynchronously.
+   */
+  public void refreshTagsFiles() {
+    VirtualFile tagsDir = LocalFileSystem.getInstance().refreshAndFindFileByPath(myRefsTagsPath);
+    VirtualFile packedRefsFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(myPackedRefsPath);
+    VfsUtil.markDirtyAndRefresh(true, true, false, tagsDir, packedRefsFile);
   }
 
   @NotNull

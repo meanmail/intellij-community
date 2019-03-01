@@ -27,9 +27,9 @@ import java.util.List;
  * {@link RefGroup} containing only one {@link VcsRef}.
  */
 public class SingletonRefGroup implements RefGroup {
-  private final VcsRef myRef;
+  @NotNull private final VcsRef myRef;
 
-  public SingletonRefGroup(VcsRef ref) {
+  public SingletonRefGroup(@NotNull VcsRef ref) {
     myRef = ref;
   }
 
@@ -52,7 +52,12 @@ public class SingletonRefGroup implements RefGroup {
 
   @NotNull
   @Override
-  public Color getBgColor() {
-    return myRef.getType().getBackgroundColor();
+  public List<Color> getColors() {
+    return Collections.singletonList(myRef.getType().getBackgroundColor());
+  }
+
+  @NotNull
+  public VcsRef getRef() {
+    return myRef;
   }
 }

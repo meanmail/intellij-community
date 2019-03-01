@@ -1,68 +1,62 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.statistics;
 
-import com.intellij.internal.statistic.AbstractApplicationUsagesCollector;
-import com.intellij.internal.statistic.CollectUsagesException;
-import com.intellij.internal.statistic.StatisticsUtilKt;
-import com.intellij.internal.statistic.beans.ConvertUsagesUtil;
-import com.intellij.internal.statistic.beans.GroupDescriptor;
 import com.intellij.internal.statistic.beans.UsageDescriptor;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.internal.statistic.service.fus.collectors.ProjectUsagesCollector;
+import com.intellij.internal.statistic.service.fus.collectors.UsageDescriptorKeyValidator;
+import com.intellij.internal.statistic.utils.PluginInfoDetectorKt;
+import com.intellij.internal.statistic.utils.StatisticsUtilKt;
 import com.intellij.openapi.project.Project;
+import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.vcs.log.graph.PermanentGraph;
-import com.intellij.vcs.log.impl.VcsProjectLog;
-import com.intellij.vcs.log.ui.VcsLogHighlighterFactory;
+import com.intellij.vcs.log.impl.*;
 import com.intellij.vcs.log.ui.VcsLogUiImpl;
+import com.intellij.vcs.log.ui.highlighters.VcsLogHighlighterFactory;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.Collections;
-import java.util.Set;
+import java.util.*;
 
+import static com.intellij.vcs.log.impl.MainVcsLogUiProperties.*;
 import static com.intellij.vcs.log.ui.VcsLogUiImpl.LOG_HIGHLIGHTER_FACTORY_EP;
+import static java.util.Arrays.asList;
 
-public class VcsLogFeaturesCollector extends AbstractApplicationUsagesCollector {
-  public static final GroupDescriptor ID = GroupDescriptor.create("VCS Log Ui Settings");
-
+public class VcsLogFeaturesCollector extends ProjectUsagesCollector {
   @NotNull
   @Override
-  public Set<UsageDescriptor> getProjectUsages(@NotNull Project project) throws CollectUsagesException {
+  public Set<UsageDescriptor> getUsages(@NotNull Project project) {
     VcsProjectLog projectLog = VcsProjectLog.getInstance(project);
     if (projectLog != null) {
       VcsLogUiImpl ui = projectLog.getMainLogUi();
       if (ui != null) {
+        MainVcsLogUiProperties properties = ui.getProperties();
+        VcsLogUiProperties defaultProperties = createDefaultPropertiesInstance();
+
         Set<UsageDescriptor> usages = ContainerUtil.newHashSet();
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.details", ui.isShowDetails()));
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.long.edges", ui.areLongEdgesVisible()));
+        addBooleanUsage(properties, defaultProperties, usages, "details", CommonUiProperties.SHOW_DETAILS);
+        addBooleanUsage(properties, defaultProperties, usages, "diffPreview", CommonUiProperties.SHOW_DIFF_PREVIEW);
+        addBooleanUsage(properties, defaultProperties, usages, "long.edges", SHOW_LONG_EDGES);
 
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.sort.linear.bek", ui.getBekType().equals(PermanentGraph.SortType.LinearBek)));
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.sort.bek", ui.getBekType().equals(PermanentGraph.SortType.Bek)));
-        usages.add(StatisticsUtilKt.getBooleanUsage("ui.sort.normal", ui.getBekType().equals(PermanentGraph.SortType.Normal)));
+        addEnumUsage(properties, defaultProperties, usages, "sort", BEK_SORT_TYPE);
 
-        if (ui.isMultipleRoots()) {
-          usages.add(StatisticsUtilKt.getBooleanUsage("ui.roots", ui.isShowRootNames()));
+        if (ui.getColorManager().isMultipleRoots()) {
+          addBooleanUsage(properties, defaultProperties, usages, "roots", CommonUiProperties.SHOW_ROOT_NAMES);
         }
 
-        for (VcsLogHighlighterFactory factory : Extensions.getExtensions(LOG_HIGHLIGHTER_FACTORY_EP, project)) {
+        addBooleanUsage(properties, defaultProperties, usages, "labels.compact", COMPACT_REFERENCES_VIEW);
+        addBooleanUsage(properties, defaultProperties, usages, "labels.showTagNames", SHOW_TAG_NAMES);
+
+        addBooleanUsage(properties, defaultProperties, usages, "textFilter.regex", TEXT_FILTER_REGEX);
+        addBooleanUsage(properties, defaultProperties, usages, "textFilter.matchCase", TEXT_FILTER_MATCH_CASE);
+
+        for (VcsLogHighlighterFactory factory : LOG_HIGHLIGHTER_FACTORY_EP.getExtensions(project)) {
           if (factory.showMenuItem()) {
-            usages.add(StatisticsUtilKt.getBooleanUsage("ui.highlighter." + ConvertUsagesUtil
-              .ensureProperKey(factory.getId()), ui.isHighlighterEnabled(factory.getId())));
+            addBooleanUsage(properties, defaultProperties, usages, "highlighter." + getFactoryIdSafe(factory),
+                            VcsLogHighlighterProperty.get(factory.getId()));
           }
         }
+
+        List<String> tabs = projectLog.getTabsManager().getTabs();
+        usages.add(StatisticsUtilKt.getCountingUsage("additionalTabs.count", tabs.size(), asList(0, 1, 2, 3, 4, 8)));
 
         return usages;
       }
@@ -71,8 +65,74 @@ public class VcsLogFeaturesCollector extends AbstractApplicationUsagesCollector 
   }
 
   @NotNull
+  private static String getFactoryIdSafe(@NotNull VcsLogHighlighterFactory factory) {
+    if (PluginInfoDetectorKt.getPluginInfo(factory.getClass()).isDevelopedByJetBrains()) {
+      return UsageDescriptorKeyValidator.ensureProperKey(factory.getId());
+    }
+    return "THIRD_PARTY";
+  }
+
+  private static void addBooleanUsage(@NotNull VcsLogUiProperties properties,
+                                      @NotNull VcsLogUiProperties defaultProperties,
+                                      @NotNull Set<? super UsageDescriptor> usages,
+                                      @NotNull String usageName,
+                                      @NotNull VcsLogUiProperty<Boolean> property) {
+    addUsageIfNotDefault(properties, defaultProperties, usages, property, value -> StatisticsUtilKt.getBooleanUsage(usageName, value));
+  }
+
+  private static void addEnumUsage(@NotNull VcsLogUiProperties properties,
+                                   @NotNull VcsLogUiProperties defaultProperties,
+                                   @NotNull Set<? super UsageDescriptor> usages,
+                                   @NotNull String usageName,
+                                   @NotNull VcsLogUiProperty<? extends Enum> property) {
+    addUsageIfNotDefault(properties, defaultProperties, usages, property, value -> StatisticsUtilKt.getEnumUsage(usageName, value));
+  }
+
+  private static <T> void addUsageIfNotDefault(@NotNull VcsLogUiProperties properties,
+                                               @NotNull VcsLogUiProperties defaultProperties,
+                                               @NotNull Set<? super UsageDescriptor> usages,
+                                               @NotNull VcsLogUiProperty<T> property,
+                                               @NotNull Function<? super T, ? extends UsageDescriptor> createUsage) {
+    if (!properties.exists(property)) return;
+
+    T value = properties.get(property);
+    if (!Objects.equals(defaultProperties.get(property), value)) {
+      usages.add(createUsage.fun(value));
+    }
+  }
+
+  @NotNull
+  private static VcsLogUiProperties createDefaultPropertiesInstance() {
+    return new VcsLogUiPropertiesImpl(new VcsLogApplicationSettings()) {
+      @NotNull private final State myState = new State();
+
+      @NotNull
+      @Override
+      public State getState() {
+        return myState;
+      }
+
+      @Override
+      public void addRecentlyFilteredGroup(@NotNull String filterName, @NotNull Collection<String> values) {
+        throw new UnsupportedOperationException();
+      }
+
+      @NotNull
+      @Override
+      public List<List<String>> getRecentlyFilteredGroups(@NotNull String filterName) {
+        throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public void loadState(@NotNull Object state) {
+        throw new UnsupportedOperationException();
+      }
+    };
+  }
+
+  @NotNull
   @Override
-  public GroupDescriptor getGroupId() {
-    return ID;
+  public String getGroupId() {
+    return "vcs.log.ui";
   }
 }

@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.builders.java.dependencyView;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.SmartList;
 import gnu.trove.THashMap;
 import gnu.trove.THashSet;
@@ -28,15 +14,10 @@ import org.jetbrains.org.objectweb.asm.signature.SignatureReader;
 import org.jetbrains.org.objectweb.asm.signature.SignatureVisitor;
 
 import java.lang.annotation.RetentionPolicy;
-import java.lang.reflect.Array;
-import java.util.EnumSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 /**
  * @author: db
- * Date: 31.01.11
  */
 class ClassfileAnalyzer {
   private final static Logger LOG = Logger.getInstance("#org.jetbrains.jps.builders.java.dependencyView.ClassfileAnalyzer");
@@ -242,6 +223,52 @@ class ClassfileAnalyzer {
       }
     }
 
+    private class ModuleCrawler extends ModuleVisitor {
+      ModuleCrawler() {
+        super(ASM_API_VERSION);
+      }
+
+      @Override
+      public void visitMainClass(String mainClass) {
+        myUsages.add(UsageRepr.createClassUsage(myContext, myContext.get(mainClass)));
+      }
+
+      @Override
+      public void visitRequire(String module, int access, String version) {
+        if (isExplicit(access)) {
+          // collect non-synthetic dependencies only
+          myModuleRequires.add(new ModuleRequiresRepr(myContext, access, myContext.get(module), version));
+        }
+      }
+
+      @Override
+      public void visitExport(String packaze, int access, String... modules) {
+        if (isExplicit(access)) {
+          // collect non-synthetic dependencies only
+          myModuleExports.add(new ModulePackageRepr(myContext, myContext.get(packaze), modules != null? Arrays.asList(modules) : Collections.emptyList()));
+        }
+      }
+
+      @Override
+      public void visitUse(String service) {
+        myUsages.add(UsageRepr.createClassUsage(myContext, myContext.get(service)));
+      }
+
+      @Override
+      public void visitProvide(String service, String... providers) {
+        myUsages.add(UsageRepr.createClassUsage(myContext, myContext.get(service)));
+        if (providers != null) {
+          for (String provider : providers) {
+            myUsages.add(UsageRepr.createClassUsage(myContext, myContext.get(provider)));
+          }
+        }
+      }
+
+      private boolean isExplicit(int access) {
+        return (access & (Opcodes.ACC_SYNTHETIC | Opcodes.ACC_MANDATED)) == 0;
+      }
+    }
+
     private void processSignature(final String sig) {
       if (sig != null) {
         try {
@@ -271,6 +298,7 @@ class ClassfileAnalyzer {
     };
 
     private final SignatureVisitor mySignatureWithGenericBoundUsageCrawler = new BaseSignatureVisitor() {
+      @Override
       public void visitClassType(String name) {
         final int className = myContext.get(name);
         myUsages.add(UsageRepr.createClassUsage(myContext, className));
@@ -278,11 +306,12 @@ class ClassfileAnalyzer {
       }
     };
 
-    private Boolean myTakeIntoAccount = false;
-
+    private boolean myTakeIntoAccount = false;
+    private boolean myIsModule = false;
     private final int myFileName;
     private int myAccess;
     private int myName;
+    private int myVersion; // for class contains a class bytecode version, for module contains a module version
     private String mySuperClass;
     private String[] myInterfaces;
     private String mySignature;
@@ -292,17 +321,20 @@ class ClassfileAnalyzer {
     private final Ref<Boolean> myLocalClassFlag = Ref.create(false);
     private final Ref<Boolean> myAnonymousClassFlag = Ref.create(false);
 
-    private final Set<MethodRepr> myMethods = new THashSet<MethodRepr>();
-    private final Set<FieldRepr> myFields = new THashSet<FieldRepr>();
-    private final Set<UsageRepr.Usage> myUsages = new THashSet<UsageRepr.Usage>();
+    private final Set<MethodRepr> myMethods = new THashSet<>();
+    private final Set<FieldRepr> myFields = new THashSet<>();
+    private final Set<UsageRepr.Usage> myUsages = new THashSet<>();
     private final Set<ElemType> myTargets = EnumSet.noneOf(ElemType.class);
     private RetentionPolicy myRetentionPolicy = null;
 
-    private final Map<TypeRepr.ClassType, TIntHashSet> myAnnotationArguments = new THashMap<TypeRepr.ClassType, TIntHashSet>();
-    private final Map<TypeRepr.ClassType, Set<ElemType>> myAnnotationTargets = new THashMap<TypeRepr.ClassType, Set<ElemType>>();
-    private final Set<TypeRepr.ClassType> myAnnotations = new THashSet<TypeRepr.ClassType>();
+    private final Map<TypeRepr.ClassType, TIntHashSet> myAnnotationArguments = new THashMap<>();
+    private final Map<TypeRepr.ClassType, Set<ElemType>> myAnnotationTargets = new THashMap<>();
+    private final Set<TypeRepr.ClassType> myAnnotations = new THashSet<>();
 
-    public ClassCrawler(final int fn) {
+    private final Set<ModuleRequiresRepr> myModuleRequires = new THashSet<>();
+    private final Set<ModulePackageRepr> myModuleExports = new THashSet<>();
+
+    ClassCrawler(final int fn) {
       super(ASM_API_VERSION);
       myFileName = fn;
     }
@@ -311,17 +343,18 @@ class ClassfileAnalyzer {
       return (access & Opcodes.ACC_PRIVATE) == 0;
     }
 
-    public Pair<ClassRepr, Set<UsageRepr.Usage>> getResult() {
-      ClassRepr repr = myTakeIntoAccount ? new ClassRepr(
+    public ClassFileRepr getResult() {
+      if (!myTakeIntoAccount) {
+        return null;
+      }
+      if (myIsModule) {
+        return new ModuleRepr(myContext, myAccess, myVersion, myFileName, myName, myModuleRequires, myModuleExports, myUsages);
+      }
+      return new ClassRepr(
         myContext, myAccess, myFileName, myName, myContext.get(mySignature), myContext.get(mySuperClass), myInterfaces,
         myFields, myMethods, myAnnotations, myTargets, myRetentionPolicy, myContext.get(myOuterClassName.get()), myLocalClassFlag.get(),
-        myAnonymousClassFlag.get(), myUsages) : null;
-
-      if (repr != null) {
-        repr.updateClassUsages(myContext, myUsages);
-      }
-
-      return Pair.create(repr, myUsages);
+        myAnonymousClassFlag.get(), myUsages
+      );
     }
 
     @Override
@@ -330,6 +363,7 @@ class ClassfileAnalyzer {
 
       myAccess = access;
       myName = myContext.get(name);
+      myVersion = version;
       mySignature = sig;
       mySuperClass = superName;
       myInterfaces = interfaces;
@@ -365,6 +399,15 @@ class ClassfileAnalyzer {
     }
 
     @Override
+    public ModuleVisitor visitModule(String name, int access, String version) {
+      myIsModule = true;
+      myAccess = access;
+      myName = myContext.get(name);
+      myVersion = myContext.get(version);
+      return new ModuleCrawler();
+    }
+
+    @Override
     public AnnotationVisitor visitAnnotation(final String desc, final boolean visible) {
       if (desc.equals("Ljava/lang/annotation/Target;")) {
         return new AnnotationTargetCrawler();
@@ -388,7 +431,7 @@ class ClassfileAnalyzer {
       processSignature(signature);
 
       return new FieldVisitor(ASM_API_VERSION) {
-        final Set<TypeRepr.ClassType> annotations = new THashSet<TypeRepr.ClassType>();
+        final Set<TypeRepr.ClassType> annotations = new THashSet<>();
 
         @Override
         public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
@@ -416,8 +459,8 @@ class ClassfileAnalyzer {
     @Override
     public MethodVisitor visitMethod(final int access, final String n, final String desc, final String signature, final String[] exceptions) {
       final Ref<Object> defaultValue = Ref.create();
-      final Set<TypeRepr.ClassType> annotations = new THashSet<TypeRepr.ClassType>();
-      final Set<ParamAnnotation> paramAnnotations = new THashSet<ParamAnnotation>();
+      final Set<TypeRepr.ClassType> annotations = new THashSet<>();
+      final Set<ParamAnnotation> paramAnnotations = new THashSet<>();
       processSignature(signature);
 
       return new MethodVisitor(ASM_API_VERSION) {
@@ -432,18 +475,17 @@ class ClassfileAnalyzer {
 
         @Override
         public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
-          final TypeRepr.ClassType annotType = (TypeRepr.ClassType)TypeRepr.getType(myContext, desc);
-          annotations.add(annotType);
-          return new AnnotationCrawler(annotType, "<init>".equals(n) ? ElemType.CONSTRUCTOR : ElemType.METHOD);
+          final TypeRepr.ClassType annoType = (TypeRepr.ClassType)TypeRepr.getType(myContext, desc);
+          annotations.add(annoType);
+          return new AnnotationCrawler(annoType, "<init>".equals(n) ? ElemType.CONSTRUCTOR : ElemType.METHOD);
         }
 
         @Override
         public AnnotationVisitor visitAnnotationDefault() {
           return new AnnotationVisitor(ASM_API_VERSION) {
+            private @Nullable List<Object> myAcc;
 
-            @Nullable
-            private List myAcc;
-
+            @Override
             public void visit(String name, Object value) {
               collectValue(value);
             }
@@ -455,7 +497,7 @@ class ClassfileAnalyzer {
 
             @Override
             public AnnotationVisitor visitArray(String name) {
-              myAcc = new SmartList();
+              myAcc = new SmartList<>();
               return this;
             }
 
@@ -466,7 +508,7 @@ class ClassfileAnalyzer {
                 if (!myAcc.isEmpty()) {
                   final Object elem = myAcc.get(0);
                   if (elem != null) {
-                    template = (Object[])Array.newInstance(elem.getClass(), 0);
+                    template = ArrayUtil.newArray(elem.getClass(), 0);
                   }
                 }
                 defaultValue.set(template != null? myAcc.toArray(template) : myAcc.toArray());
@@ -486,9 +528,9 @@ class ClassfileAnalyzer {
 
         @Override
         public AnnotationVisitor visitParameterAnnotation(int parameter, String desc, boolean visible) {
-          final TypeRepr.ClassType annotType = (TypeRepr.ClassType)TypeRepr.getType(myContext, desc);
-          paramAnnotations.add(new ParamAnnotation(parameter, annotType));
-          return new AnnotationCrawler(annotType, ElemType.PARAMETER);
+          final TypeRepr.ClassType annoType = (TypeRepr.ClassType)TypeRepr.getType(myContext, desc);
+          paramAnnotations.add(new ParamAnnotation(parameter, annoType));
+          return new AnnotationCrawler(annoType, ElemType.PARAMETER);
         }
 
         @Override
@@ -569,8 +611,8 @@ class ClassfileAnalyzer {
         public void visitInvokeDynamicInsn(String methodName, String desc, Handle bsm, Object... bsmArgs) {
           final Type returnType = Type.getReturnType(desc);
           addClassUsage(TypeRepr.getType(myContext, returnType));
-          
-          // common args processing 
+
+          // common args processing
           for (Object arg : bsmArgs) {
             if (arg instanceof Type) {
               final Type type = (Type)arg;
@@ -588,17 +630,17 @@ class ClassfileAnalyzer {
               processMethodHandle((Handle)arg);
             }
           }
-          
+
           if (LAMBDA_FACTORY_CLASS.equals(bsm.getOwner())) {
             // This invokeDynamic implements a lambda or method reference usage.
-            // Need to register method usage for the corresponding SAM-type.  
+            // Need to register method usage for the corresponding SAM-type.
             // First three arguments to the bootstrap methods are provided automatically by VM.
             // Arguments in args array are expected to be as following:
             // [0]: Type: Signature and return type of method to be implemented by the function object.
             // [1]: Handle: implementation method handle
             // [2]: Type: The signature and return type that should be enforced dynamically at invocation time. May be the same as samMethodType, or may be a specialization of it
             // [...]: optional additional arguments
-            
+
             if (returnType.getSort() == Type.OBJECT && bsmArgs.length >= 3) {
               if (bsmArgs[0] instanceof Type) {
                 final Type samMethodType = (Type)bsmArgs[0];
@@ -686,11 +728,16 @@ class ClassfileAnalyzer {
 
     @Override
     public void visitInnerClass(String name, String outerName, String innerName, int access) {
-      if (outerName != null) {
-        myOuterClassName.set(outerName);
-      }
-      if (innerName == null) {
-        myAnonymousClassFlag.set(true);
+      if (myContext.get(name) == myName) {
+        // set outer class name only if we are parsing the real inner class and
+        // not the reference to inner class inside some top-level class
+        myAccess |= access; // information about some access flags for the inner class is missing from the mask passed to 'visit' method
+        if (outerName != null) {
+          myOuterClassName.set(outerName);
+        }
+        if (innerName == null) {
+          myAnonymousClassFlag.set(true);
+        }
       }
     }
 
@@ -704,7 +751,7 @@ class ClassfileAnalyzer {
     }
 
     private class BaseSignatureVisitor extends SignatureVisitor {
-      public BaseSignatureVisitor() {
+      BaseSignatureVisitor() {
         super(ASM_API_VERSION);
       }
 
@@ -779,7 +826,7 @@ class ClassfileAnalyzer {
     }
   }
 
-  public Pair<ClassRepr, Set<UsageRepr.Usage>> analyze(int fileName, ClassReader cr) {
+  public ClassFileRepr analyze(int fileName, ClassReader cr) {
     ClassCrawler visitor = new ClassCrawler(fileName);
 
     try {

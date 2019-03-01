@@ -19,7 +19,6 @@ package com.intellij.formatting;
 import com.intellij.formatting.engine.*;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import org.jetbrains.annotations.NotNull;
@@ -33,14 +32,14 @@ public class FormatProcessor {
   private static final Logger LOG = Logger.getInstance("#com.intellij.formatting.FormatProcessor");
   
   private final WrapBlocksState myWrapState;
-  private boolean myReformatContext;
+  private final boolean myReformatContext;
   private final Document myDocument;
   
   @NotNull
   private final FormattingProgressCallback myProgressCallback;
 
   @NotNull
-  private StateProcessor myStateProcessor;
+  private final StateProcessor myStateProcessor;
 
   public FormatProcessor(final FormattingDocumentModel docModel,
                          Block rootBlock,
@@ -70,7 +69,8 @@ public class FormatProcessor {
     myWrapState = new WrapBlocksState(builder, blockIndentOptions);
     
     FormatTextRanges ranges = options.myAffectedRanges;
-    if (ranges != null && options.myReformatContext && Registry.is("smart.reformat.vcs.changes")) {
+    
+    if (ranges != null && myReformatContext) {
       AdjustFormatRangesState adjustRangesState = new AdjustFormatRangesState(block, ranges);
       myStateProcessor = new StateProcessor(adjustRangesState);
       myStateProcessor.setNextState(myWrapState);
@@ -189,7 +189,7 @@ public class FormatProcessor {
     }
 
     IndentAdjuster adjuster = myWrapState.getIndentAdjuster();
-    return adjuster.adjustLineIndent(current, info);
+    return adjuster.adjustLineIndent(info);
   }
 
   @Nullable
@@ -239,7 +239,6 @@ public class FormatProcessor {
     AbstractBlockWrapper parentBlockToUse = getLastNestedCompositeBlockForSameRange(parent);
     if (!(parentBlockToUse instanceof CompositeBlockWrapper)) return 0;
     final List<AbstractBlockWrapper> subBlocks = ((CompositeBlockWrapper)parentBlockToUse).getChildren();
-    //noinspection ConstantConditions
     if (subBlocks != null) {
       for (int i = 0; i < subBlocks.size(); i++) {
         AbstractBlockWrapper block = subBlocks.get(i);

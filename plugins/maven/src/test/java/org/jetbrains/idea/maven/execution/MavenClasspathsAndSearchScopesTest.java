@@ -31,7 +31,10 @@ import com.intellij.openapi.vfs.*;
 import com.intellij.psi.search.DelegatingGlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.testFramework.PsiTestUtil;
-import com.intellij.util.*;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.CommonProcessors;
+import com.intellij.util.PathsList;
+import com.intellij.util.ReflectionUtil;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.maven.MavenImportingTestCase;
@@ -156,7 +159,7 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
                             getProjectPath() + "/m4/target/classes");
   }
 
-  public void testDoNotIncludeTargetDirectoriesOfModuleDependenciesToLibraryClassesRoots() throws Exception {
+  public void testDoNotIncludeTargetDirectoriesOfModuleDependenciesToLibraryClassesRoots() {
     VirtualFile m = createModulePom("m", "<groupId>test</groupId>" +
                                           "<artifactId>m</artifactId>" +
                                           "<version>1</version>" +
@@ -752,7 +755,7 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
                             getRepositoryPath() + "/junit/junit/4.0/junit-4.0.jar");
   }
 
-  public void testLibraryScopeForTwoDependentModules() throws IOException {
+  public void testLibraryScopeForTwoDependentModules() {
     VirtualFile m1 = createModulePom("m1", "<groupId>test</groupId>" +
                                            "<artifactId>m1</artifactId>" +
                                            "<version>1</version>" +
@@ -979,16 +982,13 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
 
     final Module user = createModule("user");
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        ModuleRootModificationUtil.addDependency(user, getModule("m1"));
-        VirtualFile out = user.getModuleFile().getParent().createChildDirectory(this, "output");
-        VirtualFile testOut = user.getModuleFile().getParent().createChildDirectory(this, "test-output");
-        PsiTestUtil.setCompilerOutputPath(user, out.getUrl(), false);
-        PsiTestUtil.setCompilerOutputPath(user, testOut.getUrl(), true);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      ModuleRootModificationUtil.addDependency(user, getModule("m1"));
+      VirtualFile out = user.getModuleFile().getParent().createChildDirectory(this, "output");
+      VirtualFile testOut = user.getModuleFile().getParent().createChildDirectory(this, "test-output");
+      PsiTestUtil.setCompilerOutputPath(user, out.getUrl(), false);
+      PsiTestUtil.setCompilerOutputPath(user, testOut.getUrl(), true);
+    });
 
 
     assertModuleModuleDeps("m1", "m2");
@@ -1122,16 +1122,11 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
                                            "</dependencies>");
     // The default setupInWriteAction only creates directories up to m4.
     // Create directories for m5 and m6 which we will use for this test.
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        createProjectSubDirs("m5/src/main/java",
-                             "m5/src/test/java",
+    WriteCommandAction.writeCommandAction(myProject).run(() -> createProjectSubDirs("m5/src/main/java",
+                                                                                    "m5/src/test/java",
 
-                             "m6/src/main/java",
-                             "m6/src/test/java");
-      }
-    }.execute();
+                                                                                    "m6/src/main/java",
+                                                                                    "m6/src/test/java"));
     VirtualFile m5 = createModulePom("m5", "<groupId>test</groupId>" +
                                            "<artifactId>m5</artifactId>" +
                                            "<version>1</version>" +
@@ -1263,21 +1258,18 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
     final Module nonMavenM1 = createModule("nonMavenM1");
     final Module nonMavenM2 = createModule("nonMavenM2");
 
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        ModuleRootModificationUtil.addDependency(nonMavenM1, nonMavenM2, DependencyScope.COMPILE, true);
-        ModuleRootModificationUtil.addDependency(nonMavenM2, modules.get(0), DependencyScope.COMPILE, true);
-        createProjectSubDirs("nonMavenM1/src/main/java", "nonMavenM1/src/test/java",
-                             "nonMavenM2/src/main/java", "nonMavenM2/src/test/java");
-        VirtualFile nonMavenM1JavaDir = VfsUtil.findFileByIoFile(new File(getProjectPath(), "nonMavenM1/src/main/java"), true);
-        assertNotNull(nonMavenM1JavaDir);
-        PsiTestUtil.addSourceContentToRoots(nonMavenM1, nonMavenM1JavaDir);
-        VirtualFile nonMavenM2JavaDir = VfsUtil.findFileByIoFile(new File(getProjectPath(), "nonMavenM2/src/main/java"), true);
-        assertNotNull(nonMavenM2JavaDir);
-        PsiTestUtil.addSourceContentToRoots(nonMavenM2, nonMavenM2JavaDir);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      ModuleRootModificationUtil.addDependency(nonMavenM1, nonMavenM2, DependencyScope.COMPILE, true);
+      ModuleRootModificationUtil.addDependency(nonMavenM2, modules.get(0), DependencyScope.COMPILE, true);
+      createProjectSubDirs("nonMavenM1/src/main/java", "nonMavenM1/src/test/java",
+                           "nonMavenM2/src/main/java", "nonMavenM2/src/test/java");
+      VirtualFile nonMavenM1JavaDir = VfsUtil.findFileByIoFile(new File(getProjectPath(), "nonMavenM1/src/main/java"), true);
+      assertNotNull(nonMavenM1JavaDir);
+      PsiTestUtil.addSourceContentToRoots(nonMavenM1, nonMavenM1JavaDir);
+      VirtualFile nonMavenM2JavaDir = VfsUtil.findFileByIoFile(new File(getProjectPath(), "nonMavenM2/src/main/java"), true);
+      assertNotNull(nonMavenM2JavaDir);
+      PsiTestUtil.addSourceContentToRoots(nonMavenM2, nonMavenM2JavaDir);
+    });
 
     assertModuleModuleDeps("nonMavenM1", "nonMavenM2");
     assertModuleModuleDeps("nonMavenM2", "m1");
@@ -1372,7 +1364,7 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
     assertPaths(expectedPaths, actualPathsList.getPathList());
   }
 
-  private void assertModuleScopes(String... modules) throws Exception {
+  private void assertModuleScopes(String... modules) {
     for (String each : modules) {
       assertModuleSearchScope(each,
                               getProjectPath() + "/" + each + "/src/main/java",
@@ -1380,33 +1372,33 @@ public class MavenClasspathsAndSearchScopesTest extends MavenImportingTestCase {
     }
   }
 
-  private void assertModuleSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertModuleSearchScope(String moduleName, String... paths) {
     assertSearchScope(moduleName, Scope.MODULE, null, paths);
   }
 
-  private void assertAllProductionSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertAllProductionSearchScope(String moduleName, String... paths) {
     assertCompileProductionSearchScope(moduleName, paths);
     assertRuntimeProductionSearchScope(moduleName, paths);
   }
 
-  private void assertAllTestsSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertAllTestsSearchScope(String moduleName, String... paths) {
     assertCompileTestsSearchScope(moduleName, paths);
     assertRuntimeTestsSearchScope(moduleName, paths);
   }
 
-  private void assertCompileProductionSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertCompileProductionSearchScope(String moduleName, String... paths) {
     assertSearchScope(moduleName, Scope.COMPILE, Type.PRODUCTION, paths);
   }
 
-  private void assertCompileTestsSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertCompileTestsSearchScope(String moduleName, String... paths) {
     assertSearchScope(moduleName, Scope.COMPILE, Type.TESTS, paths);
   }
 
-  private void assertRuntimeProductionSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertRuntimeProductionSearchScope(String moduleName, String... paths) {
     assertSearchScope(moduleName, Scope.RUNTIME, Type.PRODUCTION, paths);
   }
 
-  private void assertRuntimeTestsSearchScope(String moduleName, String... paths) throws Exception {
+  private void assertRuntimeTestsSearchScope(String moduleName, String... paths) {
     assertSearchScope(moduleName, Scope.RUNTIME, Type.TESTS, paths);
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.actions;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -31,21 +17,20 @@ import org.jetbrains.idea.svn.SvnRevisionNumber;
 import org.jetbrains.idea.svn.SvnUtil;
 import org.jetbrains.idea.svn.SvnVcs;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
+import org.jetbrains.idea.svn.api.Target;
+import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.info.Info;
 import org.jetbrains.idea.svn.properties.PropertyClient;
 import org.jetbrains.idea.svn.properties.PropertyValue;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.util.Arrays;
 
-/**
- * @author lesya
- * @author yole
- */
+import static com.intellij.openapi.vfs.VfsUtilCore.virtualToIoFile;
+
 public class SvnMergeProvider implements MergeProvider {
 
   private final Project myProject;
@@ -55,56 +40,57 @@ public class SvnMergeProvider implements MergeProvider {
     myProject = project;
   }
 
+  @Override
   @NotNull
   public MergeData loadRevisions(@NotNull final VirtualFile file) throws VcsException {
     final MergeData data = new MergeData();
-    VcsRunnable runnable = new VcsRunnable() {
-      public void run() throws VcsException {
-        File oldFile = null;
-        File newFile = null;
-        File workingFile = null;
-        boolean mergeCase = false;
-        SvnVcs vcs = SvnVcs.getInstance(myProject);
-        Info info = vcs.getInfo(file);
+    VcsRunnable runnable = () -> {
+      File oldFile = null;
+      File newFile = null;
+      File workingFile = null;
+      boolean mergeCase = false;
+      SvnVcs vcs = SvnVcs.getInstance(myProject);
+      Info info = vcs.getInfo(file);
 
-        if (info != null) {
-          oldFile = info.getConflictOldFile();
-          newFile = info.getConflictNewFile();
-          workingFile = info.getConflictWrkFile();
-          mergeCase = workingFile == null || workingFile.getName().contains("working");
-          // for debug
-          if (workingFile == null) {
-            LOG.info("Null working file when merging text conflict for " + file.getPath() + " old file: " + oldFile + " new file: " + newFile);
-          }
-          if (mergeCase) {
-            // this is merge case
-            oldFile = info.getConflictNewFile();
-            newFile = info.getConflictOldFile();
-            workingFile = info.getConflictWrkFile();
-          }
-          data.LAST_REVISION_NUMBER = new SvnRevisionNumber(info.getRevision());
-        } else {
-          throw new VcsException("Could not get info for " + file.getPath());
-        }
-        if (oldFile == null || newFile == null || workingFile == null) {
-          ByteArrayOutputStream bos = getBaseRevisionContents(vcs, file);
-          data.ORIGINAL = bos.toByteArray();
-          data.LAST = bos.toByteArray();
-          data.CURRENT = readFile(new File(file.getPath()));
-        }
-        else {
-          data.ORIGINAL = readFile(oldFile);
-          data.LAST = readFile(newFile);
-          data.CURRENT = readFile(workingFile);
+      if (info != null) {
+        oldFile = info.getConflictOldFile();
+        newFile = info.getConflictNewFile();
+        workingFile = info.getConflictWrkFile();
+        mergeCase = workingFile == null || workingFile.getName().contains("working");
+        // for debug
+        if (workingFile == null) {
+          LOG
+            .info("Null working file when merging text conflict for " + file.getPath() + " old file: " + oldFile + " new file: " + newFile);
         }
         if (mergeCase) {
-          final ByteArrayOutputStream contents = getBaseRevisionContents(vcs, file);
-          if (! Arrays.equals(contents.toByteArray(), data.ORIGINAL)) {
-            // swap base and server: another order of merge arguments
-            byte[] original = data.ORIGINAL;
-            data.ORIGINAL = data.LAST;
-            data.LAST = original;
-          }
+          // this is merge case
+          oldFile = info.getConflictNewFile();
+          newFile = info.getConflictOldFile();
+          workingFile = info.getConflictWrkFile();
+        }
+        data.LAST_REVISION_NUMBER = new SvnRevisionNumber(info.getRevision());
+      }
+      else {
+        throw new VcsException("Could not get info for " + file.getPath());
+      }
+      if (oldFile == null || newFile == null || workingFile == null) {
+        ByteArrayOutputStream bos = getBaseRevisionContents(vcs, file);
+        data.ORIGINAL = bos.toByteArray();
+        data.LAST = bos.toByteArray();
+        data.CURRENT = readFile(virtualToIoFile(file));
+      }
+      else {
+        data.ORIGINAL = readFile(oldFile);
+        data.LAST = readFile(newFile);
+        data.CURRENT = readFile(workingFile);
+      }
+      if (mergeCase) {
+        final ByteArrayOutputStream contents = getBaseRevisionContents(vcs, file);
+        if (!Arrays.equals(contents.toByteArray(), data.ORIGINAL)) {
+          // swap base and server: another order of merge arguments
+          byte[] original = data.ORIGINAL;
+          data.ORIGINAL = data.LAST;
+          data.LAST = original;
         }
       }
     };
@@ -116,13 +102,10 @@ public class SvnMergeProvider implements MergeProvider {
   private ByteArrayOutputStream getBaseRevisionContents(@NotNull SvnVcs vcs, @NotNull VirtualFile file) {
     ByteArrayOutputStream bos = new ByteArrayOutputStream();
     try {
-      byte[] contents = SvnUtil.getFileContents(vcs, SvnTarget.fromFile(new File(file.getPath())), SVNRevision.BASE, SVNRevision.UNDEFINED);
+      byte[] contents = SvnUtil.getFileContents(vcs, Target.on(virtualToIoFile(file)), Revision.BASE, Revision.UNDEFINED);
       bos.write(contents);
     }
-    catch (VcsException e) {
-      LOG.warn(e);
-    }
-    catch (IOException e) {
+    catch (VcsException | IOException e) {
       LOG.warn(e);
     }
     return bos;
@@ -137,10 +120,11 @@ public class SvnMergeProvider implements MergeProvider {
     }
   }
 
+  @Override
   public void conflictResolvedForFile(@NotNull VirtualFile file) {
     // TODO: Add possibility to resolve content conflicts separately from property conflicts.
     SvnVcs vcs = SvnVcs.getInstance(myProject);
-    File path = new File(file.getPath());
+    File path = virtualToIoFile(file);
     try {
       // TODO: Probably false should be passed to "resolveTree", but previous logic used true implicitly
       vcs.getFactory(path).createConflictClient().resolve(path, Depth.EMPTY, false, true, true);
@@ -155,19 +139,20 @@ public class SvnMergeProvider implements MergeProvider {
     }
   }
 
+  @Override
   public boolean isBinary(@NotNull final VirtualFile file) {
     SvnVcs vcs = SvnVcs.getInstance(myProject);
 
     try {
-      File ioFile = new File(file.getPath());
+      File ioFile = virtualToIoFile(file);
       PropertyClient client = vcs.getFactory(ioFile).createPropertyClient();
 
-      PropertyValue value = client.getProperty(SvnTarget.fromFile(ioFile), SvnPropertyKeys.SVN_MIME_TYPE, false, SVNRevision.WORKING);
+      PropertyValue value = client.getProperty(Target.on(ioFile), SvnPropertyKeys.SVN_MIME_TYPE, false, Revision.WORKING);
       if (value != null && isBinaryMimeType(value.toString())) {
         return true;
       }
     }
-    catch (VcsException e) {
+    catch (SvnBindException e) {
       LOG.warn(e);
     }
 

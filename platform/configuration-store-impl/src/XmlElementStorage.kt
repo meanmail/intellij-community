@@ -1,76 +1,84 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
+import com.intellij.openapi.components.PathMacroManager
+import com.intellij.openapi.components.PathMacroSubstitutor
 import com.intellij.openapi.components.RoamingType
-import com.intellij.openapi.components.StateStorage
-import com.intellij.openapi.components.TrackingPathMacroSubstitutor
 import com.intellij.openapi.components.impl.stores.FileStorageCoreUtil
 import com.intellij.openapi.diagnostic.debug
+import com.intellij.openapi.diagnostic.runAndLogException
 import com.intellij.openapi.util.JDOMUtil
+import com.intellij.openapi.util.SystemInfoRt
+import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream
+import com.intellij.openapi.vfs.LargeFileWriteRequestor
+import com.intellij.openapi.vfs.SafeWriteRequestor
+import com.intellij.openapi.vfs.safeOutputStream
+import com.intellij.util.LineSeparator
+import com.intellij.util.SmartList
 import com.intellij.util.containers.SmartHashSet
-import com.intellij.util.loadElement
+import com.intellij.util.io.delete
 import gnu.trove.THashMap
 import org.jdom.Attribute
 import org.jdom.Element
+import java.io.FileNotFoundException
+import java.io.OutputStream
+import java.io.Writer
+import java.nio.file.Path
 
-abstract class XmlElementStorage protected constructor(protected val fileSpec: String,
+abstract class XmlElementStorage protected constructor(val fileSpec: String,
                                                        protected val rootElementName: String?,
-                                                       protected val pathMacroSubstitutor: TrackingPathMacroSubstitutor? = null,
+                                                       private val pathMacroSubstitutor: PathMacroSubstitutor? = null,
                                                        roamingType: RoamingType? = RoamingType.DEFAULT,
-                                                       provider: StreamProvider? = null) : StorageBaseEx<StateMap>() {
-  val roamingType: RoamingType = roamingType ?: RoamingType.DEFAULT
-  private val provider: StreamProvider? = if (provider == null || roamingType == RoamingType.DISABLED) null else provider
+                                                       private val provider: StreamProvider? = null) : StorageBaseEx<StateMap>() {
+  val roamingType = roamingType ?: RoamingType.DEFAULT
 
   protected abstract fun loadLocalData(): Element?
 
-  override final fun getSerializedState(storageData: StateMap, component: Any?, componentName: String, archive: Boolean) = storageData.getState(componentName, archive)
+  final override fun getSerializedState(storageData: StateMap, component: Any?, componentName: String, archive: Boolean) = storageData.getState(componentName, archive)
 
-  override fun archiveState(storageData: StateMap, componentName: String, serializedState: Element?) {
+  final override fun archiveState(storageData: StateMap, componentName: String, serializedState: Element?) {
     storageData.archive(componentName, serializedState)
   }
 
-  override fun hasState(storageData: StateMap, componentName: String) = storageData.hasState(componentName)
+  final override fun hasState(storageData: StateMap, componentName: String) = storageData.hasState(componentName)
 
-  override fun loadData(): StateMap {
-    val element: Element?
-    // we don't use local data if has stream provider
-    if (provider != null && provider.isApplicable(fileSpec, roamingType)) {
-      element = try {
-        loadDataFromProvider().apply { dataLoadedFromProvider(this) }
+  final override fun loadData() = loadElement()?.let { loadState(it) } ?: StateMap.EMPTY
+
+  private fun loadElement(useStreamProvider: Boolean = true): Element? {
+    var element: Element? = null
+    try {
+      val isLoadLocalData: Boolean
+      if (useStreamProvider && provider != null) {
+        isLoadLocalData = !provider.read(fileSpec, roamingType) { inputStream ->
+          inputStream?.let {
+            element = JDOMUtil.load(inputStream)
+            providerDataStateChanged(createDataWriterForElement(element!!, toString()), DataStateChanged.LOADED)
+          }
+        }
       }
-      catch (e: Exception) {
-        LOG.error(e)
-        null
+      else {
+        isLoadLocalData = true
+      }
+
+      if (isLoadLocalData) {
+        element = loadLocalData()
       }
     }
-    else {
-      element = loadLocalData()
+    catch (e: FileNotFoundException) {
+      throw e
     }
-    return element?.let { loadState(element) } ?: StateMap.EMPTY
+    catch (e: Throwable) {
+      LOG.error("Cannot load data for $fileSpec", e)
+    }
+    return element
   }
 
-  protected open fun dataLoadedFromProvider(element: Element?) {
+  protected open fun providerDataStateChanged(writer: DataWriter?, type: DataStateChanged) {
   }
-
-  private fun loadDataFromProvider() = provider!!.read(fileSpec, roamingType)?.let { loadElement(it) }
 
   private fun loadState(element: Element): StateMap {
     beforeElementLoaded(element)
-    return StateMap.fromMap(FileStorageCoreUtil.load(element, pathMacroSubstitutor, true))
+    return StateMap.fromMap(FileStorageCoreUtil.load(element, pathMacroSubstitutor))
   }
 
   fun setDefaultState(element: Element) {
@@ -78,11 +86,13 @@ abstract class XmlElementStorage protected constructor(protected val fileSpec: S
     storageDataRef.set(loadState(element))
   }
 
-  override fun startExternalization() = if (checkIsSavingDisabled()) null else createSaveSession(getStorageData())
+  final override fun createSaveSessionProducer(): SaveSessionProducer? {
+    return if (checkIsSavingDisabled()) null else createSaveSession(getStorageData())
+  }
 
-  protected abstract fun createSaveSession(states: StateMap): StateStorage.ExternalizationSession
+  protected abstract fun createSaveSession(states: StateMap): SaveSessionProducer
 
-  override fun analyzeExternalChangesAndUpdateIfNeed(componentNames: MutableSet<String>) {
+  override fun analyzeExternalChangesAndUpdateIfNeed(componentNames: MutableSet<in String>) {
     val oldData = storageDataRef.get()
     val newData = getStorageData(true)
     if (oldData == null) {
@@ -107,72 +117,96 @@ abstract class XmlElementStorage protected constructor(protected val fileSpec: S
   abstract class XmlElementStorageSaveSession<T : XmlElementStorage>(private val originalStates: StateMap, protected val storage: T) : SaveSessionBase() {
     private var copiedStates: MutableMap<String, Any>? = null
 
-    private val newLiveStates = THashMap<String, Element>()
+    private var newLiveStates: MutableMap<String, Element>? = THashMap<String, Element>()
 
-    override fun createSaveSession() = if (copiedStates == null || storage.checkIsSavingDisabled()) null else this
+    protected open fun isSaveAllowed() = !storage.checkIsSavingDisabled()
 
-    override fun setSerializedState(componentName: String, element: Element?) {
-      element?.normalizeRootName()
-      if (copiedStates == null) {
-        copiedStates = setStateAndCloneIfNeed(componentName, element, originalStates, newLiveStates)
+    final override fun createSaveSession(): SaveSession? {
+      if (copiedStates == null || !isSaveAllowed()) {
+        return null
+      }
+
+      val stateMap = StateMap.fromMap(copiedStates!!)
+      val elements = save(stateMap, newLiveStates ?: throw IllegalStateException("createSaveSession was already called"))
+      newLiveStates = null
+
+      val writer: DataWriter?
+      if (elements == null) {
+        writer = null
       }
       else {
-        updateState(copiedStates!!, componentName, element, newLiveStates)
+        val rootAttributes = LinkedHashMap<String, String>()
+        storage.beforeElementSaved(elements, rootAttributes)
+        val macroManager = if (storage.pathMacroSubstitutor == null) null else (storage.pathMacroSubstitutor as TrackingPathMacroSubstitutorImpl).macroManager
+        writer = XmlDataWriter(storage.rootElementName, elements, rootAttributes, macroManager, storage.toString())
       }
+
+      // during beforeElementSaved() elements can be modified and so, even if our save() never returns empty list, at this point, elements can be an empty list
+      return SaveExecutor(elements, writer, stateMap)
     }
 
-    override fun save() {
-      val stateMap = StateMap.fromMap(copiedStates!!)
-      val element = save(stateMap, storage.rootElementName, newLiveStates)
-      if (element != null) {
-        storage.beforeElementSaved(element)
-      }
-
-      val provider = storage.provider
-      if (provider != null && provider.isApplicable(storage.fileSpec, storage.roamingType)) {
-        if (element == null) {
-          provider.delete(storage.fileSpec, storage.roamingType)
+    private inner class SaveExecutor(private val elements: MutableList<Element>?,
+                                     private val writer: DataWriter?,
+                                     private val stateMap: StateMap) : SaveSession, SafeWriteRequestor, LargeFileWriteRequestor {
+      override fun save() {
+        var isSavedLocally = false
+        val provider = storage.provider
+        if (elements == null) {
+          if (provider == null || !provider.delete(storage.fileSpec, storage.roamingType)) {
+            isSavedLocally = true
+            saveLocally(writer)
+          }
+        }
+        else if (provider != null && provider.isApplicable(storage.fileSpec, storage.roamingType)) {
+          // we should use standard line-separator (\n) - stream provider can share file content on any OS
+          provider.write(storage.fileSpec, writer!!.toBufferExposingByteArray(), storage.roamingType)
         }
         else {
-          // we should use standard line-separator (\n) - stream provider can share file content on any OS
-          provider.write(storage.fileSpec, element.toBufferExposingByteArray(), storage.roamingType)
+          isSavedLocally = true
+          saveLocally(writer)
         }
+
+        if (!isSavedLocally) {
+          storage.providerDataStateChanged(writer, DataStateChanged.SAVED)
+        }
+
+        storage.setStates(originalStates, stateMap)
       }
-      else {
-        saveLocally(element)
-      }
-      storage.setStates(originalStates, stateMap)
     }
 
-    protected abstract fun saveLocally(element: Element?)
+    override fun setSerializedState(componentName: String, element: Element?) {
+      val newLiveStates = newLiveStates ?: throw IllegalStateException("createSaveSession was already called")
+
+      val normalized = element?.normalizeRootName()
+      if (copiedStates == null) {
+        copiedStates = setStateAndCloneIfNeed(componentName, normalized, originalStates, newLiveStates)
+      }
+      else {
+        updateState(copiedStates!!, componentName, normalized, newLiveStates)
+      }
+    }
+
+    protected abstract fun saveLocally(dataWriter: DataWriter?)
   }
 
   protected open fun beforeElementLoaded(element: Element) {
   }
 
-  protected open fun beforeElementSaved(element: Element) {
-    if (pathMacroSubstitutor != null) {
-      try {
-        pathMacroSubstitutor.collapsePaths(element)
-      }
-      finally {
-        pathMacroSubstitutor.reset()
-      }
-    }
+  protected open fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
   }
 
   fun updatedFromStreamProvider(changedComponentNames: MutableSet<String>, deleted: Boolean) {
     updatedFrom(changedComponentNames, deleted, true)
   }
 
-  fun updatedFrom(changedComponentNames: MutableSet<String>, deleted: Boolean, streamProvider: Boolean) {
+  fun updatedFrom(changedComponentNames: MutableSet<String>, deleted: Boolean, useStreamProvider: Boolean) {
     if (roamingType == RoamingType.DISABLED) {
       // storage roaming was changed to DISABLED, but settings repository has old state
       return
     }
 
-    try {
-      val newElement = if (deleted) null else if (streamProvider) loadDataFromProvider() else loadLocalData()
+    LOG.runAndLogException {
+      val newElement = if (deleted) null else loadElement(useStreamProvider)
       val states = storageDataRef.get()
       if (newElement == null) {
         // if data was loaded, mark as changed all loaded components
@@ -187,22 +221,77 @@ abstract class XmlElementStorage protected constructor(protected val fileSpec: S
         setStates(states, newStates)
       }
     }
-    catch (e: Throwable) {
-      LOG.error(e)
+  }
+}
+
+internal class XmlDataWriter(private val rootElementName: String?,
+                             private val elements: List<Element>,
+                             private val rootAttributes: Map<String, String>,
+                             private val macroManager: PathMacroManager?,
+                             private val storageFilePathForDebugPurposes: String) : StringDataWriter() {
+  override fun hasData(filter: DataWriterFilter): Boolean {
+    return elements.any { filter.hasData(it) }
+  }
+
+  override fun write(writer: Writer, lineSeparator: String, filter: DataWriterFilter?) {
+    var lineSeparatorWithIndent = lineSeparator
+    val hasRootElement = rootElementName != null
+
+    val replacePathMap = macroManager?.replacePathMap
+    val macroFilter = macroManager?.macroFilter
+
+    if (hasRootElement) {
+      lineSeparatorWithIndent += "  "
+      writer.append('<').append(rootElementName)
+      for (entry in rootAttributes) {
+        writer.append(' ')
+        writer.append(entry.key)
+        writer.append('=')
+        writer.append('"')
+        var value = entry.value
+        if (replacePathMap != null) {
+          value = replacePathMap.substitute(JDOMUtil.escapeText(value, false, true), SystemInfoRt.isFileSystemCaseSensitive)
+        }
+        writer.append(JDOMUtil.escapeText(value, false, true))
+        writer.append('"')
+      }
+
+      if (elements.isEmpty()) {
+        // see note in save() why elements here can be an empty list
+        writer.append(" />")
+        return
+      }
+
+      writer.append('>')
+    }
+
+    val xmlOutputter = JbXmlOutputter(lineSeparatorWithIndent, filter?.toElementFilter(), replacePathMap, macroFilter, storageFilePathForDebugPurposes = storageFilePathForDebugPurposes)
+    for (element in elements) {
+      if (hasRootElement) {
+        writer.append(lineSeparatorWithIndent)
+      }
+
+      xmlOutputter.printElement(writer, element, 0)
+    }
+
+    if (rootElementName != null) {
+      writer.append(lineSeparator)
+      writer.append("</").append(rootElementName).append('>')
     }
   }
 }
 
-private fun save(states: StateMap, rootElementName: String?, newLiveStates: Map<String, Element>? = null): Element? {
+private fun save(states: StateMap, newLiveStates: Map<String, Element>): MutableList<Element>? {
   if (states.isEmpty()) {
     return null
   }
 
-  val rootElement = if (rootElementName == null) null else Element(rootElementName)
+  var result: MutableList<Element>? = null
+
   for (componentName in states.keys()) {
     val element: Element
     try {
-      element = states.getElement(componentName, newLiveStates) ?: continue
+      element = states.getElement(componentName, newLiveStates)?.clone() ?: continue
     }
     catch (e: Exception) {
       LOG.error("Cannot save \"$componentName\" data", e)
@@ -211,11 +300,12 @@ private fun save(states: StateMap, rootElementName: String?, newLiveStates: Map<
 
     // name attribute should be first
     val elementAttributes = element.attributes
-    if (elementAttributes.isEmpty()) {
-      element.setAttribute(FileStorageCoreUtil.NAME, componentName)
+    var nameAttribute = element.getAttribute(FileStorageCoreUtil.NAME)
+    @Suppress("SuspiciousEqualsCombination")
+    if (nameAttribute != null && nameAttribute === elementAttributes.get(0) && componentName == nameAttribute.value) {
+      // all is OK
     }
     else {
-      var nameAttribute = element.getAttribute(FileStorageCoreUtil.NAME)
       if (nameAttribute == null) {
         nameAttribute = Attribute(FileStorageCoreUtil.NAME, componentName)
         elementAttributes.add(0, nameAttribute)
@@ -229,22 +319,34 @@ private fun save(states: StateMap, rootElementName: String?, newLiveStates: Map<
       }
     }
 
-    if (rootElement == null) {
-      return element
+    if (result == null) {
+      result = SmartList()
     }
 
-    rootElement.addContent(element)
+    result.add(element)
   }
-  return if (JDOMUtil.isEmpty(rootElement)) null else rootElement
+  return result
 }
 
 internal fun Element.normalizeRootName(): Element {
-  if (parent != null) {
-    LOG.warn("State element must not have parent ${JDOMUtil.writeElement(this)}")
-    detach()
+  if (org.jdom.JDOMInterner.isInterned(this)) {
+    if (name == FileStorageCoreUtil.COMPONENT) {
+      return this
+    }
+    else {
+      val clone = clone()
+      clone.name = FileStorageCoreUtil.COMPONENT
+      return clone
+    }
   }
-  name = FileStorageCoreUtil.COMPONENT
-  return this
+  else {
+    if (parent != null) {
+      LOG.warn("State element must not have parent: ${JDOMUtil.writeElement(this)}")
+      detach()
+    }
+    name = FileStorageCoreUtil.COMPONENT
+    return this
+  }
 }
 
 // newStorageData - myStates contains only live (unarchived) states
@@ -261,4 +363,83 @@ private fun StateMap.getChangedComponentNames(newStates: StateMap): Set<String> 
     compare(componentName, newStates, diffs)
   }
   return diffs
+}
+
+enum class DataStateChanged {
+  LOADED, SAVED
+}
+
+interface DataWriterFilter {
+  enum class ElementLevel {
+    ZERO, FIRST
+  }
+
+  companion object {
+    fun requireAttribute(name: String, onLevel: ElementLevel): DataWriterFilter {
+      return object: DataWriterFilter {
+        override fun toElementFilter(): JDOMUtil.ElementOutputFilter {
+          return JDOMUtil.ElementOutputFilter { childElement, level -> level != onLevel.ordinal || childElement.getAttribute(name) != null }
+        }
+
+        override fun hasData(element: Element): Boolean {
+          val elementFilter = toElementFilter()
+          if (onLevel == ElementLevel.ZERO && elementFilter.accept(element, 0)) {
+            return true
+          }
+          return element.children.any { elementFilter.accept(it, 1) }
+        }
+      }
+    }
+  }
+
+  fun toElementFilter(): JDOMUtil.ElementOutputFilter
+
+  fun hasData(element: Element): Boolean
+}
+
+interface DataWriter {
+  // LineSeparator cannot be used because custom (with indent) line separator can be used
+  fun write(output: OutputStream, lineSeparator: String = LineSeparator.LF.separatorString, filter: DataWriterFilter? = null)
+
+  fun hasData(filter: DataWriterFilter): Boolean
+}
+
+internal fun DataWriter?.writeTo(file: Path, lineSeparator: String = LineSeparator.LF.separatorString) {
+  if (this == null) {
+    file.delete()
+  }
+  else {
+    file.safeOutputStream(null).use {
+      write(it, lineSeparator)
+    }
+  }
+}
+
+internal abstract class StringDataWriter : DataWriter {
+  final override fun write(output: OutputStream, lineSeparator: String, filter: DataWriterFilter?) {
+    output.bufferedWriter().use {
+      write(it, lineSeparator, filter)
+    }
+  }
+
+  internal abstract fun write(writer: Writer, lineSeparator: String, filter: DataWriterFilter?)
+}
+
+internal fun DataWriter.toBufferExposingByteArray(lineSeparator: LineSeparator = LineSeparator.LF): BufferExposingByteArrayOutputStream {
+  val out = BufferExposingByteArrayOutputStream(1024)
+  out.use { write(out, lineSeparator.separatorString) }
+  return out
+}
+
+// use ONLY for non-ordinal usages (default project, deprecated directoryBased storage)
+internal fun createDataWriterForElement(element: Element, storageFilePathForDebugPurposes: String): DataWriter {
+  return object: DataWriter {
+    override fun hasData(filter: DataWriterFilter) = filter.hasData(element)
+
+    override fun write(output: OutputStream, lineSeparator: String, filter: DataWriterFilter?) {
+      output.bufferedWriter().use {
+        JbXmlOutputter(lineSeparator, elementFilter = filter?.toElementFilter(), storageFilePathForDebugPurposes = storageFilePathForDebugPurposes).output(element, it)
+      }
+    }
+  }
 }

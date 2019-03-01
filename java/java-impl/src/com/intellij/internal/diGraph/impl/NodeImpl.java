@@ -21,13 +21,6 @@ import com.intellij.internal.diGraph.analyzer.MarkedNode;
 import java.util.Iterator;
 import java.util.LinkedList;
 
-/**
- * Created by IntelliJ IDEA.
- * User: db
- * Date: 21.06.2003
- * Time: 23:35:24
- * To change this template use Options | File Templates.
- */
 public class NodeImpl implements MarkedNode {
   LinkedList<EdgeImpl> myIn;
   LinkedList<EdgeImpl> myOut;
@@ -60,26 +53,32 @@ public class NodeImpl implements MarkedNode {
     for (EdgeImpl aMyOut : myOut) aMyOut.myBeg = this;
   }
 
+  @Override
   public Iterator<EdgeImpl> inIterator() {
     return myIn.iterator();
   }
 
+  @Override
   public Iterator<EdgeImpl> outIterator() {
     return myOut.iterator();
   }
 
+  @Override
   public int inDeg() {
     return myIn.size();
   }
 
+  @Override
   public int outDeg() {
     return myOut.size();
   }
 
+  @Override
   public Mark getMark() {
     return null;
   }
 
+  @Override
   public void setMark(Mark x) {
 
   }

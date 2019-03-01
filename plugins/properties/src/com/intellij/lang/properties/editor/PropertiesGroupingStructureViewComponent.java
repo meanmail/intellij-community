@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.lang.properties.editor;
 
 import com.intellij.icons.AllIcons;
@@ -24,6 +10,8 @@ import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.util.ArrayUtil;
+import com.intellij.util.ui.EmptyIcon;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -40,8 +28,17 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
     showToolbar();
   }
 
+
   @Override
-  protected void addGroupByActions(DefaultActionGroup result) {
+  public void setActionActive(String name, boolean state) {
+    if (GroupByWordPrefixes.ID.equals(name)) {
+      ((PropertiesGroupingStructureViewModel)getTreeModel()).setGroupingActive(state);
+    }
+    super.setActionActive(name, state);
+  }
+
+  @Override
+  protected void addGroupByActions(@NotNull DefaultActionGroup result) {
     super.addGroupByActions(result);
     result.add(new ChangeGroupSeparatorAction());
     if (getTreeModel() instanceof ResourceBundleStructureViewModel) {
@@ -52,17 +49,17 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
   private ActionGroup createSettingsActionGroup() {
     DefaultActionGroup actionGroup = new DefaultActionGroup(PropertiesBundle.message("resource.bundle.editor.settings.action.title"), true);
     final Presentation presentation = actionGroup.getTemplatePresentation();
-    presentation.setIcon(AllIcons.General.ProjectSettings);
+    presentation.setIcon(AllIcons.General.GearPlain);
     actionGroup.add(new ResourceBundleEditorKeepEmptyValueToggleAction());
 
     actionGroup.add(new ToggleAction(PropertiesBundle.message("show.only.incomplete.action.text"), null, AllIcons.General.Error) {
       @Override
-      public boolean isSelected(AnActionEvent e) {
+      public boolean isSelected(@NotNull AnActionEvent e) {
         return ((ResourceBundleStructureViewModel)getTreeModel()).isShowOnlyIncomplete();
       }
 
       @Override
-      public void setSelected(AnActionEvent e, boolean state) {
+      public void setSelected(@NotNull AnActionEvent e, boolean state) {
         ((ResourceBundleStructureViewModel)getTreeModel()).setShowOnlyIncomplete(state);
         rebuild();
       }
@@ -74,22 +71,21 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
   private class ChangeGroupSeparatorAction extends DefaultActionGroup {
     private final Set<String> myPredefinedSeparators = new LinkedHashSet<>();
 
-    public ChangeGroupSeparatorAction() {
+    ChangeGroupSeparatorAction() {
       super("Group by: ", true);
       myPredefinedSeparators.add(".");
       myPredefinedSeparators.add("_");
       myPredefinedSeparators.add("/");
-      String currentSeparator = getCurrentSeparator();
-      if (!myPredefinedSeparators.contains(currentSeparator)) {
-        myPredefinedSeparators.add(currentSeparator);
-      }
+      myPredefinedSeparators.add(getCurrentSeparator());
       refillActionGroup();
     }
 
-    public final void update(AnActionEvent e) {
+    @Override
+    public final void update(@NotNull AnActionEvent e) {
       String separator = getCurrentSeparator();
       Presentation presentation = e.getPresentation();
       presentation.setText("Group by: " + separator, false);
+      presentation.setIcon(EmptyIcon.ICON_16);
     }
 
     private String getCurrentSeparator() {
@@ -102,7 +98,7 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
         if (separator.equals(getCurrentSeparator())) continue;
         AnAction action = new AnAction() {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             ((PropertiesGroupingStructureViewModel)getTreeModel()).setSeparator(separator);
             setActionActive(GroupByWordPrefixes.ID, true);
             refillActionGroup();
@@ -117,11 +113,12 @@ public class PropertiesGroupingStructureViewComponent extends StructureViewCompo
 
     private final class SelectSeparatorAction extends AnAction {
 
-      public SelectSeparatorAction() {
+      SelectSeparatorAction() {
         super(PropertiesBundle.message("select.separator.action.with.empty.separator.name"));
       }
 
-      public final void actionPerformed(AnActionEvent e) {
+      @Override
+      public final void actionPerformed(@NotNull AnActionEvent e) {
         String[] strings = ArrayUtil.toStringArray(myPredefinedSeparators);
         String current = getCurrentSeparator();
         String separator = Messages.showEditableChooseDialog(PropertiesBundle.message("select.property.separator.dialog.text"),

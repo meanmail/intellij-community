@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui.impl.watch;
 
 import com.intellij.Patches;
@@ -25,19 +11,20 @@ import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
 import com.intellij.debugger.settings.NodeRendererSettings;
+import com.intellij.debugger.ui.overhead.OverheadTimings;
 import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.NodeDescriptor;
 import com.intellij.debugger.ui.tree.NodeDescriptorNameAdjuster;
 import com.intellij.debugger.ui.tree.ValueDescriptor;
-import com.intellij.debugger.ui.tree.render.*;
 import com.intellij.debugger.ui.tree.render.Renderer;
+import com.intellij.debugger.ui.tree.render.*;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.util.StringBuilderSpinAllocator;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.xdebugger.frame.XValueModifier;
 import com.intellij.xdebugger.impl.ui.tree.ValueMarkup;
@@ -47,8 +34,8 @@ import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements ValueDescriptor{
   protected final Project myProject;
@@ -58,7 +45,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   NodeRenderer myAutoRenderer = null;
 
   private Value myValue;
-  private boolean myValueReady;
+  private volatile boolean myValueReady;
 
   private EvaluateException myValueException;
   protected EvaluationContextImpl myStoredEvaluationContext = null;
@@ -147,6 +134,10 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     myShowIdLabel = showIdLabel;
   }
 
+  public boolean isValueReady() {
+    return myValueReady;
+  }
+
   @Override
   public Value getValue() {
     // the following code makes sense only if we do not use ObjectReference.enableCollection() / disableCollection()
@@ -160,7 +151,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
         semaphore.down();
         evalContext.getDebugProcess().getManagerThread().invoke(new SuspendContextCommandImpl(evalContext.getSuspendContext()) {
           @Override
-          public void contextAction() throws Exception {
+          public void contextAction(@NotNull SuspendContextImpl suspendContext) {
             // re-setting the context will cause value recalculation
             try {
               setContext(myStoredEvaluationContext);
@@ -207,7 +198,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
             myIsDirty = !(value instanceof FloatValue);
           }
           else {
-            myIsDirty = (value == null) ? myValue != null : !value.equals(myValue);
+            myIsDirty = !Objects.equals(value, myValue);
           }
         }
         catch (ObjectCollectedException ignored) {
@@ -220,7 +211,8 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     catch (EvaluateException e) {
       myValueException = e;
       setFailed(e);
-      myValue = getTargetExceptionWithStackTraceFilled(evaluationContext, e);
+      myValue = getTargetExceptionWithStackTraceFilled(evaluationContext, e,
+                                                       isPrintExceptionToConsole() || ApplicationManager.getApplication().isUnitTestMode());
       myIsExpandable = false;
     }
     finally {
@@ -230,39 +222,40 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     myIsNew = false;
   }
 
+  protected boolean isPrintExceptionToConsole() {
+    return true;
+  }
+
   @Nullable
-  private static ObjectReference getTargetExceptionWithStackTraceFilled(final EvaluationContextImpl evaluationContext, EvaluateException ex){
+  protected static Value invokeExceptionGetStackTrace(ObjectReference exceptionObj, EvaluationContextImpl evaluationContext)
+    throws EvaluateException {
+    Method method = ((ClassType)exceptionObj.referenceType()).concreteMethodByName("getStackTrace", "()[Ljava/lang/StackTraceElement;");
+    if (method != null) {
+      return evaluationContext.getDebugProcess().invokeMethod(evaluationContext, exceptionObj, method, Collections.emptyList());
+    }
+    return null;
+  }
+
+  @Nullable
+  private static ObjectReference getTargetExceptionWithStackTraceFilled(@Nullable EvaluationContextImpl evaluationContext,
+                                                                        EvaluateException ex,
+                                                                        boolean printToConsole) {
     final ObjectReference exceptionObj = ex.getExceptionFromTargetVM();
     if (exceptionObj != null && evaluationContext != null) {
       try {
-        final ReferenceType refType = exceptionObj.referenceType();
-        final List<Method> methods = refType.methodsByName("getStackTrace", "()[Ljava/lang/StackTraceElement;");
-        if (methods.size() > 0) {
-          final DebugProcessImpl process = evaluationContext.getDebugProcess();
-          process.invokeMethod(evaluationContext, exceptionObj, methods.get(0), Collections.emptyList());
-          
-          // print to console as well
-          
-          final Field traceField = refType.fieldByName("stackTrace");
-          final Value trace = traceField != null? exceptionObj.getValue(traceField) : null; 
-          if (trace instanceof ArrayReference) {
-            final ArrayReference traceArray = (ArrayReference)trace;
-            final Type componentType = ((ArrayType)traceArray.referenceType()).componentType();
-            if (componentType instanceof ClassType) {
-              process.printToConsole(DebuggerUtils.getValueAsString(evaluationContext, exceptionObj));
-              process.printToConsole("\n");
-              for (Value stackElement : traceArray.getValues()) {
-                process.printToConsole("\tat ");
-                process.printToConsole(DebuggerUtils.getValueAsString(evaluationContext, stackElement));
-                process.printToConsole("\n");
-              }
-            }
+        Value trace = invokeExceptionGetStackTrace(exceptionObj, evaluationContext);
+
+        // print to console as well
+        if (printToConsole && trace instanceof ArrayReference) {
+          DebugProcessImpl process = evaluationContext.getDebugProcess();
+          ArrayReference traceArray = (ArrayReference)trace;
+          process.printToConsole(DebuggerUtils.getValueAsString(evaluationContext, exceptionObj) + "\n");
+          for (Value stackElement : traceArray.getValues()) {
+            process.printToConsole("\tat " + DebuggerUtils.getValueAsString(evaluationContext, stackElement) + "\n");
           }
         }
       }
       catch (EvaluateException ignored) {
-      }
-      catch (ClassNotLoadedException ignored) {
       }
       catch (Throwable e) {
         LOG.info(e); // catch all exceptions to ensure the method returns gracefully
@@ -292,10 +285,12 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   protected String calcRepresentation(EvaluationContextImpl context, DescriptorLabelListener labelListener){
     DebuggerManagerThreadImpl.assertIsManagerThread();
 
-    final NodeRenderer renderer = getRenderer(context.getDebugProcess());
+    DebugProcessImpl debugProcess = context.getDebugProcess();
+    NodeRenderer renderer = getRenderer(debugProcess);
 
-    final EvaluateException valueException = myValueException;
-    myIsExpandable = (valueException == null || valueException.getExceptionFromTargetVM() != null) && renderer.isExpandable(getValue(), context, this);
+    EvaluateException valueException = myValueException;
+    myIsExpandable = (valueException == null || valueException.getExceptionFromTargetVM() != null) &&
+                     getChildrenRenderer(debugProcess).isExpandable(getValue(), context, this);
 
     try {
       setValueIcon(renderer.calcValueIcon(this, context, labelListener));
@@ -307,11 +302,17 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
 
     String label;
     if (valueException == null) {
+      long start = renderer instanceof NodeRendererImpl && ((NodeRendererImpl)renderer).hasOverhead() ? System.currentTimeMillis() : 0;
       try {
         label = renderer.calcLabel(this, context, labelListener);
       }
       catch (EvaluateException e) {
         label = setValueLabelFailed(e);
+      }
+      finally {
+        if (start > 0) {
+          OverheadTimings.add(debugProcess, new NodeRendererImpl.Overhead((NodeRendererImpl)renderer), 1, System.currentTimeMillis() - start);
+        }
       }
     }
     else {
@@ -338,6 +339,16 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
       @Override
       public PsiExpression getDescriptorEvaluation(DebuggerContext context) throws EvaluateException {
         return null;
+      }
+
+      @Override
+      public NodeRenderer getRenderer(DebugProcessImpl debugProcess) {
+        return ValueDescriptorImpl.this.getRenderer(debugProcess);
+      }
+
+      @Override
+      public <T> T getUserData(Key<T> key) {
+        return ValueDescriptorImpl.this.getUserData(key);
       }
     };
     descriptor.myFullValue = true;
@@ -402,7 +413,19 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     return myRenderer != null ? myRenderer: myAutoRenderer;
   }
 
-  public NodeRenderer getRenderer (DebugProcessImpl debugProcess) {
+  public Renderer getLastLabelRenderer() {
+    Renderer lastRenderer = getLastRenderer();
+    if (lastRenderer instanceof CompoundTypeRenderer) {
+      lastRenderer = ((CompoundTypeRenderer)lastRenderer).getLabelRenderer();
+    }
+    return lastRenderer;
+  }
+
+  public NodeRenderer getChildrenRenderer(DebugProcessImpl debugProcess) {
+    return OnDemandRenderer.isOnDemandForced(debugProcess) ? DebugProcessImpl.getDefaultRenderer(getValue()) : getRenderer(debugProcess);
+  }
+
+  public NodeRenderer getRenderer(DebugProcessImpl debugProcess) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
     Type type = getType();
     if(type != null && myRenderer != null && myRenderer.isApplicable(type)) {
@@ -432,7 +455,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
       }
 
       return DebuggerTreeNodeExpression.substituteThis(
-        vDescriptor.getRenderer(context.getDebugProcess()).getChildValueExpression(new DebuggerTreeNodeMock(value), context),
+        vDescriptor.getChildrenRenderer(context.getDebugProcess()).getChildValueExpression(new DebuggerTreeNodeMock(value), context),
         ((PsiExpression)parentEvaluation), vDescriptor.getValue()
       );
     }
@@ -443,7 +466,7 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
   private static class DebuggerTreeNodeMock implements DebuggerTreeNode {
     private final JavaValue value;
 
-    public DebuggerTreeNodeMock(JavaValue value) {
+    DebuggerTreeNodeMock(JavaValue value) {
       this.value = value;
     }
 
@@ -479,41 +502,36 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     if (objRef instanceof StringReference && !classRenderer.SHOW_STRINGS_TYPE) {
       return null;
     }
-    StringBuilder buf = StringBuilderSpinAllocator.alloc();
-    try {
-      final boolean showConcreteType =
-        !classRenderer.SHOW_DECLARED_TYPE ||
-        (!(objRef instanceof StringReference) && !(objRef instanceof ClassObjectReference) && !isEnumConstant(objRef));
-      if (showConcreteType || classRenderer.SHOW_OBJECT_ID) {
-        //buf.append('{');
-        if (showConcreteType) {
-          buf.append(classRenderer.renderTypeName(objRef.type().name()));
-        }
-        if (classRenderer.SHOW_OBJECT_ID) {
-          buf.append('@');
-          if(ApplicationManager.getApplication().isUnitTestMode()) {
-            //noinspection HardCodedStringLiteral
-            buf.append("uniqueID");
-          }
-          else {
-            buf.append(objRef.uniqueID());
-          }
-        }
-        //buf.append('}');
+    StringBuilder buf = new StringBuilder();
+    final boolean showConcreteType =
+      !classRenderer.SHOW_DECLARED_TYPE ||
+      (!(objRef instanceof StringReference) && !(objRef instanceof ClassObjectReference) && !isEnumConstant(objRef));
+    if (showConcreteType || classRenderer.SHOW_OBJECT_ID) {
+      //buf.append('{');
+      if (showConcreteType) {
+        buf.append(classRenderer.renderTypeName(objRef.type().name()));
       }
-
-      if (objRef instanceof ArrayReference) {
-        int idx = buf.indexOf("[");
-        if(idx >= 0) {
-          buf.insert(idx + 1, Integer.toString(((ArrayReference)objRef).length()));
+      if (classRenderer.SHOW_OBJECT_ID) {
+        buf.append('@');
+        if(ApplicationManager.getApplication().isUnitTestMode()) {
+          //noinspection HardCodedStringLiteral
+          buf.append("uniqueID");
+        }
+        else {
+          buf.append(objRef.uniqueID());
         }
       }
+      //buf.append('}');
+    }
 
-      return buf.toString();
+    if (objRef instanceof ArrayReference) {
+      int idx = buf.indexOf("[");
+      if(idx >= 0) {
+        buf.insert(idx + 1, ((ArrayReference)objRef).length());
+      }
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(buf);
-    }
+
+    return buf.toString();
   }
 
   private static boolean isEnumConstant(final ObjectReference objRef) {
@@ -532,9 +550,8 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
     return null;
   }
 
-  @NotNull
   public String getIdLabel() {
-    return StringUtil.notNullize(myIdLabel);
+    return myIdLabel;
   }
 
   public String getValueLabel() {
@@ -610,5 +627,9 @@ public abstract class ValueDescriptorImpl extends NodeDescriptorImpl implements 
       }
     }
     return "";
+  }
+
+  public EvaluationContextImpl getStoredEvaluationContext() {
+    return myStoredEvaluationContext;
   }
 }

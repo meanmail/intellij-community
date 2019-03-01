@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.siyeh.ig.classlayout;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -29,8 +15,6 @@ import com.siyeh.ig.InspectionGadgetsFix;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-
-import java.util.List;
 
 /**
  * @author Bas Leijdekkers
@@ -71,18 +55,14 @@ public class InterfaceMayBeAnnotatedFunctionalInspection extends BaseInspection 
     @Override
     public void visitClass(PsiClass aClass) {
       super.visitClass(aClass);
-      if (!aClass.isInterface() || AnnotationUtil.isAnnotated(aClass, CommonClassNames.JAVA_LANG_FUNCTIONAL_INTERFACE, false)) {
+      if (!aClass.isInterface() || AnnotationUtil.isAnnotated(aClass, CommonClassNames.JAVA_LANG_FUNCTIONAL_INTERFACE, 0)) {
         return;
       }
       if (LambdaHighlightingUtil.checkInterfaceFunctional(aClass) != null) {
         return;
       }
-      final List<HierarchicalMethodSignature> candidates = LambdaUtil.findFunctionCandidates(aClass);
-      if (candidates == null || candidates.size() != 1) {
-        return;
-      }
-      final MethodSignature signature = candidates.get(0);
-      if (signature.getTypeParameters().length > 0) {
+      MethodSignature signature = LambdaUtil.getFunction(aClass);
+      if (signature == null || signature.getTypeParameters().length > 0) {
         return;
       }
       registerClassError(aClass, aClass);

@@ -22,11 +22,9 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class Param extends Tag {
   public Param(@NonNls final String name, final String value) {
-    //noinspection HardCodedStringLiteral
     super("param", Couple.of("name", name), Couple.of("value", value));
   }
 

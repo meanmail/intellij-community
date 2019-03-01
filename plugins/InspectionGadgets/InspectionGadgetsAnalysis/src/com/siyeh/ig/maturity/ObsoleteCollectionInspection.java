@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,26 +15,29 @@
  */
 package com.siyeh.ig.maturity;
 
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
-import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.Query;
+import com.intellij.psi.util.CachedValueProvider;
+import com.intellij.psi.util.CachedValuesManager;
+import com.intellij.psi.util.PsiTypesUtil;
+import com.intellij.util.text.StringSearcher;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.psiutils.LibraryUtil;
-import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
-import org.jetbrains.annotations.NonNls;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 
 public class ObsoleteCollectionInspection extends BaseInspection {
+  private static final int MAX_OCCURRENCES = 20;
 
   @SuppressWarnings({"PublicField"})
-  public boolean ignoreRequiredObsoleteCollectionTypes = false;
+  public boolean ignoreRequiredObsoleteCollectionTypes = true;
 
   @Override
   @NotNull
@@ -86,8 +89,7 @@ public class ObsoleteCollectionInspection extends BaseInspection {
       if (typeElement == null) {
         return;
       }
-      if (ignoreRequiredObsoleteCollectionTypes &&
-          isUsedAsParameterForLibraryMethod(variable)) {
+      if (ignoreRequiredObsoleteCollectionTypes && checkReferences(variable)) {
         return;
       }
       registerError(typeElement);
@@ -107,8 +109,7 @@ public class ObsoleteCollectionInspection extends BaseInspection {
       if (typeElement == null) {
         return;
       }
-      if (ignoreRequiredObsoleteCollectionTypes &&
-          isUsedAsParameterForLibraryMethod(method)) {
+      if (ignoreRequiredObsoleteCollectionTypes && checkReferences(method)) {
         return;
       }
       registerError(typeElement);
@@ -134,36 +135,17 @@ public class ObsoleteCollectionInspection extends BaseInspection {
         return false;
       }
       final PsiType deepComponentType = type.getDeepComponentType();
-      if (!(deepComponentType instanceof PsiClassType)) {
-        return false;
-      }
-      final PsiClassType classType = (PsiClassType)deepComponentType;
-      @NonNls final String className = classType.getClassName();
-      if (!"Vector".equals(className) && !"Hashtable".equals(className)) {
-        return false;
-      }
-      final PsiClass aClass = classType.resolve();
-      if (aClass == null) {
-        return false;
-      }
-      final String name = aClass.getQualifiedName();
-      return "java.util.Vector".equals(name) ||
-             "java.util.Hashtable".equals(name);
+      final String className = TypeUtils.resolvedClassName(deepComponentType);
+      return "java.util.Vector".equals(className) || "java.util.Hashtable".equals(className);
     }
 
-    private boolean isUsedAsParameterForLibraryMethod(
-      PsiNamedElement namedElement) {
+    private boolean checkReferences(PsiNamedElement namedElement) {
       final PsiFile containingFile = namedElement.getContainingFile();
-      final Query<PsiReference> query =
-        ReferencesSearch.search(namedElement,
-                                GlobalSearchScope.fileScope(containingFile));
-      for (PsiReference reference : query) {
-        final PsiElement element = reference.getElement();
-        if (isRequiredObsoleteCollectionElement(element)) {
-          return true;
-        }
+      if (!isOnTheFly() || isCheapToSearchInFile(namedElement)) {
+        return ReferencesSearch.search(namedElement, GlobalSearchScope.fileScope(containingFile))
+          .anyMatch(ref -> isRequiredObsoleteCollectionElement(ref.getElement()));
       }
-      return false;
+      return true;
     }
 
     private boolean isRequiredObsoleteCollectionElement(PsiElement element) {
@@ -176,17 +158,7 @@ public class ObsoleteCollectionInspection extends BaseInspection {
         }
       }
       else if (parent instanceof PsiReturnStatement) {
-        final PsiElement container = PsiTreeUtil.getParentOfType(parent, PsiMethod.class, PsiLambdaExpression.class);
-        final PsiType returnType;
-        if (container instanceof PsiMethod) {
-          returnType = ((PsiMethod)container).getReturnType();
-        } 
-        else if (container instanceof PsiLambdaExpression) {
-          returnType = LambdaUtil.getFunctionalInterfaceReturnType((PsiLambdaExpression)container);
-        }
-        else {
-          returnType = null;
-        }
+        final PsiType returnType = PsiTypesUtil.getMethodReturnType(parent);
         if (isObsoleteCollectionType(returnType)) {
           return true;
         }
@@ -199,6 +171,9 @@ public class ObsoleteCollectionInspection extends BaseInspection {
         if (isObsoleteCollectionType(lhsType)) {
           return true;
         }
+      }
+      else if (parent instanceof PsiMethodCallExpression) {
+        return isRequiredObsoleteCollectionElement(parent);
       }
       if (!(parent instanceof PsiExpressionList)) {
         return false;
@@ -250,5 +225,22 @@ public class ObsoleteCollectionInspection extends BaseInspection {
       }
       return index;
     }
+  }
+
+  private static boolean isCheapToSearchInFile(@NotNull PsiNamedElement element) {
+    if (element.getName() == null) return false;
+    return CachedValuesManager.getCachedValue(element, () -> {
+      PsiFile file = element.getContainingFile();
+      return CachedValueProvider.Result.create(calcCheapEnoughToSearchInFile(element, file), file);
+    });
+  }
+
+  private static boolean calcCheapEnoughToSearchInFile(@NotNull PsiNamedElement element, PsiFile file) {
+    String name = element.getName();
+    if (name == null) return false;
+    StringSearcher searcher = new StringSearcher(name, true, true);
+    CharSequence contents = file.getViewProvider().getContents();
+    int[] count = new int[1];
+    return searcher.processOccurrences(contents, __->++count[0] <= MAX_OCCURRENCES);
   }
 }

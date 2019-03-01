@@ -49,7 +49,6 @@ import static org.junit.Assert.*;
 
 /**
  * @author Denis Zhdanov
- * @since 9/18/12 9:24 AM
  */
 public class ArrangementSettingsSerializationTest {
   private static final String VISIBILITY = "visibility";
@@ -97,7 +96,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   private static StdArrangementSettings emptySettings() {
-    return new StdArrangementSettings(ContainerUtil.<ArrangementGroupingRule>emptyList(), ContainerUtil.<ArrangementSectionRule>emptyList());
+    return new StdArrangementSettings(ContainerUtil.emptyList(), ContainerUtil.emptyList());
   }
 
   private static StdArrangementRuleAliasToken visibilityToken() {
@@ -176,7 +175,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   @Test
-  public void testEmptyGroupings() throws Exception {
+  public void testEmptyGroupings() {
     final StdArrangementSettings settings = new StdArrangementSettings();
     final ArrangementAtomMatchCondition condition = new ArrangementAtomMatchCondition(FIELD);
     settings.addRule(new StdArrangementMatchRule(new StdArrangementEntryMatcher(condition), BY_NAME));
@@ -192,7 +191,7 @@ public class ArrangementSettingsSerializationTest {
   }
 
   @Test
-  public void testEmptyRules() throws Exception {
+  public void testEmptyRules() {
     final StdArrangementSettings settings = new StdArrangementSettings();
     settings.addGrouping(new ArrangementGroupingRule(OVERRIDDEN_METHODS, BY_NAME));
 
@@ -439,7 +438,7 @@ public class ArrangementSettingsSerializationTest {
 
   private static class TestArrangementSettingsSerializer extends DefaultArrangementSettingsSerializer {
 
-    public TestArrangementSettingsSerializer(@NotNull StdArrangementSettings defaultSettings) {
+    TestArrangementSettingsSerializer(@NotNull StdArrangementSettings defaultSettings) {
       super(defaultSettings);
     }
   }

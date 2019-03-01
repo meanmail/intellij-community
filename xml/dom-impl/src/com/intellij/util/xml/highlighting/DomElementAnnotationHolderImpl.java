@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -39,14 +39,22 @@ public class DomElementAnnotationHolderImpl extends SmartList<DomElementProblemD
   private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.highlighting.DomElementAnnotationHolderImpl");
   private final SmartList<Annotation> myAnnotations = new SmartList<>();
   private final boolean myOnTheFly;
+  private final DomFileElement myFileElement;
 
-  public DomElementAnnotationHolderImpl(boolean onTheFly) {
+  public DomElementAnnotationHolderImpl(boolean onTheFly, @NotNull DomFileElement fileElement) {
     myOnTheFly = onTheFly;
+    myFileElement = fileElement;
   }
 
   @Override
   public boolean isOnTheFly() {
     return myOnTheFly;
+  }
+
+  @NotNull
+  @Override
+  public DomFileElement<?> getFileElement() {
+    return myFileElement;
   }
 
   @Override
@@ -73,7 +81,7 @@ public class DomElementAnnotationHolderImpl extends SmartList<DomElementProblemD
   public DomElementProblemDescriptor createProblem(@NotNull final DomElement domElement,
                                                    final HighlightSeverity highlightType,
                                                    final String message,
-                                                   final LocalQuickFix[] fixes) {
+                                                   final LocalQuickFix... fixes) {
     return createProblem(domElement, highlightType, message, null, fixes);
   }
 
@@ -139,7 +147,7 @@ public class DomElementAnnotationHolderImpl extends SmartList<DomElementProblemD
         ContainerUtil.addAll(result, localQuickFixes);
       }
     }
-    return result.isEmpty() ? LocalQuickFix.EMPTY_ARRAY : result.toArray(new LocalQuickFix[result.size()]);
+    return result.isEmpty() ? LocalQuickFix.EMPTY_ARRAY : result.toArray(LocalQuickFix.EMPTY_ARRAY);
   }
 
   public <T extends DomElementProblemDescriptor> T addProblem(final T problemDescriptor) {

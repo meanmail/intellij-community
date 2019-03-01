@@ -16,7 +16,6 @@
 package com.intellij.psi.impl.source.tree;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.lang.PsiBuilder;
 import com.intellij.lang.java.parser.JavaParser;
 import com.intellij.lang.java.parser.JavaParserUtil;
 import com.intellij.openapi.diagnostic.Logger;
@@ -25,7 +24,10 @@ import com.intellij.openapi.util.Key;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.GeneratedMarkerVisitor;
-import com.intellij.psi.impl.source.*;
+import com.intellij.psi.impl.source.DummyHolder;
+import com.intellij.psi.impl.source.DummyHolderFactory;
+import com.intellij.psi.impl.source.JavaDummyElement;
+import com.intellij.psi.impl.source.PsiJavaCodeReferenceElementImpl;
 import com.intellij.psi.impl.source.codeStyle.CodeEditUtil;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.tree.IElementType;
@@ -40,12 +42,8 @@ import org.jetbrains.annotations.Nullable;
 public class JavaTreeGenerator implements TreeGenerator {
   private static final Logger LOG = Logger.getInstance("#com.intellij.psi.impl.source.tree.JavaTreeGenerator");
 
-  private static final JavaParserUtil.ParserWrapper MOD_LIST = new JavaParserUtil.ParserWrapper() {
-    @Override
-    public void parse(final PsiBuilder builder) {
-      JavaParser.INSTANCE.getDeclarationParser().parseModifierList(builder);
-    }
-  };
+  private static final JavaParserUtil.ParserWrapper MOD_LIST =
+    builder -> JavaParser.INSTANCE.getDeclarationParser().parseModifierList(builder);
 
   @Override
   @Nullable
@@ -88,16 +86,16 @@ public class JavaTreeGenerator implements TreeGenerator {
 
         boolean isFQ = false;
         if (original instanceof PsiJavaCodeReferenceElementImpl) {
-          int kind = ((PsiJavaCodeReferenceElementImpl)original).getKind(original.getContainingFile());
+          PsiJavaCodeReferenceElementImpl.Kind kind = ((PsiJavaCodeReferenceElementImpl)original).getKindEnum(original.getContainingFile());
           switch (kind) {
-            case PsiJavaCodeReferenceElementImpl.CLASS_OR_PACKAGE_NAME_KIND:
-            case PsiJavaCodeReferenceElementImpl.CLASS_NAME_KIND:
-            case PsiJavaCodeReferenceElementImpl.CLASS_IN_QUALIFIED_NEW_KIND:
+            case CLASS_OR_PACKAGE_NAME_KIND:
+            case CLASS_NAME_KIND:
+            case CLASS_IN_QUALIFIED_NEW_KIND:
               isFQ = false;
               break;
 
-            case PsiJavaCodeReferenceElementImpl.CLASS_FQ_NAME_KIND:
-            case PsiJavaCodeReferenceElementImpl.CLASS_FQ_OR_PACKAGE_NAME_KIND:
+            case CLASS_FQ_NAME_KIND:
+            case CLASS_FQ_OR_PACKAGE_NAME_KIND:
               isFQ = true;
               break;
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.treeView;
 
 import com.intellij.openapi.util.*;
@@ -111,19 +97,19 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
 
     if (!myReadyRequest) {
       if (!getBuilder().isDisposed()) {
-        Assert.assertTrue(getBuilder().getUi().getNodeActions().isEmpty());
+        Assert.assertEquals("{}", getBuilder().getUi().getNodeActions().toString());
       }
     }
 
     Assert.assertTrue(success);
   }
 
-  void expand(final TreePath p) throws Exception {
+  void expand(final TreePath p) {
     invokeAndWaitIfNeeded(() -> myTree.expandPath(p));
     waitBuilderToCome();
   }
 
-  void collapsePath(final TreePath p) throws Exception {
+  void collapsePath(final TreePath p) {
     invokeAndWaitIfNeeded(() -> myTree.collapsePath(p));
     waitBuilderToCome();
   }
@@ -142,14 +128,14 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
   class BaseTreeBuilder extends AbstractTreeBuilder {
     volatile boolean myWasCleanedUp;
 
-    public BaseTreeBuilder(JTree tree,
+    BaseTreeBuilder(JTree tree,
                            DefaultTreeModel treeModel,
                            AbstractTreeStructure treeStructure,
                            @Nullable Comparator<NodeDescriptor> comparator) {
       super(tree, treeModel, treeStructure, comparator);
     }
 
-    public BaseTreeBuilder(JTree tree,
+    BaseTreeBuilder(JTree tree,
                            DefaultTreeModel treeModel,
                            AbstractTreeStructure treeStructure,
                            @Nullable Comparator<NodeDescriptor> comparator,
@@ -206,7 +192,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
     }
 
     @Override
-    protected boolean validateNode(Object child) {
+    protected boolean validateNode(@NotNull Object child) {
       return myValidator != null ? myValidator.isValid(child) : super.validateNode(child);
     }
 
@@ -252,19 +238,14 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
       }
 
       @Override
-      protected void runOnYieldingDone(Runnable onDone) {
+      protected void runOnYieldingDone(@NotNull Runnable onDone) {
         SwingUtilities.invokeLater(onDone);
       }
     };
   }
 
   static AbstractTreeUpdater _createUpdater(AbstractTreeBuilder builder) {
-    final AbstractTreeUpdater updater = new AbstractTreeUpdater(builder) {
-      @Override
-      protected boolean isEdt() {
-        return SwingUtilities.isEventDispatchThread();
-      }
-    };
+    final AbstractTreeUpdater updater = new AbstractTreeUpdater(builder);
     updater.setModalityStateComponent(MergingUpdateQueue.ANY_COMPONENT);
     return updater;
   }
@@ -272,7 +253,7 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
   abstract class BaseStructure extends AbstractTreeStructure {
 
     @Override
-    public boolean isToBuildChildrenInBackground(Object element) {
+    public boolean isToBuildChildrenInBackground(@NotNull Object element) {
       return myBgStructureBuilding && !myForegroundLoadingNodes.contains(element);
     }
 
@@ -287,15 +268,16 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
 
     @NotNull
     @Override
-    public final NodeDescriptor createDescriptor(Object element, NodeDescriptor parentDescriptor) {
+    public final NodeDescriptor createDescriptor(@NotNull Object element, NodeDescriptor parentDescriptor) {
       return doCreateDescriptor(element, parentDescriptor);
     }
 
     @NotNull
     public abstract NodeDescriptor doCreateDescriptor(Object element, NodeDescriptor parentDescriptor);
 
+    @NotNull
     @Override
-    public final Object[] getChildElements(Object element) {
+    public final Object[] getChildElements(@NotNull Object element) {
       return _getChildElements(element, true);
     }
 
@@ -325,29 +307,32 @@ abstract class BaseTreeTestCase<StructureElement> extends FlyIdeaTestCase {
 
   @Override
   protected void tearDown() throws Exception {
-    invokeLaterIfNeeded(() -> {
-      if (getBuilder() != null) {
-        Disposer.dispose(getBuilder());
-      }
-    });
+    try {
+      invokeLaterIfNeeded(() -> {
+        if (getBuilder() != null) {
+          Disposer.dispose(getBuilder());
+        }
+      });
 
-    new WaitFor(6000) {
-      @Override
-      protected boolean condition() {
-        return getBuilder() == null || getBuilder().getUi() == null;
-      }
-    };
-
-    super.tearDown();
+      new WaitFor(6000) {
+        @Override
+        protected boolean condition() {
+          return getBuilder() == null || getBuilder().getUi() == null;
+        }
+      };
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
-  void assertTree(final String expected) throws Exception {
+  void assertTree(final String expected) {
     waitBuilderToCome();
     assertTreeNow(expected);
   }
 
   void assertTreeNow(String expected) {
-    Assert.assertEquals(expected, PlatformTestUtil.print(myTree, true));
+    PlatformTestUtil.assertTreeEqual(myTree, expected, true);
   }
 
   void doAndWaitForBuilder(final Runnable runnable) throws Exception {

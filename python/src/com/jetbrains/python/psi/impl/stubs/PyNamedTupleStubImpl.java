@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,29 @@
  */
 package com.jetbrains.python.psi.impl.stubs;
 
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.stubs.StubInputStream;
 import com.intellij.psi.stubs.StubOutputStream;
 import com.intellij.psi.util.QualifiedName;
-import com.intellij.util.io.StringRef;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.PyNames;
+import com.jetbrains.python.codeInsight.typing.PyTypingTypeProvider;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
 import com.jetbrains.python.psi.resolve.PyResolveUtil;
 import com.jetbrains.python.psi.stubs.PyNamedTupleStub;
+import one.util.streamex.StreamEx;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
 
 public class PyNamedTupleStubImpl implements PyNamedTupleStub {
 
@@ -43,12 +48,12 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
   private final String myName;
 
   @NotNull
-  private final List<String> myFields;
+  private final LinkedHashMap<String, Optional<String>> myFields;
 
-  private PyNamedTupleStubImpl(@Nullable QualifiedName calleeName, @NotNull String name, @NotNull List<String> fields) {
+  private PyNamedTupleStubImpl(@Nullable QualifiedName calleeName, @NotNull String name, @NotNull LinkedHashMap<String, Optional<String>> fields) {
     myCalleeName = calleeName;
     myName = name;
-    myFields = Collections.unmodifiableList(new ArrayList<>(fields));
+    myFields = fields;
   }
 
   @Nullable
@@ -70,22 +75,22 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
       return null;
     }
 
-    final QualifiedName namedTupleQName = getNamedTupleQName(calleeReference);
+    final Pair<QualifiedName, NamedTupleModule> calleeNameAndModule = getCalleeNameAndNTModule(calleeReference);
 
-    if (namedTupleQName != null) {
-      final String name = resolveTupleName(expression);
+    if (calleeNameAndModule != null) {
+      final String name = PyResolveUtil.resolveFirstStrArgument(expression);
 
       if (name == null) {
         return null;
       }
 
-      final List<String> fields = resolveTupleFields(expression);
+      final LinkedHashMap<String, Optional<String>> fields = resolveTupleFields(expression, calleeNameAndModule.getSecond());
 
       if (fields == null) {
         return null;
       }
 
-      return new PyNamedTupleStubImpl(namedTupleQName, name, fields);
+      return new PyNamedTupleStubImpl(calleeNameAndModule.getFirst(), name, fields);
     }
 
     return null;
@@ -93,19 +98,15 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
 
   @Nullable
   public static PyNamedTupleStub deserialize(@NotNull StubInputStream stream) throws IOException {
-    final StringRef calleeName = stream.readName();
-    final StringRef name = stream.readName();
-    final List<String> fields = deserializeFields(stream, stream.readVarInt());
+    final String calleeName = stream.readNameString();
+    final String name = stream.readNameString();
+    final LinkedHashMap<String, Optional<String>> fields = deserializeFields(stream, stream.readVarInt());
 
     if (calleeName == null || name == null) {
       return null;
     }
 
-    return new PyNamedTupleStubImpl(
-      QualifiedName.fromDottedString(calleeName.getString()),
-      name.getString(),
-      fields
-    );
+    return new PyNamedTupleStubImpl(QualifiedName.fromDottedString(calleeName), name, fields);
   }
 
   @NotNull
@@ -120,8 +121,9 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
     stream.writeName(myName);
     stream.writeVarInt(myFields.size());
 
-    for (String field : myFields) {
-      stream.writeName(field);
+    for (Map.Entry<String, Optional<String>> entry : myFields.entrySet()) {
+      stream.writeName(entry.getKey());
+      stream.writeName(entry.getValue().orElse(null));
     }
   }
 
@@ -139,43 +141,57 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
 
   @NotNull
   @Override
-  public List<String> getFields() {
+  public Map<String, Optional<String>> getFields() {
     return myFields;
   }
 
   @Nullable
-  private static QualifiedName getNamedTupleQName(@NotNull PyReferenceExpression referenceExpression) {
-    final QualifiedName name = getFullyQualifiedNamedTupleQName(referenceExpression);
+  private static Pair<QualifiedName, NamedTupleModule> getCalleeNameAndNTModule(@NotNull PyReferenceExpression referenceExpression) {
+    final QualifiedName calleeName = PyPsiUtils.asQualifiedName(referenceExpression);
+    if (calleeName == null) return null;
 
-    if (name != null) {
-      return name;
+    for (String name : ContainerUtil.map(PyResolveUtil.resolveImportedElementQNameLocally(referenceExpression), QualifiedName::toString)) {
+      if (name.equals(PyNames.COLLECTIONS_NAMEDTUPLE_PY2)) {
+        return Pair.createNonNull(calleeName, NamedTupleModule.COLLECTIONS);
+      }
+      else if (name.equals(PyTypingTypeProvider.NAMEDTUPLE)) {
+        return Pair.createNonNull(calleeName, NamedTupleModule.TYPING);
+      }
     }
 
-    return getImportedNamedTupleQName(referenceExpression);
+    return null;
   }
 
   @Nullable
-  private static String resolveTupleName(@NotNull PyCallExpression callExpression) {
-    // SUPPORTED CASES:
+  private static LinkedHashMap<String, Optional<String>> resolveTupleFields(@NotNull PyCallExpression callExpression, @NotNull NamedTupleModule module) {
+    switch (module) {
+      case TYPING:
+        return resolveTypingNTFields(callExpression);
+      case COLLECTIONS:
+        return resolveCollectionsNTFields(callExpression);
+      default:
+        return null;
+    }
+  }
 
-    // name = "Point"
-    // Point = namedtuple(name, ...)
+  @NotNull
+  private static LinkedHashMap<String, Optional<String>> deserializeFields(@NotNull StubInputStream stream, int fieldsSize) throws IOException {
+    final LinkedHashMap<String, Optional<String>> fields = new LinkedHashMap<>(fieldsSize);
 
-    // Point = namedtuple("Point", ...)
+    for (int i = 0; i < fieldsSize; i++) {
+      final String name = stream.readNameString();
+      final String type = stream.readNameString();
 
-    // Point = namedtuple(("Point"), ...)
-
-    final PyExpression nameExpression = PyPsiUtils.flattenParens(callExpression.getArgument(0, PyExpression.class));
-
-    if (nameExpression instanceof PyReferenceExpression) {
-      return PyPsiUtils.strValue(fullResolveLocally((PyReferenceExpression)nameExpression));
+      if (name != null) {
+        fields.put(name, Optional.ofNullable(type));
+      }
     }
 
-    return PyPsiUtils.strValue(nameExpression);
+    return fields;
   }
 
   @Nullable
-  private static List<String> resolveTupleFields(@NotNull PyCallExpression callExpression) {
+  private static LinkedHashMap<String, Optional<String>> resolveCollectionsNTFields(@NotNull PyCallExpression callExpression) {
     // SUPPORTED CASES:
 
     // fields = ["x", "y"]
@@ -189,148 +205,110 @@ public class PyNamedTupleStubImpl implements PyNamedTupleStub {
 
     // Point = namedtuple(..., ["x", "y"])
 
-    final PyExpression fieldsExpression = PyPsiUtils.flattenParens(callExpression.getArgument(1, PyExpression.class));
+    final PyExpression fields = PyPsiUtils.flattenParens(callExpression.getArgument(1, PyExpression.class));
 
-    if (fieldsExpression instanceof PyReferenceExpression) {
-      return extractFields(fullResolveLocally((PyReferenceExpression)fieldsExpression));
-    }
+    final PyExpression resolvedFields = fields instanceof PyReferenceExpression
+                                        ? PyResolveUtil.fullResolveLocally((PyReferenceExpression)fields)
+                                        : fields;
 
-    return extractFields(fieldsExpression);
-  }
+    final Collector<String, ?, LinkedHashMap<String, Optional<String>>> toFieldsOfUnknownType =
+      Collectors.toMap(Function.identity(), key -> Optional.empty(), (v1, v2) -> v2, LinkedHashMap::new);
 
-  @NotNull
-  private static List<String> deserializeFields(@NotNull StubInputStream stream, int fieldsSize) throws IOException {
-    final List<String> fields = new ArrayList<>(fieldsSize);
+    final List<String> listValue = PyUtil.strListValue(resolvedFields);
+    if (listValue != null) return listValue.contains(null) ? null : StreamEx.of(listValue).collect(toFieldsOfUnknownType);
 
-    for (int i = 0; i < fieldsSize; i++) {
-      final StringRef field = stream.readName();
+    final String resolvedFieldsValue = PyPsiUtils.strValue(resolvedFields);
+    if (resolvedFieldsValue == null) return null;
 
-      if (field != null) {
-        fields.add(field.getString());
-      }
-    }
-
-    return fields;
+    return StreamEx
+      .of(StringUtil.tokenize(resolvedFieldsValue, ", ").iterator())
+      .collect(toFieldsOfUnknownType);
   }
 
   @Nullable
-  private static QualifiedName getFullyQualifiedNamedTupleQName(@NotNull PyReferenceExpression referenceExpression) {
+  private static LinkedHashMap<String, Optional<String>> resolveTypingNTFields(@NotNull PyCallExpression callExpression) {
     // SUPPORTED CASES:
 
-    // import collections
-    // Point = collections.namedtuple(...)
+    // fields = [("x", str), ("y", int)]
+    // Point = NamedTuple(..., fields)
 
-    // import collections as c
-    // Point = c.namedtuple(...)
+    // Point = NamedTuple(..., [("x", str), ("y", int)])
 
-    if (PyNames.NAMEDTUPLE.equals(referenceExpression.getName())) {
-      final PyExpression qualifier = referenceExpression.getQualifier();
+    // Point = NamedTuple(..., x=str, y=int)
 
-      if (qualifier instanceof PyReferenceExpression) {
-        final PyReferenceExpression qualifierReference = (PyReferenceExpression)qualifier;
+    final PyExpression secondArgument = PyPsiUtils.flattenParens(callExpression.getArgument(1, PyExpression.class));
 
-        if (!qualifierReference.isQualified() && resolvesToCollections(qualifierReference)) {
-          return QualifiedName.fromComponents(qualifierReference.getName(), referenceExpression.getName());
-        }
-      }
+    if (secondArgument instanceof PyKeywordArgument) {
+      final PyExpression[] arguments = callExpression.getArguments();
+      return getTypingNTFieldsFromKwArguments(Arrays.asList(arguments).subList(1, arguments.length));
+    } else {
+      final PyExpression resolvedFields = secondArgument instanceof PyReferenceExpression
+                                          ? PyResolveUtil.fullResolveLocally((PyReferenceExpression)secondArgument)
+                                          : secondArgument;
+      if (!(resolvedFields instanceof PySequenceExpression)) return null;
+
+      return getTypingNTFieldsFromIterable((PySequenceExpression)resolvedFields);
     }
-
-    return null;
   }
 
   @Nullable
-  private static QualifiedName getImportedNamedTupleQName(@NotNull PyReferenceExpression referenceExpression) {
-    // SUPPORTED CASES:
+  private static LinkedHashMap<String, Optional<String>> getTypingNTFieldsFromKwArguments(@NotNull List<PyExpression> arguments) {
+    final LinkedHashMap<String, Optional<String>> result = new LinkedHashMap<>();
 
-    // from collections import namedtuple
-    // Point = namedtuple(...)
+    for (PyExpression argument : arguments) {
+      if (!(argument instanceof PyKeywordArgument)) return null;
 
-    // from collections import namedtuple as NT
-    // Point = NT(...)
+      final PyKeywordArgument keywordArgument = (PyKeywordArgument)argument;
+      final String keyword = keywordArgument.getKeyword();
+      if (keyword == null) return null;
 
-    for (PsiElement element : PyResolveUtil.resolveLocally(referenceExpression)) {
-      if (element instanceof PyImportElement) {
-        final PyImportElement importElement = (PyImportElement)element;
-
-        if (equals(importElement.getImportedQName(), PyNames.NAMEDTUPLE)) {
-          final PyStatement importStatement = importElement.getContainingImportStatement();
-
-          if (importStatement instanceof PyFromImportStatement) {
-            final PyFromImportStatement fromImportStatement = (PyFromImportStatement)importStatement;
-
-            if (equals(fromImportStatement.getImportSourceQName(), PyNames.COLLECTIONS)) {
-              return QualifiedName.fromComponents(referenceExpression.getName());
-            }
-          }
-        }
-      }
-    }
-
-    return null;
-  }
-
-  private static boolean resolvesToCollections(@NotNull PyReferenceExpression referenceExpression) {
-    for (PsiElement element : PyResolveUtil.resolveLocally(referenceExpression)) {
-      if (element instanceof PyImportElement) {
-        final PyImportElement importElement = (PyImportElement)element;
-
-        if (equals(importElement.getImportedQName(), PyNames.COLLECTIONS)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  private static boolean equals(@Nullable QualifiedName qualifiedName, @NotNull String name) {
-    return qualifiedName != null && name.equals(qualifiedName.toString());
-  }
-
-  @Nullable
-  private static PyExpression fullResolveLocally(@NotNull PyReferenceExpression referenceExpression) {
-    for (PsiElement element : PyResolveUtil.resolveLocally(referenceExpression)) {
-      if (element instanceof PyTargetExpression) {
-        final PyExpression assignedValue = ((PyTargetExpression)element).findAssignedValue();
-
-        if (assignedValue instanceof PyReferenceExpression) {
-          return fullResolveLocally((PyReferenceExpression)assignedValue);
-        }
-
-        return assignedValue;
-      }
-    }
-
-    return null;
-  }
-
-  @Nullable
-  private static List<String> extractFields(@Nullable PyExpression expression) {
-    if (expression == null) {
-      return null;
-    }
-
-    final List<String> listValue = PyUtil.strListValue(expression);
-
-    if (listValue != null) {
-      return listValue;
-    }
-
-    return extractFields(PyPsiUtils.strValue(expression));
-  }
-
-  @Nullable
-  private static List<String> extractFields(@Nullable String fieldsString) {
-    if (fieldsString == null) {
-      return null;
-    }
-
-    final List<String> result = new ArrayList<>();
-
-    for (String name : StringUtil.tokenize(fieldsString, ", ")) {
-      result.add(name);
+      result.put(keyword, Optional.ofNullable(textIfPresent(keywordArgument.getValueExpression())));
     }
 
     return result;
+  }
+
+  @Nullable
+  private static LinkedHashMap<String, Optional<String>> getTypingNTFieldsFromIterable(@NotNull PySequenceExpression fields) {
+    final LinkedHashMap<String, Optional<String>> result = new LinkedHashMap<>();
+
+    for (PyExpression element : fields.getElements()) {
+      if (!(element instanceof PyParenthesizedExpression)) return null;
+
+      final PyExpression contained = ((PyParenthesizedExpression)element).getContainedExpression();
+      if (!(contained instanceof PyTupleExpression)) return null;
+
+      final PyExpression[] nameAndType = ((PyTupleExpression)contained).getElements();
+      final PyExpression name = ArrayUtil.getFirstElement(nameAndType);
+      if (nameAndType.length != 2 || !(name instanceof PyStringLiteralExpression)) return null;
+
+      result.put(((PyStringLiteralExpression)name).getStringValue(), Optional.ofNullable(textIfPresent(nameAndType[1])));
+    }
+
+    return result;
+  }
+
+  @Nullable
+  private static String textIfPresent(@Nullable PsiElement element) {
+    return element == null ? null : element.getText();
+  }
+
+  private enum NamedTupleModule {
+
+    COLLECTIONS {
+      @Override
+      public String getModuleName() {
+        return PyNames.COLLECTIONS;
+      }
+    },
+
+    TYPING {
+      @Override
+      public String getModuleName() {
+        return PyTypingTypeProvider.TYPING;
+      }
+    };
+
+    public abstract String getModuleName();
   }
 }

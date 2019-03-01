@@ -45,7 +45,7 @@ public class I18nizeAction extends AnAction {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.i18n.I18nizeAction");
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     boolean active = getHandler(e) != null;
     if (ActionPlaces.isPopupPlace(e.getPlace())) {
       e.getPresentation().setVisible(active);
@@ -63,6 +63,11 @@ public class I18nizeAction extends AnAction {
     PsiFile psiFile = e.getData(CommonDataKeys.PSI_FILE);
     if (psiFile == null) return null;
 
+    return getHandler(editor, psiFile);
+  }
+
+  @Nullable
+  public static I18nQuickFixHandler getHandler(@NotNull Editor editor, @NotNull PsiFile psiFile) {
     TextRange range = JavaI18nUtil.getSelectedRange(editor, psiFile);
     if (range == null) return null;
 
@@ -149,7 +154,7 @@ public class I18nizeAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Editor editor = getEditor(e);
     final Project project = editor.getProject();
     assert project != null;

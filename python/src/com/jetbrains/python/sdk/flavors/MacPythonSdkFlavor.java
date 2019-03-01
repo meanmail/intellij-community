@@ -15,13 +15,14 @@
  */
 package com.jetbrains.python.sdk.flavors;
 
-import com.intellij.openapi.util.io.FileSystemUtil;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
-import com.intellij.util.containers.HashSet;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 /**
@@ -31,15 +32,17 @@ public class MacPythonSdkFlavor extends CPythonSdkFlavor {
   private MacPythonSdkFlavor() {
   }
 
-  public static MacPythonSdkFlavor INSTANCE = new MacPythonSdkFlavor();
+  public static final MacPythonSdkFlavor INSTANCE = new MacPythonSdkFlavor();
   private static final String[] POSSIBLE_BINARY_NAMES = {"python", "python2", "python3"};
 
   @Override
-  public Collection<String> suggestHomePaths() {
+  public Collection<String> suggestHomePaths(@Nullable Module module) {
     Set<String> candidates = new HashSet<>();
     collectPythonInstallations("/Library/Frameworks/Python.framework/Versions", candidates);
     collectPythonInstallations("/System/Library/Frameworks/Python.framework/Versions", candidates);
+    collectPythonInstallations("/usr/local/Cellar/python", candidates);
     UnixPythonSdkFlavor.collectUnixPythons("/usr/local/bin", candidates);
+    UnixPythonSdkFlavor.collectUnixPythons("/usr/bin", candidates);
     return candidates;
   }
 
@@ -59,11 +62,8 @@ public class MacPythonSdkFlavor extends CPythonSdkFlavor {
               for (String name : POSSIBLE_BINARY_NAMES) {
                 final VirtualFile child = binDir.findChild(name);
                 if (child == null) continue;
-                String path = child.getPath();
-                if (FileSystemUtil.isSymLink(path)) {
-                  path = FileSystemUtil.resolveSymLink(path);
-                }
-                if (path != null && !candidates.contains(path)) {
+                final String path = child.getPath();
+                if (!candidates.contains(path)) {
                   candidates.add(path);
                   break;
                 }

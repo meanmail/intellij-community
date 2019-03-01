@@ -20,11 +20,11 @@ import org.junit.Test;
 
 /**
  * @author Denis Zhdanov
- * @since Aug 25, 2010 3:20:41 PM
  */
 public class DefaultLineWrapPositionStrategyTest extends AbstractLineWrapPositionStrategyTest {
   private LineWrapPositionStrategy myStrategy;
 
+  @Override
   @Before
   public void setUp() {
     super.setUp();
@@ -54,8 +54,15 @@ public class DefaultLineWrapPositionStrategyTest extends AbstractLineWrapPositio
 
   @Test
   public void longStringWithoutWrapPositionIsNotWrapped() {
-    String document = 
+    String document =
       "-----------------<EDGE>---------------------------------------------------------";
     doTest(myStrategy, document);
+  }
+
+  @Test
+  public void preferNearestWhiteSpaceWrap_InsteadOf_Comma() {
+    String document =
+      "queueing the JSON for later submission, we retain the <WRAP>SimpleRequestDa<EDGE>ta";
+    doTest(myStrategy, document, false);
   }
 }

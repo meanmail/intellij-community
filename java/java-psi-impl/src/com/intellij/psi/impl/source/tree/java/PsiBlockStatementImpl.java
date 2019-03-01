@@ -44,17 +44,14 @@ public class PsiBlockStatementImpl extends CompositePsiElement implements PsiBlo
   @Override
   public ASTNode findChildByRole(int role) {
     LOG.assertTrue(ChildRole.isUnique(role));
-    switch(role){
-      default:
-        return null;
-
-      case ChildRole.BLOCK:
-        return findChildByType(JavaElementType.CODE_BLOCK);
+    if (role == ChildRole.BLOCK) {
+      return findChildByType(JavaElementType.CODE_BLOCK);
     }
+    return null;
   }
 
   @Override
-  public int getChildRole(ASTNode child) {
+  public int getChildRole(@NotNull ASTNode child) {
     LOG.assertTrue(child.getTreeParent() == this);
     if (child.getElementType() == JavaElementType.CODE_BLOCK) {
       return ChildRole.BLOCK;
@@ -74,6 +71,7 @@ public class PsiBlockStatementImpl extends CompositePsiElement implements PsiBlo
     }
   }
 
+  @Override
   public String toString() {
     return "PsiBlockStatement";
   }

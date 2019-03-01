@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,27 +15,26 @@
  */
 package com.intellij.execution.junit;
 
+import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.Location;
 import com.intellij.execution.actions.ConfigurationContext;
 import com.intellij.execution.junit2.PsiMemberParameterizedLocation;
 import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.ide.util.PsiClassListCellRenderer;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Condition;
 import com.intellij.psi.*;
 import com.intellij.psi.search.searches.ClassInheritorsSearch;
 import com.intellij.psi.util.PsiClassUtil;
 import com.intellij.ui.ColoredListCellRenderer;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.Processor;
+import com.intellij.util.ui.JBUI;
 
 import javax.swing.*;
 import java.util.ArrayList;
@@ -43,10 +42,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 1/17/12
- */
+import static com.intellij.util.PopupUtilsKt.getBestPopupPosition;
+
 public class InheritorChooser {
 
   protected void runForClasses(final List<PsiClass> classes, final PsiMethod method, final ConfigurationContext context, final Runnable performRunnable) {
@@ -83,9 +80,9 @@ public class InheritorChooser {
 
       final List<PsiClass> classes = new ArrayList<>();
       if (!ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
-        final boolean isJUnit5 = ApplicationManager.getApplication().runReadAction((Computable<Boolean>)() -> JUnitUtil.isJUnit5(containingClass));
+        final boolean isJUnit5 = ReadAction.compute(() -> JUnitUtil.isJUnit5(containingClass));
         ClassInheritorsSearch.search(containingClass).forEach(aClass -> {
-          if (PsiClassUtil.isRunnableClass(aClass, !isJUnit5, true)) {
+          if (isJUnit5 && JUnitUtil.isJUnit5TestClass(aClass, true) || PsiClassUtil.isRunnableClass(aClass, true, true)) {
             classes.add(aClass);
           }
           return true;
@@ -132,18 +129,23 @@ public class InheritorChooser {
 
       //suggest to run all inherited tests 
       classes.add(0, null);
-      final JBList list = new JBList(classes);
-      list.setCellRenderer(renderer);
-      JBPopupFactory.getInstance().createListPopupBuilder(list)
-        .setTitle("Choose executable classes to run " + (psiMethod != null ? psiMethod.getName() : containingClass.getName()))
-        .setMovable(false)
+      String locationName = psiMethod != null ? psiMethod.getName() : containingClass.getName();
+      JBPopupFactory.getInstance()
+        .createPopupChooserBuilder(classes)
+        .setRenderer(renderer)
+        .setTitle(ExecutionBundle.message("test.cases.choosing.popup.title", locationName))
+        .setAutoselectOnMouseMove(false)
+        .setNamerForFiltering(it -> it == null ? "" : it.getName())
+        .setMovable(true)
         .setResizable(false)
         .setRequestFocus(true)
-        .setItemChoosenCallback(() -> {
-          final Object[] values = list.getSelectedValues();
-          if (values == null) return;
-          chooseAndPerform(values, psiMethod, context, performRunnable, classes);
-        }).createPopup().showInBestPositionFor(context.getDataContext());
+        .setMinSize(JBUI.size(270, 55))
+        .setItemsChosenCallback((values) -> {
+          if (values.isEmpty()) return;
+          chooseAndPerform(values.toArray(), psiMethod, context, performRunnable, classes);
+        })
+        .createPopup()
+        .show(getBestPopupPosition(context.getDataContext()));
       return true;
     }
     return false;

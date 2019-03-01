@@ -15,7 +15,7 @@
  */
 package org.jetbrains.plugins.gradle.model;
 
-import com.google.common.base.Objects;
+import org.gradle.internal.impldep.com.google.common.base.Objects;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.gradle.DefaultExternalDependencyId;
 
@@ -25,7 +25,6 @@ import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/24/2014
  */
 public class DefaultFileCollectionDependency extends AbstractExternalDependency implements FileCollectionDependency {
 

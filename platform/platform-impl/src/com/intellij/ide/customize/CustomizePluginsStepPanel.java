@@ -82,7 +82,7 @@ public class CustomizePluginsStepPanel extends AbstractCustomizeWizardStep imple
       gbc.fill = GridBagConstraints.BOTH;
       gbc.gridwidth = GridBagConstraints.REMAINDER;
       gbc.weightx = 1;
-      JLabel titleLabel = new JLabel("<html><body><h2 style=\"text-align:left;\">" + group + "</h2></body></html>", SwingConstants.CENTER) {
+      JLabel titleLabel = new JLabel("<html><body><h2 style=\"text-align:center;\">" + group + "</h2></body></html>", SwingConstants.CENTER) {
         @Override
         public boolean isEnabled() {
           return isGroupEnabled(group);
@@ -239,9 +239,9 @@ public class CustomizePluginsStepPanel extends AbstractCustomizeWizardStep imple
   }
 
   private class IdSetPanel extends JPanel implements LinkListener<String> {
-    private JLabel myTitleLabel = new JLabel();
-    private JPanel myContentPanel = new JPanel(new GridLayout(0, 3, 5, 5));
-    private JButton mySaveButton = new JButton("Save Changes and Go Back");
+    private final JLabel myTitleLabel = new JLabel();
+    private final JPanel myContentPanel = new JPanel(new GridLayout(0, 3, 5, 5));
+    private final JButton mySaveButton = new JButton("Save Changes and Go Back");
     private String myGroup;
 
     private IdSetPanel() {

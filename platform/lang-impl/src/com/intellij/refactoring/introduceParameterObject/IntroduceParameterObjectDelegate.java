@@ -75,9 +75,9 @@ public abstract class IntroduceParameterObjectDelegate<M extends PsiNamedElement
   public abstract List<P> getAllMethodParameters(M sourceMethod);
 
   /**
-   * Resulted parameter info should implement {@link ParameterInfo#getActualValue(PsiElement)} so the call site would be updated with actual values.
+   * Resulted parameter info should implement {@link ParameterInfo#getActualValue(PsiElement, Object)} so the call site would be updated with actual values.
    * At the same time, usages in another languages should be correctly proceed. In order to do that, usage's delegate should be found and
-   * {@link IntroduceParameterObjectDelegate#createNewParameterInitializerAtCallSite(PsiElement, IntroduceParameterObjectClassDescriptor, List)}
+   * {@link IntroduceParameterObjectDelegate#createNewParameterInitializerAtCallSite(PsiElement, IntroduceParameterObjectClassDescriptor, List, Object)}
    * should be called to provide actual value
    *
    * @return parameter info which would merge arguments on the call site, with name according to parameter class
@@ -128,11 +128,11 @@ public abstract class IntroduceParameterObjectDelegate<M extends PsiNamedElement
                                                        String mergedParamName);
 
   /**
-   * Collect in <code>usages</code> fixes to generate field's accessors.
+   * Collect in {@code usages} fixes to generate field's accessors.
    * If {@link #collectInternalUsages(Collection, PsiNamedElement, IntroduceParameterObjectClassDescriptor, ParameterInfo, String)}
    * returns @NotNull value, corresponding to the parameter field requires an accessor.
    *
-   * To detect what accessor is required, use <code>accessors[descriptor.getParamsToMerge()[paramIdx].getOldIdx()]</code>
+   * To detect what accessor is required, use {@code accessors[descriptor.getParamsToMerge()[paramIdx].getOldIdx()]}
    */
   public abstract void collectUsagesToGenerateMissedFieldAccessors(Collection<FixableUsageInfo> usages,
                                                                    M method,
@@ -140,14 +140,14 @@ public abstract class IntroduceParameterObjectDelegate<M extends PsiNamedElement
                                                                    ReadWriteAccessDetector.Access[] accessors);
 
   /**
-   * Collect in <code>usages</code> necessary fixes to change visibility, javadocs, etc
+   * Collect in {@code usages} necessary fixes to change visibility, javadocs, etc
    */
   public abstract void collectAdditionalFixes(Collection<FixableUsageInfo> usages,
                                               M method,
                                               C descriptor);
 
   /**
-   * Collect conflicts in <code>conflicts</code>
+   * Collect conflicts in {@code conflicts}
    */
   public abstract void collectConflicts(MultiMap<PsiElement, String> conflicts, UsageInfo[] infos, M method, C classDescriptor);
 }

@@ -15,10 +15,7 @@
  */
 package com.intellij.psi.formatter.java;
 
-import com.intellij.formatting.Alignment;
-import com.intellij.formatting.Block;
-import com.intellij.formatting.Indent;
-import com.intellij.formatting.Wrap;
+import com.intellij.formatting.*;
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.JavaTokenType;
 import com.intellij.psi.PsiComment;
@@ -41,11 +38,14 @@ class ChainMethodCallsBlockBuilder {
   private final Alignment myBlockAlignment;
   private final Indent myBlockIndent;
 
-  public ChainMethodCallsBlockBuilder(Alignment alignment,
+  private final FormattingMode myFormattingMode;
+
+  ChainMethodCallsBlockBuilder(Alignment alignment,
                                       Wrap wrap,
                                       Indent indent,
                                       CommonCodeStyleSettings settings,
-                                      JavaCodeStyleSettings javaSettings)
+                                      JavaCodeStyleSettings javaSettings,
+                                      @NotNull FormattingMode formattingMode)
   {
     myBlockWrap = wrap;
     myBlockAlignment = alignment;
@@ -53,16 +53,17 @@ class ChainMethodCallsBlockBuilder {
     mySettings = settings;
     myIndentSettings = settings.getIndentOptions();
     myJavaSettings = javaSettings;
+    myFormattingMode = formattingMode;
   }
 
-  public Block build(List<ASTNode> nodes)  {
+  public Block build(List<? extends ASTNode> nodes)  {
     List<Block> blocks = buildBlocksFrom(nodes);
 
     Indent indent = myBlockIndent != null ? myBlockIndent : Indent.getContinuationWithoutFirstIndent(myIndentSettings.USE_RELATIVE_INDENTS);
     return new SyntheticCodeBlock(blocks, myBlockAlignment, mySettings, myJavaSettings, indent, myBlockWrap);
   }
 
-  private List<Block> buildBlocksFrom(List<ASTNode> nodes) {
+  private List<Block> buildBlocksFrom(List<? extends ASTNode> nodes) {
     List<ChainedCallChunk> methodCall = splitMethodCallOnChunksByDots(nodes);
 
     Wrap wrap = null;
@@ -85,7 +86,7 @@ class ChainMethodCallsBlockBuilder {
         chainedCallsAlignment = null;
       }
 
-      CallChunkBlockBuilder builder = new CallChunkBlockBuilder(mySettings, myJavaSettings);
+      CallChunkBlockBuilder builder = new CallChunkBlockBuilder(mySettings, myJavaSettings, myFormattingMode);
       blocks.add(builder.create(currentCallChunk.nodes, wrap, chainedCallsAlignment));
     }
 
@@ -100,7 +101,7 @@ class ChainMethodCallsBlockBuilder {
     return false;
   }
 
-  private Wrap createCallChunkWrap(int chunkIndex, @NotNull List<ChainedCallChunk> methodCall) {
+  private Wrap createCallChunkWrap(int chunkIndex, @NotNull List<? extends ChainedCallChunk> methodCall) {
     if (mySettings.WRAP_FIRST_METHOD_IN_CALL_CHAIN) {
       ChainedCallChunk next = chunkIndex + 1 < methodCall.size() ? methodCall.get(chunkIndex + 1) : null;
       if (next != null && isMethodCall(next)) {
@@ -122,7 +123,7 @@ class ChainMethodCallsBlockBuilder {
   }
 
   @NotNull
-  private static List<ChainedCallChunk> splitMethodCallOnChunksByDots(@NotNull List<ASTNode> nodes) {
+  private static List<ChainedCallChunk> splitMethodCallOnChunksByDots(@NotNull List<? extends ASTNode> nodes) {
     List<ChainedCallChunk> result = new ArrayList<>();
 
     List<ASTNode> current = new ArrayList<>();

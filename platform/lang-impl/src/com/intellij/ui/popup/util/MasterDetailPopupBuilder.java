@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.popup.util;
 
 import com.intellij.icons.AllIcons;
@@ -26,7 +12,6 @@ import com.intellij.ui.components.JBList;
 import com.intellij.ui.speedSearch.FilteringListModel;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
-import com.intellij.util.Function;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -54,7 +39,7 @@ public class MasterDetailPopupBuilder implements MasterController {
   private String myDimensionServiceKey = null;
   private boolean myAddDetailViewToEast = true;
   private ActionGroup myActions = null;
-  private Consumer<PopupChooserBuilder> myPopupTuner = null;
+  private Consumer<? super IPopupChooserBuilder> myPopupTuner = null;
   private Runnable myDoneRunnable = null;
 
   public MasterDetailPopupBuilder(Project project) {
@@ -79,13 +64,13 @@ public class MasterDetailPopupBuilder implements MasterController {
     });
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         chooseItems(true);
       }
     }.registerCustomShortcutSet(CommonShortcuts.ENTER, list);
     new AnAction() {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         chooseItems(true);
       }
     }.registerCustomShortcutSet(CommonShortcuts.DOUBLE_CLICK_1, list);
@@ -181,7 +166,7 @@ public class MasterDetailPopupBuilder implements MasterController {
   }
 
   @NotNull
-  public MasterDetailPopupBuilder setPopupTuner(@Nullable Consumer<PopupChooserBuilder> tuner) {
+  public MasterDetailPopupBuilder setPopupTuner(@Nullable Consumer<? super IPopupChooserBuilder> tuner) {
     myPopupTuner = tuner;
     return this;
   }
@@ -200,7 +185,7 @@ public class MasterDetailPopupBuilder implements MasterController {
     }
 
     if (myDetailView == null) {
-      myDetailView = new DetailViewImpl(myProject);
+      setDetailView(new DetailViewImpl(myProject));
     }
 
     myPathLabel = new JLabel(" ");
@@ -222,7 +207,7 @@ public class MasterDetailPopupBuilder implements MasterController {
 
     JComponent toolBar = null;
     if (myActions != null) {
-      ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("", myActions, true);
+      ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("MasterDetailPopup", myActions, true);
       actionToolbar.setReservePlaceAutoPopupIcon(false);
       actionToolbar.setMinimumButtonSize(new Dimension(20, 20));
       toolBar = actionToolbar.getComponent();
@@ -239,8 +224,8 @@ public class MasterDetailPopupBuilder implements MasterController {
       setUseDimensionServiceForXYLocation(myDimensionServiceKey != null).
       setSettingButton(toolBar).
       setSouthComponent(footerPanel).
-      setItemChoosenCallback(itemCallback).
-      setFilteringEnabled(o -> ((ItemWrapper)o).speedSearchText());
+      setItemChoosenCallback(itemCallback);
+      //setFilteringEnabled(o -> ((ItemWrapper)o).speedSearchText());
 
     if (myPopupTuner != null) {
       myPopupTuner.consume(builder);
@@ -281,9 +266,9 @@ public class MasterDetailPopupBuilder implements MasterController {
 
     builder.getScrollPane().setBorder(IdeBorderFactory.createBorder(SideBorder.RIGHT));
 
-    myPopup.addListener(new JBPopupListener.Adapter() {
+    myPopup.addListener(new JBPopupListener() {
       @Override
-      public void onClosed(LightweightWindowEvent event) {
+      public void onClosed(@NotNull LightweightWindowEvent event) {
         myDetailView.clearEditor();
       }
     });
@@ -291,7 +276,7 @@ public class MasterDetailPopupBuilder implements MasterController {
     if (myDoneRunnable != null) {
       new AnAction("Done") {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           myDoneRunnable.run();
         }
       }.registerCustomShortcutSet(KeyEvent.VK_ENTER, InputEvent.CTRL_DOWN_MASK, myPopup.getContent());
@@ -388,7 +373,7 @@ public class MasterDetailPopupBuilder implements MasterController {
   }
 
   private class MyPopupChooserBuilder extends PopupChooserBuilder {
-    public MyPopupChooserBuilder(@NotNull JList list) {
+    MyPopupChooserBuilder(@NotNull JList list) {
       super(list);
     }
 

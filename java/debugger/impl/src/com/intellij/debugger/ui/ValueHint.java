@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.ui;
 
 import com.intellij.codeInsight.hint.HintUtil;
@@ -23,6 +9,7 @@ import com.intellij.debugger.actions.DebuggerActions;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.JVMName;
 import com.intellij.debugger.engine.JVMNameUtil;
+import com.intellij.debugger.engine.SuspendContextImpl;
 import com.intellij.debugger.engine.evaluation.*;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
 import com.intellij.debugger.engine.evaluation.expression.ExpressionEvaluator;
@@ -40,13 +27,12 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.CustomShortcutSet;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.*;
 import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.SimpleColoredText;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.IncorrectOperationException;
@@ -55,6 +41,7 @@ import com.intellij.xdebugger.impl.evaluate.quick.common.ValueHintType;
 import com.sun.jdi.Method;
 import com.sun.jdi.PrimitiveValue;
 import com.sun.jdi.Value;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -63,11 +50,10 @@ import java.awt.event.KeyEvent;
 
 /**
  * @author lex
- * @since Nov 24, 2003
  */
 public class ValueHint extends AbstractValueHint {
   private static final Logger LOG = Logger.getInstance("#com.intellij.debugger.ui.ValueHint");
-  private PsiElement myCurrentExpression = null;
+  private final PsiElement myCurrentExpression;
   private Value myValueToShow = null;
 
   private ValueHint(Project project, Editor editor, Point point, ValueHintType type, final PsiElement selectedExpression, final TextRange textRange) {
@@ -97,7 +83,6 @@ public class ValueHint extends AbstractValueHint {
     TextWithImportsImpl textWithImports = new TextWithImportsImpl(CodeFragmentKind.EXPRESSION, myCurrentExpression.getText());
     CodeFragmentFactory factory = DebuggerUtilsEx.findAppropriateCodeFragmentFactory(textWithImports, myCurrentExpression);
     JavaCodeFragment codeFragment = factory.createCodeFragment(textWithImports, myCurrentExpression.getContext(), getProject());
-    codeFragment.forceResolveScope(GlobalSearchScope.allScope(getProject()));
     return factory.getEvaluatorBuilder().build(codeFragment, debuggerContext.getSourcePosition());
   }
 
@@ -121,16 +106,11 @@ public class ValueHint extends AbstractValueHint {
         }
 
         @Override
-        public void threadAction() {
+        public void threadAction(@NotNull SuspendContextImpl suspendContext) {
           try {
             final EvaluationContextImpl evaluationContext = debuggerContext.createEvaluationContext();
 
-            final String expressionText = ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-              @Override
-              public String compute() {
-                return myCurrentExpression.getText();
-              }
-            });
+            final String expressionText = ReadAction.compute(() -> myCurrentExpression.getText());
             final TextWithImports text = new TextWithImportsImpl(CodeFragmentKind.EXPRESSION, expressionText);
             final Value value = myValueToShow != null? myValueToShow : evaluator.evaluate(evaluationContext);
 
@@ -193,19 +173,13 @@ public class ValueHint extends AbstractValueHint {
             final DebuggerContextImpl debuggerContext = DebuggerManagerEx.getInstanceEx(getProject()).getContext();
             final DebugProcessImpl debugProcess = debuggerContext.getDebugProcess();
             debugProcess.getManagerThread().schedule(new DebuggerContextCommandImpl(debuggerContext) {
-                          @Override
-                          public void threadAction() {
-                            descriptor.setRenderer(debugProcess.getAutoRenderer(descriptor));
-                            final String expressionText = ApplicationManager.getApplication().runReadAction(new Computable<String>() {
-                              @Override
-                              public String compute() {
-                                return myCurrentExpression.getText();
-                              }
-                            });
-
-                            createAndShowTree(expressionText, descriptor);
-                          }
-                        });
+              @Override
+              public void threadAction(@NotNull SuspendContextImpl suspendContext) {
+                descriptor.setRenderer(debugProcess.getAutoRenderer(descriptor));
+                final String expressionText = ReadAction.compute(() -> myCurrentExpression.getText());
+                createAndShowTree(expressionText, descriptor);
+              }
+            });
           });
         }
         if (!showHint(component)) return;

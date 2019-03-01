@@ -14,19 +14,17 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 23-Oct-2008
- */
 package com.intellij.refactoring.util.duplicates;
 
 import org.jetbrains.annotations.NonNls;
 
 public class BreakReturnValue extends GotoReturnValue{
+  @Override
   public boolean isEquivalent(final ReturnValue other) {
     return other instanceof BreakReturnValue;
   }
 
+  @Override
   @NonNls
   public String getGotoStatement() {
     return "if(a) break;";

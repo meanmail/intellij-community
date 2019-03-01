@@ -26,8 +26,6 @@ import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ComponentAdapter;
-import java.awt.event.ComponentEvent;
 
 public class ProgressStripe extends JBPanel {
   @NotNull
@@ -83,10 +81,10 @@ public class ProgressStripe extends JBPanel {
     @NotNull
     private final Disposable myDisposable;
 
-    public MyLoadingDecorator(@NotNull JComponent component,
-                              @NotNull JPanel contentPanel,
-                              @NotNull Disposable disposable,
-                              int startDelayMs) {
+    MyLoadingDecorator(@NotNull JComponent component,
+                       @NotNull JPanel contentPanel,
+                       @NotNull Disposable disposable,
+                       int startDelayMs) {
       super(contentPanel, disposable, startDelayMs, false, ProgressStripeIcon.generateIcon(component));
       myDisposable = disposable;
     }

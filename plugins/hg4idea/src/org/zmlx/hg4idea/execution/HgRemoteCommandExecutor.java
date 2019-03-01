@@ -44,12 +44,13 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
     myIgnoreAuthorizationRequest = ignoreAuthorizationRequest;
   }
 
+  @Override
   @Nullable
   public HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo, @NotNull final String operation,
                                                 @Nullable final List<String> arguments) {
 
 
-    HgCommandResult result = executeInCurrentThread(repo, operation, arguments, false);
+    HgCommandResult result = executeRemoteCommandInCurrentThread(repo, operation, arguments, false);
     if (!myIgnoreAuthorizationRequest && HgErrorUtil.isAuthorizationError(result)) {
       if (HgErrorUtil.hasAuthorizationInDestinationPath(myDestination)) {
         new HgCommandResultNotifier(myProject)
@@ -57,16 +58,16 @@ public class HgRemoteCommandExecutor extends HgCommandExecutor {
                                                        "Please, update your .hg/hgrc file.");
         return null;
       }
-      result = executeInCurrentThread(repo, operation, arguments, true);
+      result = executeRemoteCommandInCurrentThread(repo, operation, arguments, true);
     }
     return result;
   }
 
   @Nullable
-  private HgCommandResult executeInCurrentThread(@Nullable final VirtualFile repo,
-                                                 @NotNull final String operation,
-                                                 @Nullable final List<String> arguments,
-                                                 boolean forceAuthorization) {
+  private HgCommandResult executeRemoteCommandInCurrentThread(@Nullable final VirtualFile repo,
+                                                              @NotNull final String operation,
+                                                              @Nullable final List<String> arguments,
+                                                              boolean forceAuthorization) {
 
     PassReceiver passReceiver = new PassReceiver(myProject, forceAuthorization, myIgnoreAuthorizationRequest, myState);
     SocketServer passServer = new SocketServer(passReceiver);

@@ -18,13 +18,14 @@ package org.jetbrains.ide.script;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.ide.plugins.PluginManagerCore;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.extensions.PluginDescriptor;
 import com.intellij.openapi.util.ClassLoaderUtil;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.text.StringHash;
-import com.intellij.util.Function;
 import com.intellij.util.ObjectUtils;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.containers.JBIterable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.ide.PooledThreadExecutor;
@@ -32,42 +33,37 @@ import org.jetbrains.ide.PooledThreadExecutor;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineFactory;
 import javax.script.ScriptEngineManager;
+import javax.script.ScriptException;
 import java.io.IOException;
 import java.io.Reader;
 import java.io.Writer;
 import java.net.URL;
+import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.Callable;
+import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
 
 class Jsr223IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
   private static final Logger LOG = Logger.getInstance(IdeScriptEngineManager.class);
 
-  private final Future<ScriptEngineManager> myManagerFuture = PooledThreadExecutor.INSTANCE.submit(new Callable<ScriptEngineManager>() {
-    @Override
-    public ScriptEngineManager call() {
-      long start = System.currentTimeMillis();
-      try {
-        return new ScriptEngineManager();
-      }
-      finally {
-        long end = System.currentTimeMillis();
-        LOG.info(ScriptEngineManager.class.getName() + " initialized in " + (end - start) + " ms");
-      }
+  private final Future<ScriptEngineManager> myManagerFuture = PooledThreadExecutor.INSTANCE.submit(() -> {
+    long start = System.currentTimeMillis();
+    try {
+      return ClassLoaderUtil.runWithClassLoader(AllPluginsLoader.INSTANCE,
+                                                (Computable<ScriptEngineManager>)() -> new ScriptEngineManager());
+    }
+    finally {
+      long end = System.currentTimeMillis();
+      LOG.info(ScriptEngineManager.class.getName() + " initialized in " + (end - start) + " ms");
     }
   });
 
   @NotNull
   @Override
   public List<String> getLanguages() {
-    return ContainerUtil.map(getScriptEngineManager().getEngineFactories(), new Function<ScriptEngineFactory, String>() {
-      @Override
-      public String fun(ScriptEngineFactory factory) {
-        return factory.getLanguageName();
-      }
-    });
+    return ContainerUtil.map(getScriptEngineManager().getEngineFactories(), factory -> factory.getLanguageName());
   }
 
   @NotNull
@@ -87,24 +83,16 @@ class Jsr223IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
   @Override
   public IdeScriptEngine getEngineForLanguage(@NotNull final String language, @Nullable ClassLoader loader) {
     ClassLoader l = ObjectUtils.notNull(loader, AllPluginsLoader.INSTANCE);
-    return ClassLoaderUtil.runWithClassLoader(l, new Computable<IdeScriptEngine>() {
-      @Override
-      public IdeScriptEngine compute() {
-        return createIdeScriptEngine(getScriptEngineManager().getEngineByName(language));
-      }
-    });
+    return ClassLoaderUtil.runWithClassLoader(l,
+                                              (Computable<IdeScriptEngine>)() -> createIdeScriptEngine(getScriptEngineManager().getEngineByName(language)));
   }
 
   @Nullable
   @Override
   public IdeScriptEngine getEngineForFileExtension(@NotNull final String extension, @Nullable ClassLoader loader) {
     ClassLoader l = ObjectUtils.notNull(loader, AllPluginsLoader.INSTANCE);
-    return ClassLoaderUtil.runWithClassLoader(l, new Computable<IdeScriptEngine>() {
-      @Override
-      public IdeScriptEngine compute() {
-        return createIdeScriptEngine(getScriptEngineManager().getEngineByExtension(extension));
-      }
-    });
+    return ClassLoaderUtil.runWithClassLoader(l,
+                                              (Computable<IdeScriptEngine>)() -> createIdeScriptEngine(getScriptEngineManager().getEngineByExtension(extension)));
   }
 
   @Override
@@ -130,18 +118,20 @@ class Jsr223IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
   }
 
   private static IdeScriptEngine redirectOutputToLog(IdeScriptEngine engine) {
-    engine.setStdOut(new MyAbstractWriter() {
-      @Override
-      public void write(char[] cbuf, int off, int len) throws IOException {
-        LOG.info(new String(cbuf, off, len));
+    class Log extends Writer {
+      final boolean error;
+      Log(boolean error) {this.error = error;}
+      @Override public void flush() throws IOException { }
+      @Override public void close() throws IOException { }
+      @Override public void write(char[] cbuf, int off, int len) throws IOException {
+        while (len > 0 && Character.isWhitespace(cbuf[off + len - 1])) len --;
+        if (len == 0) return;
+        String s = new String(cbuf, off, len);
+        if (error) LOG.warn(s); else LOG.info(s);
       }
-    });
-    engine.setStdErr(new MyAbstractWriter() {
-      @Override
-      public void write(char[] cbuf, int off, int len) throws IOException {
-        LOG.warn(new String(cbuf, off, len));
-      }
-    });
+    }
+    engine.setStdOut(new Log(false));
+    engine.setStdErr(new Log(true));
     return engine;
   }
 
@@ -217,31 +207,25 @@ class Jsr223IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
           try {
             return myEngine.eval(script);
           }
-          catch (Throwable e) {
-            throw new IdeScriptException(e);
+          catch (Throwable ex) {
+            //noinspection InstanceofCatchParameter
+            while (ex instanceof ScriptException && ex.getCause() != null) ex = ex.getCause();
+            throw new IdeScriptException(ex);
           }
         }
       });
     }
   }
 
-  private static abstract class MyAbstractWriter extends Writer {
-    @Override
-    public void flush() throws IOException {
-    }
-
-    @Override
-    public void close() throws IOException {
-    }
-  }
-
   static class AllPluginsLoader extends ClassLoader {
     static final AllPluginsLoader INSTANCE = new AllPluginsLoader();
 
-    final Map<Long, ClassLoader> myLuckyGuess = ContainerUtil.newConcurrentMap();
+    final ConcurrentMap<Long, ClassLoader> myLuckyGuess = ContainerUtil.newConcurrentMap();
 
-    public AllPluginsLoader() {
+    AllPluginsLoader() {
       // Groovy performance: do not specify parent loader to enable our luckyGuesser
+      // Also specify null explicitly to suppress getSystemClassLoader() as parent
+      super(null);
     }
 
     @Override
@@ -249,65 +233,110 @@ class Jsr223IdeScriptEngineManagerImpl extends IdeScriptEngineManager {
       //long ts = System.currentTimeMillis();
 
       int p0 = name.indexOf("$");
-      int p1 = p0 > 0 ? name.indexOf("$", p0 + 1) : -1;
-      String base = p0 > 0 ? name.substring(0, Math.max(p0, p1)) : name;
+      boolean hasBase = p0 > 0;
+      int p1 = hasBase ? name.indexOf("$", p0 + 1) : -1;
+      String base = hasBase ? name.substring(0, Math.max(p0, p1)) : name;
       long hash = StringHash.calc(base);
 
-      ClassLoader loader = myLuckyGuess.get(hash);
-      if (loader == this) throw new ClassNotFoundException(name);
-
       Class<?> c = null;
-      if (loader != null) {
+      ClassLoader guess1 = myLuckyGuess.get(hash);   // cached loader
+      ClassLoader guess2 = myLuckyGuess.get(0L);     // last recently used
+      for (ClassLoader loader : JBIterable.of(guess1, guess2)) {
+        if (loader == this) throw new ClassNotFoundException(name);
+        if (loader == null) continue;
         try {
           c = loader.loadClass(name);
+          break;
         }
         catch (ClassNotFoundException ignored) {
         }
       }
       if (c == null) {
-        boolean first = true;
         for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
           ClassLoader l = descriptor.getPluginClassLoader();
-          if (l == null || l == loader) continue;
+          if (l == null || l == guess1 || l == guess2) continue;
           try {
-            l.loadClass(base);
-
-            if (first) {
-              myLuckyGuess.put(hash, l);
+            if (hasBase) {
+              l.loadClass(base);
+              myLuckyGuess.putIfAbsent(hash, l);
             }
-            first = false;
             try {
               c = l.loadClass(name);
+              myLuckyGuess.putIfAbsent(hash, l);
+              myLuckyGuess.put(0L, l);
               break;
             }
             catch (ClassNotFoundException e) {
-              if (p0 > 0) break;
+              if (hasBase) break;
               if (name.startsWith("java.") || name.startsWith("groovy.")) break;
             }
           }
           catch (ClassNotFoundException ignored) {
           }
         }
-        if (first && loader == null) {
-          myLuckyGuess.put(hash, this);
-        }
       }
 
       //LOG.info("AllPluginsLoader [" + StringUtil.formatDuration(System.currentTimeMillis() - ts) + "]: " + (c != null ? "+" : "-") + name);
-      if (c != null) return c;
-      myLuckyGuess.put(StringHash.calc(name), this);
+      if (c != null) {
+        return c;
+      }
+      else {
+        myLuckyGuess.putIfAbsent(hash, this);
+        throw new ClassNotFoundException(name);
+      }
+    }
 
-      throw new ClassNotFoundException(name);
+    private static boolean isAllowedPluginResource(String name) {
+      // allow plugin engines but suppress all other resources
+      return "META-INF/services/javax.script.ScriptEngineFactory".equals(name);
     }
 
     @Override
     protected URL findResource(String name) {
+      if (isAllowedPluginResource(name)) {
+        for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
+          ClassLoader l = descriptor.getPluginClassLoader();
+          URL url = l == null ? null : l.getResource(name);
+          if (url != null) return url;
+        }
+      }
       return getClass().getClassLoader().getResource(name);
     }
 
     @Override
     protected Enumeration<URL> findResources(String name) throws IOException {
+      if (isAllowedPluginResource(name)) {
+        Set<URL> result = null;
+        for (IdeaPluginDescriptor descriptor : PluginManagerCore.getPlugins()) {
+          ClassLoader l = descriptor.getPluginClassLoader();
+          Enumeration<URL> urls = l == null ? null : l.getResources(name);
+          if (urls == null || !urls.hasMoreElements()) continue;
+          if (result == null) result = ContainerUtil.newLinkedHashSet();
+          ContainerUtil.addAll(result, urls);
+        }
+        if (result != null) {
+          return Collections.enumeration(result);
+        }
+      }
       return getClass().getClassLoader().getResources(name);
+    }
+
+    // used by kotlin engine
+    @NotNull
+    public List<URL> getUrls() {
+      return JBIterable.of(PluginManagerCore.getPlugins())
+        .map(PluginDescriptor::getPluginClassLoader)
+        .unique()
+        .flatMap(o -> {
+          try {
+            return (List<URL>)o.getClass().getMethod("getUrls").invoke(o);
+          }
+          catch (Exception e) {
+            return Collections.emptyList();
+          }
+        })
+        .unique()
+        .toList();
     }
   }
 }

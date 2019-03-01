@@ -15,6 +15,7 @@
  */
 package org.jetbrains.jps.model.library.sdk;
 
+import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.jps.model.JpsElement;
 import org.jetbrains.jps.model.JpsElementChildRole;
 import org.jetbrains.jps.model.ex.JpsElementTypeBase;
@@ -24,9 +25,13 @@ import org.jetbrains.jps.model.library.JpsLibraryType;
  * @author nik
  */
 public abstract class JpsSdkType<P extends JpsElement> extends JpsElementTypeBase<JpsSdk<P>> implements JpsLibraryType<JpsSdk<P>> {
-  private final JpsElementChildRole<P> mySdkPropertiesRole = new JpsElementChildRole<P>();
+  private final JpsElementChildRole<P> mySdkPropertiesRole = new JpsElementChildRole<>();
 
   public final JpsElementChildRole<P> getSdkPropertiesRole() {
     return mySdkPropertiesRole;
+  }
+
+  public String getPresentableName() {
+    return StringUtil.getShortName(getClass());
   }
 }

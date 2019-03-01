@@ -31,7 +31,6 @@ import com.intellij.psi.util.MethodSignature;
 import com.intellij.psi.util.MethodSignatureUtil;
 import com.intellij.reference.SoftReference;
 import com.intellij.testFramework.LightVirtualFile;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -40,9 +39,8 @@ import java.lang.ref.Reference;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 7/27/12
  */
-public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStub> implements PsiNameValuePair.Detachable {
+public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStub> implements PsiNameValuePair {
 
   public PsiNameValuePairImpl(@NotNull PsiNameValuePairStub stub) {
     super(stub, JavaStubElementTypes.NAME_VALUE_PAIR);
@@ -103,14 +101,14 @@ public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStu
   @Override
   @Nullable
   public PsiAnnotationMemberValue getDetachedValue() {
-    PsiNameValuePairStub stub = getGreenStub();
+    PsiNameValuePairStub stub = getStub();
     if (stub != null) {
       String text = stub.getValue();
       PsiAnnotationMemberValue result = SoftReference.dereference(myDetachedValue);
       if (result == null) {
         PsiAnnotation anno = JavaPsiFacade.getElementFactory(getProject()).createAnnotationFromText("@F(" + text + ")", this);
         ((LightVirtualFile)anno.getContainingFile().getViewProvider().getVirtualFile()).setWritable(false);
-        myDetachedValue = new SoftReference<PsiAnnotationMemberValue>(result = anno.findAttributeValue(null));
+        myDetachedValue = new SoftReference<>(result = anno.findAttributeValue(null));
       }
       return result;
     }
@@ -137,6 +135,7 @@ public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStu
         return target instanceof PsiClass ? (PsiClass)target : null;
       }
 
+      @NotNull
       @Override
       public PsiElement getElement() {
         PsiIdentifier nameIdentifier = getNameIdentifier();
@@ -146,6 +145,7 @@ public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStu
         return PsiNameValuePairImpl.this;
       }
 
+      @NotNull
       @Override
       public TextRange getRangeInElement() {
         PsiIdentifier id = getNameIdentifier();
@@ -174,13 +174,13 @@ public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStu
       }
 
       @Override
-      public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+      public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
         PsiIdentifier nameIdentifier = getNameIdentifier();
         if (nameIdentifier != null) {
           PsiImplUtil.setName(nameIdentifier, newElementName);
         }
         else if (ElementType.ANNOTATION_MEMBER_VALUE_BIT_SET.contains(getNode().getFirstChildNode().getElementType())) {
-          PsiElementFactory factory = JavaPsiFacade.getInstance(getProject()).getElementFactory();
+          PsiElementFactory factory = JavaPsiFacade.getElementFactory(getProject());
           nameIdentifier = factory.createIdentifier(newElementName);
           addBefore(nameIdentifier, SourceTreeToPsiMap.treeElementToPsi(getNode().getFirstChildNode()));
         }
@@ -194,14 +194,8 @@ public class PsiNameValuePairImpl extends JavaStubPsiElement<PsiNameValuePairStu
       }
 
       @Override
-      public boolean isReferenceTo(PsiElement element) {
+      public boolean isReferenceTo(@NotNull PsiElement element) {
         return element instanceof PsiMethod && element.equals(resolve());
-      }
-
-      @Override
-      @NotNull
-      public Object[] getVariants() {
-        return ArrayUtil.EMPTY_OBJECT_ARRAY;
       }
 
       @Override

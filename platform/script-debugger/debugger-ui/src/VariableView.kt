@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.debugger
 
 import com.intellij.icons.AllIcons
+import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.util.text.StringUtil
 import com.intellij.pom.Navigatable
@@ -23,6 +10,7 @@ import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiReference
 import com.intellij.util.SmartList
 import com.intellij.util.ThreeState
+import com.intellij.xdebugger.XExpression
 import com.intellij.xdebugger.XSourcePositionWrapper
 import com.intellij.xdebugger.frame.*
 import com.intellij.xdebugger.frame.presentation.XKeywordValuePresentation
@@ -36,7 +24,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.regex.Pattern
 import javax.swing.Icon
 
-fun VariableView(variable: Variable, context: VariableContext) = VariableView(variable.name, variable, context)
+fun VariableView(variable: Variable, context: VariableContext): VariableView = VariableView(variable.name, variable, context)
 
 class VariableView(override val variableName: String, private val variable: Variable, private val context: VariableContext) : XNamedValue(variableName), VariableContext {
   @Volatile private var value: Value? = null
@@ -46,12 +34,12 @@ class VariableView(override val variableName: String, private val variable: Vari
   @Volatile private var remainingChildren: List<Variable>? = null
   @Volatile private var remainingChildrenOffset: Int = 0
 
-  override fun watchableAsEvaluationExpression() = context.watchableAsEvaluationExpression()
+  override fun watchableAsEvaluationExpression(): Boolean = context.watchableAsEvaluationExpression()
 
   override val viewSupport: DebuggerViewSupport
     get() = context.viewSupport
 
-  override val parent = context
+  override val parent: VariableContext = context
 
   override val memberFilter: Promise<MemberFilter>
     get() = context.viewSupport.getMemberFilter(this)
@@ -74,17 +62,20 @@ class VariableView(override val variableName: String, private val variable: Vari
 
     if (variable !is ObjectProperty || variable.getter == null) {
       // it is "used" expression (WEB-6779 Debugger/Variables: Automatically show used variables)
-      evaluateContext.evaluate(variable.name)
-        .done(node) {
-          if (it.wasThrown) {
-            setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(it.value, null), null, node)
-          }
-          else {
-            value = it.value
-            computePresentation(it.value, node)
-          }
+        context.memberFilter.then {
+          evaluateContext.evaluate(it.sourceNameToRaw(variable.name) ?: variable.name)
+            .onSuccess(node) {
+              if (it.wasThrown) {
+                setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(it.value, null), null, node)
+              }
+              else {
+                value = it.value
+                computePresentation(it.value, node)
+              }
+            }
+            .onError(node) { setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(null, it.message), it.message, node) }
+
         }
-        .rejected(node) { setEvaluatedValue(viewSupport.transformErrorOnGetUsedReferenceValue(null, it.message), it.message, node) }
       return
     }
 
@@ -95,9 +86,14 @@ class VariableView(override val variableName: String, private val variable: Vari
     }, false)
     node.setFullValueEvaluator(object : XFullValueEvaluator(" (invoke getter)") {
       override fun startEvaluation(callback: XFullValueEvaluator.XFullValueEvaluationCallback) {
-        val valueModifier = variable.valueModifier
+        var valueModifier = variable.valueModifier
+        var nonProtoContext = context
+        while (nonProtoContext is VariableView && nonProtoContext.variableName == PROTOTYPE_PROP) {
+          valueModifier = nonProtoContext.variable.valueModifier
+          nonProtoContext = nonProtoContext.parent
+        }
         valueModifier!!.evaluateGet(variable, evaluateContext)
-          .done(node) {
+          .onSuccess(node) {
             callback.evaluated("")
             setEvaluatedValue(it, null, node)
           }
@@ -125,7 +121,7 @@ class VariableView(override val variableName: String, private val variable: Vari
 
       ValueType.BOOLEAN, ValueType.NULL, ValueType.UNDEFINED -> node.setPresentation(icon, XKeywordValuePresentation(value.valueString!!), false)
 
-      ValueType.NUMBER -> node.setPresentation(icon, createNumberPresentation(value.valueString!!), false)
+      ValueType.NUMBER, ValueType.BIGINT  -> node.setPresentation(icon, createNumberPresentation(value.valueString!!), false)
 
       ValueType.STRING -> {
         node.setPresentation(icon, XStringValuePresentation(value.valueString!!), false)
@@ -185,12 +181,13 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
 
     if (hasIndexedProperties == hasNamedProperties || additionalProperties != null) {
-      all(promises).processed(node) { node.addChildren(XValueChildrenList.EMPTY, true) }
+      promises.all().processed(node) { node.addChildren(XValueChildrenList.EMPTY, true) }
     }
   }
 
   abstract class ObsolescentIndexedVariablesConsumer(protected val node: XCompositeNode) : IndexedVariablesConsumer() {
-    override fun isObsolete() = node.isObsolete
+    override val isObsolete: Boolean
+      get() = node.isObsolete
   }
 
   private fun computeIndexedProperties(value: ArrayValue, node: XCompositeNode, isLastChildren: Boolean): Promise<*> {
@@ -221,7 +218,7 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
 
     var functionValue = value as? FunctionValue
-    if (functionValue != null && functionValue.hasScopes() == ThreeState.NO) {
+    if (functionValue != null && (functionValue.hasScopes() == ThreeState.NO)) {
       functionValue = null
     }
 
@@ -232,7 +229,7 @@ class VariableView(override val variableName: String, private val variable: Vari
 
     if (functionValue != null) {
       // we pass context as variable context instead of this variable value - we cannot watch function scopes variables, so, this variable name doesn't matter
-      node.addChildren(XValueChildrenList.bottomGroup(FunctionScopesValueGroup(functionValue, context)), isLastChildren)
+      node.addChildren(XValueChildrenList.bottomGroup(FunctionScopesValueGroup(functionValue, context)), isLastChildren && remainingChildren == null)
     }
   }
 
@@ -306,31 +303,32 @@ class VariableView(override val variableName: String, private val variable: Vari
         }
       }
 
-      override fun setValue(expression: String, callback: XValueModifier.XModificationCallback) {
-        variable.valueModifier!!.setValue(variable, expression, evaluateContext)
-          .doneRun {
+      override fun setValue(expression: XExpression, callback: XValueModifier.XModificationCallback) {
+        variable.valueModifier!!.setValue(variable, expression.expression, evaluateContext)
+          .onSuccess {
             value = null
             callback.valueModified()
           }
-          .rejected { callback.errorOccurred(it.message!!) }
+          .onError { callback.errorOccurred(it.message!!) }
       }
     }
   }
 
-  fun getValue() = variable.value
+  fun getValue(): Value? = variable.value
 
-  override fun canNavigateToSource() = value is FunctionValue || viewSupport.canNavigateToSource(variable, context)
+  override fun canNavigateToSource(): Boolean = value is FunctionValue && value?.valueString?.contains("[native code]") != true
+                                                || viewSupport.canNavigateToSource(variable, context)
 
   override fun computeSourcePosition(navigatable: XNavigatable) {
     if (value is FunctionValue) {
       (value as FunctionValue).resolve()
-        .done { function ->
+        .onSuccess { function ->
           vm!!.scriptManager.getScript(function)
-            .done {
+            .onSuccess {
               navigatable.setSourcePosition(it?.let { viewSupport.getSourceInfo(null, it, function.openParenLine, function.openParenColumn) }?.let {
                 object : XSourcePositionWrapper(it) {
                   override fun createNavigatable(project: Project): Navigatable {
-                    return PsiVisitors.visit(myPosition, project) { position, element, positionOffset, document ->
+                    return PsiVisitors.visit(myPosition, project) { _, element, _, _ ->
                       // element will be "open paren", but we should navigate to function name,
                       // we cannot use specific PSI type here (like JSFunction), so, we try to find reference expression (i.e. name expression)
                       var referenceCandidate: PsiElement? = element
@@ -367,20 +365,28 @@ class VariableView(override val variableName: String, private val variable: Vari
     }
   }
 
-  override fun computeInlineDebuggerData(callback: XInlineDebuggerDataCallback) = viewSupport.computeInlineDebuggerData(variableName, variable, context, callback)
+  override fun computeInlineDebuggerData(callback: XInlineDebuggerDataCallback): ThreeState = viewSupport.computeInlineDebuggerData(variableName, variable, context, callback)
 
   override fun getEvaluationExpression(): String? {
     if (!watchableAsEvaluationExpression()) {
       return null
     }
+    if (context.variableName == null) return variable.name // top level watch expression, may be call etc.
 
-    val list = SmartList(variable.name)
+    val list = SmartList<String>()
+    addVarName(list, parent, variable.name)
+
     var parent: VariableContext? = context
     while (parent != null && parent.variableName != null) {
-      list.add(parent.variableName!!)
+      addVarName(list, parent.parent, parent.variableName!!)
       parent = parent.parent
     }
     return context.viewSupport.propertyNamesToString(list, false)
+  }
+
+  private fun addVarName(list: SmartList<String>, parent: VariableContext?, name: String) {
+    if (parent == null || parent.variableName != null) list.add(name)
+    else list.addAll(name.split(".").reversed())
   }
 
   private class MyFullValueEvaluator(private val value: Value) : XFullValueEvaluator(if (value is StringValue) value.length else value.valueString!!.length) {
@@ -392,12 +398,12 @@ class VariableView(override val variableName: String, private val variable: Vari
 
       val evaluated = AtomicBoolean()
       value.fullString
-        .done {
+        .onSuccess {
           if (!callback.isObsolete && evaluated.compareAndSet(false, true)) {
             callback.evaluated(value.valueString!!)
           }
         }
-        .rejected { callback.errorOccurred(it.message!!) }
+        .onError { callback.errorOccurred(it.message!!) }
     }
   }
 
@@ -417,13 +423,17 @@ class VariableView(override val variableName: String, private val variable: Vari
 
       val valueString = value.valueString
       // only WIP reports normal description
-      if (valueString != null && valueString.endsWith("]") && ARRAY_DESCRIPTION_PATTERN.matcher(valueString).find()) {
+      if (valueString != null && (valueString.endsWith(")") || valueString.endsWith(']')) &&
+          ARRAY_DESCRIPTION_PATTERN.matcher(valueString).find()) {
         node.setPresentation(icon, null, valueString, true)
       }
       else {
         context.evaluateContext.evaluate("a.length", Collections.singletonMap<String, Any>("a", value), false)
-          .done(node) { node.setPresentation(icon, null, "Array[${it.value.valueString}]", true) }
-          .rejected(node) { node.setPresentation(icon, null, "Internal error: $it", false) }
+          .onSuccess(node) { node.setPresentation(icon, null, "Array[${it.value.valueString}]", true) }
+          .onError(node) {
+            logger<VariableView>().error("Failed to evaluate array length: $it")
+            node.setPresentation(icon, null, valueString ?: "Array", true)
+          }
       }
     }
 
@@ -449,23 +459,25 @@ fun getObjectValueDescription(value: ObjectValue): String {
 }
 
 internal fun trimFunctionDescription(value: Value): String {
-  val presentableValue = value.valueString ?: return ""
+  return trimFunctionDescription(value.valueString ?: return "")
+}
 
+fun trimFunctionDescription(value: String): String {
   var endIndex = 0
-  while (endIndex < presentableValue.length && !StringUtil.isLineBreak(presentableValue[endIndex])) {
+  while (endIndex < value.length && !StringUtil.isLineBreak(value[endIndex])) {
     endIndex++
   }
-  while (endIndex > 0 && Character.isWhitespace(presentableValue[endIndex - 1])) {
+  while (endIndex > 0 && Character.isWhitespace(value[endIndex - 1])) {
     endIndex--
   }
-  return presentableValue.substring(0, endIndex)
+  return value.substring(0, endIndex)
 }
 
 private fun createNumberPresentation(value: String): XValuePresentation {
   return if (value == PrimitiveValue.NA_N_VALUE || value == PrimitiveValue.INFINITY_VALUE) XKeywordValuePresentation(value) else XNumericValuePresentation(value)
 }
 
-private val ARRAY_DESCRIPTION_PATTERN = Pattern.compile("^[a-zA-Z\\d]+\\[\\d+\\]$")
+private val ARRAY_DESCRIPTION_PATTERN = Pattern.compile("^[a-zA-Z\\d]+[\\[(]\\d+[\\])]$")
 
 private class ArrayPresentation(length: Int, className: String?) : XValuePresentation() {
   private val length = Integer.toString(length)
@@ -478,3 +490,5 @@ private class ArrayPresentation(length: Int, className: String?) : XValuePresent
     renderer.renderSpecialSymbol("]")
   }
 }
+
+private const val PROTOTYPE_PROP = "__proto__"

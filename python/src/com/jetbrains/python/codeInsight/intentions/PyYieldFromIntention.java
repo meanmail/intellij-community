@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.codeInsight.intentions;
 
-import com.intellij.codeInsight.intention.impl.BaseIntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
@@ -30,7 +29,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author vlan
  */
-public class PyYieldFromIntention extends BaseIntentionAction {
+public class PyYieldFromIntention extends PyBaseIntentionAction {
   @NotNull
   @Override
   public String getFamilyName() {
@@ -45,7 +44,7 @@ public class PyYieldFromIntention extends BaseIntentionAction {
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
-    if (LanguageLevel.forElement(file).isAtLeast(LanguageLevel.PYTHON33)) {
+    if (!LanguageLevel.forElement(file).isPython2()) {
       final PyForStatement forLoop = findForStatementAtCaret(editor, file);
       if (forLoop != null) {
         final PyTargetExpression forTarget = findSingleForLoopTarget(forLoop);
@@ -62,7 +61,7 @@ public class PyYieldFromIntention extends BaseIntentionAction {
   }
 
   @Override
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     final PyForStatement forLoop = findForStatementAtCaret(editor, file);
     if (forLoop != null) {
       final PyExpression source = forLoop.getForPart().getSource();
@@ -101,9 +100,8 @@ public class PyYieldFromIntention extends BaseIntentionAction {
   @Nullable
   private static PyReferenceExpression findSingleYieldValue(@NotNull PyForStatement forLoop) {
     final PyForPart forPart = forLoop.getForPart();
-    final PyStatementList stmtList = forPart.getStatementList();
-    if (stmtList != null && forLoop.getElsePart() == null) {
-      final PyStatement[] statements = stmtList.getStatements();
+    if (forLoop.getElsePart() == null) {
+      final PyStatement[] statements = forPart.getStatementList().getStatements();
       if (statements.length == 1) {
         final PyStatement firstStmt = statements[0];
         if (firstStmt instanceof PyExpressionStatement) {

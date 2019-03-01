@@ -42,11 +42,13 @@ public class EmptyResourceBundle {
         throw new IllegalStateException();
       }
 
+      @Override
       @NotNull
       public String getBaseName() {
         return "";
       }
 
+      @Override
       @NotNull
       public VirtualFile getBaseDirectory() {
         throw new IllegalStateException();
@@ -56,6 +58,11 @@ public class EmptyResourceBundle {
       @Override
       public Project getProject() {
         throw new IllegalStateException();
+      }
+
+      @Override
+      public boolean isValid() {
+        return false;
       }
     };
   }

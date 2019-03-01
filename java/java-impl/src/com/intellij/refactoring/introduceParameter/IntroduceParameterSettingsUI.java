@@ -27,7 +27,6 @@ import com.intellij.ui.NonFocusableCheckBox;
 import com.intellij.ui.StateRestoringCheckBox;
 import com.intellij.util.ui.JBUI;
 import gnu.trove.TIntArrayList;
-import gnu.trove.TIntProcedure;
 
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
@@ -36,10 +35,6 @@ import java.awt.*;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 
-/**
- * User: anna
- * Date: 2/27/11
- */
 public abstract class IntroduceParameterSettingsUI {
   protected final boolean myIsInvokedOnDeclaration;
   protected final boolean myHasInitializer;
@@ -66,11 +61,9 @@ public abstract class IntroduceParameterSettingsUI {
     final PsiParameter[] parameters = methodToReplaceIn.getParameterList().getParameters();
     myParametersToRemove = new PsiParameter[parameters.length];
     myParametersToRemoveChecked = new boolean[parameters.length];
-    parametersToRemove.forEach(new TIntProcedure() {
-      public boolean execute(final int paramNum) {
-        myParametersToRemove[paramNum] = parameters[paramNum];
-        return true;
-      }
+    parametersToRemove.forEach(paramNum -> {
+      myParametersToRemove[paramNum] = parameters[paramNum];
+      return true;
     });
     myIsLocalVariable = onLocalVariable != null;
   }
@@ -207,7 +200,7 @@ public abstract class IntroduceParameterSettingsUI {
       getTypeSelectionManager().setAllOccurrences(myIsInvokedOnDeclaration);
     }
   }
-  
+
   protected abstract TypeSelectorManager getTypeSelectionManager();
 
   protected void createRemoveParamsPanel(GridBagConstraints gbConstraints, JPanel panel) {
@@ -235,6 +228,7 @@ public abstract class IntroduceParameterSettingsUI {
     if (myCbReplaceAllOccurences != null) {
       myCbReplaceAllOccurences.addItemListener(
         new ItemListener() {
+          @Override
           public void itemStateChanged(ItemEvent e) {
             updateControls(removeParamsCb);
           }

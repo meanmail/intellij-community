@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.ui.playback;
 
 import com.intellij.ide.IdeEventQueue;
@@ -28,7 +14,9 @@ import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFrame;
 import com.intellij.util.text.StringTokenizer;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.concurrency.Promise;
 
 import javax.swing.*;
 import java.awt.*;
@@ -36,7 +24,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
-public class PlaybackRunner {
+public class PlaybackRunner implements Disposable {
 
   private static final Logger LOG = Logger.getInstance("#com.intellij.ui.debugger.extensions.PlaybackRunner");
 
@@ -50,21 +38,21 @@ public class PlaybackRunner {
   private boolean myStopRequested;
 
   private final boolean myUseDirectActionCall;
-  private boolean myUseTypingTargets;
+  private final boolean myUseTypingTargets;
 
   private File myScriptDir;
-  private boolean myStopOnAppDeactivation;
+  private final boolean myStopOnAppDeactivation;
   private final ApplicationActivationListener myAppListener;
 
-  private HashSet<Class> myFacadeClasses = new HashSet<>();
-  private ArrayList<StageInfo> myCurrentStageDepth = new ArrayList<>();
-  private ArrayList<StageInfo> myPassedStages = new ArrayList<>();
+  private final HashSet<Class> myFacadeClasses = new HashSet<>();
+  private final ArrayList<StageInfo> myCurrentStageDepth = new ArrayList<>();
+  private final ArrayList<StageInfo> myPassedStages = new ArrayList<>();
 
   private long myContextTimestamp;
 
-  private Map<String, String> myRegistryValues = new HashMap<>();
+  private final Map<String, String> myRegistryValues = new HashMap<>();
 
-  private Disposable myOnStop = Disposer.newDisposable();
+  private final Disposable myOnStop = Disposer.newDisposable();
 
   public PlaybackRunner(String script, StatusCallback callback, final boolean useDirectActionCall, boolean stopOnAppDeactivation, boolean useTypingTargets) {
     myScript = script;
@@ -72,9 +60,9 @@ public class PlaybackRunner {
     myUseDirectActionCall = useDirectActionCall;
     myUseTypingTargets = useTypingTargets;
     myStopOnAppDeactivation = stopOnAppDeactivation;
-    myAppListener = new ApplicationActivationListener.Adapter() {
+    myAppListener = new ApplicationActivationListener() {
       @Override
-      public void applicationDeactivated(IdeFrame ideFrame) {
+      public void applicationDeactivated(@NotNull IdeFrame ideFrame) {
         if (myStopOnAppDeactivation) {
           myCallback.message(null, "App lost focus, stopping...", StatusCallback.Type.message);
           stop();
@@ -148,12 +136,14 @@ public class PlaybackRunner {
       final PlaybackContext context =
         new PlaybackContext(this, myCallback, cmdIndex, myRobot, myUseDirectActionCall, myUseTypingTargets, cmd, baseDir, (Set<Class>)myFacadeClasses.clone()) {
 
-          private long myTimeStamp = myContextTimestamp;
+          private final long myTimeStamp = myContextTimestamp;
 
+          @Override
           public void pushStage(StageInfo info) {
             myCurrentStageDepth.add(info);
           }
 
+          @Override
           public StageInfo popStage() {
             if (myCurrentStageDepth.size() > 0) {
               return myCurrentStageDepth.remove(myCurrentStageDepth.size() - 1);
@@ -162,6 +152,7 @@ public class PlaybackRunner {
             return null;
           }
 
+          @Override
           public int getCurrentStageDepth() {
             return myCurrentStageDepth.size();
           }
@@ -183,19 +174,21 @@ public class PlaybackRunner {
             }
           }
         };
-      final ActionCallback cmdCallback = cmd.execute(context);
-      cmdCallback.doWhenDone(() -> {
-        if (cmd.canGoFurther()) {
-          executeFrom(cmdIndex + 1, context.getBaseDir());
-        }
-        else {
+      final Promise<Object> cmdCallback = cmd.execute(context);
+      cmdCallback
+        .onSuccess(it -> {
+          if (cmd.canGoFurther()) {
+            executeFrom(cmdIndex + 1, context.getBaseDir());
+          }
+          else {
+            myCallback.message(null, "Stopped", StatusCallback.Type.message);
+            myActionCallback.setDone();
+          }
+        })
+        .onError(error -> {
           myCallback.message(null, "Stopped", StatusCallback.Type.message);
-          myActionCallback.setDone();
-        }
-      }).doWhenRejected(() -> {
-        myCallback.message(null, "Stopped", StatusCallback.Type.message);
-        myActionCallback.setRejected();
-      });
+          myActionCallback.setRejected();
+        });
     }
     else {
       myCallback.message(null, "Finished OK " + myPassedStages.size() + " tests", StatusCallback.Type.message);
@@ -300,10 +293,6 @@ public class PlaybackRunner {
     return cmd;
   }
 
-  private void setDone() {
-    myActionCallback.setDone();
-  }
-
   public void stop() {
     myStopRequested = true;
     Disposer.dispose(myOnStop);
@@ -317,6 +306,11 @@ public class PlaybackRunner {
     myScriptDir = baseDir;
   }
 
+  @Override
+  public void dispose() {
+    myCommands.clear();
+  }
+
   public interface StatusCallback {
 
     enum Type {message, error, code, test}
@@ -326,6 +320,7 @@ public class PlaybackRunner {
     abstract class Edt implements StatusCallback {
 
 
+      @Override
       public final void message(final PlaybackContext context,
                                 final String text,
                                 final Type type) {

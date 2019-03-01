@@ -48,7 +48,7 @@ public class ExcludeFolderImpl extends ContentFolderBaseImpl implements Clonable
     LOG.assertTrue(ELEMENT_NAME.equals(element.getName()));
   }
 
-  public ExcludeFolderImpl(@NotNull ExcludeFolderImpl that, @NotNull ContentEntryImpl contentEntry) {
+  private ExcludeFolderImpl(@NotNull ExcludeFolderImpl that, @NotNull ContentEntryImpl contentEntry) {
     super(that, contentEntry);
   }
 
@@ -56,8 +56,9 @@ public class ExcludeFolderImpl extends ContentFolderBaseImpl implements Clonable
     writeFolder(element, ELEMENT_NAME);
   }
 
+  @NotNull
   @Override
-  public ContentFolder cloneFolder(ContentEntry contentEntry) {
+  public ContentFolder cloneFolder(@NotNull ContentEntry contentEntry) {
     return new ExcludeFolderImpl(this, (ContentEntryImpl)contentEntry);
   }
 

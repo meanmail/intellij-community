@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vfs;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.CachedSingletonsRegistry;
 import com.intellij.openapi.util.ModificationTracker;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.util.io.URLUtil;
@@ -31,24 +18,24 @@ import org.jetbrains.annotations.Nullable;
  * @see VirtualFileSystem
  */
 public abstract class VirtualFileManager implements ModificationTracker {
-  public static final Topic<BulkFileListener> VFS_CHANGES =
-    new Topic<BulkFileListener>("NewVirtualFileSystem changes", BulkFileListener.class);
+  public static final Topic<BulkFileListener> VFS_CHANGES = new Topic<>("NewVirtualFileSystem changes", BulkFileListener.class);
 
-  public static final ModificationTracker VFS_STRUCTURE_MODIFICATIONS = new ModificationTracker() {
-    @Override
-    public long getModificationCount() {
-      return getInstance().getStructureModificationCount();
-    }
-  };
+  public static final ModificationTracker VFS_STRUCTURE_MODIFICATIONS = () -> getInstance().getStructureModificationCount();
+
+  private static VirtualFileManager ourInstance = CachedSingletonsRegistry.markCachedField(VirtualFileManager.class);
 
   /**
-   * Gets the instance of <code>VirtualFileManager</code>.
+   * Gets the instance of {@code VirtualFileManager}.
    *
-   * @return <code>VirtualFileManager</code>
+   * @return {@code VirtualFileManager}
    */
   @NotNull
   public static VirtualFileManager getInstance() {
-    return ApplicationManager.getApplication().getComponent(VirtualFileManager.class);
+    VirtualFileManager result = ourInstance;
+    if (result == null) {
+      ourInstance = result = ApplicationManager.getApplication().getComponent(VirtualFileManager.class);
+    }
+    return result;
   }
 
   /**
@@ -85,7 +72,7 @@ public abstract class VirtualFileManager implements ModificationTracker {
    * file systems.
    *
    * @param url the URL to find file by
-   * @return <code>{@link VirtualFile}</code> if the file was found, <code>null</code> otherwise
+   * @return <code>{@link VirtualFile}</code> if the file was found, {@code null} otherwise
    * @see VirtualFile#getUrl
    * @see VirtualFileSystem#findFileByPath
    * @see #refreshAndFindFileByUrl
@@ -103,7 +90,7 @@ public abstract class VirtualFileManager implements ModificationTracker {
    * If this method is invoked not from Swing event dispatch thread, then it must not happen inside a read action.
    *
    * @param url the URL
-   * @return <code>{@link VirtualFile}</code> if the file was found, <code>null</code> otherwise
+   * @return <code>{@link VirtualFile}</code> if the file was found, {@code null} otherwise
    * @see VirtualFileSystem#findFileByPath
    * @see VirtualFileSystem#refreshAndFindFileByPath
    */
@@ -144,7 +131,7 @@ public abstract class VirtualFileManager implements ModificationTracker {
    * Extracts protocol from the given URL. Protocol is a substring from the beginning of the URL till "://".
    *
    * @param url the URL
-   * @return protocol or <code>null</code> if there is no "://" in the URL
+   * @return protocol or {@code null} if there is no "://" in the URL
    * @see VirtualFileSystem#getProtocol
    */
   @Nullable
@@ -164,8 +151,7 @@ public abstract class VirtualFileManager implements ModificationTracker {
   @NotNull
   public static String extractPath(@NotNull String url) {
     int index = url.indexOf(URLUtil.SCHEME_SEPARATOR);
-    if (index < 0) return url;
-    return url.substring(index + URLUtil.SCHEME_SEPARATOR.length());
+    return index >= 0 ? url.substring(index + URLUtil.SCHEME_SEPARATOR.length()) : url;
   }
 
   public abstract void addVirtualFileManagerListener(@NotNull VirtualFileManagerListener listener);
@@ -174,7 +160,10 @@ public abstract class VirtualFileManager implements ModificationTracker {
 
   public abstract void removeVirtualFileManagerListener(@NotNull VirtualFileManagerListener listener);
 
-  public abstract void notifyPropertyChanged(@NotNull VirtualFile virtualFile, @NotNull String property, Object oldValue, Object newValue);
+  public abstract void notifyPropertyChanged(@NotNull VirtualFile virtualFile,
+                                             @VirtualFile.PropName @NotNull String property,
+                                             Object oldValue,
+                                             Object newValue);
 
   /**
    * @return a number that's incremented every time something changes in the VFS, i.e. file hierarchy, names, flags, attributes, contents.
@@ -191,4 +180,7 @@ public abstract class VirtualFileManager implements ModificationTracker {
    */
   public abstract long getStructureModificationCount();
 
+  public VirtualFile findFileById(int id) {
+    return null;
+  }
 }

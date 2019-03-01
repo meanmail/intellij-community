@@ -26,19 +26,12 @@ import com.intellij.usageView.UsageViewUtil;
 import com.intellij.usages.TextChunk;
 import com.intellij.usages.UsageInfo2UsageAdapter;
 import com.intellij.usages.UsagePresentation;
-import com.intellij.util.Function;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Created with IntelliJ IDEA.
- * User: Irina.Chernushina
- * Date: 6/6/12
- * Time: 7:24 PM
- */
 public class UsageProjectTreeNode extends ProjectViewNodeWithChildrenList<UsageInfo> {
   private final UsagePresentation myUsagePresentation;
 
-  public UsageProjectTreeNode(Project project, UsageInfo usage, ViewSettings viewSettings) {
+  public UsageProjectTreeNode(Project project, @NotNull UsageInfo usage, ViewSettings viewSettings) {
     super(project, usage, viewSettings);
     final UsageInfo2UsageAdapter adapter = new UsageInfo2UsageAdapter(usage);
     myUsagePresentation = adapter.getPresentation();
@@ -58,7 +51,7 @@ public class UsageProjectTreeNode extends ProjectViewNodeWithChildrenList<UsageI
   }
 
   @Override
-  protected void update(PresentationData presentation) {
+  protected void update(@NotNull PresentationData presentation) {
     presentation.setIcon(myUsagePresentation.getIcon());
     presentation.setTooltip(myUsagePresentation.getTooltipText());
     final TextChunk[] text = myUsagePresentation.getText();

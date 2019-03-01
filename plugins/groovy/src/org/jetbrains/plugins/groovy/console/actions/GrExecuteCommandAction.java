@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,7 +26,11 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.PsiFile;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.console.GroovyConsole;
+import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
+import org.jetbrains.plugins.groovy.lang.psi.api.toplevel.imports.GrImportStatement;
 
 public class GrExecuteCommandAction extends AnAction {
 
@@ -35,7 +39,7 @@ public class GrExecuteCommandAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getProject();
     final Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
     final VirtualFile virtualFile = CommonDataKeys.VIRTUAL_FILE.getData(e.getDataContext());
@@ -45,7 +49,24 @@ public class GrExecuteCommandAction extends AnAction {
 
     final Document document = editor.getDocument();
     final TextRange selectedRange = EditorUtil.getSelectionInAnyMode(editor);
-    final String command = (selectedRange.isEmpty() ? document.getText() : document.getText(selectedRange));
+    final String command;
+    if (selectedRange.isEmpty()) {
+      command = document.getText(); // whole document
+    }
+    else {
+      StringBuilder commandBuilder = new StringBuilder();
+      PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
+      if (file instanceof GroovyFile) {
+        GrImportStatement[] statements = ((GroovyFile)file).getImportStatements();
+        for (GrImportStatement statement : statements) {
+          if (!selectedRange.contains(statement.getTextRange())) {
+            commandBuilder.append(statement.getText()).append("\n");
+          }
+        }
+      }
+      commandBuilder.append(document.getText(selectedRange));
+      command = commandBuilder.toString();
+    }
 
     final GroovyConsole existingConsole = virtualFile.getUserData(GroovyConsole.GROOVY_CONSOLE);
     if (existingConsole == null) {

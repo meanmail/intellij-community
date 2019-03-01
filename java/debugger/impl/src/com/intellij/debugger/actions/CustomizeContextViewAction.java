@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,21 +16,16 @@
 package com.intellij.debugger.actions;
 
 import com.intellij.debugger.DebuggerBundle;
-import com.intellij.debugger.engine.JavaDebugProcess;
 import com.intellij.debugger.settings.JavaDebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.idea.ActionsBundle;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.TabbedConfigurable;
 import com.intellij.openapi.options.ex.SingleConfigurableEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.util.ui.JBUI;
-import com.intellij.xdebugger.XDebugSession;
-import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.impl.ui.tree.actions.XDebuggerTreeActionBase;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
 import org.jetbrains.annotations.NotNull;
@@ -42,15 +37,14 @@ public class CustomizeContextViewAction extends XDebuggerTreeActionBase {
   private static int ourLastSelectedTabIndex = 0;
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     perform(null, "", e);
   }
 
   @Override
   protected void perform(XValueNodeImpl node, @NotNull String nodeName, AnActionEvent e) {
     final Project project = e.getProject();
-    Disposable disposable = Disposer.newDisposable();
-    final MyTabbedConfigurable configurable = new MyTabbedConfigurable(disposable);
+    final MyTabbedConfigurable configurable = new MyTabbedConfigurable();
     SingleConfigurableEditor editor = new SingleConfigurableEditor(project, configurable) {
       @Override
       protected void doOKAction() {
@@ -66,15 +60,11 @@ public class CustomizeContextViewAction extends XDebuggerTreeActionBase {
         super.doCancelAction();
       }
     };
-    Disposer.register(editor.getDisposable(), disposable);
     editor.show();
   }
 
   private static class MyTabbedConfigurable extends TabbedConfigurable {
-    public MyTabbedConfigurable(@NotNull Disposable parent) {
-      super(parent);
-    }
-
+    @NotNull
     @Override
     protected List<Configurable> createConfigurables() {
       return JavaDebuggerSettings.createDataViewsConfigurable();
@@ -113,16 +103,8 @@ public class CustomizeContextViewAction extends XDebuggerTreeActionBase {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     e.getPresentation().setText(ActionsBundle.actionText(DebuggerActions.CUSTOMIZE_VIEWS));
-    Project project = getEventProject(e);
-    if (project != null) {
-      final XDebugSession currentSession = XDebuggerManager.getInstance(project).getCurrentSession();
-      if (currentSession != null) {
-        e.getPresentation().setEnabledAndVisible(currentSession.getDebugProcess() instanceof JavaDebugProcess);
-        return;
-      }
-    }
-    e.getPresentation().setEnabledAndVisible(false);
+    e.getPresentation().setEnabledAndVisible(DebuggerAction.isInJavaSession(e));
   }
 }

@@ -43,9 +43,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * User: Vassiliy.Kudryashov
- */
 public class JdkPopupAction extends AnAction {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.fileChooser.actions.JDKPopupAction");
 
@@ -54,7 +51,7 @@ public class JdkPopupAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     boolean enabled = isEnabledInCurrentOS();
     if (enabled) {
       FileSystemTree tree = FileSystemTree.DATA_KEY.getData(e.getDataContext());
@@ -67,7 +64,7 @@ public class JdkPopupAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final JComponent component;
     final boolean showInMiddle;
     InputEvent inputEvent = e.getInputEvent();
@@ -119,7 +116,7 @@ public class JdkPopupAction extends AnAction {
                 if (selectedFile != null) {
                   selected = homes.getFirst().getAbsolutePath().equals(VfsUtilCore.virtualToIoFile(selectedFile).getAbsolutePath());
                 }
-                e.getPresentation().setIcon(selected ? AllIcons.Diff.CurrentLine : null);
+                e.getPresentation().setIcon(selected ? AllIcons.Actions.Forward : null);
               }
 
               @Override
@@ -128,7 +125,7 @@ public class JdkPopupAction extends AnAction {
               }
             });
           }
-          return result.toArray(new AnAction[result.size()]);
+          return result.toArray(AnAction.EMPTY_ARRAY);
         }
       });
     JPopupMenu menuComponent = menu.getComponent();
@@ -160,7 +157,7 @@ public class JdkPopupAction extends AnAction {
           String line = lines.get(1);
           int pos = line.indexOf("(build ");
           if (pos != -1) {
-            stringBuilder.append(line.substring(pos + 7, line.length() - 1));
+            stringBuilder.append(line, pos + 7, line.length() - 1);
           }
           line = lines.get(2);
           pos = line.indexOf(" (build");

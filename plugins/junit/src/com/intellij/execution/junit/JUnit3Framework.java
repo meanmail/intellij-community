@@ -15,6 +15,7 @@
  */
 package com.intellij.execution.junit;
 
+import com.intellij.execution.configurations.ConfigurationType;
 import com.intellij.execution.junit2.info.MethodLocation;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.fileTemplates.FileTemplateDescriptor;
@@ -29,6 +30,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 
 public class JUnit3Framework extends JavaTestFramework {
+  @Override
   @NotNull
   public String getName() {
     return "JUnit3";
@@ -50,8 +52,18 @@ public class JUnit3Framework extends JavaTestFramework {
   }
 
   @Override
+  public boolean isSuiteClass(PsiClass psiClass) {
+    return JUnitUtil.findSuiteMethod(psiClass) != null;
+  }
+
+  @Override
   public boolean isTestMethod(PsiMethod method, PsiClass myClass) {
     return JUnitUtil.isTestMethod(MethodLocation.elementInClass(method, myClass));
+  }
+
+  @Override
+  public boolean isMyConfigurationType(ConfigurationType type) {
+    return type instanceof JUnitConfigurationType;
   }
 
   @NotNull
@@ -60,6 +72,7 @@ public class JUnit3Framework extends JavaTestFramework {
     return AllIcons.RunConfigurations.Junit;
   }
 
+  @Override
   protected String getMarkerClassFQName() {
     return "junit.framework.TestCase";
   }
@@ -70,11 +83,13 @@ public class JUnit3Framework extends JavaTestFramework {
     return JUnitExternalLibraryDescriptor.JUNIT3;
   }
 
+  @Override
   @Nullable
   public String getDefaultSuperClass() {
     return "junit.framework.TestCase";
   }
 
+  @Override
   public boolean isTestClass(PsiClass clazz, boolean canBePotential) {
     if (JUnitUtil.isJUnit3TestClass(clazz)) {
       return true;
@@ -135,20 +150,24 @@ public class JUnit3Framework extends JavaTestFramework {
     return inClass;
   }
 
+  @Override
   public FileTemplateDescriptor getSetUpMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit3 SetUp Method.java");
   }
 
+  @Override
   public FileTemplateDescriptor getTearDownMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit3 TearDown Method.java");
   }
 
+  @Override
+  @NotNull
   public FileTemplateDescriptor getTestMethodFileTemplateDescriptor() {
     return new FileTemplateDescriptor("JUnit3 Test Method.java");
   }
 
   @Override
-  public boolean isTestMethod(PsiElement element) {
-    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element) != null;
+  public boolean isTestMethod(PsiElement element, boolean checkAbstract) {
+    return element instanceof PsiMethod && JUnitUtil.getTestMethod(element, checkAbstract) != null;
   }
 }

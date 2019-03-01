@@ -16,16 +16,15 @@
 package com.intellij.codeInspection.actions;
 
 import com.intellij.analysis.AnalysisScope;
+import com.intellij.application.options.schemes.SchemesCombo;
 import com.intellij.codeInspection.InspectionManager;
 import com.intellij.codeInspection.InspectionProfile;
 import com.intellij.codeInspection.ex.GlobalInspectionContextBase;
+import com.intellij.codeInspection.ex.InspectionProfileImpl;
 import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.openapi.project.Project;
-import com.intellij.profile.codeInspection.InspectionProfileManager;
 import com.intellij.profile.codeInspection.InspectionProjectProfileManager;
 import com.intellij.profile.codeInspection.ProjectInspectionProfileManager;
-import com.intellij.profile.codeInspection.ui.header.InspectionToolsConfigurable;
-import com.intellij.profile.codeInspection.ui.header.ProfilesComboBox;
 
 public class CodeCleanupAction extends CodeInspectionAction {
 
@@ -40,7 +39,7 @@ public class CodeCleanupAction extends CodeInspectionAction {
     final InspectionProfile profile = myExternalProfile != null ? myExternalProfile : InspectionProjectProfileManager.getInstance(project)
       .getCurrentProfile();
     final InspectionManager managerEx = InspectionManager.getInstance(project);
-    final GlobalInspectionContextBase globalContext = (GlobalInspectionContextBase)managerEx.createNewGlobalContext(false);
+    final GlobalInspectionContextBase globalContext = (GlobalInspectionContextBase)managerEx.createNewGlobalContext();
     globalContext.codeCleanup(scope, profile, getTemplatePresentation().getText(), null, false);
   }
 
@@ -50,9 +49,8 @@ public class CodeCleanupAction extends CodeInspectionAction {
   }
 
   @Override
-  protected InspectionToolsConfigurable createConfigurable(ProjectInspectionProfileManager projectProfileManager,
-                                                           InspectionProfileManager profileManager,
-                                                           ProfilesComboBox profilesCombo) {
+  protected ExternalProfilesComboboxAwareInspectionToolsConfigurable createConfigurable(ProjectInspectionProfileManager projectProfileManager,
+                                                                                        SchemesCombo<InspectionProfileImpl> profilesCombo) {
     return new ExternalProfilesComboboxAwareInspectionToolsConfigurable(projectProfileManager, profilesCombo) {
       @Override
       protected boolean acceptTool(InspectionToolWrapper entry) {

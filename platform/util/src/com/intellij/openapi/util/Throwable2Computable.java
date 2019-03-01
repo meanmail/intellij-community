@@ -17,9 +17,8 @@ package com.intellij.openapi.util;
 
 /**
  * @author irengrig
- *         Date: 6/9/11
- *         Time: 5:46 PM
  */
+@FunctionalInterface
 public interface Throwable2Computable<T, E extends Throwable, E2 extends Throwable> {
   T compute() throws E, E2;
 }

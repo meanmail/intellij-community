@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.Patches;
+import com.intellij.ProjectTopics;
 import com.intellij.debugger.*;
 import com.intellij.debugger.actions.DebuggerAction;
 import com.intellij.debugger.actions.DebuggerActions;
@@ -27,13 +14,17 @@ import com.intellij.debugger.engine.jdi.ThreadReferenceProxy;
 import com.intellij.debugger.engine.requests.MethodReturnValueWatcher;
 import com.intellij.debugger.engine.requests.RequestManagerImpl;
 import com.intellij.debugger.impl.*;
+import com.intellij.debugger.impl.attach.PidRemoteConnection;
+import com.intellij.debugger.jdi.EmptyConnectorArgument;
 import com.intellij.debugger.jdi.StackFrameProxyImpl;
 import com.intellij.debugger.jdi.ThreadReferenceProxyImpl;
 import com.intellij.debugger.jdi.VirtualMachineProxyImpl;
+import com.intellij.debugger.memory.agent.MemoryAgent;
 import com.intellij.debugger.settings.DebuggerSettings;
 import com.intellij.debugger.settings.NodeRendererSettings;
 import com.intellij.debugger.ui.breakpoints.BreakpointManager;
 import com.intellij.debugger.ui.breakpoints.RunToCursorBreakpoint;
+import com.intellij.debugger.ui.breakpoints.StackCapturingLineBreakpoint;
 import com.intellij.debugger.ui.breakpoints.StepIntoBreakpoint;
 import com.intellij.debugger.ui.tree.ValueDescriptor;
 import com.intellij.debugger.ui.tree.render.ArrayRenderer;
@@ -51,18 +42,16 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.JavaSdkType;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
-import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.util.UserDataHolderBase;
+import com.intellij.openapi.util.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.impl.status.StatusBarUtil;
@@ -72,26 +61,32 @@ import com.intellij.psi.PsiManager;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.ui.classFilter.ClassFilter;
 import com.intellij.ui.classFilter.DebuggerClassFilterProvider;
-import com.intellij.util.*;
+import com.intellij.util.Alarm;
+import com.intellij.util.Consumer;
+import com.intellij.util.EventDispatcher;
 import com.intellij.util.concurrency.Semaphore;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
+import com.intellij.util.lang.JavaVersion;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.xdebugger.XDebugSession;
 import com.intellij.xdebugger.XSourcePosition;
 import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
 import com.intellij.xdebugger.impl.actions.XDebuggerActions;
+import com.intellij.xdebugger.impl.ui.DebuggerUIUtil;
 import com.sun.jdi.*;
 import com.sun.jdi.connect.*;
 import com.sun.jdi.request.EventRequest;
 import com.sun.jdi.request.EventRequestManager;
 import com.sun.jdi.request.StepRequest;
+import one.util.streamex.StreamEx;
 import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 import java.net.UnknownHostException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -109,10 +104,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private final RequestManagerImpl myRequestManager;
 
   private volatile VirtualMachineProxyImpl myVirtualMachineProxy = null;
+  @Nullable protected volatile MemoryAgent myMemoryAgent;
   protected final EventDispatcher<DebugProcessListener> myDebugProcessDispatcher = EventDispatcher.create(DebugProcessListener.class);
   protected final EventDispatcher<EvaluationListener> myEvaluationDispatcher = EventDispatcher.create(EvaluationListener.class);
 
   private final List<ProcessListener> myProcessListeners = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final StringBuilder myTextBeforeStart = new StringBuilder();
 
   enum State {INITIAL, ATTACHED, DETACHING, DETACHED}
   protected final AtomicReference<State> myState = new AtomicReference<>(State.INITIAL);
@@ -134,10 +131,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private final Semaphore myWaitFor = new Semaphore();
   private final AtomicBoolean myIsFailed = new AtomicBoolean(false);
+  private final AtomicBoolean myIsStopped = new AtomicBoolean(false);
   protected DebuggerSession mySession;
   @Nullable protected MethodReturnValueWatcher myReturnValueWatcher;
-  private final Disposable myDisposable = Disposer.newDisposable();
-  private final Alarm myStatusUpdateAlarm = new Alarm(Alarm.ThreadToUse.POOLED_THREAD, myDisposable);
+  protected final Disposable myDisposable = Disposer.newDisposable();
+  private final Alarm myStatusUpdateAlarm = new Alarm();
 
   private final ThreadBlockedMonitor myThreadBlockedMonitor = new ThreadBlockedMonitor(this, myDisposable);
 
@@ -149,7 +147,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     reloadRenderers();
     myDebugProcessDispatcher.addListener(new DebugProcessListener() {
       @Override
-      public void paused(SuspendContext suspendContext) {
+      public void paused(@NotNull SuspendContext suspendContext) {
         myThreadBlockedMonitor.stopWatching(
           suspendContext.getSuspendPolicy() != EventRequest.SUSPEND_ALL ? suspendContext.getThread() : null);
       }
@@ -157,23 +155,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private void reloadRenderers() {
-    getManagerThread().invoke(new DebuggerCommandImpl() {
+    getManagerThread().invoke(new DebuggerCommandImpl(PrioritizedTask.Priority.HIGH) {
       @Override
-      public Priority getPriority() {
-        return Priority.HIGH;
-      }
-
-      @Override
-      protected void action() throws Exception {
+      protected void action() {
         myNodeRenderersMap.clear();
         myRenderers.clear();
         try {
-          final NodeRendererSettings rendererSettings = NodeRendererSettings.getInstance();
-          for (final NodeRenderer renderer : rendererSettings.getAllRenderers()) {
-            if (renderer.isEnabled()) {
-              myRenderers.add(renderer);
-            }
-          }
+          NodeRendererSettings.getInstance().getAllRenderers(myProject).stream()
+            .filter(NodeRenderer::isEnabled)
+            .forEachOrdered(myRenderers::add);
         }
         finally {
           DebuggerInvocationUtil.swingInvokeLater(myProject, () -> {
@@ -203,13 +193,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   public void setWatchMethodReturnValuesEnabled(boolean enabled) {
     final MethodReturnValueWatcher watcher = myReturnValueWatcher;
     if (watcher != null) {
-      watcher.setFeatureEnabled(enabled);
+      watcher.setEnabled(enabled);
     }
-  }
-
-  public boolean isWatchMethodReturnValuesEnabled() {
-    final MethodReturnValueWatcher watcher = myReturnValueWatcher;
-    return watcher != null && watcher.isFeatureEnabled();
   }
 
   public boolean canGetMethodReturnValue() {
@@ -221,14 +206,21 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     Type type = descriptor.getType();
 
     // in case evaluation is not possible, force default renderer
-    if (!DebuggerManagerEx.getInstanceEx(getProject()).getContext().isEvaluationPossible()) {
+    if (!isEvaluationPossible()) {
       return getDefaultRenderer(type);
     }
 
-    return myNodeRenderersMap.computeIfAbsent(type, t ->
-      myRenderers.stream().
-        filter(r -> DebuggerUtilsImpl.suppressExceptions(() -> r.isApplicable(type), false)).
-        findFirst().orElseGet(() -> getDefaultRenderer(type)));
+    try {
+      return myNodeRenderersMap.computeIfAbsent(type, t ->
+        myRenderers.stream().
+          filter(r -> DebuggerUtilsImpl.suppressExceptions(() -> r.isApplicable(type), false, true, ClassNotPreparedException.class)).
+          findFirst().orElseGet(() -> getDefaultRenderer(type)));
+    }
+    catch (ClassNotPreparedException e) {
+      LOG.info(e);
+      // use default, but do not cache
+      return getDefaultRenderer(type);
+    }
   }
 
   @NotNull
@@ -255,23 +247,13 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return classRenderer;
   }
 
-  private static final String ourTrace = System.getProperty("idea.debugger.trace");
+  private static final int ourTraceMask;
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
-  protected void commitVM(VirtualMachine vm) {
-    if (!isInInitialState()) {
-      LOG.error("State is invalid " + myState.get());
-    }
-    DebuggerManagerThreadImpl.assertIsManagerThread();
-    myPositionManager = new CompoundPositionManager(new PositionManagerImpl(this));
-    LOG.debug("*******************VM attached******************");
-    checkVirtualMachineVersion(vm);
-
-    myVirtualMachineProxy = new VirtualMachineProxyImpl(this, vm);
-
-    if (!StringUtil.isEmpty(ourTrace)) {
-      int mask = 0;
-      StringTokenizer tokenizer = new StringTokenizer(ourTrace);
+  static {
+    String traceStr = System.getProperty("idea.debugger.trace");
+    int mask = 0;
+    if (!StringUtil.isEmpty(traceStr)) {
+      StringTokenizer tokenizer = new StringTokenizer(traceStr);
       while (tokenizer.hasMoreTokens()) {
         String token = tokenizer.nextToken();
         if ("SENDS".compareToIgnoreCase(token) == 0) {
@@ -299,9 +281,33 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           mask |= VirtualMachine.TRACE_ALL;
         }
       }
-
-      vm.setDebugTraceMode(mask);
     }
+    ourTraceMask = mask;
+  }
+
+  @SuppressWarnings({"HardCodedStringLiteral"})
+  protected void commitVM(VirtualMachine vm) {
+    if (!isInInitialState()) {
+      LOG.error("State is invalid " + myState.get());
+    }
+    DebuggerManagerThreadImpl.assertIsManagerThread();
+    myPositionManager = new CompoundPositionManager(new PositionManagerImpl(this));
+    myProject.getMessageBus().connect(myDisposable).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
+      @Override
+      public void rootsChanged(@NotNull final ModuleRootEvent event) {
+        DumbService.getInstance(myProject).runWhenSmart(
+          () -> getManagerThread().schedule(PrioritizedTask.Priority.HIGH, () -> {
+            myPositionManager.clearCache();
+            DebuggerUIUtil.invokeLater(() -> mySession.refresh(true));
+          }));
+      }
+    });
+    LOG.debug("*******************VM attached******************");
+    checkVirtualMachineVersion(vm);
+
+    myVirtualMachineProxy = new VirtualMachineProxyImpl(this, vm);
+
+    vm.setDebugTraceMode(ourTraceMask);
   }
 
   private void stopConnecting() {
@@ -311,16 +317,10 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         return;
       }
       if(myConnection.isServerMode()) {
-        ListeningConnector connector = (ListeningConnector)findConnector(SOCKET_LISTENING_CONNECTOR_NAME);
-        if (connector == null) {
-          LOG.error("Cannot find connector: " + SOCKET_LISTENING_CONNECTOR_NAME);
-        }
-        else {
-          connector.stopListening(arguments);
-        }
+        ((ListeningConnector)findConnector(SOCKET_LISTENING_CONNECTOR_NAME)).stopListening(arguments);
       }
     }
-    catch (IOException | IllegalConnectorArgumentsException e) {
+    catch (IOException | IllegalConnectorArgumentsException | IllegalArgumentException e) {
       LOG.debug(e);
     }
     catch (ExecutionException e) {
@@ -330,6 +330,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @Override
   public void printToConsole(final String text) {
+    synchronized (myProcessListeners) {
+      if (myExecutionResult == null) {
+        myTextBeforeStart.append(text);
+      }
+      else {
+        printToConsoleImpl(text);
+      }
+    }
+  }
+
+  private void printToConsoleImpl(String text) {
     myExecutionResult.getProcessHandler().notifyTextAvailable(text, ProcessOutputTypes.SYSTEM);
   }
 
@@ -370,11 +381,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                                    ? EventRequest.SUSPEND_EVENT_THREAD
                                    : EventRequest.SUSPEND_ALL);
 
+      stepRequest.addCountFilter(1);
+
       if (hint != null) {
         //noinspection HardCodedStringLiteral
         stepRequest.putProperty("hint", hint);
       }
-      stepRequest.enable();
+      try {
+        stepRequest.enable();
+      } catch (IllegalThreadStateException e) { // thread is already dead
+        requestManager.deleteEventRequest(stepRequest);
+      }
     }
     catch (ObjectCollectedException ignored) {
 
@@ -393,45 +410,31 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @NotNull
   private static List<ClassFilter> getActiveFilters() {
-    List<ClassFilter> activeFilters = new ArrayList<>();
     DebuggerSettings settings = DebuggerSettings.getInstance();
+    StreamEx<ClassFilter> stream = StreamEx.of(DebuggerClassFilterProvider.EP_NAME.getExtensionList())
+      .flatCollection(DebuggerClassFilterProvider::getFilters);
     if (settings.TRACING_FILTERS_ENABLED) {
-      for (ClassFilter filter : settings.getSteppingFilters()) {
-        if (filter.isEnabled()) {
-          activeFilters.add(filter);
-        }
-      }
+      stream = stream.prepend(settings.getSteppingFilters());
     }
-    for (DebuggerClassFilterProvider provider : Extensions.getExtensions(DebuggerClassFilterProvider.EP_NAME)) {
-      for (ClassFilter filter : provider.getFilters()) {
-        if (filter.isEnabled()) {
-          activeFilters.add(filter);
-        }
-      }
-    }
-    return activeFilters;
+    return stream.filter(ClassFilter::isEnabled).toList();
   }
 
   void deleteStepRequests(@Nullable final ThreadReference stepThread) {
     EventRequestManager requestManager = getVirtualMachineProxy().eventRequestManager();
-    List<StepRequest> stepRequests = requestManager.stepRequests();
-    if (!stepRequests.isEmpty()) {
-      final List<StepRequest> toDelete = new ArrayList<>(stepRequests.size());
-      for (final StepRequest request : stepRequests) {
-        ThreadReference threadReference = request.thread();
-        // [jeka] on attempt to delete a request assigned to a thread with unknown status, a JDWP error occurs
+    for (StepRequest request : new ArrayList<>(requestManager.stepRequests())) { // need a copy here to avoid CME
+      if (stepThread == null || stepThread.equals(request.thread())) {
         try {
-          if (threadReference.status() != ThreadReference.THREAD_STATUS_UNKNOWN && (stepThread == null || stepThread.equals(threadReference))) {
-            toDelete.add(request);
-          }
-        }
-        catch (IllegalThreadStateException e) {
-          LOG.info(e); // undocumented by JDI: may be thrown when querying thread status
+          requestManager.deleteEventRequest(request);
         }
         catch (ObjectCollectedException ignored) {
         }
+        catch (VMDisconnectedException e) {
+          throw e;
+        }
+        catch (Exception e) {
+          LOG.error(e); // report all for now
+        }
       }
-      requestManager.deleteEventRequests(toDelete);
     }
   }
 
@@ -461,67 +464,38 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       }
 
       final String address = myConnection.getAddress();
-      if (myConnection.isServerMode()) {
-        ListeningConnector connector = (ListeningConnector)findConnector(
-          myConnection.isUseSockets() ? SOCKET_LISTENING_CONNECTOR_NAME : SHMEM_LISTENING_CONNECTOR_NAME);
-        if (connector == null) {
-          throw new CantRunException(DebuggerBundle.message("error.debug.connector.not.found", DebuggerBundle.getTransportName(myConnection)));
+
+      if (myConnection instanceof PidRemoteConnection && !((PidRemoteConnection)myConnection).isFixedAddress()) {
+        PidRemoteConnection pidRemoteConnection = (PidRemoteConnection)myConnection;
+        Connector connector = pidRemoteConnection.getConnector(this);
+        String pid = pidRemoteConnection.getPid();
+        if (StringUtil.isEmpty(pid)) {
+          throw new CantRunException(DebuggerBundle.message("error.no.pid"));
         }
+        myArguments = connector.defaultArguments();
+        Connector.Argument pidArg = myArguments.get("pid");
+        if (pidArg != null) {
+          pidArg.setValue(pid);
+        }
+        if (connector instanceof AttachingConnector) {
+          return attachConnector((AttachingConnector)connector);
+        }
+        else {
+          return connectorListen(address, (ListeningConnector)connector);
+        }
+      }
+      else if (myConnection.isServerMode()) {
+        ListeningConnector connector = (ListeningConnector)findConnector(myConnection.isUseSockets(), true);
         myArguments = connector.defaultArguments();
         if (myArguments == null) {
           throw new CantRunException(DebuggerBundle.message("error.no.debug.listen.port"));
         }
-
-        if (address == null) {
-          throw new CantRunException(DebuggerBundle.message("error.no.debug.listen.port"));
-        }
-        // zero port number means the caller leaves to debugger to decide at which port to listen
-        //noinspection HardCodedStringLiteral
-        final Connector.Argument portArg = myConnection.isUseSockets() ? myArguments.get("port") : myArguments.get("name");
-        if (portArg != null) {
-          portArg.setValue(address);
-        }
-        //noinspection HardCodedStringLiteral
-        final Connector.Argument timeoutArg = myArguments.get("timeout");
-        if (timeoutArg != null) {
-          timeoutArg.setValue("0"); // wait forever
-        }
-        String listeningAddress = connector.startListening(myArguments);
-        String port = StringUtil.substringAfter(listeningAddress, ":");
-        if (port != null) {
-          listeningAddress = port;
-        }
-        myConnection.setAddress(listeningAddress);
-
-        myDebugProcessDispatcher.getMulticaster().connectorIsReady();
-        try {
-          return connector.accept(myArguments);
-        }
-        finally {
-          if(myArguments != null) {
-            try {
-              connector.stopListening(myArguments);
-            }
-            catch (IllegalArgumentException ignored) {
-              // ignored
-            }
-            catch (IllegalConnectorArgumentsException ignored) {
-              // ignored
-            }
-          }
-        }
+        return connectorListen(address, connector);
       }
       else { // is client mode, should attach to already running process
-        AttachingConnector connector = (AttachingConnector)findConnector(
-          myConnection.isUseSockets() ? SOCKET_ATTACHING_CONNECTOR_NAME : SHMEM_ATTACHING_CONNECTOR_NAME
-        );
-
-        if (connector == null) {
-          throw new CantRunException( DebuggerBundle.message("error.debug.connector.not.found", DebuggerBundle.getTransportName(myConnection)));
-        }
+        AttachingConnector connector = (AttachingConnector)findConnector(myConnection.isUseSockets(), false);
         myArguments = connector.defaultArguments();
         if (myConnection.isUseSockets()) {
-          //noinspection HardCodedStringLiteral
           final Connector.Argument hostnameArg = myArguments.get("hostname");
           if (hostnameArg != null && myConnection.getHostName() != null) {
             hostnameArg.setValue(myConnection.getHostName());
@@ -529,7 +503,6 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           if (address == null) {
             throw new CantRunException(DebuggerBundle.message("error.no.debug.attach.port"));
           }
-          //noinspection HardCodedStringLiteral
           final Connector.Argument portArg = myArguments.get("port");
           if (portArg != null) {
             portArg.setValue(address);
@@ -539,25 +512,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           if (address == null) {
             throw new CantRunException(DebuggerBundle.message("error.no.shmem.address"));
           }
-          //noinspection HardCodedStringLiteral
           final Connector.Argument nameArg = myArguments.get("name");
           if (nameArg != null) {
             nameArg.setValue(address);
           }
         }
-        //noinspection HardCodedStringLiteral
         final Connector.Argument timeoutArg = myArguments.get("timeout");
         if (timeoutArg != null) {
           timeoutArg.setValue("0"); // wait forever
         }
 
-        myDebugProcessDispatcher.getMulticaster().connectorIsReady();
-        try {
-          return connector.attach(myArguments);
-        }
-        catch (IllegalArgumentException e) {
-          throw new CantRunException(e.getLocalizedMessage());
-        }
+        return attachConnector(connector);
       }
     }
     catch (IOException e) {
@@ -571,59 +536,117 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
   }
 
-  public void showStatusText(final String text) {
-    if (!myStatusUpdateAlarm.isDisposed()) {
-      myStatusUpdateAlarm.cancelAllRequests();
-      myStatusUpdateAlarm.addRequest(() -> StatusBarUtil.setStatusBarInfo(myProject, text), 50);
+  private VirtualMachine connectorListen(String address, ListeningConnector connector)
+    throws CantRunException, IOException, IllegalConnectorArgumentsException {
+    if (address == null) {
+      throw new CantRunException(DebuggerBundle.message("error.no.debug.listen.port"));
+    }
+    // zero port number means the caller leaves to debugger to decide at which port to listen
+    final Connector.Argument portArg = myConnection.isUseSockets() ? myArguments.get("port") : myArguments.get("name");
+    if (portArg != null) {
+      portArg.setValue(address);
+
+      // to allow connector to listen on several auto generated addresses
+      if (address.length() == 0 || address.equals("0")) {
+        EmptyConnectorArgument uniqueArg = new EmptyConnectorArgument("argForUniqueness");
+        myArguments.put(uniqueArg.name(), uniqueArg);
+      }
+    }
+    final Connector.Argument timeoutArg = myArguments.get("timeout");
+    if (timeoutArg != null) {
+      timeoutArg.setValue("0"); // wait forever
+    }
+    try {
+      String listeningAddress = connector.startListening(myArguments);
+      String port = StringUtil.substringAfterLast(listeningAddress, ":");
+      if (port != null) {
+        listeningAddress = port;
+      }
+      myConnection.setAddress(listeningAddress);
+
+      myDebugProcessDispatcher.getMulticaster().connectorIsReady();
+
+      return connector.accept(myArguments);
+    }
+    catch (IllegalArgumentException e) {
+      throw new CantRunException(e.getLocalizedMessage());
+    }
+    finally {
+      if(myArguments != null) {
+        try {
+          connector.stopListening(myArguments);
+        }
+        catch (IllegalArgumentException | IllegalConnectorArgumentsException ignored) {
+          // ignored
+        }
+      }
     }
   }
 
-  static Connector findConnector(String connectorName) throws ExecutionException {
+  private VirtualMachine attachConnector(AttachingConnector connector)
+    throws IOException, IllegalConnectorArgumentsException, CantRunException {
+    myDebugProcessDispatcher.getMulticaster().connectorIsReady();
+    try {
+      return connector.attach(myArguments);
+    }
+    catch (IllegalArgumentException e) {
+      throw new CantRunException(e.getLocalizedMessage());
+    }
+  }
+
+  public void showStatusText(final String text) {
+    myStatusUpdateAlarm.cancelAllRequests();
+    myStatusUpdateAlarm.addRequest(() -> {
+      if (!myProject.isDisposed()) {
+        StatusBarUtil.setStatusBarInfo(myProject, text);
+      }
+    }, 50);
+  }
+
+  @NotNull
+  public static Connector findConnector(boolean useSockets, boolean listen) throws ExecutionException {
+    if (listen) {
+      return findConnector(useSockets ? SOCKET_LISTENING_CONNECTOR_NAME : SHMEM_LISTENING_CONNECTOR_NAME);
+    }
+    else {
+      return findConnector(useSockets ? SOCKET_ATTACHING_CONNECTOR_NAME : SHMEM_ATTACHING_CONNECTOR_NAME);
+    }
+  }
+
+  @NotNull
+  public static Connector findConnector(String connectorName) throws ExecutionException {
     VirtualMachineManager virtualMachineManager;
     try {
       virtualMachineManager = Bootstrap.virtualMachineManager();
     }
     catch (Error e) {
-      final String error = e.getClass().getName() + " : " + e.getLocalizedMessage();
-      throw new ExecutionException(DebuggerBundle.message("debugger.jdi.bootstrap.error", error));
+      throw new ExecutionException(DebuggerBundle.message("debugger.jdi.bootstrap.error",
+                                                          e.getClass().getName() + " : " + e.getLocalizedMessage()));
     }
-    List connectors;
-    if (SOCKET_ATTACHING_CONNECTOR_NAME.equals(connectorName) || SHMEM_ATTACHING_CONNECTOR_NAME.equals(connectorName)) {
-      connectors = virtualMachineManager.attachingConnectors();
-    }
-    else if (SOCKET_LISTENING_CONNECTOR_NAME.equals(connectorName) || SHMEM_LISTENING_CONNECTOR_NAME.equals(connectorName)) {
-      connectors = virtualMachineManager.listeningConnectors();
-    }
-    else {
-      return null;
-    }
-    for (Object connector1 : connectors) {
-      Connector connector = (Connector)connector1;
-      if (connectorName.equals(connector.name())) {
-        return connector;
-      }
-    }
-    return null;
+    return StreamEx.of(virtualMachineManager.allConnectors())
+      .findFirst(c -> connectorName.equals(c.name()))
+      .orElseThrow(() -> new CantRunException(DebuggerBundle.message("error.debug.connector.not.found", connectorName)));
   }
 
   private void checkVirtualMachineVersion(VirtualMachine vm) {
-    final String version = vm.version();
-    if ("1.4.0".equals(version)) {
+    final String versionString = vm.version();
+    if ("1.4.0".equals(versionString)) {
       DebuggerInvocationUtil.swingInvokeLater(myProject, () -> Messages.showMessageDialog(
         myProject,
         DebuggerBundle.message("warning.jdk140.unstable"), DebuggerBundle.message("title.jdk140.unstable"), Messages.getWarningIcon()
       ));
     }
     if (getSession().getAlternativeJre() == null) {
-      Sdk projectSdk = ProjectRootManager.getInstance(myProject).getProjectSdk();
-      if ((projectSdk == null || projectSdk.getSdkType() instanceof JavaSdkType) && !versionMatch(projectSdk, version)) {
+      Sdk runjre = getSession().getRunJre();
+      JavaVersion version = JavaVersion.tryParse(versionString);
+      if (version != null && (runjre == null || runjre.getSdkType() instanceof JavaSdkType) && !versionMatch(runjre, version)) {
         Arrays.stream(ProjectJdkTable.getInstance().getAllJdks())
           .filter(sdk -> versionMatch(sdk, version))
           .findFirst().ifPresent(sdk -> {
-          XDebugSessionImpl.NOTIFICATION_GROUP.createNotification(
+          XDebuggerManagerImpl.NOTIFICATION_GROUP.createNotification(
             DebuggerBundle.message("message.remote.jre.version.mismatch",
-                                   version,
-                                   projectSdk != null ? projectSdk.getVersionString() : "unknown",
+                                   versionString,
+                                   runjre != null ? runjre.getVersionString() : "unknown",
                                    sdk.getName())
             , MessageType.INFO).notify(myProject);
           getSession().setAlternativeJre(sdk);
@@ -632,10 +655,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
   }
 
-  private static boolean versionMatch(@Nullable Sdk sdk, String version) {
+  private static boolean versionMatch(@Nullable Sdk sdk, @NotNull JavaVersion version) {
     if (sdk != null && sdk.getSdkType() instanceof JavaSdkType) {
-      String versionString = sdk.getVersionString();
-      return versionString != null && versionString.contains(version);
+      JavaVersion v = JavaVersion.tryParse(sdk.getVersionString());
+      if (v != null) {
+        return version.feature == v.feature && version.minor == v.minor && version.update == v.update;
+      }
     }
     return false;
   }
@@ -737,7 +762,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     DebuggerManagerThreadImpl.assertIsManagerThread();
     final VirtualMachineProxyImpl vm = myVirtualMachineProxy;
     if (vm == null) {
-      throw new VMDisconnectedException();
+      if (isInInitialState()) {
+        throw new IllegalStateException("Virtual machine is not initialized yet");
+      }
+      else {
+        throw new VMDisconnectedException();
+      }
     }
     return vm;
   }
@@ -761,8 +791,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       setRunToCursorBreakpoint(null);
       getRequestsManager().deleteRequest(runToCursorBreakpoint);
       if (runToCursorBreakpoint.isRestoreBreakpoints()) {
-        final BreakpointManager breakpointManager = DebuggerManagerEx.getInstanceEx(getProject()).getBreakpointManager();
-        breakpointManager.enableBreakpoints(this);
+        DebuggerManagerEx.getInstanceEx(getProject()).getBreakpointManager().enableBreakpoints(this);
       }
     }
   }
@@ -812,7 +841,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     StringBuilder buf = new StringBuilder(message.length());
     int index = 0;
     while (index < message.length()) {
-      buf.append(message.substring(index, Math.min(index + lineLength, message.length()))).append('\n');
+      buf.append(message, index, Math.min(index + lineLength, message.length())).append('\n');
       index += lineLength;
     }
     return buf.toString();
@@ -856,28 +885,28 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       return DebuggerBundle.message("error.unknown.host") + (address != null ? " (" + address + ")" : "") + ":\n" + e.getLocalizedMessage();
     }
 
-    String message;
-    final StringBuilder buf = StringBuilderSpinAllocator.alloc();
-    try {
+    // Failed SA attach
+    Throwable cause = e.getCause();
+    if (cause instanceof InvocationTargetException) {
+      if (cause.getCause() != null) {
+        return cause.getCause().getLocalizedMessage();
+      }
+    }
+
+    StringBuilder buf = new StringBuilder();
+    if (address != null) {
       buf.append(DebuggerBundle.message("error.cannot.open.debugger.port"));
-      if (address != null) {
-        buf.append(" (").append(address).append(")");
-      }
-      buf.append(": ");
-      buf.append(e.getClass().getName()).append(" ");
-      final String localizedMessage = e.getLocalizedMessage();
-      if (!StringUtil.isEmpty(localizedMessage)) {
-        buf.append('"');
-        buf.append(localizedMessage);
-        buf.append('"');
-      }
-      LOG.debug(e);
-      message = buf.toString();
+      buf.append(" (").append(address).append("): ");
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(buf);
+    buf.append(e.getClass().getName()).append(" ");
+    if (!StringUtil.isEmpty(e.getLocalizedMessage())) {
+      buf.append('"').append(e.getLocalizedMessage()).append('"');
     }
-    return message;
+    if (cause != null && !StringUtil.isEmpty(cause.getLocalizedMessage())) {
+      buf.append(" (").append(cause.getLocalizedMessage()).append(')');
+    }
+    LOG.debug(e);
+    return buf.toString();
   }
 
   public void dispose() {
@@ -890,8 +919,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return myDebuggerManagerThread;
   }
 
+  @Nullable
+  public MemoryAgent getMemoryAgent() {
+    return myMemoryAgent;
+  }
+
   private static int getInvokePolicy(SuspendContext suspendContext) {
-    if (suspendContext.getSuspendPolicy() == EventRequest.SUSPEND_EVENT_THREAD || isResumeOnlyCurrentThread()) {
+    if (suspendContext.getSuspendPolicy() == EventRequest.SUSPEND_EVENT_THREAD ||
+        isResumeOnlyCurrentThread() ||
+        ThreadBlockedMonitor.getSingleThreadedEvaluationThreshold() > 0) {
       return ObjectReference.INVOKE_SINGLE_THREADED;
     }
     return 0;
@@ -992,22 +1028,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
         return invokeMethodAndFork(suspendContext);
       }
-      catch (InvocationException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (IncompatibleThreadStateException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (InvalidTypeException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (ObjectCollectedException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (UnsupportedOperationException e) {
-        throw EvaluateExceptionUtil.createEvaluateException(e);
-      }
-      catch (InternalException e) {
+      catch (InvocationException | InternalException | UnsupportedOperationException | ObjectCollectedException |
+        InvalidTypeException | IncompatibleThreadStateException e) {
         throw EvaluateExceptionUtil.createEvaluateException(e);
       }
       finally {
@@ -1035,11 +1057,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                                                                            ClassNotLoadedException,
                                                                            IncompatibleThreadStateException,
                                                                            InvalidTypeException {
-      final int invokePolicy = getInvokePolicy(context);
-      final Exception[] exception = new Exception[1];
-      final Value[] result = new Value[1];
+      Ref<Exception> exception = Ref.create();
+      Ref<E> result = Ref.create();
       getManagerThread().startLongProcessAndFork(() -> {
         ThreadReferenceProxyImpl thread = context.getThread();
+        ThreadBlockedMonitor.InvocationWatcher invocationWatcher = null;
         try {
           try {
             if (LOG.isDebugEnabled()) {
@@ -1069,80 +1091,85 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                     }
                   }
                 }
-                else if (firstVararg == null) { // more than one vararg params and the first one is null
-                  // this is a workaround for a bug in jdi, see IDEA-157321
-                  int argCount = myArgs.size();
-                  List<Type> paramTypes = myMethod.argumentTypes();
-                  int paramCount = paramTypes.size();
-                  ArrayType lastParamType = (ArrayType)paramTypes.get(paramTypes.size() - 1);
+              }
+            }
 
-                  int count = argCount - paramCount + 1;
-                  ArrayReference argArray = lastParamType.newInstance(count);
-                  argArray.setValues(0, myArgs, paramCount - 1, count);
-                  myArgs.set(paramCount - 1, argArray);
-                  myArgs.subList(paramCount, argCount).clear();
+            // workaround for multi-array args bug in jdi calls
+            for (Value arg : myArgs) {
+              if (arg instanceof ArrayReference) {
+                Type type = arg.type();
+                while (type instanceof ArrayType) {
+                  type = ((ArrayType)type).componentType(); // this will throw ClassNotLoadedException if necessary
                 }
               }
             }
 
             if (!Patches.IBM_JDK_DISABLE_COLLECTION_BUG) {
               // ensure args are not collected
-              for (Object arg : myArgs) {
-                if (arg instanceof ObjectReference) {
-                  DebuggerUtilsEx.disableCollection((ObjectReference)arg);
-                }
-              }
+              StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::disableCollection);
             }
 
-            // workaround for jdi hang in trace mode
-            if (!StringUtil.isEmpty(ourTrace)) {
-              for (Object arg : myArgs) {
-                //noinspection ResultOfMethodCallIgnored
-                arg.toString();
-              }
+            if (Patches.JDK_BUG_ID_21275177 && (ourTraceMask & VirtualMachine.TRACE_SENDS) != 0) {
+              //noinspection ResultOfMethodCallIgnored
+              myArgs.forEach(Object::toString);
             }
 
-            result[0] = invokeMethod(invokePolicy, myMethod, myArgs);
+            // workaround for jdi hang in trace mode, see IDEA-183387
+            if (Patches.JDK_BUG_WITH_TRACE_SEND && (ourTraceMask & VirtualMachine.TRACE_SENDS) != 0) {
+              StreamEx.of(myArgs).findAny(ThreadReference.class::isInstance).ifPresent(t -> {
+                //noinspection UseOfSystemOutOrSystemErr
+                System.err.println("[JDI: workaround for invocation of " + myMethod + "]");
+                myMethod.virtualMachine().setDebugTraceMode(ourTraceMask & ~VirtualMachine.TRACE_SENDS);
+              });
+            }
+
+            int invokePolicy = getInvokePolicy(context);
+            invocationWatcher = myThreadBlockedMonitor.startInvokeWatching(invokePolicy, thread, context);
+
+            result.set(invokeMethod(invokePolicy, myMethod, myArgs));
           }
           finally {
+            if (invocationWatcher != null) {
+              invocationWatcher.invocationFinished();
+            }
+            if (Patches.JDK_BUG_WITH_TRACE_SEND && (ourTraceMask & VirtualMachine.TRACE_SENDS) != 0) {
+              myMethod.virtualMachine().setDebugTraceMode(ourTraceMask);
+            }
             //  assertThreadSuspended(thread, context);
             if (!Patches.IBM_JDK_DISABLE_COLLECTION_BUG) {
               // ensure args are not collected
-              for (Object arg : myArgs) {
-                if (arg instanceof ObjectReference) {
-                  DebuggerUtilsEx.enableCollection((ObjectReference)arg);
-                }
-              }
+              StreamEx.of(myArgs).select(ObjectReference.class).forEach(DebuggerUtilsEx::enableCollection);
             }
           }
         }
         catch (Exception e) {
-          exception[0] = e;
+          exception.set(e);
         }
       });
 
-      if (exception[0] != null) {
-        if (exception[0] instanceof InvocationException) {
-          throw (InvocationException)exception[0];
+      Exception ex = exception.get();
+      if (ex != null) {
+        if (ex instanceof InvocationException) {
+          throw (InvocationException)ex;
         }
-        else if (exception[0] instanceof ClassNotLoadedException) {
-          throw (ClassNotLoadedException)exception[0];
+        else if (ex instanceof ClassNotLoadedException) {
+          throw (ClassNotLoadedException)ex;
         }
-        else if (exception[0] instanceof IncompatibleThreadStateException) {
-          throw (IncompatibleThreadStateException)exception[0];
+        else if (ex instanceof IncompatibleThreadStateException) {
+          throw (IncompatibleThreadStateException)ex;
         }
-        else if (exception[0] instanceof InvalidTypeException) {
-          throw (InvalidTypeException)exception[0];
+        else if (ex instanceof InvalidTypeException) {
+          throw (InvalidTypeException)ex;
         }
-        else if (exception[0] instanceof RuntimeException) {
-          throw (RuntimeException)exception[0];
+        else if (ex instanceof RuntimeException) {
+          throw (RuntimeException)ex;
         }
         else {
-          LOG.error("Unexpected exception", new Throwable().initCause(exception[0]));
+          LOG.error("Unexpected exception", new Throwable(ex));
         }
       }
 
-      return (E)result[0];
+      return result.get();
     }
 
     private void assertThreadSuspended(final ThreadReferenceProxyImpl thread, final SuspendContextImpl context) {
@@ -1195,13 +1222,22 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
                             ClassType classType,
                             Method method,
                             List<? extends Value> args) throws EvaluateException {
-    return invokeMethod(evaluationContext, classType, method, args, false);
+    return invokeMethod(evaluationContext, classType, method, args, 0,false);
   }
 
   public Value invokeMethod(@NotNull EvaluationContext evaluationContext,
                             @NotNull final ClassType classType,
                             @NotNull Method method,
                             @NotNull List<? extends Value> args,
+                            boolean internalEvaluate) throws EvaluateException {
+    return invokeMethod(evaluationContext, classType, method, args, 0, internalEvaluate);
+  }
+
+  public Value invokeMethod(@NotNull EvaluationContext evaluationContext,
+                            @NotNull final ClassType classType,
+                            @NotNull Method method,
+                            @NotNull List<? extends Value> args,
+                            int extraInvocationOptions,
                             boolean internalEvaluate) throws EvaluateException {
     final ThreadReference thread = getEvaluationThread(evaluationContext);
     return new InvokeCommand<Value>(method, args) {
@@ -1213,14 +1249,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         if (LOG.isDebugEnabled()) {
           LOG.debug("Invoking " + classType.name() + "." + method.name());
         }
-        return classType.invokeMethod(thread, method, args, invokePolicy);
+        return classType.invokeMethod(thread, method, args, invokePolicy | extraInvocationOptions);
       }
     }.start((EvaluationContextImpl)evaluationContext, internalEvaluate);
-  }
-
-  static {
-    //noinspection ConstantConditions
-    assert Patches.USE_REFLECTION_TO_ACCESS_JDK8;
   }
 
   public Value invokeMethod(EvaluationContext evaluationContext,
@@ -1237,20 +1268,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         if (LOG.isDebugEnabled()) {
           LOG.debug("Invoking " + interfaceType.name() + "." + method.name());
         }
-        //TODO: remove reflection after move to java 8 or 9, this API was introduced in 1.8.0_45
-        java.lang.reflect.Method invokeMethod =
-          ReflectionUtil.getMethod(InterfaceType.class, "invokeMethod", ThreadReference.class, Method.class, List.class, int.class);
-        if (invokeMethod == null) {
+
+        try {
+          return interfaceType.invokeMethod(thread, method, args, invokePolicy);
+        }
+        catch (LinkageError e) {
           throw new IllegalStateException("Interface method invocation is not supported in JVM " +
                                           SystemInfo.JAVA_VERSION +
                                           ". Use JVM 1.8.0_45 or higher to run " +
                                           ApplicationNamesInfo.getInstance().getFullProductName());
-        }
-        try {
-          return (Value)invokeMethod.invoke(interfaceType, thread, method, args, invokePolicy);
-        }
-        catch (Exception e) {
-          throw new RuntimeException(e);
         }
       }
     }.start((EvaluationContextImpl)evaluationContext, false);
@@ -1333,7 +1359,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   @Override
-  public ReferenceType findClass(EvaluationContext evaluationContext, String className,
+  public ReferenceType findClass(@Nullable EvaluationContext evaluationContext, String className,
                                  ClassLoaderReference classLoader) throws EvaluateException {
     try {
       DebuggerManagerThreadImpl.assertIsManagerThread();
@@ -1344,22 +1370,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           break;
         }
       }
-      final EvaluationContextImpl evalContext = (EvaluationContextImpl)evaluationContext;
-      if (result == null && evalContext.isAutoLoadClasses()) {
-        return loadClass(evalContext, className, classLoader);
+      if (result == null && evaluationContext != null) {
+        EvaluationContextImpl evalContext = (EvaluationContextImpl)evaluationContext;
+        if (evalContext.isAutoLoadClasses()) {
+          return loadClass(evalContext, className, classLoader);
+        }
       }
       return result;
     }
-    catch (InvocationException e) {
-      throw EvaluateExceptionUtil.createEvaluateException(e);
-    }
-    catch (ClassNotLoadedException e) {
-      throw EvaluateExceptionUtil.createEvaluateException(e);
-    }
-    catch (IncompatibleThreadStateException e) {
-      throw EvaluateExceptionUtil.createEvaluateException(e);
-    }
-    catch (InvalidTypeException e) {
+    catch (InvocationException | InvalidTypeException | IncompatibleThreadStateException | ClassNotLoadedException e) {
       throw EvaluateExceptionUtil.createEvaluateException(e);
     }
   }
@@ -1382,28 +1401,21 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       dims++;
     }
 
-    StringBuilder buffer = StringBuilderSpinAllocator.alloc();
-    try {
-      for (int i = 0; i < dims; i++) {
-        buffer.append('[');
-      }
-      String primitiveSignature = JVMNameUtil.getPrimitiveSignature(className);
-      if(primitiveSignature != null) {
-        buffer.append(primitiveSignature);
-      }
-      else {
-        buffer.append('L');
-        buffer.append(className);
-        buffer.append(';');
-      }
-      return buffer.toString();
+    StringBuilder buffer = new StringBuilder();
+    StringUtil.repeatSymbol(buffer, '[', dims);
+    String primitiveSignature = JVMNameUtil.getPrimitiveSignature(className);
+    if(primitiveSignature != null) {
+      buffer.append(primitiveSignature);
     }
-    finally {
-      StringBuilderSpinAllocator.dispose(buffer);
+    else {
+      buffer.append('L');
+      buffer.append(className);
+      buffer.append(';');
     }
+    return buffer.toString();
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral", "SpellCheckingInspection"})
+  @SuppressWarnings({"SpellCheckingInspection"})
   public ReferenceType loadClass(EvaluationContextImpl evaluationContext, String qName, ClassLoaderReference classLoader)
     throws InvocationException, ClassNotLoadedException, IncompatibleThreadStateException, InvalidTypeException, EvaluateException {
 
@@ -1448,6 +1460,11 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
   }
 
+  public void onHotSwapFinished() {
+    getPositionManager().clearCache();
+    StackCapturingLineBreakpoint.clearCaches(this);
+  }
+
   @NotNull
   public SuspendManager getSuspendManager() {
     return mySuspendManager;
@@ -1462,8 +1479,9 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @Override
   public void stop(boolean forceTerminate) {
+    myIsStopped.set(true);
     stopConnecting(); // does this first place in case debugger manager hanged accepting debugger connection (forever)
-    getManagerThread().terminateAndInvoke(createStopCommand(forceTerminate), DebuggerManagerThreadImpl.COMMAND_TIMEOUT);
+    getManagerThread().terminateAndInvoke(createStopCommand(forceTerminate), ApplicationManager.getApplication().isUnitTestMode() ? 0 : DebuggerManagerThreadImpl.COMMAND_TIMEOUT);
   }
 
   @NotNull
@@ -1484,9 +1502,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
 
     @Override
-    protected void action() throws Exception {
+    protected void action() {
       if (isAttached()) {
-        final VirtualMachineProxyImpl virtualMachineProxy = getVirtualMachineProxy();
+        VirtualMachineProxyImpl virtualMachineProxy = getVirtualMachineProxy();
+
+        if (!virtualMachineProxy.canBeModified()) {
+          closeProcess(false);
+          return;
+        }
+
         if (myIsTerminateTargetVM) {
           virtualMachineProxy.exit(-1);
         }
@@ -1514,8 +1538,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private class StepOutCommand extends StepCommand {
     private final int myStepSize;
 
-    public StepOutCommand(SuspendContextImpl suspendContext, int stepSize) {
-      super(suspendContext);
+    StepOutCommand(SuspendContextImpl suspendContext, int stepSize) {
+      super(suspendContext, null);
       myStepSize = stepSize;
     }
 
@@ -1527,10 +1551,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       RequestHint hint = new RequestHint(thread, suspendContext, StepRequest.STEP_OUT);
       hint.setIgnoreFilters(mySession.shouldIgnoreSteppingFilters());
       applyThreadFilter(thread);
-      final MethodReturnValueWatcher rvWatcher = myReturnValueWatcher;
-      if (rvWatcher != null) {
-        rvWatcher.enable(thread.getThreadReference());
-      }
+      startWatchingMethodReturn(thread);
       doStep(suspendContext, thread, myStepSize, StepRequest.STEP_OUT, hint);
       super.contextAction();
     }
@@ -1538,16 +1559,14 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   private class StepIntoCommand extends StepCommand {
     private final boolean myForcedIgnoreFilters;
-    private final MethodFilter mySmartStepFilter;
     @Nullable
     private final StepIntoBreakpoint myBreakpoint;
     private final int myStepSize;
 
-    public StepIntoCommand(SuspendContextImpl suspendContext, boolean ignoreFilters, @Nullable final MethodFilter methodFilter,
+    StepIntoCommand(SuspendContextImpl suspendContext, boolean ignoreFilters, @Nullable final MethodFilter methodFilter,
                            int stepSize) {
-      super(suspendContext);
+      super(suspendContext, methodFilter);
       myForcedIgnoreFilters = ignoreFilters || methodFilter != null;
-      mySmartStepFilter = methodFilter;
       myBreakpoint = methodFilter instanceof BreakpointStepMethodFilter ?
         DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().addStepIntoBreakpoint(((BreakpointStepMethodFilter)methodFilter)) :
         null;
@@ -1559,10 +1578,8 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       showStatusText(DebuggerBundle.message("status.step.into"));
       final SuspendContextImpl suspendContext = getSuspendContext();
       final ThreadReferenceProxyImpl stepThread = getContextThread();
-      final RequestHint hint = mySmartStepFilter != null?
-                               new RequestHint(stepThread, suspendContext, mySmartStepFilter) :
-                               new RequestHint(stepThread, suspendContext, StepRequest.STEP_INTO);
-      hint.setResetIgnoreFilters(mySmartStepFilter != null && !mySession.shouldIgnoreSteppingFilters());
+      final RequestHint hint = new RequestHint(stepThread, suspendContext, StepRequest.STEP_LINE, StepRequest.STEP_INTO, myMethodFilter);
+      hint.setResetIgnoreFilters(myMethodFilter != null && !mySession.shouldIgnoreSteppingFilters());
       if (myForcedIgnoreFilters) {
         try {
           mySession.setIgnoreStepFiltersFlag(stepThread.frameCount());
@@ -1584,36 +1601,57 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     }
   }
 
-  private class StepOverCommand extends StepCommand {
+  public class StepOverCommand extends StepCommand {
     private final boolean myIsIgnoreBreakpoints;
     private final int myStepSize;
 
-    public StepOverCommand(SuspendContextImpl suspendContext, boolean ignoreBreakpoints, int stepSize) {
-      super(suspendContext);
+    public StepOverCommand(SuspendContextImpl suspendContext,
+                           boolean ignoreBreakpoints,
+                           @Nullable MethodFilter methodFilter,
+                           int stepSize) {
+      super(suspendContext, methodFilter);
       myIsIgnoreBreakpoints = ignoreBreakpoints;
       myStepSize = stepSize;
     }
 
-    @Override
-    public void contextAction() {
-      showStatusText(DebuggerBundle.message("status.step.over"));
-      final SuspendContextImpl suspendContext = getSuspendContext();
-      final ThreadReferenceProxyImpl stepThread = getContextThread();
+    public StepOverCommand(SuspendContextImpl suspendContext, boolean ignoreBreakpoints, int stepSize) {
+      this(suspendContext, ignoreBreakpoints, null, stepSize);
+    }
+
+    protected int getStepDepth() {
+      return StepRequest.STEP_OVER;
+    }
+
+    @NotNull
+    protected String getStatusText() {
+      return DebuggerBundle.message("status.step.over");
+    }
+
+    @NotNull
+    protected RequestHint getHint(SuspendContextImpl suspendContext, ThreadReferenceProxyImpl stepThread) {
       // need this hint while stepping over for JSR45 support:
       // several lines of generated java code may correspond to a single line in the source file,
       // from which the java code was generated
-      RequestHint hint = new RequestHint(stepThread, suspendContext, StepRequest.STEP_OVER);
+      RequestHint hint = new RequestHint(stepThread, suspendContext, StepRequest.STEP_LINE, StepRequest.STEP_OVER, myMethodFilter);
       hint.setRestoreBreakpoints(myIsIgnoreBreakpoints);
       hint.setIgnoreFilters(myIsIgnoreBreakpoints || mySession.shouldIgnoreSteppingFilters());
+      return hint;
+    }
+
+    @Override
+    public void contextAction() {
+      showStatusText(getStatusText());
+
+      SuspendContextImpl suspendContext = getSuspendContext();
+      ThreadReferenceProxyImpl stepThread = getContextThread();
+
+      RequestHint hint = getHint(suspendContext, stepThread);
 
       applyThreadFilter(stepThread);
 
-      final MethodReturnValueWatcher rvWatcher = myReturnValueWatcher;
-      if (rvWatcher != null) {
-        rvWatcher.enable(stepThread.getThreadReference());
-      }
+      startWatchingMethodReturn(stepThread);
 
-      doStep(suspendContext, stepThread, myStepSize, StepRequest.STEP_OVER, hint);
+      doStep(suspendContext, stepThread, myStepSize, getStepDepth(), hint);
 
       if (myIsIgnoreBreakpoints) {
         DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().disableBreakpoints(DebugProcessImpl.this);
@@ -1627,10 +1665,10 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     private final boolean myIgnoreBreakpoints;
 
     private RunToCursorCommand(SuspendContextImpl suspendContext, @NotNull XSourcePosition position, final boolean ignoreBreakpoints) {
-      super(suspendContext);
+      super(suspendContext, null);
       myIgnoreBreakpoints = ignoreBreakpoints;
-      BreakpointManager breakpointManager = DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager();
-      myRunToCursorBreakpoint = breakpointManager.addRunToCursorBreakpoint(position, ignoreBreakpoints);
+      myRunToCursorBreakpoint =
+        DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().addRunToCursorBreakpoint(position, ignoreBreakpoints);
     }
 
     @Override
@@ -1641,8 +1679,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
         return;
       }
       if (myIgnoreBreakpoints) {
-        final BreakpointManager breakpointManager = DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager();
-        breakpointManager.disableBreakpoints(DebugProcessImpl.this);
+        DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager().disableBreakpoints(DebugProcessImpl.this);
       }
       applyThreadFilter(getContextThread());
       final SuspendContextImpl context = getSuspendContext();
@@ -1670,8 +1707,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private abstract class StepCommand extends ResumeCommand {
-    public StepCommand(SuspendContextImpl suspendContext) {
+    @Nullable
+    protected final MethodFilter myMethodFilter;
+
+    StepCommand(SuspendContextImpl suspendContext, @Nullable MethodFilter filter) {
       super(suspendContext);
+      myMethodFilter = filter;
     }
 
     @Override
@@ -1736,7 +1777,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   }
 
   private class PauseCommand extends DebuggerCommandImpl {
-    public PauseCommand() {
+    PauseCommand() {
     }
 
     @Override
@@ -1755,7 +1796,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private class ResumeThreadCommand extends SuspendContextCommandImpl {
     private final ThreadReferenceProxyImpl myThread;
 
-    public ResumeThreadCommand(SuspendContextImpl suspendContext, @NotNull ThreadReferenceProxyImpl thread) {
+    ResumeThreadCommand(SuspendContextImpl suspendContext, @NotNull ThreadReferenceProxyImpl thread) {
       super(suspendContext);
       myThread = thread;
     }
@@ -1784,12 +1825,12 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private class FreezeThreadCommand extends DebuggerCommandImpl {
     private final ThreadReferenceProxyImpl myThread;
 
-    public FreezeThreadCommand(ThreadReferenceProxyImpl thread) {
+    FreezeThreadCommand(ThreadReferenceProxyImpl thread) {
       myThread = thread;
     }
 
     @Override
-    protected void action() throws Exception {
+    protected void action() {
       SuspendManager suspendManager = getSuspendManager();
       if (!suspendManager.isFrozen(myThread)) {
         suspendManager.freezeThread(myThread);
@@ -1803,7 +1844,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   private class PopFrameCommand extends DebuggerContextCommandImpl {
     private final StackFrameProxyImpl myStackFrame;
 
-    public PopFrameCommand(DebuggerContextImpl context, StackFrameProxyImpl frameProxy) {
+    PopFrameCommand(DebuggerContextImpl context, StackFrameProxyImpl frameProxy) {
       super(context, frameProxy.threadProxy());
       myStackFrame = frameProxy;
     }
@@ -1853,29 +1894,31 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
     return mySession.getSearchScope();
   }
 
-  public void reattach(final DebugEnvironment environment) throws ExecutionException {
-    getManagerThread().schedule(new DebuggerCommandImpl() {
-      @Override
-      protected void action() throws Exception {
-        closeProcess(false);
-        doReattach();
-      }
+  public void reattach(final DebugEnvironment environment) {
+    if (!myIsStopped.get()) {
+      getManagerThread().schedule(new DebuggerCommandImpl() {
+        @Override
+        protected void action() {
+          closeProcess(false);
+          doReattach();
+        }
 
-      @Override
-      protected void commandCancelled() {
-        doReattach(); // if the original process is already finished
-      }
+        @Override
+        protected void commandCancelled() {
+          doReattach(); // if the original process is already finished
+        }
 
-      private void doReattach() {
-        DebuggerInvocationUtil.swingInvokeLater(myProject, () -> {
-          ((XDebugSessionImpl)getXdebugProcess().getSession()).reset();
-          myState.set(State.INITIAL);
-          myConnection = environment.getRemoteConnection();
-          getManagerThread().restartIfNeeded();
-          createVirtualMachine(environment);
-        });
-      }
-    });
+        private void doReattach() {
+          DebuggerInvocationUtil.swingInvokeLater(myProject, () -> {
+            ((XDebugSessionImpl)getXdebugProcess().getSession()).reset();
+            myState.set(State.INITIAL);
+            myConnection = environment.getRemoteConnection();
+            getManagerThread().restartIfNeeded();
+            createVirtualMachine(environment);
+          });
+        }
+      });
+    }
   }
 
   @Nullable
@@ -1904,43 +1947,16 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           executionResult.getProcessHandler().addProcessListener(processListener);
         }
         myProcessListeners.clear();
+        if (myTextBeforeStart.length() > 0) {
+          printToConsoleImpl(myTextBeforeStart.toString());
+          myTextBeforeStart.setLength(0);
+        }
       }
     }
     catch (ExecutionException e) {
       fail();
       throw e;
     }
-
-    // writing to volatile field ensures the other threads will see the right values in non-volatile fields
-
-    if (ApplicationManager.getApplication().isUnitTestMode()) {
-      return executionResult;
-    }
-
-    /*
-    final Alarm debugPortTimeout = new Alarm(Alarm.ThreadToUse.SHARED_THREAD);
-
-    myExecutionResult.getProcessHandler().addProcessListener(new ProcessAdapter() {
-      public void processTerminated(ProcessEvent event) {
-        debugPortTimeout.cancelAllRequests();
-      }
-
-      public void startNotified(ProcessEvent event) {
-        debugPortTimeout.addRequest(new Runnable() {
-          public void run() {
-            if(isInInitialState()) {
-              ApplicationManager.getApplication().schedule(new Runnable() {
-                public void run() {
-                  String message = DebuggerBundle.message("status.connect.failed", DebuggerBundle.getAddressDisplayName(remoteConnection), DebuggerBundle.getTransportName(remoteConnection));
-                  Messages.showErrorDialog(myProject, message, DebuggerBundle.message("title.generic.debug.dialog"));
-                }
-              });
-            }
-          }
-        }, LOCAL_START_TIMEOUT);
-      }
-    });
-    */
 
     return executionResult;
   }
@@ -2022,10 +2038,17 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
           final VirtualMachine vm1 = vm;
           afterProcessStarted(() -> getManagerThread().schedule(new DebuggerCommandImpl() {
             @Override
-            protected void action() throws Exception {
-              commitVM(vm1);
+            protected void action() {
+              try {
+                commitVM(vm1);
+              } catch (VMDisconnectedException e) {
+                fail();
+              }
             }
           }));
+        }
+        else {
+          fail();
         }
       }
 
@@ -2056,7 +2079,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
       }
 
       @Override
-      public void startNotified(ProcessEvent event) {
+      public void startNotified(@NotNull ProcessEvent event) {
         run();
       }
     }
@@ -2111,7 +2134,15 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   @NotNull
   public ResumeCommand createStepOverCommand(SuspendContextImpl suspendContext, boolean ignoreBreakpoints, int stepSize) {
-    return new StepOverCommand(suspendContext, ignoreBreakpoints, stepSize);
+    return createStepOverCommand(suspendContext, ignoreBreakpoints, null, StepRequest.STEP_LINE);
+  }
+
+  @NotNull
+  public ResumeCommand createStepOverCommand(SuspendContextImpl suspendContext,
+                                             boolean ignoreBreakpoints,
+                                             @Nullable MethodFilter methodFilter,
+                                             int stepSize) {
+    return new StepOverCommand(suspendContext, ignoreBreakpoints, methodFilter, stepSize);
   }
 
   @NotNull
@@ -2169,7 +2200,7 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
   //  if (isAttached()) {
   //    getManagerThread().schedule(new DebuggerCommandImpl() {
   //      @Override
-  //      protected void action() throws Exception {
+  //      protected void action() {
   //        // set the flag before enabling/disabling cause it affects if breakpoints will create requests
   //        if (myBreakpointsMuted.getAndSet(muted) != muted) {
   //          final BreakpointManager breakpointManager = DebuggerManagerEx.getInstanceEx(myProject).getBreakpointManager();
@@ -2213,5 +2244,25 @@ public abstract class DebugProcessImpl extends UserDataHolderBase implements Deb
 
   static boolean isResumeOnlyCurrentThread() {
     return DebuggerSettings.getInstance().RESUME_ONLY_CURRENT_THREAD;
+  }
+
+  public boolean isEvaluationPossible() {
+    return getSuspendManager().getPausedContext() != null;
+  }
+
+  public boolean isEvaluationPossible(SuspendContextImpl suspendContext) {
+    return mySuspendManager.hasPausedContext(suspendContext);
+  }
+
+  public void startWatchingMethodReturn(ThreadReferenceProxyImpl thread) {
+    if (myReturnValueWatcher != null) {
+      myReturnValueWatcher.enable(thread.getThreadReference());
+    }
+  }
+
+  void stopWatchingMethodReturn() {
+    if (myReturnValueWatcher != null) {
+      myReturnValueWatcher.disable();
+    }
   }
 }

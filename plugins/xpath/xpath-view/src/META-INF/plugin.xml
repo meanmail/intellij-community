@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="ISO-8859-1" ?>
 
-<idea-plugin version="2">
+<idea-plugin>
 
   <!-- Plugin name -->
   <id>XPathView</id>
@@ -15,9 +15,6 @@
     expressions and named templates for XSLT documents.</p>
   ]]>
   </description>
-
-  <!-- Plugin version -->
-  <version>4</version>
 
   <vendor>JetBrains</vendor>
 

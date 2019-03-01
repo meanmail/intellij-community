@@ -1,27 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.textCompletion;
 
+import com.intellij.codeInsight.AutoPopupController;
 import com.intellij.codeInsight.hint.HintManager;
 import com.intellij.openapi.actionSystem.ActionManager;
 import com.intellij.openapi.actionSystem.IdeActions;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.FocusChangeListener;
 import com.intellij.openapi.keymap.KeymapUtil;
@@ -59,16 +46,20 @@ public class TextCompletionUtil {
     if (!StringUtil.isEmpty(completionShortcutText)) {
 
       final Ref<Boolean> toShowHintRef = new Ref<>(true);
-      editor.getDocument().addDocumentListener(new DocumentAdapter() {
+      editor.getDocument().addDocumentListener(new DocumentListener() {
         @Override
-        public void documentChanged(DocumentEvent e) {
+        public void documentChanged(@NotNull DocumentEvent e) {
           toShowHintRef.set(false);
         }
       });
 
       editor.addFocusListener(new FocusChangeListener() {
         @Override
-        public void focusGained(final Editor editor) {
+        public void focusGained(@NotNull final Editor editor) {
+          if (Boolean.TRUE.equals(editor.getUserData(AutoPopupController.AUTO_POPUP_ON_FOCUS_GAINED))) {
+            AutoPopupController.getInstance(editor.getProject()).scheduleAutoPopup(editor);
+            return;
+          }
           if (toShowHintRef.get() && editor.getDocument().getText().isEmpty()) {
             ApplicationManager.getApplication().invokeLater(
               () -> HintManager.getInstance().showInformationHint(editor, "Code completion available ( " + completionShortcutText + " )"));
@@ -76,7 +67,7 @@ public class TextCompletionUtil {
         }
 
         @Override
-        public void focusLost(Editor editor) {
+        public void focusLost(@NotNull Editor editor) {
           // Do nothing
         }
       });

@@ -67,6 +67,10 @@ public class MockDumbService extends DumbService {
   public void cancelTask(@NotNull DumbModeTask task) { }
 
   @Override
+  public void completeJustSubmittedTasks() {
+  }
+
+  @Override
   public JComponent wrapGently(@NotNull JComponent dumbUnawareContent, @NotNull Disposable parentDisposable) {
     throw new UnsupportedOperationException();
   }
@@ -90,10 +94,17 @@ public class MockDumbService extends DumbService {
     return false;
   }
 
+  @Override
+  public void suspendIndexingAndRun(@NotNull String activityName, @NotNull Runnable activity) {
+    activity.run();
+  }
+
+  @Override
   public void smartInvokeLater(@NotNull final Runnable runnable) {
     runnable.run();
   }
 
+  @Override
   public void smartInvokeLater(@NotNull final Runnable runnable, @NotNull ModalityState modalityState) {
     runnable.run();
   }

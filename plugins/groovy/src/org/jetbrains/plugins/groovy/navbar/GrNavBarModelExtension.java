@@ -28,9 +28,6 @@ import org.jetbrains.plugins.groovy.GroovyLanguage;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFileBase;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
 
-/**
- * Created by Max Medvedev on 9/5/13
- */
 public class GrNavBarModelExtension extends AbstractNavBarModelExtension {
 
   @Nullable
@@ -45,7 +42,7 @@ public class GrNavBarModelExtension extends AbstractNavBarModelExtension {
     final PsiFile containingFile = psiElement.getContainingFile();
     if (containingFile instanceof GroovyFileBase) {
       final VirtualFile file = containingFile.getVirtualFile();
-      if (file != null && (index.isUnderSourceRootOfType(file, JavaModuleSourceRootTypes.SOURCES) || index.isInLibraryClasses(file) || index.isInLibrarySource(file))) {
+      if (file != null && (index.isUnderSourceRootOfType(file, JavaModuleSourceRootTypes.SOURCES) || index.isInLibrary(file))) {
         if (psiElement instanceof GroovyFileBase) {
           final GroovyFileBase grFile = (GroovyFileBase)psiElement;
           if (grFile.getViewProvider().getBaseLanguage().equals(GroovyLanguage.INSTANCE)) {

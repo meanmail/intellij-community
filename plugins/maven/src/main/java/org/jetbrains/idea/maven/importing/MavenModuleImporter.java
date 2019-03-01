@@ -17,16 +17,18 @@ package org.jetbrains.idea.maven.importing;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.intellij.openapi.application.AccessToken;
+import com.intellij.execution.configurations.JavaParameters;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.externalSystem.model.project.ProjectId;
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.libraries.LibraryTable;
+import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
@@ -83,6 +85,11 @@ public class MavenModuleImporter {
     myMavenProjectToModuleName = mavenProjectToModuleName;
     mySettings = settings;
     myModifiableModelsProvider = modifiableModelsProvider;
+
+    VirtualFile pomFile = mavenProject.getFile();
+    if (!FileUtil.namesEqual("pom", pomFile.getNameWithoutExtension())) {
+      MavenPomPathModuleService.getInstance(module).setPomFileUrl(pomFile.getUrl());
+    }
   }
 
   public ModifiableRootModel getRootModel() {
@@ -187,15 +194,12 @@ public class MavenModuleImporter {
   private void configDependencies() {
     THashSet<String> dependencyTypesFromSettings = new THashSet<>();
 
-    AccessToken accessToken = ReadAction.start();
-    try {
-      if (myModule.getProject().isDisposed()) return;
+    if (!ReadAction.compute(()->{
+      if (myModule.getProject().isDisposed()) return false;
 
       dependencyTypesFromSettings.addAll(MavenProjectsManager.getInstance(myModule.getProject()).getImportingSettings().getDependencyTypesAsSet());
-    }
-    finally {
-      accessToken.finish();
-    }
+      return true;
+    })) return;
 
 
     for (MavenArtifact artifact : myMavenProject.getDependencies()) {
@@ -269,7 +273,26 @@ public class MavenModuleImporter {
         myRootModelAdapter.addSystemDependency(artifact, scope);
       }
       else {
-        myRootModelAdapter.addLibraryDependency(artifact, scope, myModifiableModelsProvider, myMavenProject);
+        if ("bundle".equals(dependencyType)) {
+          artifact = new MavenArtifact(
+            artifact.getGroupId(),
+            artifact.getArtifactId(),
+            artifact.getVersion(),
+            artifact.getBaseVersion(),
+            "jar",
+            artifact.getClassifier(),
+            artifact.getScope(),
+            artifact.isOptional(),
+            "jar",
+            null,
+            myMavenProject.getLocalRepository(),
+            false, false
+          );
+        }
+        LibraryOrderEntry libraryOrderEntry =
+          myRootModelAdapter.addLibraryDependency(artifact, scope, myModifiableModelsProvider, myMavenProject);
+        myModifiableModelsProvider.trySubstitute(
+          myModule, libraryOrderEntry, new ProjectId(artifact.getGroupId(), artifact.getArtifactId(), artifact.getVersion()));
       }
     }
 
@@ -322,7 +345,7 @@ public class MavenModuleImporter {
 
           Library library = myModifiableModelsProvider.getLibraryByName(libraryName);
           if (library == null) {
-            library = myModifiableModelsProvider.createLibrary(libraryName);
+            library = myModifiableModelsProvider.createLibrary(libraryName, MavenRootModelAdapter.getMavenExternalSource());
           }
           libraryModel = myModifiableModelsProvider.getModifiableLibraryModel(library);
 
@@ -362,7 +385,15 @@ public class MavenModuleImporter {
     }
 
     if (level == null) {
-      level = LanguageLevel.parse(myMavenProject.getSourceLevel());
+      String mavenProjectReleaseLevel = myMavenProject.getReleaseLevel();
+      level = LanguageLevel.parse(mavenProjectReleaseLevel);
+      if (level == null) {
+        String mavenProjectSourceLevel = myMavenProject.getSourceLevel();
+        level = LanguageLevel.parse(mavenProjectSourceLevel);
+        if (level == null && (StringUtil.isNotEmpty(mavenProjectSourceLevel) || StringUtil.isNotEmpty(mavenProjectReleaseLevel))) {
+          level = LanguageLevel.HIGHEST;
+        }
+      }
     }
 
     // default source and target settings of maven-compiler-plugin is 1.5, see details at http://maven.apache.org/plugins/maven-compiler-plugin
@@ -370,6 +401,23 @@ public class MavenModuleImporter {
       level = LanguageLevel.JDK_1_5;
     }
 
+    if (level.isAtLeast(LanguageLevel.JDK_11)) {
+      Element compilerConfiguration = myMavenProject.getPluginConfiguration("org.apache.maven.plugins", "maven-compiler-plugin");
+      if (compilerConfiguration != null) {
+        Element compilerArgs = compilerConfiguration.getChild("compilerArgs");
+        if (compilerArgs != null) {
+          for (Element child : compilerArgs.getChildren("arg")) {
+            if (JavaParameters.JAVA_ENABLE_PREVIEW_PROPERTY.equals(child.getTextTrim())) {
+              try {
+                level = LanguageLevel.valueOf(level.name() + "_PREVIEW");
+              }
+              catch (IllegalArgumentException ignored) { }
+              break;
+            }
+          }
+        }
+      }
+    }
     myRootModelAdapter.setLanguageLevel(level);
   }
 }

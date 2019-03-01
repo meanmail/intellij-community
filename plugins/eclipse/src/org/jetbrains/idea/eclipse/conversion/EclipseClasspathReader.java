@@ -1,28 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 11-Nov-2008
- */
 package org.jetbrains.idea.eclipse.conversion;
 
 import com.intellij.openapi.components.ExpandMacroToPathMap;
 import com.intellij.openapi.components.PathMacroManager;
-import com.intellij.openapi.components.impl.BasePathMacroManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.ProjectJdkTable;
 import com.intellij.openapi.projectRoots.Sdk;
@@ -36,7 +17,6 @@ import com.intellij.openapi.vfs.JarFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.containers.hash.HashSet;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
@@ -69,7 +49,7 @@ public class EclipseClasspathReader extends AbstractEclipseClasspathReader<Modif
     myContentEntry = model.addContentEntry(pathToUrl(myRootPath));
   }
 
-  public static void collectVariables(Set<String> usedVariables, Element classpathElement, final String rootPath) {
+  public static void collectVariables(Set<? super String> usedVariables, Element classpathElement, final String rootPath) {
     for (Element element : classpathElement.getChildren(EclipseXml.CLASSPATHENTRY_TAG)) {
       String path = element.getAttributeValue(EclipseXml.PATH_ATTR);
       if (path == null) {
@@ -111,12 +91,12 @@ public class EclipseClasspathReader extends AbstractEclipseClasspathReader<Modif
     }
     int idx = 0;
     EclipseModuleManagerImpl eclipseModuleManager = EclipseModuleManagerImpl.getInstance(model.getModule());
-    Set<String> libs = new HashSet<>();
+    Set<String> libs = new THashSet<>();
     for (Element o : classpathElement.getChildren(EclipseXml.CLASSPATHENTRY_TAG)) {
       try {
         readClasspathEntry(model, unknownLibraries, unknownJdks, refsToModules, testPattern, o, idx++,
                            eclipseModuleManager,
-                           ((BasePathMacroManager)PathMacroManager.getInstance(model.getModule())).getExpandMacroMap(), libs);
+                           PathMacroManager.getInstance(model.getModule()).getExpandMacroMap(), libs);
       }
       catch (ConversionException e) {
         ErrorLog.rethrow(ErrorLog.Level.Warning, null, EclipseXml.CLASSPATH_FILE, e);
@@ -153,8 +133,8 @@ public class EclipseClasspathReader extends AbstractEclipseClasspathReader<Modif
                                   boolean exported,
                                   String libName,
                                   String url,
-                                  String srcUrl, 
-                                  String nativeRoot, 
+                                  String srcUrl,
+                                  String nativeRoot,
                                   ExpandMacroToPathMap macroMap) {
     final Library library = rootModel.getModuleLibraryTable().getModifiableModel().createLibrary(libName);
     final Library.ModifiableModel modifiableModel = library.getModifiableModel();
@@ -162,11 +142,11 @@ public class EclipseClasspathReader extends AbstractEclipseClasspathReader<Modif
     if (srcUrl != null) {
       modifiableModel.addRoot(srcUrl, OrderRootType.SOURCES);
     }
-    
+
     if (nativeRoot != null) {
       modifiableModel.addRoot(nativeRoot, NativeLibraryOrderRootType.getInstance());
     }
-    
+
     EJavadocUtil.appendJavadocRoots(element, rootModel, myCurrentRoots, modifiableModel);
     modifiableModel.commit();
 
@@ -302,6 +282,7 @@ public class EclipseClasspathReader extends AbstractEclipseClasspathReader<Modif
   }
 
 
+  @Override
   protected String prepareValidUrlInsideJar(String url) {
     final VirtualFile localFile = VirtualFileManager.getInstance().findFileByUrl(url);
     if (localFile != null) {

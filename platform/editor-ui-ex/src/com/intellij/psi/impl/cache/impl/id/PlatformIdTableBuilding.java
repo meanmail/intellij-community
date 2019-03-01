@@ -108,7 +108,8 @@ public abstract class PlatformIdTableBuilding {
   private static class CompositeTodoIndexer extends VersionedTodoIndexer {
     private final DataIndexer<TodoIndexEntry, Integer, FileContent>[] indexers;
 
-    public CompositeTodoIndexer(@NotNull DataIndexer<TodoIndexEntry, Integer, FileContent>... indexers) {
+    @SafeVarargs
+    CompositeTodoIndexer(@NotNull DataIndexer<TodoIndexEntry, Integer, FileContent>... indexers) {
       this.indexers = indexers;
     }
 
@@ -117,6 +118,7 @@ public abstract class PlatformIdTableBuilding {
     public Map<TodoIndexEntry, Integer> map(@NotNull FileContent inputData) {
       Map<TodoIndexEntry, Integer> result = ContainerUtil.newTroveMap();
       for (DataIndexer<TodoIndexEntry, Integer, FileContent> indexer : indexers) {
+        if (indexer == null) continue;
         for (Map.Entry<TodoIndexEntry, Integer> entry : indexer.map(inputData).entrySet()) {
           TodoIndexEntry key = entry.getKey();
           if (result.containsKey(key)) {
@@ -143,7 +145,7 @@ public abstract class PlatformIdTableBuilding {
     @NotNull private final TokenSet myCommentTokens;
     private final VirtualFile myFile;
 
-    public TokenSetTodoIndexer(@NotNull final TokenSet commentTokens, @NotNull final VirtualFile file) {
+    TokenSetTodoIndexer(@NotNull final TokenSet commentTokens, @NotNull final VirtualFile file) {
       myCommentTokens = commentTokens;
       myFile = file;
     }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.handlers;
 
 import com.intellij.psi.PsiElement;
@@ -12,26 +13,23 @@ public final class LightTopLevelMatchingHandler extends MatchingHandler implemen
     myDelegate = delegate;
   }
 
+  @Override
   public boolean match(final PsiElement patternNode, final PsiElement matchedNode, final MatchContext matchContext) {
     return myDelegate.match(patternNode, matchedNode, matchContext);
   }
 
   @Override
-  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode) {
-    return myDelegate.canMatch(patternNode, matchedNode);
+  public boolean canMatch(PsiElement patternNode, PsiElement matchedNode, MatchContext context) {
+    return myDelegate.canMatch(patternNode, matchedNode, context);
   }
 
   @Override
-  public boolean matchSequentially(final NodeIterator nodes, final NodeIterator nodes2, final MatchContext context) {
-    return myDelegate.matchSequentially(nodes, nodes2, context);
+  public boolean matchSequentially(final NodeIterator patternNodes, final NodeIterator matchNodes, final MatchContext context) {
+    return myDelegate.matchSequentially(patternNodes, matchNodes, context);
   }
 
-  public boolean match(final PsiElement patternNode,
-                       final PsiElement matchedNode, final int start, final int end, final MatchContext context) {
-    return myDelegate.match(patternNode, matchedNode, start, end, context);
-  }
-
-  public boolean isMatchSequentiallySucceeded(final NodeIterator nodes2) {
+  @Override
+  public boolean isMatchSequentiallySucceeded(final NodeIterator matchNodes) {
     return true;
   }
 
@@ -40,6 +38,7 @@ public final class LightTopLevelMatchingHandler extends MatchingHandler implemen
     return myDelegate.shouldAdvanceTheMatchFor(patternElement, matchedElement);
   }
 
+  @Override
   public MatchingHandler getDelegate() {
     return myDelegate;
   }

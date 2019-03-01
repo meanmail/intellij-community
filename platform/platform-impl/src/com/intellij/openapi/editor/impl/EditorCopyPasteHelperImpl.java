@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,14 +18,17 @@ package com.intellij.openapi.editor.impl;
 import com.intellij.codeInsight.editorActions.TextBlockTransferable;
 import com.intellij.codeInsight.editorActions.TextBlockTransferableData;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.actions.BasePasteHandler;
 import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.LineTokenizer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+import javax.swing.text.Document;
+import javax.swing.text.JTextComponent;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
 import java.util.ArrayList;
@@ -34,8 +37,6 @@ import java.util.Iterator;
 import java.util.List;
 
 public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
-  private static final Logger LOG = Logger.getInstance(EditorCopyPasteHelperImpl.class);
-
   @Override
   public void copySelectionToClipboard(@NotNull Editor editor) {
     ApplicationManager.getApplication().assertIsDispatchThread();
@@ -49,7 +50,7 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
     CopyPasteManager.getInstance().setContents(contents);
   }
 
-  public static String getSelectedTextForClipboard(@NotNull Editor editor, @NotNull Collection<TextBlockTransferableData> extraDataCollector) {
+  public static String getSelectedTextForClipboard(@NotNull Editor editor, @NotNull Collection<? super TextBlockTransferableData> extraDataCollector) {
     final StringBuilder buf = new StringBuilder();
     String separator = "";
     List<Caret> carets = editor.getCaretModel().getAllCarets();
@@ -71,16 +72,19 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
 
   @Nullable
   @Override
-  public TextRange[] pasteFromClipboard(@NotNull Editor editor) {
+  public TextRange[] pasteFromClipboard(@NotNull Editor editor) throws TooLargeContentException {
     Transferable transferable = EditorModificationUtil.getContentsToPasteToEditor(null);
     return transferable == null ? null : pasteTransferable(editor, transferable);
   }
 
   @Nullable
   @Override
-  public TextRange[] pasteTransferable(final @NotNull Editor editor, @NotNull Transferable content) {
+  public TextRange[] pasteTransferable(final @NotNull Editor editor, @NotNull Transferable content) throws TooLargeContentException {
     String text = EditorModificationUtil.getStringContent(content);
     if (text == null) return null;
+
+    int textLength = text.length();
+    if (BasePasteHandler.isContentTooLarge(textLength)) throw new TooLargeContentException(textLength);
 
     if (editor.getCaretModel().supportsMultipleCarets()) {
       CaretStateTransferableData caretData = null;
@@ -98,33 +102,37 @@ public class EditorCopyPasteHelperImpl extends EditorCopyPasteHelper {
         caretCount = editor.getCaretModel().getCaretCount();
       }
       else {
-        try {
-          caretData = content.isDataFlavorSupported(CaretStateTransferableData.FLAVOR)
-                      ? (CaretStateTransferableData)content.getTransferData(CaretStateTransferableData.FLAVOR) : null;
-        }
-        catch (Exception e) {
-          LOG.error(e);
-        }
+        caretData = CaretStateTransferableData.getFrom(content);
       }
       final TextRange[] ranges = new TextRange[caretCount];
       final Iterator<String> segments = new ClipboardTextPerCaretSplitter().split(text, caretData, caretCount).iterator();
       final int[] index = {0};
-      editor.getCaretModel().runForEachCaret(new CaretAction() {
-        @Override
-        public void perform(Caret caret) {
-          String normalizedText = TextBlockTransferable.convertLineSeparators(editor, segments.next());
-          int caretOffset = caret.getOffset();
-          ranges[index[0]++] = new TextRange(caretOffset, caretOffset + normalizedText.length());
-          EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
-        }
+      editor.getCaretModel().runForEachCaret(caret -> {
+        String normalizedText = TextBlockTransferable.convertLineSeparators(editor, segments.next());
+        normalizedText = trimTextIfNeed(editor, normalizedText);
+        int caretOffset = caret.getOffset();
+        ranges[index[0]++] = new TextRange(caretOffset, caretOffset + normalizedText.length());
+        EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
       });
       return ranges;
     }
     else {
       int caretOffset = editor.getCaretModel().getOffset();
       String normalizedText = TextBlockTransferable.convertLineSeparators(editor, text);
+      normalizedText = trimTextIfNeed(editor, normalizedText);
       EditorModificationUtil.insertStringAtCaret(editor, normalizedText, false, true);
       return new TextRange[]{new TextRange(caretOffset, caretOffset + text.length())};
     }
+  }
+
+  private static String trimTextIfNeed(Editor editor, String text) {
+    JComponent contentComponent = editor.getContentComponent();
+    if (contentComponent instanceof JTextComponent) {
+      Document document = ((JTextComponent)contentComponent).getDocument();
+      if (document != null && document.getProperty(TRIM_TEXT_ON_PASTE_KEY) == Boolean.TRUE) {
+        return text.trim();
+      }
+    }
+    return text;
   }
 }

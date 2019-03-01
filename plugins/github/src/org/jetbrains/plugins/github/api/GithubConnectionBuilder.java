@@ -27,7 +27,6 @@ import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.protocol.HttpClientContext;
 import org.apache.http.client.utils.URIBuilder;
 import org.apache.http.config.ConnectionConfig;
-import org.apache.http.conn.ssl.X509HostnameVerifier;
 import org.apache.http.impl.auth.BasicScheme;
 import org.apache.http.impl.client.BasicCredentialsProvider;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -39,17 +38,17 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.github.util.GithubAuthData;
 import org.jetbrains.plugins.github.util.GithubSettings;
 
-import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+@Deprecated
 class GithubConnectionBuilder {
   @NotNull private final GithubAuthData myAuth;
   @NotNull private final String myApiURL;
 
-  public GithubConnectionBuilder(@NotNull GithubAuthData auth, @NotNull String apiURL) {
+  GithubConnectionBuilder(@NotNull GithubAuthData auth, @NotNull String apiURL) {
     myAuth = auth;
     myApiURL = apiURL;
   }
@@ -62,8 +61,7 @@ class GithubConnectionBuilder {
       .setDefaultRequestConfig(createRequestConfig())
       .setDefaultConnectionConfig(createConnectionConfig())
       .setDefaultHeaders(createHeaders())
-      .setSslcontext(CertificateManager.getInstance().getSslContext())
-      .setHostnameVerifier((X509HostnameVerifier)CertificateManager.HOSTNAME_VERIFIER);
+      .setSslcontext(CertificateManager.getInstance().getSslContext());
 
     setupCredentialsProvider(builder);
 
@@ -142,12 +140,12 @@ class GithubConnectionBuilder {
   private static class PreemptiveBasicAuthInterceptor implements HttpRequestInterceptor {
     @NotNull private final AuthScope myBasicAuthScope;
 
-    public PreemptiveBasicAuthInterceptor(@NotNull AuthScope basicAuthScope) {
+    PreemptiveBasicAuthInterceptor(@NotNull AuthScope basicAuthScope) {
       myBasicAuthScope = basicAuthScope;
     }
 
     @Override
-    public void process(HttpRequest request, HttpContext context) throws HttpException, IOException {
+    public void process(HttpRequest request, HttpContext context) throws HttpException {
       CredentialsProvider provider = (CredentialsProvider)context.getAttribute(HttpClientContext.CREDS_PROVIDER);
       Credentials credentials = provider.getCredentials(myBasicAuthScope);
       if (credentials != null) {

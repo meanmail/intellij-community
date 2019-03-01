@@ -26,7 +26,6 @@ import com.intellij.psi.util.CachedValueProvider;
 import com.intellij.psi.util.CachedValuesManager;
 import com.intellij.psi.util.PsiModificationTracker;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
 import com.intellij.util.containers.SoftFactoryMap;
 import com.intellij.util.xml.highlighting.ResolvingElementQuickFix;
 import gnu.trove.THashMap;
@@ -43,19 +42,16 @@ import java.util.Map;
  * @author peter
  */
 public class DomResolveConverter<T extends DomElement> extends ResolvingConverter<T>{
-  private static final FactoryMap<Class<? extends DomElement>,DomResolveConverter> ourCache = new ConcurrentFactoryMap<Class<? extends DomElement>, DomResolveConverter>() {
-    @Override
-    @NotNull
-    protected DomResolveConverter create(final Class<? extends DomElement> key) {
-      return new DomResolveConverter(key);
-    }
-  };
+  private static final Map<Class<? extends DomElement>, DomResolveConverter> ourCache =
+    ConcurrentFactoryMap.createMap(key -> new DomResolveConverter(key));
   private final boolean myAttribute;
   private final SoftFactoryMap<DomElement, CachedValue<Map<String, DomElement>>> myResolveCache = new SoftFactoryMap<DomElement, CachedValue<Map<String, DomElement>>>() {
     @Override
     @NotNull
     protected CachedValue<Map<String, DomElement>> create(final DomElement scope) {
       final DomManager domManager = scope.getManager();
+      //noinspection ConstantConditions
+      if (domManager == null) throw new AssertionError("Null DomManager for " + scope.getClass());
       final Project project = domManager.getProject();
       return CachedValuesManager.getManager(project).createCachedValue(new CachedValueProvider<Map<String, DomElement>>() {
         @Override

@@ -15,7 +15,6 @@
  */
 package com.intellij.psi.impl.source.resolve.reference.impl.providers;
 
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInsight.template.Template;
 import com.intellij.codeInsight.template.TemplateManager;
@@ -29,7 +28,7 @@ import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.xml.XmlBundle;
-import com.intellij.xml.impl.schema.XmlNSDescriptorImpl;
+import com.intellij.xml.impl.schema.XsdNsDescriptor;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -69,7 +68,7 @@ class CreateXmlElementIntentionAction implements IntentionAction {
     if (!myIsAvailableEvaluated) {
       final XmlTag tag = PsiTreeUtil.getParentOfType(myRef.getElement(), XmlTag.class);
       if (tag != null) {
-        final XmlNSDescriptorImpl descriptor = myRef.getDescriptor(tag, myRef.getCanonicalText());
+        final XsdNsDescriptor descriptor = myRef.getDescriptor(tag, myRef.getCanonicalText(), new boolean[1]);
 
         if (descriptor != null &&
             descriptor.getDescriptorFile() != null &&
@@ -85,8 +84,6 @@ class CreateXmlElementIntentionAction implements IntentionAction {
 
   @Override
   public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
     final XmlTag rootTag = myTargetFile.getDocument().getRootTag();
 
     OpenFileDescriptor descriptor = new OpenFileDescriptor(

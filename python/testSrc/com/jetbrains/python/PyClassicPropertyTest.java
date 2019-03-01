@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ public class PyClassicPropertyTest extends PyTestCase {
     myClass = file.getTopLevelClasses().get(0);
   }
 
-  public void testV1() throws Exception {
+  public void testV1() {
     Property p;
     Maybe<PyCallable> accessor;
     p = myClass.findProperty("v1", true, null);
@@ -59,7 +59,7 @@ public class PyClassicPropertyTest extends PyTestCase {
     assertNull(accessor.value());
   }
 
-  public void testV2() throws Exception {
+  public void testV2() {
     Property p;
     Maybe<PyCallable> accessor;
     p = myClass.findProperty("v2", true, null);
@@ -84,7 +84,7 @@ public class PyClassicPropertyTest extends PyTestCase {
     assertEquals("deleter", accessor.value().getName());
   }
 
-  public void testV3() throws Exception {
+  public void testV3() {
     Maybe<PyCallable> accessor;
     Property p = myClass.findProperty("v3", true, null);
     assertNotNull(p);
@@ -95,7 +95,7 @@ public class PyClassicPropertyTest extends PyTestCase {
     accessor = p.getGetter();
     assertFalse(accessor.isDefined());
 
-    final PyType codeInsightType = p.getType(TypeEvalContext.codeInsightFallback(myClass.getProject()));
+    final PyType codeInsightType = p.getType(null, TypeEvalContext.codeInsightFallback(myClass.getProject()));
     assertNull(codeInsightType);
 
     accessor = p.getSetter();

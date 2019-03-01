@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,28 +18,25 @@ package com.intellij.refactoring.extractclass;
 import com.intellij.codeInsight.generation.GenerateMembersUtil;
 import com.intellij.ide.highlighter.JavaFileType;
 import com.intellij.ide.util.PackageUtil;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.javadoc.PsiDocTagValue;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.InheritanceUtil;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.MoveDestination;
 import com.intellij.refactoring.RefactorJBundle;
 import com.intellij.refactoring.extractclass.usageInfo.*;
@@ -79,35 +76,39 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
   private final String myNewVisibility;
   private final boolean myGenerateAccessors;
   private final List<PsiField> enumConstants;
+  @NotNull
   private final String newClassName;
   private final String delegateFieldName;
   private final boolean requiresBackpointer;
   private boolean delegationRequired;
   private final ExtractEnumProcessor myExtractEnumProcessor;
   private final PsiClass myClass;
-  private boolean extractInnerClass;
+  private final boolean extractInnerClass;
 
   public ExtractClassProcessor(PsiClass sourceClass,
-                               List<PsiField> fields,
-                               List<PsiMethod> methods,
-                               List<PsiClass> innerClasses,
+                               List<? extends PsiField> fields,
+                               List<? extends PsiMethod> methods,
+                               List<? extends PsiClass> innerClasses,
                                String newPackageName,
-                               String newClassName) {
-    this(sourceClass, fields, methods, innerClasses, newPackageName, null, newClassName, null, false, Collections.<MemberInfo>emptyList());
+                               @NotNull String newClassName) {
+    this(sourceClass, fields, methods, innerClasses, newPackageName, null, newClassName, null, false, Collections.emptyList(), false);
   }
 
   public ExtractClassProcessor(PsiClass sourceClass,
-                               List<PsiField> fields,
-                               List<PsiMethod> methods,
-                               List<PsiClass> classes,
+                               List<? extends PsiField> fields,
+                               List<? extends PsiMethod> methods,
+                               List<? extends PsiClass> classes,
                                String packageName,
                                MoveDestination moveDestination,
-                               String newClassName,
+                               @NotNull String newClassName,
                                String newVisibility,
-                               boolean generateAccessors, List<MemberInfo> enumConstants) {
+                               boolean generateAccessors,
+                               List<? extends MemberInfo> enumConstants,
+                               boolean extractInnerClass) {
     super(sourceClass.getProject());
     this.sourceClass = sourceClass;
     this.newPackageName = packageName;
+    this.extractInnerClass = extractInnerClass;
     myMoveDestination = moveDestination;
     myNewVisibility = newVisibility;
     myGenerateAccessors = generateAccessors;
@@ -127,7 +128,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
       ContainerUtil.addAll(typeParams, sourceClass.getTypeParameters());
     }
     else {
-      final Set<PsiTypeParameter> typeParamSet = new HashSet<>();
+      final Set<PsiTypeParameter> typeParamSet = new LinkedHashSet<>();
       final TypeParametersVisitor visitor = new TypeParametersVisitor(typeParamSet);
       for (PsiField field : fields) {
         field.accept(visitor);
@@ -139,21 +140,12 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
       }
       typeParams.addAll(typeParamSet);
     }
-    myClass = new WriteCommandAction<PsiClass>(myProject, getCommandName()){
-      @Override
-      protected void run(@NotNull Result<PsiClass> result) throws Throwable {
-        result.setResult(buildClass(false));
-      }
-    }.execute().getResultObject();
+    myClass = WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).compute(() -> buildClass(false));
     myExtractEnumProcessor = new ExtractEnumProcessor(myProject, this.enumConstants, myClass);
   }
 
   public PsiClass getCreatedClass() {
     return myClass;
-  }
-
-  public void setExtractInnerClass(boolean extractInnerClass) {
-    this.extractInnerClass = extractInnerClass;
   }
 
   @Override
@@ -164,7 +156,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
                                                 myClass.getContainingFile().getContainingDirectory().getVirtualFile())) {
       conflicts.putValue(sourceClass, "Extracted class won't be accessible in " + RefactoringUIUtil.getDescription(sourceClass, true));
     }
-    ApplicationManager.getApplication().runWriteAction(() -> myClass.delete());
+    WriteCommandAction.writeCommandAction(myProject).run(() -> myClass.delete());
     final Project project = sourceClass.getProject();
     final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
     final PsiClass existingClass =
@@ -195,6 +187,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     return showConflicts(conflicts, refUsages.get());
   }
 
+  @NotNull
   private String getQualifiedName() {
     return extractInnerClass ? newClassName : StringUtil.getQualifiedName(newPackageName, newClassName);
   }
@@ -217,6 +210,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
   private boolean initializerDependsOnMoved(PsiElement initializer) {
     final boolean [] dependsOnMoved = new boolean[]{false};
     initializer.accept(new JavaRecursiveElementWalkingVisitor(){
+      @Override
       public void visitReferenceExpression(final PsiReferenceExpression expression) {
         super.visitReferenceExpression(expression);
         final PsiElement resolved = expression.resolve();
@@ -230,8 +224,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
 
   private String calculateDelegateFieldName() {
     final Project project = sourceClass.getProject();
-    final CodeStyleSettingsManager settingsManager = CodeStyleSettingsManager.getInstance(project);
-    final CodeStyleSettings settings = settingsManager.getCurrentSettings();
+    final JavaCodeStyleSettings settings = JavaCodeStyleSettings.getInstance(sourceClass.getContainingFile());
 
     final String baseName = settings.FIELD_NAME_PREFIX.length() == 0 ? StringUtil.decapitalize(newClassName) : newClassName;
     String name = settings.FIELD_NAME_PREFIX + baseName + settings.FIELD_NAME_SUFFIX;
@@ -259,15 +252,19 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     return false;
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return RefactorJBundle.message("extracted.class.command.name", newClassName);
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usageInfos) {
     return new ExtractClassUsageViewDescriptor(sourceClass);
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usageInfos) {
     final PsiClass psiClass = buildClass(true);
     if (psiClass == null) return;
@@ -412,7 +409,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
 
   private void buildDelegate() {
     final PsiManager manager = sourceClass.getManager();
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     final CodeStyleManager codeStyleManager = CodeStyleManager.getInstance(manager.getProject());
     @NonNls final StringBuilder fieldBuffer = new StringBuilder();
     final String delegateVisibility = calculateDelegateVisibility();
@@ -422,9 +419,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     fieldBuffer.append(fullyQualifiedName);
     if (!typeParams.isEmpty()) {
       fieldBuffer.append('<');
-      for (PsiTypeParameter typeParameter : typeParams) {
-        fieldBuffer.append(typeParameter.getName());
-      }
+      fieldBuffer.append(StringUtil.join(typeParams, param -> param.getName(), ", "));
       fieldBuffer.append('>');
     }
     fieldBuffer.append(' ');
@@ -432,9 +427,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     fieldBuffer.append(" = new ").append(fullyQualifiedName);
     if (!typeParams.isEmpty()) {
       fieldBuffer.append('<');
-      for (PsiTypeParameter typeParameter : typeParams) {
-        fieldBuffer.append(typeParameter.getName());
-      }
+      fieldBuffer.append(StringUtil.join(typeParams, param -> param.getName(), ", "));
       fieldBuffer.append('>');
     }
     fieldBuffer.append('(');
@@ -474,6 +467,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     return "private";
   }
 
+  @Override
   public void findUsages(@NotNull List<FixableUsageInfo> usages) {
     for (PsiField field : fields) {
       findUsagesForField(field, usages);
@@ -494,7 +488,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     }
   }
 
-  private void findUsagesForInnerClass(PsiClass innerClass, List<FixableUsageInfo> usages) {
+  private void findUsagesForInnerClass(PsiClass innerClass, List<? super FixableUsageInfo> usages) {
     final PsiManager psiManager = innerClass.getManager();
     final Project project = psiManager.getProject();
     final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
@@ -519,7 +513,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     }
   }
 
-  private void findUsagesForMethod(PsiMethod method, List<FixableUsageInfo> usages) {
+  private void findUsagesForMethod(PsiMethod method, List<? super FixableUsageInfo> usages) {
     final PsiManager psiManager = method.getManager();
     final Project project = psiManager.getProject();
     final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
@@ -553,7 +547,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     }
   }
 
-  private void findUsagesForStaticMethod(PsiMethod method, List<FixableUsageInfo> usages) {
+  private void findUsagesForStaticMethod(PsiMethod method, List<? super FixableUsageInfo> usages) {
     final PsiManager psiManager = method.getManager();
     final Project project = psiManager.getProject();
     final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
@@ -595,7 +589,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     return false;
   }
 
-  private void findUsagesForField(PsiField field, List<FixableUsageInfo> usages) {
+  private void findUsagesForField(PsiField field, List<? super FixableUsageInfo> usages) {
     final PsiManager psiManager = field.getManager();
     final Project project = psiManager.getProject();
     final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
@@ -605,7 +599,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     if (myGenerateAccessors) {
       getter = GenerateMembersUtil.suggestGetterName(field);
     } else {
-      final PsiMethod fieldGetter = PropertyUtil.findPropertyGetter(sourceClass, field.getName(), false, false);
+      final PsiMethod fieldGetter = PropertyUtilBase.findPropertyGetter(sourceClass, field.getName(), false, false);
       if (fieldGetter != null && isInMovedElement(fieldGetter)) {
         getter = fieldGetter.getName();
       }
@@ -615,7 +609,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     if (myGenerateAccessors) {
       setter = GenerateMembersUtil.suggestSetterName(field);
     } else {
-      final PsiMethod fieldSetter = PropertyUtil.findPropertySetter(sourceClass, field.getName(), false, false);
+      final PsiMethod fieldSetter = PropertyUtilBase.findPropertySetter(sourceClass, field.getName(), false, false);
       if (fieldSetter != null && isInMovedElement(fieldSetter)) {
         setter = fieldSetter.getName();
       }
@@ -630,7 +624,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
 
       if (element instanceof PsiReferenceExpression) {
         final PsiReferenceExpression exp = (PsiReferenceExpression)element;
-        if (RefactoringUtil.isPlusPlusOrMinusMinus(exp.getParent())) {
+        if (PsiUtil.isIncrementDecrementOperation(exp.getParent())) {
           usages.add(isStatic
                      ? new ReplaceStaticVariableIncrementDecrement(exp, qualifiedName)
                      : new ReplaceInstanceVariableIncrementDecrement(exp, delegateFieldName, setter, getter, field.getName()));
@@ -710,7 +704,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
       if (myMoveDestination != null) {
         directory = myMoveDestination.getTargetDirectory(containingDirectory);
       } else {
-        final Module module = ModuleUtil.findModuleForPsiElement(containingFile);
+        final Module module = ModuleUtilCore.findModuleForPsiElement(containingFile);
         assert module != null;
         directory = PackageUtil.findOrCreateDirectoryForPackage(module, newPackageName, containingDirectory, false, true);
       }
@@ -830,6 +824,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
     private final Set<PsiField> fieldsNeedingGetter = new HashSet<>();
     private final Set<PsiField> fieldsNeedingSetter = new HashSet<>();
 
+    @Override
     public void visitReferenceExpression(PsiReferenceExpression expression) {
       super.visitReferenceExpression(expression);
       if (isProhibitedReference(expression)) {
@@ -846,6 +841,7 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
       return modifierList.hasModifierProperty(PsiModifier.STATIC) && modifierList.hasModifierProperty(PsiModifier.FINAL);
     }
 
+    @Override
     public void visitAssignmentExpression(PsiAssignmentExpression expression) {
       super.visitAssignmentExpression(expression);
 
@@ -858,13 +854,9 @@ public class ExtractClassProcessor extends FixableUsagesRefactoringProcessor {
       }
     }
 
-    public void visitPostfixExpression(PsiPostfixExpression expression) {
-      super.visitPostfixExpression(expression);
-      checkSetterNeeded(expression.getOperand(), expression.getOperationSign());
-    }
-
-    public void visitPrefixExpression(PsiPrefixExpression expression) {
-      super.visitPrefixExpression(expression);
+    @Override
+    public void visitUnaryExpression(PsiUnaryExpression expression) {
+      super.visitUnaryExpression(expression);
       checkSetterNeeded(expression.getOperand(), expression.getOperationSign());
     }
 

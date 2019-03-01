@@ -1,28 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.update;
 
-import com.intellij.lifecycle.PeriodicalTasksCloser;
-import com.intellij.openapi.components.*;
+import com.intellij.openapi.components.PersistentStateComponent;
+import com.intellij.openapi.components.State;
+import com.intellij.openapi.components.Storage;
+import com.intellij.openapi.components.StoragePathMacros;
 import com.intellij.openapi.project.DumbAwareRunnable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectReloadState;
 import com.intellij.openapi.startup.StartupManager;
-import com.intellij.openapi.util.InvalidDataException;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.changes.committed.CommittedChangesCache;
 import com.intellij.openapi.vcs.ex.ProjectLevelVcsManagerEx;
@@ -30,57 +16,30 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-@State(
-  name = "RestoreUpdateTree",
-  storages = @Storage(StoragePathMacros.WORKSPACE_FILE)
-)
-public class RestoreUpdateTree implements ProjectComponent, PersistentStateComponent<Element> {
-  private final Project myProject;
-
+@State(name = "RestoreUpdateTree", storages = {
+  @Storage(StoragePathMacros.CACHE_FILE),
+  @Storage(value = StoragePathMacros.WORKSPACE_FILE, deprecated = true),
+})
+public class RestoreUpdateTree implements PersistentStateComponent<Element> {
   private UpdateInfo myUpdateInfo;
 
-  public RestoreUpdateTree(Project project) {
-    myProject = project;
-  }
-
-  public static RestoreUpdateTree getInstance(Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetComponent(project, RestoreUpdateTree.class);
-  }
-
-  @Override
-  public void projectOpened() {
-    StartupManager.getInstance(myProject).registerPostStartupActivity(new DumbAwareRunnable() {
-      @Override
-      public void run() {
-        if (myUpdateInfo != null && !myUpdateInfo.isEmpty() && ProjectReloadState.getInstance(myProject).isAfterAutomaticReload()) {
-          ActionInfo actionInfo = myUpdateInfo.getActionInfo();
-          if (actionInfo != null) {
-            ProjectLevelVcsManagerEx.getInstanceEx(myProject).showUpdateProjectInfo(myUpdateInfo.getFileInformation(),
-                                                                                    VcsBundle.message("action.display.name.update"), actionInfo,
-                                                                                    false);
-            CommittedChangesCache.getInstance(myProject).refreshIncomingChangesAsync();
-          }
+  public RestoreUpdateTree(@NotNull Project project, @NotNull StartupManager startupManager) {
+    startupManager.registerPostStartupActivity((DumbAwareRunnable)() -> {
+      if (myUpdateInfo != null && !myUpdateInfo.isEmpty() && ProjectReloadState.getInstance(project).isAfterAutomaticReload()) {
+        ActionInfo actionInfo = myUpdateInfo.getActionInfo();
+        if (actionInfo != null) {
+          ProjectLevelVcsManagerEx.getInstanceEx(project).showUpdateProjectInfo(myUpdateInfo.getFileInformation(),
+                                                                                  VcsBundle.message("action.display.name.update"), actionInfo,
+                                                                                  false);
+          CommittedChangesCache.getInstance(project).refreshIncomingChangesAsync();
         }
-        myUpdateInfo = null;
       }
+      myUpdateInfo = null;
     });
   }
 
-  @Override
-  public void projectClosed() {
-  }
-
-  @Override
-  @NotNull
-  public String getComponentName() {
-    return "RestoreUpdateTree";
-  }
-
-  @Override
-  public void initComponent() { }
-
-  @Override
-  public void disposeComponent() {
+  public static RestoreUpdateTree getInstance(Project project) {
+    return project.getComponent(RestoreUpdateTree.class);
   }
 
   @Nullable
@@ -88,25 +47,15 @@ public class RestoreUpdateTree implements ProjectComponent, PersistentStateCompo
   public Element getState() {
     Element element = new Element("state");
     if (myUpdateInfo != null && !myUpdateInfo.isEmpty()) {
-      try {
-        myUpdateInfo.writeExternal(element);
-      }
-      catch (WriteExternalException e) {
-        throw new RuntimeException(e);
-      }
+      myUpdateInfo.writeExternal(element);
     }
     return element;
   }
 
   @Override
-  public void loadState(Element state) {
+  public void loadState(@NotNull Element state) {
     UpdateInfo updateInfo = new UpdateInfo();
-    try {
-      updateInfo.readExternal(state);
-    }
-    catch (InvalidDataException e) {
-      throw new RuntimeException(e);
-    }
+    updateInfo.readExternal(state);
     myUpdateInfo = updateInfo.isEmpty() ? null : updateInfo;
   }
 

@@ -18,6 +18,7 @@ package com.siyeh.ig.visibility;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.ig.BaseInspectionVisitor;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -101,13 +102,14 @@ class AnonymousClassVariableHidesOuterClassVariableVisitor extends BaseInspectio
       // don't drill down in classes
     }
 
+    @NotNull
     public PsiVariable[] getVariables(String name) {
       final List<PsiVariable> variableList = variableMap.get(name);
       if (variableList == null) {
         return EMPTY_VARIABLE_LIST;
       }
       else {
-        return variableList.toArray(new PsiVariable[variableList.size()]);
+        return variableList.toArray(new PsiVariable[0]);
       }
     }
   }

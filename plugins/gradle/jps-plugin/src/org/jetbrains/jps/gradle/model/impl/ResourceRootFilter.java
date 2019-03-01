@@ -30,7 +30,6 @@ import java.util.regex.Pattern;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/22/2014
  */
 @Tag("filter")
 public class ResourceRootFilter {
@@ -65,13 +64,11 @@ public class ResourceRootFilter {
           propertiesMap.put("matcher", matcher);
         }
       }
-      catch (JsonSyntaxException e) {
-        throw new RuntimeException("Unsupported filter: " + properties , e);
-      } catch (JsonParseException e) {
+      catch (JsonParseException e) {
         throw new RuntimeException("Unsupported filter: " + properties , e);
       }
       if(propertiesMap == null) {
-        propertiesMap = new HashMap<Object, Object>();
+        propertiesMap = new HashMap<>();
       }
     }
     return propertiesMap;

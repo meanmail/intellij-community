@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.fixtures;
 
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
@@ -24,7 +11,7 @@ import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
 import com.intellij.psi.*;
 import com.intellij.testFramework.TestDataFile;
 import com.jetbrains.python.psi.LanguageLevel;
-import com.jetbrains.python.psi.impl.PythonLanguageLevelPusher;
+import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -60,16 +47,17 @@ public abstract class PyResolveTestCase extends PyTestCase {
     return reference;
   }
 
-  protected abstract PsiElement doResolve() throws Exception;
+  protected abstract PsiElement doResolve();
 
   protected <T extends PsiElement> T assertResolvesTo(final LanguageLevel langLevel, final Class<T> aClass, final String name) {
-    PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), langLevel);
-    try {
-      return assertResolvesTo(aClass, name, null);
-    }
-    finally {
-      PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), null);
-    }
+    final Ref<T> result = new Ref<>();
+
+    runWithLanguageLevel(
+      langLevel,
+      () -> result.set(assertResolvesTo(aClass, name, null))
+    );
+
+    return result.get();
   }
 
   protected <T extends PsiElement> T assertResolvesTo(final Class<T> aClass, final String name) {
@@ -126,6 +114,8 @@ public abstract class PyResolveTestCase extends PyTestCase {
   }
 
   public static int findMarkerOffset(final PsiFile psiFile) {
+    // TODO: harmonize with CythonResolveTest synax
+    // TODO: check and fix work with single letter identifiers
     Document document = PsiDocumentManager.getInstance(psiFile.getProject()).getDocument(psiFile);
     assert document != null;
     int offset = -1;
@@ -137,14 +127,19 @@ public abstract class PyResolveTestCase extends PyTestCase {
         offset = document.getLineStartOffset(i-1) + index;
       }
     }
-    assert offset != -1;
+    assertTrue("<ref> in test file not found", offset >= 0);
     return offset;
   }
 
   @NotNull
   public static PsiReference findReferenceByMarker(PsiFile psiFile) {
     final PsiReference ref = psiFile.findReferenceAt(findMarkerOffset(psiFile));
-    assertNotNull("<ref> in test file not found", ref);
+    assertNotNull("No reference found at <ref> position", ref);
     return ref;
+  }
+
+  protected static void assertIsBuiltin(@Nullable PsiElement element) {
+    assertNotNull(element);
+    assertTrue(PyBuiltinCache.getInstance(element).isBuiltin(element));
   }
 }

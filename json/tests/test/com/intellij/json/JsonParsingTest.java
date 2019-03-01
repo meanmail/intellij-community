@@ -22,7 +22,7 @@ public class JsonParsingTest extends ParsingTestCase {
     doTest(true);
   }
 
-  public void testKeywords() throws Exception {
+  public void testKeywords() {
     doTest();
   }
 
@@ -68,6 +68,10 @@ public class JsonParsingTest extends ParsingTestCase {
 
   // WEB-13600
   public void testNumberLiterals() {
+    doTest();
+  }
+
+  public void testExtendedIdentifierToken() {
     doTest();
   }
 

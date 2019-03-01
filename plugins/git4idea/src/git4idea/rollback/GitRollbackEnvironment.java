@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.rollback;
 
 import com.intellij.dvcs.DvcsUtil;
-import com.intellij.lifecycle.PeriodicalTasksCloser;
 import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vcs.FilePath;
@@ -30,9 +15,9 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.vcsUtil.VcsFileUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import git4idea.GitUtil;
+import git4idea.commands.Git;
 import git4idea.commands.GitCommand;
-import git4idea.commands.GitHandlerUtil;
-import git4idea.commands.GitSimpleHandler;
+import git4idea.commands.GitLineHandler;
 import git4idea.i18n.GitBundle;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitUntrackedFilesHolder;
@@ -52,27 +37,32 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
     myProject = project;
   }
 
+  @Override
   @NotNull
   public String getRollbackOperationName() {
     return GitBundle.getString("revert.action.name");
   }
 
+  @Override
   public void rollbackModifiedWithoutCheckout(@NotNull List<VirtualFile> files,
                                               final List<VcsException> exceptions,
                                               final RollbackProgressListener listener) {
     throw new UnsupportedOperationException("Explicit file checkout is not supported by GIT.");
   }
 
+  @Override
   public void rollbackMissingFileDeletion(@NotNull List<FilePath> files,
                                           final List<VcsException> exceptions,
                                           final RollbackProgressListener listener) {
     throw new UnsupportedOperationException("Missing file delete is not reported by GIT.");
   }
 
+  @Override
   public void rollbackIfUnchanged(@NotNull VirtualFile file) {
     // do nothing
   }
 
+  @Override
   public void rollbackChanges(@NotNull List<Change> changes,
                               final List<VcsException> exceptions,
                               @NotNull final RollbackProgressListener listener) {
@@ -132,19 +122,16 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
         final File ioFile = file.getIOFile();
         if (ioFile.exists()) {
           if (!ioFile.delete()) {
-            //noinspection ThrowableInstanceNeverThrown
             exceptions.add(new VcsException("Unable to delete file: " + file));
           }
         }
       }
       catch (Exception e) {
-        //noinspection ThrowableInstanceNeverThrown
         exceptions.add(new VcsException("Unable to delete file: " + file, e));
       }
     }
     // revert files from HEAD
-    AccessToken token = DvcsUtil.workingTreeChangeStarted(myProject);
-    try {
+    try (AccessToken ignore = DvcsUtil.workingTreeChangeStarted(myProject, getRollbackOperationName())) {
       for (Map.Entry<VirtualFile, List<FilePath>> entry : toRevert.entrySet()) {
         listener.accept(entry.getValue());
         try {
@@ -154,9 +141,6 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
           exceptions.add(e);
         }
       }
-    }
-    finally {
-      DvcsUtil.workingTreeChangeFinished(myProject,token);
     }
     LocalFileSystem lfs = LocalFileSystem.getInstance();
     HashSet<File> filesToRefresh = new HashSet<>();
@@ -186,11 +170,11 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
    */
   public void revert(final VirtualFile root, final List<FilePath> files) throws VcsException {
     for (List<String> paths : VcsFileUtil.chunkPaths(root, files)) {
-      GitSimpleHandler handler = new GitSimpleHandler(myProject, root, GitCommand.CHECKOUT);
+      GitLineHandler handler = new GitLineHandler(myProject, root, GitCommand.CHECKOUT);
       handler.addParameters("HEAD");
       handler.endOptions();
       handler.addParameters(paths);
-      handler.run();
+      Git.getInstance().runCommand(handler).throwOnError();
     }
   }
 
@@ -203,7 +187,7 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
    * @throws VcsException if there is a problem with running git
    */
   private void unindex(final VirtualFile root, final List<FilePath> files, boolean toUnversioned) throws VcsException {
-    GitFileUtils.delete(myProject, root, files, "--cached", "-f");
+    GitFileUtils.deletePaths(myProject, root, files, "--cached", "-f");
 
     if (toUnversioned) {
       final GitRepository repo = GitUtil.getRepositoryManager(myProject).getRepositoryForRoot(root);
@@ -242,20 +226,10 @@ public class GitRollbackEnvironment implements RollbackEnvironment {
     paths.add(file);
   }
 
-  /**
-   * Get instance of the service
-   *
-   * @param project a context project
-   * @return a project-specific instance of the service
-   */
-  public static GitRollbackEnvironment getInstance(final Project project) {
-    return PeriodicalTasksCloser.getInstance().safeGetService(project, GitRollbackEnvironment.class);
-  }
-
   public static void resetHardLocal(final Project project, final VirtualFile root) {
-    GitSimpleHandler handler = new GitSimpleHandler(project, root, GitCommand.RESET);
+    GitLineHandler handler = new GitLineHandler(project, root, GitCommand.RESET);
     handler.addParameters("--hard");
     handler.endOptions();
-    GitHandlerUtil.runInCurrentThread(handler, null);
+    Git.getInstance().runCommand(handler);
   }
 }

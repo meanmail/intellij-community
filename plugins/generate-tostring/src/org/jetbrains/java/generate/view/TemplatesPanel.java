@@ -27,7 +27,6 @@ import com.intellij.openapi.ui.Namer;
 import com.intellij.openapi.util.Cloner;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Factory;
-import com.intellij.psi.PsiType;
 import gnu.trove.Equality;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NonNls;
@@ -41,14 +40,17 @@ import java.util.Collections;
 
 public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
     private static final Namer<TemplateResource> NAMER = new Namer<TemplateResource>() {
+        @Override
         public String getName(TemplateResource templateResource) {
             return templateResource.getFileName();
         }
 
+        @Override
         public boolean canRename(TemplateResource item) {
             return !item.isDefault();
         }
 
+        @Override
         public void setName(TemplateResource templateResource, String name) {
             templateResource.setFileName(name);
         }
@@ -57,11 +59,13 @@ public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
     private static final Factory<TemplateResource> FACTORY = () -> new TemplateResource();
 
     private static final Cloner<TemplateResource> CLONER = new Cloner<TemplateResource>() {
+        @Override
         public TemplateResource cloneOf(TemplateResource templateResource) {
             if (templateResource.isDefault()) return templateResource;
             return copyOf(templateResource);
         }
 
+        @Override
         public TemplateResource copyOf(TemplateResource templateResource) {
             TemplateResource result = new TemplateResource();
             result.setFileName(templateResource.getFileName());
@@ -70,11 +74,8 @@ public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
         }
     };
 
-    private static final Equality<TemplateResource> COMPARER = new Equality<TemplateResource>() {
-        public boolean equals(TemplateResource o1, TemplateResource o2) {
-            return Comparing.equal(o1.getTemplate(), o2.getTemplate()) && Comparing.equal(o1.getFileName(), o2.getFileName());
-        }
-    };
+    private static final Equality<TemplateResource> COMPARER =
+      (o1, o2) -> Comparing.equal(o1.getTemplate(), o2.getTemplate()) && Comparing.equal(o1.getFileName(), o2.getFileName());
   private final Project myProject;
   private final TemplatesManager myTemplatesManager;
   private String myHint;
@@ -95,7 +96,8 @@ public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
     public void setHint(String hint) {
       myHint = hint;
     }
-  
+
+    @Override
     @Nls
     public String getDisplayName() {
         return "Templates";
@@ -106,10 +108,11 @@ public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
         return "template";
     }
 
+    @Override
     @Nullable
     @NonNls
     public String getHelpTopic() {
-        return "Templates Dialog";
+        return "Templates_Dialog";
     }
 
     @Override
@@ -122,9 +125,10 @@ public class TemplatesPanel extends NamedItemsListEditor<TemplateResource> {
         return !item.isDefault();
     }
 
+    @Override
     protected UnnamedConfigurable createConfigurable(TemplateResource item) {
       final GenerateTemplateConfigurable configurable =
-        new GenerateTemplateConfigurable(item, Collections.<String, PsiType>emptyMap(), myProject, onMultipleFields());
+        new GenerateTemplateConfigurable(item, Collections.emptyMap(), myProject, onMultipleFields());
       configurable.setHint(myHint);
       return configurable;
     }

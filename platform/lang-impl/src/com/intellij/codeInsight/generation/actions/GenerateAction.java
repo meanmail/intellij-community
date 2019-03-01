@@ -18,6 +18,7 @@ package com.intellij.codeInsight.generation.actions;
 
 import com.intellij.codeInsight.CodeInsightBundle;
 import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.application.impl.LaterInvocator;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.DumbService;
@@ -30,7 +31,7 @@ import org.jetbrains.annotations.Nullable;
 
 public class GenerateAction extends DumbAwareAction {
   @Override
-  public void actionPerformed(final AnActionEvent e) {
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     DataContext dataContext = e.getDataContext();
 
     Project project = ObjectUtils.assertNotNull(getEventProject(e));
@@ -46,7 +47,7 @@ public class GenerateAction extends DumbAwareAction {
   }
 
   @Override
-  public void update(AnActionEvent event){
+  public void update(@NotNull AnActionEvent event){
     Presentation presentation = event.getPresentation();
     DataContext dataContext = event.getDataContext();
     Project project = CommonDataKeys.PROJECT.getData(dataContext);
@@ -61,7 +62,7 @@ public class GenerateAction extends DumbAwareAction {
       return;
     }
 
-    boolean groupEmpty = ActionGroupUtil.isGroupEmpty(getGroup(), event);
+    boolean groupEmpty = ActionGroupUtil.isGroupEmpty(getGroup(), event, LaterInvocator.isInModalContext());
     presentation.setEnabled(!groupEmpty);
   }
 
@@ -98,7 +99,7 @@ public class GenerateAction extends DumbAwareAction {
     private final AnAction myAction;
     private final AnAction myEditTemplateAction;
 
-    public GenerateWrappingGroup(AnAction action, AnAction editTemplateAction) {
+    GenerateWrappingGroup(AnAction action, AnAction editTemplateAction) {
       myAction = action;
       myEditTemplateAction = editTemplateAction;
       copyFrom(action);
@@ -106,7 +107,7 @@ public class GenerateAction extends DumbAwareAction {
     }
 
     @Override
-    public boolean canBePerformed(DataContext context) {
+    public boolean canBePerformed(@NotNull DataContext context) {
       return true;
     }
 
@@ -117,7 +118,7 @@ public class GenerateAction extends DumbAwareAction {
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final Project project = getEventProject(e);
       assert project != null;
       final DumbService dumbService = DumbService.getInstance(project);

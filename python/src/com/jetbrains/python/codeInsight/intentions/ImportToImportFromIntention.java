@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.codeInsight.intentions;
 
 import com.intellij.codeInsight.FileModificationService;
-import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
@@ -27,7 +12,6 @@ import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.PsiElementProcessor;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashSet;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyPsiUtils;
@@ -36,6 +20,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.Set;
 
 import static com.jetbrains.python.psi.PyUtil.sure;
@@ -47,9 +32,8 @@ import static com.jetbrains.python.psi.PyUtil.sure;
  * <i>NOTE: currently we only check usage of module name in the same file. For re-exported module names this is not sufficient.</i>
  * <br>
  * <small>User: dcheryasov
- * Date: Sep 22, 2009 1:42:52 AM</small>
  */
-public class ImportToImportFromIntention implements IntentionAction {
+public class ImportToImportFromIntention extends PyBaseIntentionAction {
 
   private static class IntentionState {
     private String myModuleName = null;
@@ -61,7 +45,7 @@ public class ImportToImportFromIntention implements IntentionAction {
       // is anything that resolves to our imported module is just an exact reference to that module
     private int myRelativeLevel; // true if "from ... import"
 
-    public IntentionState(@NotNull Editor editor, @NotNull PsiFile file) {
+    IntentionState(@NotNull Editor editor, @NotNull PsiFile file) {
       boolean available = false;
       myImportElement = findImportElement(editor, file);
       if (myImportElement != null) {
@@ -103,6 +87,7 @@ public class ImportToImportFromIntention implements IntentionAction {
         if (myReferee != null && myModuleName != null && myQualifierName != null) {
           final Collection<PsiReference> references = new ArrayList<>();
           PsiTreeUtil.processElements(file, new PsiElementProcessor() {
+            @Override
             public boolean execute(@NotNull PsiElement element) {
               if (element instanceof PyReferenceExpression && PsiTreeUtil.getParentOfType(element, PyImportElement.class) == null) {
                 final PyReferenceExpression ref = (PyReferenceExpression)element;
@@ -221,13 +206,7 @@ public class ImportToImportFromIntention implements IntentionAction {
     }
   }
 
-  private String myText;
-
-  @NotNull
-  public String getText() {
-    return myText;
-  }
-
+  @Override
   @NotNull
   public String getFamilyName() {
     return PyBundle.message("INTN.Family.convert.import.unqualify");
@@ -246,6 +225,7 @@ public class ImportToImportFromIntention implements IntentionAction {
     }
   }
 
+  @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     if (!(file instanceof PyFile)) {
       return false;
@@ -253,18 +233,15 @@ public class ImportToImportFromIntention implements IntentionAction {
 
     final IntentionState state = new IntentionState(editor, file);
     if (state.isAvailable()) {
-      myText = state.getText();
+      setText(state.getText());
       return true;
     }
     return false;
   }
 
-  public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
+  @Override
+  public void doInvoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
     final IntentionState state = new IntentionState(editor, file);
     state.invoke();
-  }
-
-  public boolean startInWriteAction() {
-    return true;
   }
 }

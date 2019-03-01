@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.formatter.processors;
 
 import com.intellij.formatting.Spacing;
@@ -37,6 +22,7 @@ import org.jetbrains.plugins.groovy.lang.groovydoc.parser.GroovyDocElementTypes;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.lexer.TokenSets;
 import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrConditionalExpression;
@@ -47,6 +33,8 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrAnonymousC
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrCodeReferenceElement;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.util.GrStatementOwner;
+
+import static org.jetbrains.plugins.groovy.lang.psi.GroovyTokenSets.RANGES;
 
 /**
  * @author ilyas
@@ -118,9 +106,9 @@ public abstract class GroovySpacingProcessorBasic {
     }
 
     //todo:check it for multiple assignments
-    if ((GroovyElementTypes.VARIABLE_DEFINITION.equals(leftType) || GroovyElementTypes.VARIABLE_DEFINITION.equals(rightType)) &&
+    if ((GroovyStubElementTypes.VARIABLE_DECLARATION.equals(leftType) || GroovyStubElementTypes.VARIABLE_DECLARATION.equals(rightType)) &&
         !(leftNode.getTreeNext() instanceof PsiErrorElement)) {
-      return Spacing.createSpacing(0, 0, 1, false, 100);
+      return getStatementSpacing(context);
     }
 
     // For regexes
@@ -143,7 +131,7 @@ public abstract class GroovySpacingProcessorBasic {
       return NO_SPACING_WITH_NEWLINE;
     }
 
-    if (SpacingTokens.RANGES.contains(leftType) || SpacingTokens.RANGES.contains(rightType)) {
+    if (RANGES.contains(leftType) || RANGES.contains(rightType)) {
       return NO_SPACING_WITH_NEWLINE;
     }
 
@@ -163,7 +151,7 @@ public abstract class GroovySpacingProcessorBasic {
         right instanceof GrStatement &&
         left.getParent() instanceof GrStatementOwner &&
         right.getParent() instanceof GrStatementOwner) {
-      return COMMON_SPACING_WITH_NL;
+      return getStatementSpacing(context);
     }
 
     if (rightType == GroovyDocTokenTypes.mGDOC_INLINE_TAG_END ||
@@ -195,6 +183,11 @@ public abstract class GroovySpacingProcessorBasic {
     }
 
     return COMMON_SPACING;
+  }
+
+  @NotNull
+  private static Spacing getStatementSpacing(FormattingContext context) {
+    return Spacing.createSpacing(0, 0, 1, context.getSettings().KEEP_LINE_BREAKS, context.getSettings().KEEP_BLANK_LINES_IN_CODE);
   }
 
   @NotNull

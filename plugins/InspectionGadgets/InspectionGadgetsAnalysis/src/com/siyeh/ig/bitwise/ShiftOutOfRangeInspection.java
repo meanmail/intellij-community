@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,22 @@
  */
 package com.siyeh.ig.bitwise;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.dataFlow.CommonDataflow;
+import com.intellij.codeInspection.dataFlow.DfaFactType;
+import com.intellij.codeInspection.dataFlow.rangeSet.LongRangeSet;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.ConstantExpressionUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.ObjectUtils;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.CommentTracker;
 import org.jetbrains.annotations.NotNull;
 
 public class ShiftOutOfRangeInspection extends BaseInspection {
@@ -40,15 +45,18 @@ public class ShiftOutOfRangeInspection extends BaseInspection {
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
-    final Integer value = (Integer)infos[0];
-    if (value.intValue() > 0) {
+    LongRangeSet range = (LongRangeSet)infos[0];
+    Long val = range.getConstantValue();
+    if (val == null) {
       return InspectionGadgetsBundle.message(
-        "shift.operation.by.inappropriate.constant.problem.descriptor.too.large");
+        "shift.operation.by.inappropriate.constant.problem.descriptor.out.of.bounds", range.toString());
     }
-    else {
+    if (val > 0) {
       return InspectionGadgetsBundle.message(
-        "shift.operation.by.inappropriate.constant.problem.descriptor.negative");
+        "shift.operation.by.inappropriate.constant.problem.descriptor.too.large", val);
     }
+    return InspectionGadgetsBundle.message(
+      "shift.operation.by.inappropriate.constant.problem.descriptor.negative", val);
   }
 
   @Override
@@ -58,33 +66,25 @@ public class ShiftOutOfRangeInspection extends BaseInspection {
 
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
-    return new ShiftOutOfRangeFix(((Integer)infos[0]).intValue(),
-                                  ((Boolean)infos[1]).booleanValue());
+    Long val = ((LongRangeSet)infos[0]).getConstantValue();
+    if (val == null) return null;
+    return new ShiftOutOfRangeFix(val, ((Boolean)infos[1]).booleanValue());
   }
 
   private static class ShiftOutOfRangeFix extends InspectionGadgetsFix {
+    private final long myValue;
+    private final boolean myLong;
 
-    private final int value;
-    private final boolean isLong;
-
-    ShiftOutOfRangeFix(int value, boolean isLong) {
-      this.value = value;
-      this.isLong = isLong;
+    ShiftOutOfRangeFix(long value, boolean isLong) {
+      this.myValue = value;
+      this.myLong = isLong;
     }
 
     @Override
     @NotNull
     public String getName() {
-      final int newValue;
-      if (isLong) {
-        newValue = value & 63;
-      }
-      else {
-        newValue = value & 31;
-      }
-      return InspectionGadgetsBundle.message(
-        "shift.out.of.range.quickfix",
-        Integer.valueOf(value), Integer.valueOf(newValue));
+      final int newValue = (int)(myValue & (myLong ? 63 : 31));
+      return CommonQuickFixBundle.message("fix.replace.x.with.y", myValue, newValue);
     }
 
     @NotNull
@@ -94,33 +94,16 @@ public class ShiftOutOfRangeInspection extends BaseInspection {
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiElement parent = element.getParent();
-      if (!(parent instanceof PsiBinaryExpression)) {
-        return;
-      }
-      final PsiBinaryExpression binaryExpression =
-        (PsiBinaryExpression)parent;
+      final PsiBinaryExpression binaryExpression = ObjectUtils.tryCast(element.getParent(), PsiBinaryExpression.class);
+      if (binaryExpression == null) return;
       final PsiExpression rhs = binaryExpression.getROperand();
-      if (rhs == null) {
-        return;
-      }
-      final PsiElementFactory factory =
-        JavaPsiFacade.getElementFactory(project);
-      final String text;
+      if (rhs == null) return;
       final PsiExpression lhs = binaryExpression.getLOperand();
-      if (PsiType.LONG.equals(lhs.getType())) {
-        text = String.valueOf(value & 63);
-      }
-      else {
-        text = String.valueOf(value & 31);
-      }
-      final PsiExpression newExpression =
-        factory.createExpressionFromText(
-          text, element);
-      rhs.replace(newExpression);
+      int mask = PsiType.LONG.equals(lhs.getType()) ? 63 : 31;
+      final String text = String.valueOf(myValue & mask);
+      new CommentTracker().replaceAndRestoreComments(rhs, text);
     }
   }
 
@@ -142,33 +125,28 @@ public class ShiftOutOfRangeInspection extends BaseInspection {
           !tokenType.equals(JavaTokenType.GTGTGT)) {
         return;
       }
-      final PsiType expressionType = expression.getType();
-      if (expressionType == null) {
-        return;
-      }
       final PsiExpression rhs = expression.getROperand();
-      if (rhs == null) {
-        return;
-      }
-      if (!PsiUtil.isConstantExpression(rhs)) {
-        return;
-      }
-      final Integer valueObject =
-        (Integer)ConstantExpressionUtil.computeCastTo(rhs,
-                                                      PsiType.INT);
-      if (valueObject == null) {
-        return;
-      }
-      final int value = valueObject.intValue();
+      if (rhs == null) return;
+      final PsiType expressionType = expression.getType();
+      if (expressionType == null) return;
+      LongRangeSet allowedRange;
       if (expressionType.equals(PsiType.LONG)) {
-        if (value < 0 || value > 63) {
-          registerError(sign, valueObject, Boolean.TRUE);
-        }
+        allowedRange = LongRangeSet.range(0, Long.SIZE - 1);
+      } else if(expressionType.equals(PsiType.INT)) {
+        allowedRange = LongRangeSet.range(0, Integer.SIZE - 1);
+      } else {
+        return;
       }
-      if (expressionType.equals(PsiType.INT)) {
-        if (value < 0 || value > 31) {
-          registerError(sign, valueObject, Boolean.FALSE);
-        }
+      LongRangeSet actualRange;
+      if (PsiUtil.isConstantExpression(rhs)) {
+        final Long valueObject = (Long)ConstantExpressionUtil.computeCastTo(rhs, PsiType.LONG);
+        if (valueObject == null) return;
+        actualRange = LongRangeSet.point(valueObject);
+      } else {
+        actualRange = CommonDataflow.getExpressionFact(rhs, DfaFactType.RANGE);
+      }
+      if (actualRange != null && !actualRange.isEmpty() && !actualRange.intersects(allowedRange)) {
+        registerError(sign, actualRange, expressionType.equals(PsiType.LONG));
       }
     }
   }

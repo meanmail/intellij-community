@@ -1,27 +1,13 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.configuration;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.intellij.icons.AllIcons;
+import com.intellij.ide.highlighter.ArchiveFileType;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
-import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.projectRoots.SdkAdditionalData;
 import com.intellij.openapi.projectRoots.SdkModificator;
 import com.intellij.openapi.projectRoots.ui.SdkPathEditor;
@@ -37,6 +23,7 @@ import com.intellij.ui.ToolbarDecorator;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.ArrayUtil;
 import com.jetbrains.python.PyBundle;
+import com.jetbrains.python.codeInsight.typing.PyTypeShed;
 import com.jetbrains.python.codeInsight.userSkeletons.PyUserSkeletonsUtil;
 import com.jetbrains.python.sdk.PythonSdkAdditionalData;
 import com.jetbrains.python.sdk.PythonSdkType;
@@ -55,12 +42,13 @@ public class PythonPathEditor extends SdkPathEditor {
   private final PathListModel myPathListModel;
 
   public PythonPathEditor(final String displayName,
-                          final OrderRootType orderRootType,
+                          @NotNull OrderRootType orderRootType,
                           final FileChooserDescriptor descriptor) {
     super(displayName, orderRootType, descriptor);
     myPathListModel = new PathListModel(orderRootType, getListModel());
   }
 
+  @Override
   public void reset(@Nullable SdkModificator modificator) {
     if (modificator != null) {
       List<VirtualFile> list = Lists.newArrayList(modificator.getRoots(getOrderRootType()));
@@ -99,7 +87,7 @@ public class PythonPathEditor extends SdkPathEditor {
   @Override
   protected VirtualFile[] adjustAddedFileSet(Component component, VirtualFile[] files) {
     for (int i = 0, filesLength = files.length; i < filesLength; i++) {
-      if (files[i].getFileType() == FileTypes.ARCHIVE) {
+      if (!files[i].isDirectory() && files[i].getFileType() == ArchiveFileType.INSTANCE) {
         files[i] = JarFileSystem.getInstance().getJarRootForLocalFile(files[i]);
       }
     }
@@ -113,7 +101,7 @@ public class PythonPathEditor extends SdkPathEditor {
   protected void doRemoveItems(int[] idxs, JList list) {
     List<Pair<VirtualFile, Integer>> removed = Lists.newArrayList();
     for (int i : idxs) {
-      removed.add(Pair.create((VirtualFile)getListModel().get(i), i));
+      removed.add(Pair.create(getListModel().get(i), i));
     }
     ListUtil.removeIndices(list, myPathListModel.remove(removed));
     list.updateUI();
@@ -129,7 +117,7 @@ public class PythonPathEditor extends SdkPathEditor {
   protected void addToolbarButtons(ToolbarDecorator toolbarDecorator) {
     AnActionButton reloadButton = new AnActionButton(PyBundle.message("sdk.paths.dialog.reload.paths"), AllIcons.Actions.Refresh) {
       @Override
-      public void actionPerformed(AnActionEvent e) {
+      public void actionPerformed(@NotNull AnActionEvent e) {
         onReloadButtonClicked();
       }
     };
@@ -142,13 +130,13 @@ public class PythonPathEditor extends SdkPathEditor {
   private static class PathListModel {
     private Set<VirtualFile> myAdded = Sets.newHashSet();
     private Set<VirtualFile> myExcluded = Sets.newHashSet();
-    private Set<VirtualFile> myFoundFiles = Sets.newHashSet();
-    private List<VirtualFile> myFilteredOut = Lists.newArrayList();
+    private final Set<VirtualFile> myFoundFiles = Sets.newHashSet();
+    private final List<VirtualFile> myFilteredOut = Lists.newArrayList();
     private final DefaultListModel myListModel;
     private final OrderRootType myOrderRootType;
-    private Set<VirtualFile> myUserAddedToRemove = Sets.newHashSet();
+    private final Set<VirtualFile> myUserAddedToRemove = Sets.newHashSet();
 
-    public PathListModel(OrderRootType orderRootType, DefaultListModel listModel) {
+    PathListModel(OrderRootType orderRootType, DefaultListModel listModel) {
       myOrderRootType = orderRootType;
       myListModel = listModel;
     }
@@ -291,6 +279,9 @@ public class PythonPathEditor extends SdkPathEditor {
       else if (file.equals(PyUserSkeletonsUtil.getUserSkeletonsDirectory())) {
         return true;
       }
+      else if (PyTypeShed.INSTANCE.isInside(file)) {
+        return true;
+      }
       else {
         return false;
       }
@@ -305,7 +296,7 @@ public class PythonPathEditor extends SdkPathEditor {
   private class PythonPathListCellRenderer extends ListCellRendererWrapper<VirtualFile> {
     private final PathListModel model;
 
-    public PythonPathListCellRenderer(final ListCellRenderer listCellRenderer, PathListModel model) {
+    PythonPathListCellRenderer(final ListCellRenderer listCellRenderer, PathListModel model) {
       super();
       this.model = model;
     }

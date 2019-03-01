@@ -15,18 +15,16 @@
  */
 package org.intellij.lang.xpath.xslt;
 
+import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.editor.DefaultLanguageHighlighterColors;
 import com.intellij.openapi.editor.colors.TextAttributesKey;
 import com.intellij.openapi.fileTypes.StdFileTypes;
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.PsiLanguageInjectionHost;
 import com.intellij.psi.impl.PsiFileEx;
-import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.util.*;
 import com.intellij.psi.xml.*;
-import com.intellij.ui.LayeredIcon;
 import com.intellij.util.SmartList;
 import com.intellij.util.xml.NanoXmlUtil;
 import gnu.trove.THashMap;
@@ -95,11 +93,9 @@ public class XsltSupport {
     final XmlAttributeValue value = attribute.getValueElement();
     if (value != null) {
       final List<PsiFile> files = new SmartList<>();
-      InjectedLanguageUtil.enumerate(value, new PsiLanguageInjectionHost.InjectedPsiVisitor() {
-        public void visit(@NotNull PsiFile injectedPsi, @NotNull List<PsiLanguageInjectionHost.Shred> places) {
-          if (injectedPsi instanceof XPathFile) {
-            files.add(injectedPsi);
-          }
+      InjectedLanguageManager.getInstance(value.getProject()).enumerate(value, (injectedPsi, places) -> {
+        if (injectedPsi instanceof XPathFile) {
+          files.add(injectedPsi);
         }
       });
       return files.isEmpty() ? PsiFile.EMPTY_ARRAY : PsiUtilCore.toPsiFileArray(files);
@@ -108,7 +104,8 @@ public class XsltSupport {
   }
 
   public static boolean isXsltAttribute(@NotNull XmlAttribute attribute) {
-    return isXsltTag(attribute.getParent());
+    XmlTag parent = attribute.getParent();
+    return parent != null && isXsltTag(parent);
   }
 
   public static boolean isXsltTag(@NotNull XmlTag tag) {
@@ -351,12 +348,13 @@ public class XsltSupport {
   }
 
   public static Icon createXsltIcon(Icon icon) {
-    return LayeredIcon.create(icon, XpathIcons.Xslt_filetype_overlay);
+    return XpathIcons.Xslt_filetype_overlay;
   }
 
   private static class XsltSupportProvider implements ParameterizedCachedValueProvider<XsltChecker.LanguageLevel, PsiFile> {
     public static final ParameterizedCachedValueProvider<XsltChecker.LanguageLevel, PsiFile> INSTANCE = new XsltSupportProvider();
 
+    @Override
     public CachedValueProvider.Result<XsltChecker.LanguageLevel> compute(PsiFile psiFile) {
       if (!(psiFile instanceof XmlFile)) {
         return CachedValueProvider.Result.create(XsltChecker.LanguageLevel.NONE, PsiModificationTracker.MODIFICATION_COUNT);

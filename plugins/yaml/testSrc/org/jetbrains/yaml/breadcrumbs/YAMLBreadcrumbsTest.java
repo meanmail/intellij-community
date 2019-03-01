@@ -1,147 +1,90 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.breadcrumbs;
 
-import com.intellij.lang.Language;
+import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.editor.Caret;
 import com.intellij.openapi.editor.CaretModel;
-import com.intellij.openapi.extensions.Extensions;
-import com.intellij.psi.PsiElement;
-import com.intellij.testFramework.fixtures.CodeInsightTestFixture;
+import com.intellij.openapi.ide.CopyPasteManager;
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
-import com.intellij.util.containers.ContainerUtil;
-import com.intellij.xml.breadcrumbs.BreadcrumbsInfoProvider;
-import com.intellij.xml.breadcrumbs.BreadcrumbsItem;
+import com.intellij.ui.components.breadcrumbs.Crumb;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import org.jetbrains.yaml.YAMLFileType;
+import org.jetbrains.yaml.YAMLBundle;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
+import javax.swing.*;
+import java.awt.datatransfer.DataFlavor;
+import java.awt.datatransfer.UnsupportedFlavorException;
+import java.awt.event.ActionEvent;
+import java.io.IOException;
+import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class YAMLBreadcrumbsTest extends LightPlatformCodeInsightFixtureTestCase {
+  private final String COPY_ACTION = YAMLBundle.message("YAMLBreadcrumbsInfoProvider.copy.key.to.clipboard");
 
-  private static final String INPUT = "---\n" +
-                                      "items:\n" +
-                                      "    - part_no:   A4786\n" +
-                                      "      descrip:   Water Bucket (Filled)\n" +
-                                      "      price:     1.47\n" +
-                                      "      quantity:  4\n" +
-                                      "\n" +
-                                      "    - part_no:   E1628\n" +
-                                      "      descrip:   High Heeled<caret> \"Ruby\" Slippers\n" +
-                                      "      size:      8\n" +
-                                      "      price:     133.7\n" +
-                                      "      quantity:  1\n" +
-                                      "\n" +
-                                      "specialDelivery:  >\n" +
-                                      "    Follow the Yellow Brick\n" +
-                                      "    Road to the Emerald City.\n" +
-                                      "    Pay no attention<caret> to the\n" +
-                                      "    man behind the curtain.\n" +
-                                      "---\n" +
-                                      "{\n" +
-                                      "foo: salkdjkalsd,\n" +
-                                      "bar: asjdjkas,\n" +
-                                      "baz: [foo: qoo, boo: fo<caret>o, doo: 123]\n" +
-                                      "}\n" +
-                                      "---\n" +
-                                      "foo: \n" +
-                                      "  bar:\n" +
-                                      "- av<caret>r\n" +
-                                      "...";
-  private static final String OUTPUT = "[Document 1/3;null][items:;null][Item 2/2;null][descrip:;null][High Heeled \"Ruby\" S...;null]\n" +
-                                       "------\n" +
-                                       "[Document 1/3;null][specialDelivery:;null][Follow the Yellow Br...;null]\n" +
-                                       "------\n" +
-                                       "[Document 2/3;null][baz:;null][Item 2/3;null][boo:;null][foo;null]\n" +
-                                       "------\n" +
-                                       "[Document 3/3;null][foo:;null][Item;null][avr;null]";
+  @Override
+  protected String getTestDataPath() {
+    return PathManagerEx.getCommunityHomePath() + "/plugins/yaml/testSrc/org/jetbrains/yaml/breadcrumbs/data/";
+  }
 
-  public void testAll() {
-    myFixture.configureByText(YAMLFileType.YML, INPUT);
+  public void testText() {
+    doTest(crumb -> "[" + crumb.getText() + "]");
+  }
+
+  public void testCopyPathAction() {
+    doTest(crumb -> applyActions(crumb, action -> getActionName(action).equals(COPY_ACTION)));
+  }
+
+  private void doTest(@NotNull Function<? super Crumb, String> crumbToString) {
+    myFixture.configureByFile("all.yml");
     final CaretModel caretModel = myFixture.getEditor().getCaretModel();
     final String result = caretModel.getAllCarets().stream()
       .map(Caret::getOffset)
       .collect(Collectors.toList()).stream()
       .map((offset) -> {
         caretModel.moveToOffset(offset);
-        return getBreadcrumbs(myFixture).stream()
-          .map(BreadcrumbsItem::toString)
-          .reduce((left, right) -> right + left).orElse("[]");
+        return myFixture.getBreadcrumbsAtCaret().stream()
+                        .map(crumbToString)
+                        .reduce((left, right) -> left + right).orElse("[]");
       })
       .reduce((left, right) -> left + "\n------\n" + right).orElse("");
 
-    assertSameLines(OUTPUT, result);
+    assertSameLinesWithFile(getTestDataPath() + getTestName(true) + ".txt", result);
   }
 
-  // TODO move this method and class to platform when breadcrumbs are moved there, too
   @NotNull
-  private static List<BreadcrumbsItem> getBreadcrumbs(@NotNull CodeInsightTestFixture fixture) {
-    PsiElement element = fixture.getFile().findElementAt(fixture.getCaretOffset());
-    if (element == null) {
-      return Collections.emptyList();
+  private String applyAction(@NotNull Action action) {
+    try {
+      return applySingleAction(action);
     }
-    final Language language = element.getContainingFile().getLanguage();
-
-    final BreadcrumbsInfoProvider provider = ContainerUtil.find(Extensions.getExtensions(BreadcrumbsInfoProvider.EP_NAME),
-                                                                (p) -> Arrays.asList(p.getLanguages()).contains(language));
-    if (provider == null) {
-      return Collections.emptyList();
+    catch (IOException | UnsupportedFlavorException e) {
+      throw new IllegalStateException(e);
     }
-
-    List<BreadcrumbsItem> result = new ArrayList<>();
-    while (element != null) {
-      if (provider.acceptElement(element)) {
-        result.add(new MockBreadcrumbsItem(provider.getElementInfo(element), provider.getElementTooltip(element)));
-      }
-      element = provider.getParent(element);
-    }
-    return result;
   }
 
-  private static class MockBreadcrumbsItem extends BreadcrumbsItem {
-    @Nullable
-    private final String myDisplayText;
-    @Nullable
-    private final String myTooltip;
+  @NotNull
+  private String applySingleAction(@NotNull Action action) throws IOException, UnsupportedFlavorException {
+    String actionName = getActionName(action);
+    ActionEvent event = new ActionEvent(myFixture.getEditor().getComponent(), ActionEvent.ACTION_PERFORMED, actionName);
 
-    private MockBreadcrumbsItem(@Nullable String displayText, @Nullable String tooltip) {
-      myDisplayText = displayText;
-      myTooltip = tooltip;
+    if (actionName.equals(COPY_ACTION)) {
+      action.actionPerformed(event);
+      return (String)CopyPasteManager.getInstance().getContents().getTransferData(DataFlavor.stringFlavor);
     }
+    throw new IllegalArgumentException("Unknown action: " + actionName);
+  }
 
-    @Nullable
-    @Override
-    public String getDisplayText() {
-      return myDisplayText;
-    }
+  @NotNull
+  private String applyActions(@NotNull Crumb crumb, Predicate<Action> filter) {
+    String applied = crumb.getContextActions().stream().filter(filter).map(this::applyAction)
+                          .reduce((left, right) -> left + ", " + right).orElse("");
+    return "{" + applied + "}";
+  }
 
-    @Nullable
-    @Override
-    public String getTooltip() {
-      return myTooltip;
-    }
-
-    @Override
-    public String toString() {
-      return "[" + getDisplayText() + ";" + getTooltip() + "]";
-    }
+  @NotNull
+  private static String getActionName(@NotNull Action action) {
+    Object actionNameValue = action.getValue("Name");
+    assert actionNameValue instanceof String;
+    return (String)actionNameValue;
   }
 }

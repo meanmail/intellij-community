@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,7 +17,7 @@ package org.jetbrains.idea.maven.project.importing;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Function;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.project.MavenProject;
 import org.jetbrains.idea.maven.project.MavenProjectsTree;
 
@@ -45,7 +45,7 @@ public class MavenProjectsTreeIgnoresTest extends MavenProjectsTreeTestCase {
     myRoots = myTree.getRootProjects();
   }
 
-  public void testSendingNotifications() throws Exception {
+  public void testSendingNotifications() {
     myTree.setIgnoredState(Collections.singletonList(myRoots.get(0)), true);
 
     assertEquals("ignored: m1 ", myLog);
@@ -61,13 +61,13 @@ public class MavenProjectsTreeIgnoresTest extends MavenProjectsTreeTestCase {
     assertEquals("ignored: m1 ", myLog);
     myLog = "";
 
-    myTree.setIgnoredFilesPatterns(Collections.<String>emptyList());
+    myTree.setIgnoredFilesPatterns(Collections.emptyList());
 
     assertEquals("unignored: m1 ", myLog);
     myLog = "";
   }
 
-  public void testDoNotSendNotificationsIfNothingChanged() throws Exception {
+  public void testDoNotSendNotificationsIfNothingChanged() {
     myTree.setIgnoredState(Collections.singletonList(myRoots.get(0)), true);
 
     assertEquals("ignored: m1 ", myLog);
@@ -78,9 +78,9 @@ public class MavenProjectsTreeIgnoresTest extends MavenProjectsTreeTestCase {
     assertEquals("", myLog);
   }
 
-  private class MyLoggingListener extends MavenProjectsTree.ListenerAdapter {
+  private class MyLoggingListener implements MavenProjectsTree.Listener {
     @Override
-    public void projectsIgnoredStateChanged(List<MavenProject> ignored, List<MavenProject> unignored, boolean fromImport) {
+    public void projectsIgnoredStateChanged(@NotNull List<MavenProject> ignored, @NotNull List<MavenProject> unignored, boolean fromImport) {
       if (!ignored.isEmpty()) myLog += "ignored: " + format(ignored) + " ";
       if (!unignored.isEmpty()) myLog += "unignored: " + format(unignored) + " ";
       if (ignored.isEmpty() && unignored.isEmpty()) myLog += "empty ";

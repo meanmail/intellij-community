@@ -1,6 +1,8 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.emmet;
 
 import com.intellij.codeInsight.template.CustomTemplateCallback;
+import com.intellij.ide.BrowserUtil;
 import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
@@ -9,12 +11,15 @@ import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.JBPopupListener;
 import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.*;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
+import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -24,7 +29,7 @@ public class EmmetAbbreviationBalloon {
   private final String myAbbreviationsHistoryKey;
   private final String myLastAbbreviationKey;
   private final Callback myCallback;
-  private final String myTitle;
+  @NotNull private final EmmetContextHelp myContextHelp;
 
   @Nullable
   private static String ourTestingAbbreviation;
@@ -33,11 +38,11 @@ public class EmmetAbbreviationBalloon {
   public EmmetAbbreviationBalloon(@NotNull String abbreviationsHistoryKey,
                                   @NotNull String lastAbbreviationKey,
                                   @NotNull Callback callback,
-                                  @NotNull String title) {
+                                  @NotNull EmmetContextHelp contextHelp) {
     myAbbreviationsHistoryKey = abbreviationsHistoryKey;
     myLastAbbreviationKey = lastAbbreviationKey;
     myCallback = callback;
-    myTitle = title;
+    myContextHelp = contextHelp;
   }
 
 
@@ -62,22 +67,30 @@ public class EmmetAbbreviationBalloon {
       return;
     }
 
+    JPanel panel = new JPanel(new BorderLayout());
     final TextFieldWithStoredHistory field = new TextFieldWithStoredHistory(myAbbreviationsHistoryKey);
     final Dimension fieldPreferredSize = field.getPreferredSize();
     field.setPreferredSize(new Dimension(Math.max(220, fieldPreferredSize.width), fieldPreferredSize.height));
     field.setHistorySize(10);
+
+    ContextHelpLabel label = myContextHelp.createHelpLabel();
+    label.setBorder(JBUI.Borders.empty(0, 3, 0, 1));
+
+    panel.add(field, BorderLayout.CENTER);
+    panel.add(label, BorderLayout.EAST);
     final JBPopupFactory popupFactory = JBPopupFactory.getInstance();
-    final BalloonImpl balloon = (BalloonImpl)popupFactory.createDialogBalloonBuilder(field, myTitle)
+    final BalloonImpl balloon = (BalloonImpl)popupFactory.createBalloonBuilder(panel)
       .setCloseButtonEnabled(false)
       .setBlockClicksThroughBalloon(true)
       .setAnimationCycle(0)
       .setHideOnKeyOutside(true)
       .setHideOnClickOutside(true)
+      .setFillColor(panel.getBackground())
       .createBalloon();
 
     final DocumentAdapter documentListener = new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         if (!isValid(customTemplateCallback)) {
           balloon.hide();
           return;
@@ -115,17 +128,16 @@ public class EmmetAbbreviationBalloon {
     };
     field.addKeyboardListener(keyListener);
 
-    balloon.addListener(new JBPopupListener.Adapter() {
+    balloon.addListener(new JBPopupListener() {
       @Override
-      public void beforeShown(LightweightWindowEvent event) {
+      public void beforeShown(@NotNull LightweightWindowEvent event) {
         field.setText(PropertiesComponent.getInstance().getValue(myLastAbbreviationKey, ""));
       }
 
       @Override
-      public void onClosed(LightweightWindowEvent event) {
+      public void onClosed(@NotNull LightweightWindowEvent event) {
         field.removeKeyListener(keyListener);
         field.removeDocumentListener(documentListener);
-        super.onClosed(event);
       }
     });
     balloon.show(popupFactory.guessBestPopupLocation(customTemplateCallback.getEditor()), Balloon.Position.below);
@@ -151,6 +163,35 @@ public class EmmetAbbreviationBalloon {
 
   private static boolean isValid(CustomTemplateCallback callback) {
     return !callback.getEditor().isDisposed();
+  }
+
+  public static class EmmetContextHelp {
+    @NotNull
+    private final String myDescription;
+
+    @Nullable
+    private String myLinkText = null;
+
+    @Nullable
+    private String myLinkUrl = null;
+
+    public EmmetContextHelp(@NotNull String description) {
+      myDescription = description;
+    }
+
+    public EmmetContextHelp(@NotNull String description, @NotNull String linkText, @NotNull String linkUrl) {
+      myDescription = description;
+      myLinkText = linkText;
+      myLinkUrl = linkUrl;
+    }
+
+    @NotNull
+    public ContextHelpLabel createHelpLabel() {
+      if (StringUtil.isEmpty(myLinkText) || StringUtil.isEmpty(myLinkUrl)) {
+        return ContextHelpLabel.create(myDescription);
+      }
+      return ContextHelpLabel.createWithLink(null, myDescription, myLinkText, () -> BrowserUtil.browse(myLinkUrl));
+    }
   }
 
   public interface Callback {

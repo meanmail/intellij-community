@@ -1,24 +1,14 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.psi;
 
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.pom.java.LanguageLevel;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -111,8 +101,7 @@ public abstract class PsiNameHelper {
       }
     }
 
-    String sub = referenceText.substring(i + 1, lessPos).trim();
-    return sub.length() == referenceText.length() ? sub : new String(sub);
+    return referenceText.substring(i + 1, lessPos).trim();
   }
 
   @NotNull
@@ -165,6 +154,7 @@ public abstract class PsiNameHelper {
   }
 
   private static final Pattern WHITESPACE_PATTERN = Pattern.compile("(?:\\s)|(?:/\\*.*\\*/)|(?://[^\\n]*)");
+  @NotNull
   private static String removeWhitespace(@NotNull String referenceText) {
     boolean needsChange = false;
     for (int i = 0; i < referenceText.length(); i++) {
@@ -181,9 +171,9 @@ public abstract class PsiNameHelper {
 
   /**
    * Obtains text of all type parameter values in a reference.
-   * They go in left-to-right order: <code>A&lt;List&lt;String&gt, B&lt;Integer&gt;&gt;</code> yields
-   * <code>["List&lt;String&gt", "B&lt;Integer&gt;"]</code>. Parameters of the outer reference are ignored:
-   * <code>A&lt;List&lt;String&gt&gt;.B&lt;Integer&gt;</code> yields <code>["Integer"]</code>
+   * They go in left-to-right order: {@code A<List<String>, B<Integer>>} yields
+   * {@code ["List<String>", "B<Integer>"]}. Parameters of the outer reference are ignored:
+   * {@code A<List<String>>.B<Integer>} yields {@code ["Integer"]}
    *
    * @param referenceText the text of the reference to calculate type parameters for.
    * @return the calculated array of type parameters.
@@ -285,7 +275,7 @@ public abstract class PsiNameHelper {
     return appendAnnotations(sb, Arrays.asList(annotations), canonical);
   }
 
-  public static boolean appendAnnotations(@NotNull StringBuilder sb, @NotNull List<PsiAnnotation> annotations, boolean canonical) {
+  public static boolean appendAnnotations(@NotNull StringBuilder sb, @NotNull List<? extends PsiAnnotation> annotations, boolean canonical) {
     boolean updated = false;
     for (PsiAnnotation annotation : annotations) {
       if (canonical) {
@@ -304,5 +294,11 @@ public abstract class PsiNameHelper {
       }
     }
     return updated;
+  }
+
+  public static boolean isValidModuleName(@NotNull String name, @NotNull PsiElement context) {
+    PsiNameHelper helper = getInstance(context.getProject());
+    LanguageLevel level = PsiUtil.getLanguageLevel(context);
+    return StringUtil.split(name, ".", true, false).stream().allMatch(part -> helper.isIdentifier(part, level));
   }
 }

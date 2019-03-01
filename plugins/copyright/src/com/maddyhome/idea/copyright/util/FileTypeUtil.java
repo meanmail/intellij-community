@@ -222,7 +222,7 @@ public class FileTypeUtil {
 
   public FileType[] getSupportedTypes() {
     Set<FileType> set = new HashSet<>(getMap().values());
-    return set.toArray(new FileType[set.size()]);
+    return set.toArray(FileType.EMPTY_ARRAY);
   }
 
   public FileType getFileTypeByFile(VirtualFile file) {
@@ -313,9 +313,6 @@ public class FileTypeUtil {
         return true;
       }
       if (type.equals(StdFileTypes.PROPERTIES)) {
-        return true;
-      }
-      if ("JavaScript".equals(type.getName())) {
         return true;
       }
       return CopyrightUpdaters.INSTANCE.forFileType(type) != null;

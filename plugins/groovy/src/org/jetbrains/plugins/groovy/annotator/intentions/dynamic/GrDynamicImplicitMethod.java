@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.annotator.intentions.dynamic;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.ProjectScope;
@@ -47,22 +32,18 @@ import javax.swing.tree.TreePath;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 21.02.2008
- */
 public class GrDynamicImplicitMethod extends GrLightMethodBuilder implements GrDynamicImplicitElement {
   private static final Logger LOG = Logger.getInstance(GrDynamicImplicitMethod.class);
 
   private final String myContainingClassName;
-  private final List<ParamInfo> myParamInfos;
+  private final List<? extends ParamInfo> myParamInfos;
   private final String myReturnType;
 
   public GrDynamicImplicitMethod(PsiManager manager,
                                  String name,
                                  String containingClassName,
                                  boolean isStatic,
-                                 List<ParamInfo> paramInfos,
+                                 List<? extends ParamInfo> paramInfos,
                                  String returnType) {
     super(manager, name);
     myContainingClassName = containingClassName;
@@ -74,7 +55,7 @@ public class GrDynamicImplicitMethod extends GrLightMethodBuilder implements GrD
     }
 
     for (ParamInfo pair : paramInfos) {
-      addParameter(pair.name, pair.type, false);
+      addParameter(pair.name, pair.type);
     }
 
     setReturnType(returnType, getResolveScope());
@@ -121,26 +102,24 @@ public class GrDynamicImplicitMethod extends GrLightMethodBuilder implements GrD
   @Override
   @Nullable
   public PsiClass getContainingClass() {
-    return ApplicationManager.getApplication().runReadAction(new Computable<PsiClass>() {
-      @Override
-      public PsiClass compute() {
-        try {
-          final GrTypeElement typeElement = GroovyPsiElementFactory.getInstance(getProject()).createTypeElement(myContainingClassName);
-          if (typeElement == null) return null;
+    return ReadAction.compute(() -> {
+      try {
+        final GrTypeElement typeElement = GroovyPsiElementFactory.getInstance(getProject()).createTypeElement(myContainingClassName);
+        if (typeElement == null) return null;
 
-          final PsiType type = typeElement.getType();
-          if (!(type instanceof PsiClassType)) return null;
+        final PsiType type = typeElement.getType();
+        if (!(type instanceof PsiClassType)) return null;
 
-          return ((PsiClassType)type).resolve();
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-          return null;
-        }
+        return ((PsiClassType)type).resolve();
+      }
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+        return null;
       }
     });
   }
 
+  @Override
   public String toString() {
     return "DynamicMethod:" + getName();
   }
@@ -161,7 +140,7 @@ public class GrDynamicImplicitMethod extends GrLightMethodBuilder implements GrD
 
       Object root = model.getRoot();
 
-      if (root == null || !(root instanceof DefaultMutableTreeNode)) return;
+      if (!(root instanceof DefaultMutableTreeNode)) return;
 
       DefaultMutableTreeNode treeRoot = ((DefaultMutableTreeNode) root);
       DefaultMutableTreeNode desiredNode;

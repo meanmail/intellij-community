@@ -10,14 +10,12 @@ import org.jetbrains.annotations.NotNull;
 
 @Tag("selector")
 public final class Selector {
-  @NotNull private String myName;
-  @NotNull private String myPath;
-
+  @NotNull private String myName = "";
+  @NotNull private String myPath = "";
 
   /**
    * Serialization constructor
    */
-  @SuppressWarnings({"UnusedDeclatation"})
   public Selector() {
     // empty
   }
@@ -56,6 +54,7 @@ public final class Selector {
     myPath = path;
   }
 
+  @Override
   public Selector clone() {
     return new Selector(this);
   }

@@ -16,6 +16,7 @@
 package com.intellij.execution.filters;
 
 import com.intellij.execution.ui.ConsoleView;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
@@ -23,20 +24,23 @@ import java.util.List;
  * @author dyoma
  */
 public abstract class TextConsoleBuilder {
+  @NotNull
   public abstract ConsoleView getConsole();
 
-  public abstract void addFilter(Filter filter);
+  public abstract void addFilter(@NotNull Filter filter);
 
   public abstract void setViewer(boolean isViewer);
 
-  public TextConsoleBuilder filters(Filter... filters) {
+  @NotNull
+  public TextConsoleBuilder filters(@NotNull Filter... filters) {
     for (Filter filter : filters) {
       addFilter(filter);
     }
     return this;
   }
 
-  public TextConsoleBuilder filters(List<Filter> filters) {
+  @NotNull
+  public TextConsoleBuilder filters(@NotNull List<? extends Filter> filters) {
     for (Filter filter : filters) {
       addFilter(filter);
     }

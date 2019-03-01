@@ -15,6 +15,7 @@
  */
 package com.intellij.ide.navigationToolbar;
 
+import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -22,6 +23,7 @@ import com.intellij.psi.PsiElement;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.util.Collection;
 
 /**
@@ -30,10 +32,12 @@ import java.util.Collection;
  * method, for which the order is reverse.
  *
  * @author anna
- * @since 04-Feb-2008
  */
 public interface NavBarModelExtension {
   ExtensionPointName<NavBarModelExtension> EP_NAME = ExtensionPointName.create("com.intellij.navbar");
+
+  @Nullable
+  default Icon getIcon(Object object) { return null; }
 
   @Nullable
   String getPresentableText(Object object);
@@ -46,4 +50,10 @@ public interface NavBarModelExtension {
 
   @NotNull
   Collection<VirtualFile> additionalRoots(Project project);
+
+  @Nullable
+  default Object getData(@NotNull String dataId, @NotNull DataProvider provider) { return null; }
+
+  @Nullable
+  default String getPopupMenuGroup(@NotNull DataProvider provider) { return null; }
 }

@@ -41,7 +41,7 @@ public class GotoTaskAction extends GotoActionBase implements DumbAware {
   }
 
   @Override
-  protected void gotoActionPerformed(final AnActionEvent e) {
+  protected void gotoActionPerformed(@NotNull final AnActionEvent e) {
     final Project project = e.getProject();
     if (project == null) return;
     perform(project);
@@ -60,11 +60,13 @@ public class GotoTaskAction extends GotoActionBase implements DumbAware {
                     KeymapUtil.getFirstKeyboardShortcutText(ActionManager.getInstance().getAction(IdeActions.ACTION_QUICK_JAVADOC)) +
                     " would show task description and comments</html>");
     popup.registerAction("shiftPressed", KeyStroke.getKeyStroke("shift pressed SHIFT"), new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         shiftPressed.set(true);
       }
     });
     popup.registerAction("shiftReleased", KeyStroke.getKeyStroke("released SHIFT"), new AbstractAction() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         shiftPressed.set(false);
       }
@@ -76,7 +78,7 @@ public class GotoTaskAction extends GotoActionBase implements DumbAware {
         popup.rebuildList(true);
       }
     });
-    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, group, true);
+    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("GoToTask", group, true);
     actionToolbar.setLayoutPolicy(ActionToolbar.NOWRAP_LAYOUT_POLICY);
     actionToolbar.updateActionsImmediately();
     actionToolbar.getComponent().setFocusable(false);
@@ -114,7 +116,7 @@ public class GotoTaskAction extends GotoActionBase implements DumbAware {
   }
 
   private static class GotoTaskPopupModel extends SimpleChooseByNameModel implements DumbAware {
-    private ListCellRenderer myListCellRenderer;
+    private final ListCellRenderer myListCellRenderer;
 
 
     protected GotoTaskPopupModel(@NotNull Project project) {

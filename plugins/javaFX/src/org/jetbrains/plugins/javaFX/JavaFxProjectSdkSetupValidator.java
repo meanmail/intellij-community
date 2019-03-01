@@ -1,9 +1,11 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX;
 
 import com.intellij.codeInsight.daemon.ProjectSdkSetupValidator;
 import com.intellij.codeInsight.daemon.impl.JavaProjectSdkSetupValidator;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleUtilCore;
+import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ui.configuration.ClasspathEditor;
 import com.intellij.openapi.roots.ui.configuration.ProjectSettingsService;
@@ -32,6 +34,9 @@ public class JavaFxProjectSdkSetupValidator implements ProjectSdkSetupValidator 
     final String javaErrorMessage = JavaProjectSdkSetupValidator.INSTANCE.getErrorMessage(project, file);
     if (javaErrorMessage != null) {
       return javaErrorMessage;
+    }
+    if (DumbService.isDumb(project)) {
+      return null;
     }
     final PsiClass nodeClass =
       JavaPsiFacade.getInstance(project).findClass(JavaFxCommonNames.JAVAFX_SCENE_NODE, GlobalSearchScope.allScope(project));

@@ -19,12 +19,12 @@ package com.intellij.packageDependencies;
 import com.intellij.analysis.AnalysisScope;
 import com.intellij.analysis.AnalysisScopeBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.TestSourcesFilter;
-import com.intellij.openapi.util.Computable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
@@ -34,25 +34,20 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: Jan 16, 2005
- */
 public class BackwardDependenciesBuilder extends DependenciesBuilder {
   private final AnalysisScope myForwardScope;
+  private final AnalysisScope myScopeOfInterest;
 
   public BackwardDependenciesBuilder(final Project project, final AnalysisScope scope) {
     this(project, scope, null);
   }
 
   public BackwardDependenciesBuilder(final Project project, final AnalysisScope scope, final @Nullable AnalysisScope scopeOfInterest) {
-    super(project, scope, scopeOfInterest);
-    myForwardScope = scopeOfInterest != null ? scopeOfInterest : ApplicationManager.getApplication().runReadAction(new Computable<AnalysisScope>() {
-      @Override
-      public AnalysisScope compute() {
-        return getScope().getNarrowedComplementaryScope(getProject());
-      }
-    });
+    super(project, scope);
+    myScopeOfInterest = scopeOfInterest;
+    myForwardScope = scopeOfInterest != null
+                     ? scopeOfInterest
+                     : ReadAction.compute(() -> getScope().getNarrowedComplementaryScope(getProject()));
     myFileCount = myForwardScope.getFileCount();
     myTotalFileCount = myFileCount + scope.getFileCount();
   }
@@ -68,13 +63,18 @@ public class BackwardDependenciesBuilder extends DependenciesBuilder {
   }
 
   @Override
+  public AnalysisScope getScopeOfInterest() {
+    return myScopeOfInterest;
+  }
+
+  @Override
   public boolean isBackward() {
     return true;
   }
 
   @Override
   public void analyze() {
-    final DependenciesBuilder builder = new ForwardDependenciesBuilder(getProject(), myForwardScope, getScopeOfInterest());
+    final DependenciesBuilder builder = new ForwardDependenciesBuilder(getProject(), myForwardScope);
     builder.setTotalFileCount(myTotalFileCount);
     builder.analyze();
 

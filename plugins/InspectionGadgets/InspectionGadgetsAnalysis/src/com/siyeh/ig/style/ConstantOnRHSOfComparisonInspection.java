@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2011 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,13 +19,15 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiBinaryExpression;
 import com.intellij.psi.PsiExpression;
+import com.intellij.psi.PsiLiteralExpression;
+import com.intellij.psi.util.PsiLiteralUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.ComparisonUtils;
 import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NotNull;
@@ -61,20 +63,15 @@ public class ConstantOnRHSOfComparisonInspection extends BaseInspection {
   }
 
   private static class SwapComparisonFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message("flip.comparison.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiBinaryExpression expression = (PsiBinaryExpression)descriptor.getPsiElement();
       final PsiExpression rhs = expression.getROperand();
       if (rhs == null) {
@@ -85,9 +82,10 @@ public class ConstantOnRHSOfComparisonInspection extends BaseInspection {
         return;
       }
       final PsiExpression lhs = expression.getLOperand();
-      final String rhsText = rhs.getText();
-      final String lhsText = lhs.getText();
-      PsiReplacementUtil.replaceExpression(expression, rhsText + ' ' + flippedComparison + ' ' + lhsText);
+      CommentTracker commentTracker = new CommentTracker();
+      final String rhsText = commentTracker.text(rhs);
+      final String lhsText = commentTracker.text(lhs);
+      PsiReplacementUtil.replaceExpression(expression, rhsText + ' ' + flippedComparison + ' ' + lhsText, commentTracker);
     }
   }
 
@@ -102,6 +100,9 @@ public class ConstantOnRHSOfComparisonInspection extends BaseInspection {
       final PsiExpression lhs = expression.getLOperand();
       final PsiExpression rhs = expression.getROperand();
       if (!isConstantExpression(rhs) || isConstantExpression(lhs)) {
+        return;
+      }
+      if (rhs instanceof PsiLiteralExpression && PsiLiteralUtil.isUnsafeLiteral((PsiLiteralExpression)rhs)) {
         return;
       }
       registerError(expression);

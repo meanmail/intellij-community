@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution;
 
 import com.intellij.execution.configurations.*;
@@ -26,25 +12,21 @@ import org.jetbrains.annotations.Nullable;
  * settings.
  *
  * @author anna
- * @see RunManager#createRunConfiguration(String, com.intellij.execution.configurations.ConfigurationFactory)
+ * @see RunManager#createConfiguration(String, ConfigurationFactory)
  */
 public interface RunnerAndConfigurationSettings {
   /**
    * Returns the type of the run configuration.
-   *
-   * @return the type of the run configuration, or null if the settings object was loaded from disk and no plugin corresponding to the
-   * stored type of the run configuration is loaded.
    */
-  @Nullable
+  @NotNull
   ConfigurationType getType();
 
   /**
    * Returns the factory used to create the run configuration.
    *
-   * @return the factory, or null if the settings object was loaded from disk and no plugin corresponding to the stored type of the run
-   * configuration is loaded.
+   * @return the factory
    */
-  @Nullable
+  @NotNull
   ConfigurationFactory getFactory();
 
   /**
@@ -63,19 +45,26 @@ public interface RunnerAndConfigurationSettings {
   boolean isTemporary();
 
   /**
+   * Is stored in the versioned part of the project files
+   */
+  default boolean isShared() {
+    return false;
+  }
+
+  default void setShared(boolean value) {
+  }
+
+  /**
    * Marks the configuration as temporary or permanent.
    *
    * @param temporary true if the configuration is temporary, false if it's permanent.
-   * @see RunManager#makeStable(com.intellij.execution.configurations.RunConfiguration)
    */
   void setTemporary(boolean temporary);
 
   /**
    * Returns the {@link RunConfiguration} instance that will be used to execute this run configuration.
-   *
-   * @return the run configuration, or null if the settings object was loaded from disk and no plugin corresponding to the stored type
-   * of the run configuration is loaded.
    */
+  @NotNull
   RunConfiguration getConfiguration();
 
   /**
@@ -90,8 +79,10 @@ public interface RunnerAndConfigurationSettings {
    *
    * @return the name of the configuration.
    */
+  @NotNull
   String getName();
 
+  @NotNull
   String getUniqueID();
 
   /**
@@ -121,7 +112,9 @@ public interface RunnerAndConfigurationSettings {
    * @throws RuntimeConfigurationError if the configuration settings contain a fatal problem which makes it impossible to execute the run
    * configuration.
    */
-  void checkSettings() throws RuntimeConfigurationException;
+  default void checkSettings() throws RuntimeConfigurationException {
+    checkSettings(null);
+  }
 
   /**
    * Checks whether the run configuration settings are valid for execution with the specified executor.
@@ -135,16 +128,19 @@ public interface RunnerAndConfigurationSettings {
   void checkSettings(@Nullable Executor executor) throws RuntimeConfigurationException;
 
   /**
-   * Checks if this configuration supports running on the provided target (see {@link ExecutionTarget} for details).
-   * @param target target provided by {@link ExecutionTargetProvider}
+   * @deprecated
+   * @see ExecutionTargetManager#canRun(RunnerAndConfigurationSettings, ExecutionTarget)
    */
-  boolean canRunOn(@NotNull ExecutionTarget target);
+  @Deprecated
+  @SuppressWarnings({"unused"})
+  default boolean canRunOn(@NotNull ExecutionTarget target) { return true; }
 
   /**
    * Returns a factory object which can be used to create a copy of this configuration.
    *
    * @return copying factory instance
    */
+  @NotNull
   Factory<RunnerAndConfigurationSettings> createFactory();
 
   /**
@@ -164,9 +160,9 @@ public interface RunnerAndConfigurationSettings {
   /**
    * Sets the "Before launch: Activate tool window" flag (for activation tool window Run/Debug etc.)
    *
-   * @param b if true, the tool window will be activated before launching this configuration.
+   * @param value if true, the tool window will be activated before launching this configuration.
    */
-  void setActivateToolWindowBeforeRun(boolean activate);
+  void setActivateToolWindowBeforeRun(boolean value);
 
   /**
    * Returns the "Before launch: Activate tool window" flag (for activation tool window Run/Debug etc.)
@@ -176,18 +172,20 @@ public interface RunnerAndConfigurationSettings {
   boolean isActivateToolWindowBeforeRun();
 
   /**
-   * Sets the "Single instance only" flag (meaning that only one instance of this run configuration can be run at the same time).
-   *
-   * @param singleton the "Single instance" flag.
+   * @deprecated Use {@link RunConfiguration#isAllowRunningInParallel()}
    */
-  void setSingleton(boolean singleton);
+  @Deprecated
+  default boolean isSingleton() {
+    return !getConfiguration().isAllowRunningInParallel();
+  }
 
   /**
-   * Returns the "Single instance only" flag (meaning that only one instance of this run configuration can be run at the same time).
-   *
-   * @return the "Single instance" flag.
+   * @deprecated Use {@link RunConfiguration#setAllowRunningInParallel(boolean)}}
    */
-  boolean isSingleton();
+  @Deprecated
+  default void setSingleton(boolean value) {
+    getConfiguration().setAllowRunningInParallel(!value);
+  }
 
   /**
    * Sets the name of the folder under which the configuration is displayed in the "Run/Debug Configurations" dialog.

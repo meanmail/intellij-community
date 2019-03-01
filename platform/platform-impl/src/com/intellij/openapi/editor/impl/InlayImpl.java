@@ -1,94 +1,117 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.editor.impl;
 
+import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorCustomElementRenderer;
 import com.intellij.openapi.editor.Inlay;
-import com.intellij.openapi.editor.event.DocumentEvent;
-import com.intellij.openapi.util.Getter;
+import com.intellij.openapi.util.Key;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-class InlayImpl extends RangeMarkerImpl implements Inlay, Getter<InlayImpl> {
-  @NotNull
-  private final EditorImpl myEditor;
-  final int myOriginalOffset; // used for sorting of inlays, if they ever get merged into same offset after document modification
-  int myOffsetBeforeDisposal = -1;
-  private int myWidthInPixels;
-  @NotNull
-  private final EditorCustomElementRenderer myRenderer;
+import javax.swing.*;
+import java.awt.*;
 
-  InlayImpl(@NotNull EditorImpl editor, int offset, @NotNull EditorCustomElementRenderer renderer) {
+abstract class InlayImpl<R extends EditorCustomElementRenderer, T extends InlayImpl> extends RangeMarkerWithGetterImpl implements Inlay<R> {
+  static final Key<Integer> OFFSET_BEFORE_DISPOSAL = Key.create("inlay.offset.before.disposal");
+
+  @NotNull
+  final EditorImpl myEditor;
+  @NotNull
+  final R myRenderer;
+  private final boolean myRelatedToPrecedingText;
+
+  int myWidthInPixels;
+
+  @SuppressWarnings("AbstractMethodCallInConstructor")
+  InlayImpl(@NotNull EditorImpl editor, int offset, boolean relatesToPrecedingText, @NotNull R renderer) {
     super(editor.getDocument(), offset, offset, false);
     myEditor = editor;
-    myOriginalOffset = offset;
+    myRelatedToPrecedingText = relatesToPrecedingText;
     myRenderer = renderer;
     doUpdateSize();
-    myEditor.getInlayModel().myInlayTree.addInterval(this, offset, offset, false, false, 0);
+    //noinspection unchecked
+    getTree().addInterval((T)this, offset, offset, false, false, relatesToPrecedingText, 0);
+  }
+
+  abstract RangeMarkerTree<T> getTree();
+
+  @NotNull
+  @Override
+  public Editor getEditor() {
+    return myEditor;
   }
 
   @Override
   public void updateSize() {
+    int oldWidth = getWidthInPixels();
+    int oldHeight = getHeightInPixels();
     doUpdateSize();
-    myEditor.getInlayModel().notifyChanged(this);
-  }
-
-  private void doUpdateSize() {
-    myWidthInPixels = myRenderer.calcWidthInPixels(myEditor);
-    if (myWidthInPixels <= 0) {
-      throw new IllegalArgumentException("Positive width should be defined for an inline element");
+    if (oldWidth != getWidthInPixels() || oldHeight != getHeightInPixels()) {
+      myEditor.getInlayModel().notifyChanged(this);
+    }
+    else {
+      repaint();
     }
   }
 
   @Override
-  protected void changedUpdateImpl(@NotNull DocumentEvent e) {
-    super.changedUpdateImpl(e);
-    if (myEditor.getInlayModel().myStickToLargerOffsetsOnUpdate && isValid() && e.getOldLength() == 0 && getOffset() == e.getOffset()) {
-      int newOffset = e.getOffset() + e.getNewLength();
-      setIntervalStart(newOffset);
-      setIntervalEnd(newOffset);
+  public void repaint() {
+    if (isValid() && !myEditor.isDisposed() && !myEditor.getDocument().isInBulkUpdate()) {
+      JComponent contentComponent = myEditor.getContentComponent();
+      if (contentComponent.isShowing()) {
+        Rectangle bounds = getBounds();
+        if (bounds != null) {
+          if (this instanceof BlockInlayImpl) {
+            bounds.width = contentComponent.getWidth();
+          }
+          contentComponent.repaint(bounds);
+        }
+      }
     }
   }
+
+  abstract void doUpdateSize();
 
   @Override
   public void dispose() {
     if (isValid()) {
-      myOffsetBeforeDisposal = getOffset(); // We want listeners notified after disposal, but want inlay offset to be available at that time
-      myEditor.getInlayModel().myInlayTree.removeInterval(this);
+      int offset = getOffset(); // We want listeners notified after disposal, but want inlay offset to be available at that time
+      putUserData(OFFSET_BEFORE_DISPOSAL, offset);
+      //noinspection unchecked
+      getTree().removeInterval((T)this);
       myEditor.getInlayModel().notifyRemoved(this);
     }
   }
 
   @Override
   public int getOffset() {
-    return myOffsetBeforeDisposal == -1 ? getStartOffset() : myOffsetBeforeDisposal;
+    Integer offsetBeforeDisposal = getUserData(OFFSET_BEFORE_DISPOSAL);
+    return offsetBeforeDisposal == null ? getStartOffset() : offsetBeforeDisposal;
+  }
+
+  @Override
+  public boolean isRelatedToPrecedingText() {
+    return myRelatedToPrecedingText;
+  }
+
+  abstract Point getPosition();
+
+  @Nullable
+  @Override
+  public Rectangle getBounds() {
+    if (myEditor.getFoldingModel().isOffsetCollapsed(getOffset())) return null;
+    Point pos = getPosition();
+    return new Rectangle(pos.x, pos.y, getWidthInPixels(), getHeightInPixels());
   }
 
   @NotNull
   @Override
-  public EditorCustomElementRenderer getRenderer() {
+  public R getRenderer() {
     return myRenderer;
   }
 
   @Override
   public int getWidthInPixels() {
     return myWidthInPixels;
-  }
-
-  @Override
-  public InlayImpl get() {
-    return this;
   }
 }

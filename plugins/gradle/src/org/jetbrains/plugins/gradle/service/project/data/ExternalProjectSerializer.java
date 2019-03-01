@@ -23,6 +23,7 @@ import com.esotericsoftware.kryo.serializers.CollectionSerializer;
 import com.esotericsoftware.kryo.serializers.DefaultSerializers;
 import com.esotericsoftware.kryo.serializers.FieldSerializer;
 import com.esotericsoftware.kryo.serializers.MapSerializer;
+import com.esotericsoftware.kryo.util.Util;
 import com.esotericsoftware.minlog.Log;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.diagnostic.Logger;
@@ -47,7 +48,6 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/15/2014
  */
 public class ExternalProjectSerializer {
   private static final Logger LOG = Logger.getInstance(ExternalProjectSerializer.class);
@@ -62,6 +62,7 @@ public class ExternalProjectSerializer {
         return super.newInstance(type);
       }
     };
+    Util.isAndroid = false;
     configureKryo();
   }
 
@@ -188,6 +189,16 @@ public class ExternalProjectSerializer {
       }
     );
 
+    myKryo.register(
+      FilePatternSetImpl.class,
+      new FieldSerializer<FilePatternSetImpl>(myKryo, FilePatternSetImpl.class) {
+        @Override
+        protected FilePatternSetImpl create(Kryo kryo, Input input, Class<FilePatternSetImpl> type) {
+          return new FilePatternSetImpl(new LinkedHashSet<>(), new LinkedHashSet<>());
+        }
+      }
+    );
+
     myKryo.register(LinkedHashSet.class, new CollectionSerializer() {
       @Override
       protected Collection create(Kryo kryo, Input input, Class<Collection> type) {
@@ -283,7 +294,7 @@ public class ExternalProjectSerializer {
   private static class FileSerializer extends Serializer<File> {
     private final Kryo myStdKryo;
 
-    public FileSerializer() {
+    FileSerializer() {
       myStdKryo = new Kryo();
       myStdKryo.register(File.class);
       myStdKryo.setInstantiatorStrategy(new StdInstantiatorStrategy());

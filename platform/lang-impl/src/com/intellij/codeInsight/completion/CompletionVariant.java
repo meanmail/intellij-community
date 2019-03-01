@@ -19,15 +19,12 @@ package com.intellij.codeInsight.completion;
 import com.intellij.codeInsight.TailType;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupItem;
-import com.intellij.patterns.ElementPattern;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
-import com.intellij.psi.filters.ContextGetter;
 import com.intellij.psi.filters.ElementFilter;
-import com.intellij.psi.filters.position.PatternFilter;
 import com.intellij.util.ReflectionUtil;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import org.jetbrains.annotations.NonNls;
 
 import java.util.*;
@@ -47,17 +44,11 @@ public class CompletionVariant {
   public CompletionVariant() {
   }
 
-  public CompletionVariant(Class scopeClass, ElementPattern position){
-    this(scopeClass, new PatternFilter(position));
-  }
   public CompletionVariant(Class scopeClass, ElementFilter position){
     includeScopeClass(scopeClass);
     myPosition = position;
   }
 
-  public CompletionVariant(ElementPattern<? extends PsiElement> position){
-    this(new PatternFilter(position));
-  }
   public CompletionVariant(ElementFilter position){
     myPosition = position;
   }
@@ -130,45 +121,27 @@ public class CompletionVariant {
     addCompletion((Object)keyword, tailType);
   }
 
-  public void addCompletion(ContextGetter chooser){
-    addCompletion(chooser, DEFAULT_TAIL_TYPE);
-  }
-
-  public void addCompletion(ContextGetter chooser, TailType tailType){
-    addCompletion((Object)chooser, tailType);
-  }
-
   private void addCompletion(Object completion, TailType tail){
     myCompletionsList.add(new CompletionVariantItem(completion, tail));
-  }
-
-  public void addCompletion(@NonNls String[] keywordList){
-    addCompletion(keywordList, DEFAULT_TAIL_TYPE);
-  }
-
-  public void addCompletion(String[] keywordList, TailType tailType){
-    for (String aKeywordList : keywordList) {
-      addCompletion(aKeywordList, tailType);
-    }
   }
 
   boolean isVariantApplicable(PsiElement position, PsiElement scope){
     return isScopeAcceptable(scope) && myPosition.isAcceptable(position, scope);
   }
 
-  void addReferenceCompletions(PsiReference reference, PsiElement position, Set<LookupElement> set, final PsiFile file,
-                                      final CompletionData completionData){
+  void addReferenceCompletions(PsiReference reference, PsiElement position, Set<? super LookupElement> set, final PsiFile file,
+                               final CompletionData completionData){
     for (final CompletionVariantItem ce : myCompletionsList) {
       if(ce.myCompletion instanceof ElementFilter){
         final ElementFilter filter = (ElementFilter)ce.myCompletion;
-        completionData.completeReference(reference, position, set, ce.myTailType, file, filter, this);
+        completionData.completeReference(reference, position, set, ce.myTailType, filter, this);
       }
     }
   }
 
-  void addKeywords(Set<LookupElement> set, PsiElement position, final CompletionData completionData) {
+  void addKeywords(Set<LookupElement> set, final CompletionData completionData) {
     for (final CompletionVariantItem ce : myCompletionsList) {
-      completionData.addKeywords(set, position, this, ce.myCompletion, ce.myTailType);
+      completionData.addKeywords(set, this, ce.myCompletion, ce.myTailType);
     }
   }
 
@@ -205,7 +178,7 @@ public class CompletionVariant {
     public Object myCompletion;
     public TailType myTailType;
 
-    public CompletionVariantItem(Object completion, TailType tailtype){
+    CompletionVariantItem(Object completion, TailType tailtype){
       myCompletion = completion;
       myTailType = tailtype;
     }

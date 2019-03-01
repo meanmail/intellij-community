@@ -22,3 +22,16 @@ Meta = create_meta()
 
 class Something(Meta):
     pass
+
+
+class DerivedException(Exception):
+    pass
+
+
+# PY-28150
+from typing import Generic, TypeVar
+T = TypeVar("T")
+class A(Generic[T]):
+    pass
+class B(A):
+    pass

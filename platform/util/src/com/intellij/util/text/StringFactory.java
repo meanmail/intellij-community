@@ -15,21 +15,29 @@
  */
 package com.intellij.util.text;
 
+import com.intellij.ReviseWhenPortedToJDK;
+import com.intellij.openapi.util.SystemInfo;
 import org.jetbrains.annotations.NotNull;
 
 import java.lang.reflect.Constructor;
 
+@ReviseWhenPortedToJDK("9")
 public class StringFactory {
   // String(char[], boolean). Works since JDK1.7, earlier JDKs have too slow reflection anyway
   private static final Constructor<String> ourConstructor;
 
   static {
     Constructor<String> constructor = null;
-    try {
-      constructor = String.class.getDeclaredConstructor(char[].class, boolean.class);
-      constructor.setAccessible(true);
+    // makes no sense in JDK9 because new String(char[],boolean) there parses and copies array too.
+    if (!SystemInfo.IS_AT_LEAST_JAVA9) {
+      try {
+        constructor = String.class.getDeclaredConstructor(char[].class, boolean.class);
+        constructor.setAccessible(true);
+      }
+      catch (Throwable ignored) {
+        constructor = null; // setAccessible fails without explicit permission on Java 9
+      }
     }
-    catch (Exception ignored) { }
     ourConstructor = constructor;
   }
 

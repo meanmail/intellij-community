@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package com.intellij.ide;
 
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.ui.popup.IdePopupEventDispatcher;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.wm.ex.IdeFrameEx;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
@@ -29,6 +29,7 @@ import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 import java.awt.event.WindowEvent;
 import java.util.List;
+import java.util.Objects;
 
 public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
   private static final Logger LOG = Logger.getInstance("com.intellij.ide.IdePopupManager");
@@ -45,12 +46,12 @@ public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
     return myDispatchStack.size() > 0;
   }
 
-  public boolean dispatch(final AWTEvent e) {
+  @Override
+  public boolean dispatch(@NotNull final AWTEvent e) {
     LOG.assertTrue(isPopupActive());
 
-    if (e.getID() == WindowEvent.WINDOW_LOST_FOCUS) {
-      ApplicationManager.getApplication().invokeLater(() -> {
-        if (!isPopupActive()) return;
+    if (e.getID() == WindowEvent.WINDOW_LOST_FOCUS || e.getID() == WindowEvent.WINDOW_DEACTIVATED) {
+        if (!isPopupActive()) return false;
 
         boolean shouldCloseAllPopup = false;
 
@@ -59,14 +60,11 @@ public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
           focused = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusedWindow();
         }
 
-        if (focused == null) {
-          shouldCloseAllPopup = true;
-        }
-
         Component ultimateParentForFocusedComponent = UIUtil.findUltimateParent(focused);
-        Component ultimateParentForEventWindow = UIUtil.findUltimateParent(((WindowEvent)e).getWindow());
+        Window sourceWindow = ((WindowEvent)e).getWindow();
+        Component ultimateParentForEventWindow = UIUtil.findUltimateParent(sourceWindow);
 
-        if (!shouldCloseAllPopup && ultimateParentForEventWindow == null || ultimateParentForFocusedComponent == null) {
+        if (ultimateParentForEventWindow == null || ultimateParentForFocusedComponent == null) {
           shouldCloseAllPopup = true;
         }
 
@@ -81,7 +79,6 @@ public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
         if (shouldCloseAllPopup) {
           closeAllPopups();
         }
-      });
     }
 
     if (e instanceof KeyEvent || e instanceof MouseEvent) {
@@ -105,12 +102,20 @@ public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
   }
 
   public boolean closeAllPopups(boolean forceRestoreFocus) {
+    return closeAllPopups(forceRestoreFocus, null);
+  }
+
+  private boolean closeAllPopups(boolean forceRestoreFocus, Window window) {
     if (myDispatchStack.size() == 0) return false;
 
     boolean closed = true;
     for (IdePopupEventDispatcher each : myDispatchStack) {
+      if (window != null && !(window instanceof Frame) && window == UIUtil.getWindow(each.getComponent())) {
+        // do not close a heavyweight popup that is opened in the specified window
+        continue;
+      }
       if (forceRestoreFocus) {
-        each.setRestoreFocusSilentely();
+        each.setRestoreFocusSilently();
       }
       closed &= each.close();
     }
@@ -132,6 +137,7 @@ public final class IdePopupManager implements IdeEventQueue.EventDispatcher {
     return myDispatchStack.stream()
              .flatMap(IdePopupEventDispatcher::getPopupStream)
              .map(JBPopup::getContent)
+             .filter(Objects::nonNull)
              .anyMatch(jbPopupContent -> SwingUtilities.getWindowAncestor(jbPopupContent) == w);
   }
 }

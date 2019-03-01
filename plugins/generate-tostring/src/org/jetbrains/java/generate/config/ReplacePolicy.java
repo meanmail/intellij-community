@@ -22,7 +22,7 @@ import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * This policy is to replace the existing <code>toString</code> method.
+ * This policy is to replace the existing {@code toString} method.
  */
 public class ReplacePolicy implements ConflictResolutionPolicy {
 
@@ -35,10 +35,12 @@ public class ReplacePolicy implements ConflictResolutionPolicy {
         return instance;
     }
 
+    @Override
     public void setNewMethodStrategy(InsertNewMethodStrategy strategy) {
         DuplicatePolicy.getInstance().setNewMethodStrategy(strategy);
     }
 
+    @Override
     public PsiMethod applyMethod(PsiClass clazz, PsiMethod existingMethod, @NotNull PsiMethod newMethod, Editor editor) throws IncorrectOperationException {
       PsiMethod generatedMethod = DuplicatePolicy.getInstance().applyMethod(clazz, null, newMethod, editor);
       if (existingMethod != null) {

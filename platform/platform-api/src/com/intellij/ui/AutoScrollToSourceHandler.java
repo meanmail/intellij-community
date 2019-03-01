@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ui;
 
@@ -20,6 +6,7 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.fileTypes.INativeFileType;
 import com.intellij.openapi.project.DumbAware;
@@ -43,13 +30,9 @@ import java.awt.event.MouseEvent;
 import java.awt.event.MouseMotionAdapter;
 
 public abstract class AutoScrollToSourceHandler {
-  private Alarm myAutoScrollAlarm;
-
-  protected AutoScrollToSourceHandler() {
-  }
+  private final Alarm myAutoScrollAlarm = new Alarm();
 
   public void install(final JTree tree) {
-    myAutoScrollAlarm = new Alarm();
     new ClickListener() {
       @Override
       public boolean onClick(@NotNull MouseEvent e, int clickCount) {
@@ -66,12 +49,14 @@ public abstract class AutoScrollToSourceHandler {
     }.installOn(tree);
 
     tree.addMouseMotionListener(new MouseMotionAdapter() {
+      @Override
       public void mouseDragged(final MouseEvent e) {
         onSelectionChanged(tree);
       }
     });
     tree.addTreeSelectionListener(
       new TreeSelectionListener() {
+        @Override
         public void valueChanged(TreeSelectionEvent e) {
           onSelectionChanged(tree);
         }
@@ -80,7 +65,6 @@ public abstract class AutoScrollToSourceHandler {
   }
 
   public void install(final JTable table) {
-    myAutoScrollAlarm = new Alarm();
     new ClickListener() {
       @Override
       public boolean onClick(@NotNull MouseEvent e, int clickCount) {
@@ -96,6 +80,7 @@ public abstract class AutoScrollToSourceHandler {
     }.installOn(table);
 
     table.addMouseMotionListener(new MouseMotionAdapter() {
+      @Override
       public void mouseDragged(final MouseEvent e) {
         onSelectionChanged(table);
       }
@@ -111,7 +96,6 @@ public abstract class AutoScrollToSourceHandler {
   }
 
   public void install(final JList jList) {
-    myAutoScrollAlarm = new Alarm();
     new ClickListener() {
       @Override
       public boolean onClick(@NotNull MouseEvent e, int clickCount) {
@@ -127,6 +111,7 @@ public abstract class AutoScrollToSourceHandler {
     }.installOn(jList);
 
     jList.addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         onSelectionChanged(jList);
       }
@@ -134,9 +119,7 @@ public abstract class AutoScrollToSourceHandler {
   }
 
   public void cancelAllRequests(){
-    if (myAutoScrollAlarm != null) {
-      myAutoScrollAlarm.cancelAllRequests();
-    }
+    myAutoScrollAlarm.cancelAllRequests();
   }
 
   public void onMouseClicked(final Component component) {
@@ -147,24 +130,19 @@ public abstract class AutoScrollToSourceHandler {
   }
 
   private void onSelectionChanged(final Component component) {
-    if (component != null && !component.isShowing()) return;
-
-    if (!isAutoScrollMode()) {
-      return;
+    if (component != null && component.isShowing() && isAutoScrollMode()) {
+      myAutoScrollAlarm.cancelAllRequests();
+      myAutoScrollAlarm.addRequest(
+        () -> {
+          if (component.isShowing()) { //for tests
+            if (!needToCheckFocus() || component.hasFocus()) {
+              scrollToSource(component);
+            }
+          }
+        },
+        500
+      );
     }
-    if (needToCheckFocus() && !component.hasFocus()) {
-      return;
-    }
-
-    myAutoScrollAlarm.cancelAllRequests();
-    myAutoScrollAlarm.addRequest(
-      () -> {
-        if (component.isShowing()) { //for tests
-          scrollToSource(component);
-        }
-      },
-      500
-    );
   }
 
   protected boolean needToCheckFocus(){
@@ -176,7 +154,7 @@ public abstract class AutoScrollToSourceHandler {
 
   protected void scrollToSource(final Component tree) {
     DataContext dataContext=DataManager.getInstance().getDataContext(tree);
-    getReady(dataContext).doWhenDone(() -> {
+    getReady(dataContext).doWhenDone(() -> TransactionGuard.submitTransaction(ApplicationManager.getApplication(), () -> {
       DataContext context = DataManager.getInstance().getDataContext(tree);
       final VirtualFile vFile = CommonDataKeys.VIRTUAL_FILE.getData(context);
       if (vFile != null) {
@@ -188,17 +166,10 @@ public abstract class AutoScrollToSourceHandler {
         if (vFile.getLength() > PersistentFSConstants.getMaxIntellisenseFileSize()) return;
       }
       Navigatable[] navigatables = CommonDataKeys.NAVIGATABLE_ARRAY.getData(context);
-      if (navigatables != null) {
-        if (navigatables.length > 1) {
-          return;
-        }
-        for (Navigatable navigatable : navigatables) {
-          // we are not going to open modal dialog during autoscrolling
-          if (!navigatable.canNavigateToSource()) return;
-        }
+      if (navigatables != null && navigatables.length == 1) {
+        OpenSourceUtil.navigateToSource(false, true, navigatables[0]);
       }
-      OpenSourceUtil.navigate(false, true, navigatables);
-    });
+    }));
   }
 
   @NotNull
@@ -207,16 +178,18 @@ public abstract class AutoScrollToSourceHandler {
   }
 
   private class AutoscrollToSourceAction extends ToggleAction implements DumbAware {
-    public AutoscrollToSourceAction() {
+    AutoscrollToSourceAction() {
       super(UIBundle.message("autoscroll.to.source.action.name"), UIBundle.message("autoscroll.to.source.action.description"),
             AllIcons.General.AutoscrollToSource);
     }
 
-    public boolean isSelected(AnActionEvent event) {
+    @Override
+    public boolean isSelected(@NotNull AnActionEvent event) {
       return isAutoScrollMode();
     }
 
-    public void setSelected(AnActionEvent event, boolean flag) {
+    @Override
+    public void setSelected(@NotNull AnActionEvent event, boolean flag) {
       setAutoScrollMode(flag);
     }
   }

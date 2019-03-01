@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,12 +15,11 @@
  */
 package com.intellij.execution.lineMarker;
 
+import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.execution.Location;
 import com.intellij.execution.PsiLocation;
 import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.UserDataHolderBase;
@@ -32,7 +31,7 @@ import org.jetbrains.annotations.Nullable;
 /**
  * @author Dmitry Avdeev
  */
-public class LineMarkerActionWrapper extends AnAction {
+public class LineMarkerActionWrapper extends ActionGroup implements PriorityAction, ActionWithDelegate<AnAction> {
   public static final Key<Pair<PsiElement, MyDataContext>> LOCATION_WRAPPER = Key.create("LOCATION_WRAPPER");
 
   protected final PsiElement myElement;
@@ -44,37 +43,88 @@ public class LineMarkerActionWrapper extends AnAction {
     copyFrom(origin);
   }
 
+  @NotNull
   @Override
-  public void update(AnActionEvent e) {
+  public AnAction[] getChildren(@Nullable AnActionEvent e) {
+    if (myOrigin instanceof ActionGroup) {
+      return ((ActionGroup)myOrigin).getChildren(e == null ? null : wrapEvent(e));
+    }
+    return AnAction.EMPTY_ARRAY;
+  }
+
+  @Override
+  public boolean canBePerformed(@NotNull DataContext context) {
+    return !(myOrigin instanceof ActionGroup) || ((ActionGroup)myOrigin).canBePerformed(wrapContext(context));
+  }
+
+  @Override
+  public boolean isDumbAware() {
+    return myOrigin.isDumbAware();
+  }
+
+  @Override
+  public boolean isPopup() {
+    return !(myOrigin instanceof ActionGroup) || ((ActionGroup)myOrigin).isPopup();
+  }
+
+  @Override
+  public boolean hideIfNoVisibleChildren() {
+    return myOrigin instanceof ActionGroup && ((ActionGroup)myOrigin).hideIfNoVisibleChildren();
+  }
+
+  @Override
+  public boolean disableIfNoVisibleChildren() {
+    return !(myOrigin instanceof ActionGroup) || ((ActionGroup)myOrigin).disableIfNoVisibleChildren();
+  }
+
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     myOrigin.update(wrapEvent(e));
   }
 
   @NotNull
-  private AnActionEvent wrapEvent(AnActionEvent e) {
-    DataContext dataContext = e.getDataContext();
+  private AnActionEvent wrapEvent(@NotNull AnActionEvent e) {
+    DataContext dataContext = wrapContext(e.getDataContext());
+    return new AnActionEvent(e.getInputEvent(), dataContext, e.getPlace(), e.getPresentation(), e.getActionManager(), e.getModifiers());
+  }
+
+  @NotNull
+  private DataContext wrapContext(DataContext dataContext) {
     Pair<PsiElement, MyDataContext> pair = DataManager.getInstance().loadFromDataContext(dataContext, LOCATION_WRAPPER);
     if (pair == null || pair.first != myElement) {
       pair = Pair.pair(myElement, new MyDataContext(dataContext));
       DataManager.getInstance().saveInDataContext(dataContext, LOCATION_WRAPPER, pair);
     }
-    return new AnActionEvent(e.getInputEvent(), pair.second, e.getPlace(), e.getPresentation(), e.getActionManager(), e.getModifiers());
+    return pair.second;
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     myOrigin.actionPerformed(wrapEvent(e));
+  }
+
+  @NotNull
+  @Override
+  public Priority getPriority() {
+    return Priority.TOP;
+  }
+
+  @NotNull
+  @Override
+  public AnAction getDelegate() {
+    return myOrigin;
   }
 
   private class MyDataContext extends UserDataHolderBase implements DataContext {
     private final DataContext myDelegate;
 
-    public MyDataContext(DataContext delegate) {
+    MyDataContext(DataContext delegate) {
       myDelegate = delegate;
     }
 
     @Nullable
     @Override
-    public synchronized Object getData(@NonNls String dataId) {
+    public synchronized Object getData(@NotNull @NonNls String dataId) {
       if (Location.DATA_KEY.is(dataId)) return myElement.isValid() ? new PsiLocation<>(myElement) : null;
       return myDelegate.getData(dataId);
     }

@@ -24,6 +24,8 @@ import com.intellij.openapi.ui.InputValidatorEx;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.SmartPointerManager;
+import com.intellij.psi.SmartPsiElementPointer;
 import com.intellij.util.PlatformIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -131,7 +133,7 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
     private final CreateFileFromTemplateDialog myDialog;
     private final Project myProject;
 
-    public BuilderImpl(CreateFileFromTemplateDialog dialog, Project project) {
+    BuilderImpl(CreateFileFromTemplateDialog dialog, Project project) {
       myDialog = dialog;
       myProject = project;
     }
@@ -160,18 +162,23 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
     @Override
     public <T extends PsiElement> T show(@NotNull String errorTitle, @Nullable String selectedTemplateName,
                                          @NotNull final FileCreator<T> creator) {
-      final Ref<T> created = Ref.create(null);
+      final Ref<SmartPsiElementPointer<T>>created = Ref.create(null);
       myDialog.getKindCombo().setSelectedName(selectedTemplateName);
       myDialog.myCreator = new ElementCreator(myProject, errorTitle) {
 
         @Override
-        protected PsiElement[] create(String newName) throws Exception {
-          final T element = creator.createFile(myDialog.getEnteredName(), myDialog.getKindCombo().getSelectedName());
-          created.set(element);
+        protected PsiElement[] create(@NotNull String newName) {
+          T element = creator.createFile(myDialog.getEnteredName(), myDialog.getKindCombo().getSelectedName());
           if (element != null) {
+            created.set(SmartPointerManager.getInstance(myProject).createSmartPsiElementPointer(element));
             return new PsiElement[]{element};
           }
           return PsiElement.EMPTY_ARRAY;
+        }
+
+        @Override
+        public boolean startInWriteAction() {
+          return creator.startInWriteAction();
         }
 
         @Override
@@ -182,7 +189,8 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
 
       myDialog.show();
       if (myDialog.getExitCode() == OK_EXIT_CODE) {
-        return created.get();
+        SmartPsiElementPointer<T> pointer = created.get();
+        return pointer == null ? null : pointer.getElement();
       }
       return null;
     }
@@ -211,5 +219,7 @@ public class CreateFileFromTemplateDialog extends DialogWrapper {
 
     @NotNull
     String getActionName(@NotNull String name, @NotNull String templateName);
+
+    boolean startInWriteAction();
   }
 }

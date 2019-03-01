@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2013 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,11 +15,11 @@
  */
 package com.siyeh.ipp.fqnames;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.javadoc.JavaDocUtil;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.javadoc.PsiDocComment;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.ig.psiutils.ImportUtils;
@@ -28,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 class FullyQualifiedNamePredicate implements PsiElementPredicate {
 
+  @Override
   public boolean satisfiedBy(PsiElement element) {
     if (!(element instanceof PsiJavaCodeReferenceElement)) {
       return false;
@@ -43,9 +44,12 @@ class FullyQualifiedNamePredicate implements PsiElementPredicate {
     if (PsiTreeUtil.getParentOfType(element, PsiImportStatementBase.class, PsiPackageStatement.class, JavaCodeFragment.class) != null) {
       return false;
     }
-    final Project project = element.getProject();
-    final CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getSettings(project);
+    final CodeStyleSettings codeStyleSettings = CodeStyle.getSettings(element.getContainingFile());
     if (isInsideCommentInPackageInfo(referenceElement)) {
+      return false;
+    }
+    final PsiFile file = element.getContainingFile();
+    if ("module-info.java".equals(file.getName())) {
       return false;
     }
     final PsiElement qualifier = referenceElement.getQualifier();
@@ -58,7 +62,7 @@ class FullyQualifiedNamePredicate implements PsiElementPredicate {
       if (!(resolved instanceof PsiClass)) {
         return false;
       }
-      if (!codeStyleSettings.INSERT_INNER_CLASS_IMPORTS) {
+      if (!codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).INSERT_INNER_CLASS_IMPORTS) {
         return false;
       }
     }
@@ -68,14 +72,11 @@ class FullyQualifiedNamePredicate implements PsiElementPredicate {
     }
     final PsiClass aClass = (PsiClass)target;
     final String fqName = aClass.getQualifiedName();
-    if (fqName == null) {
-      return false;
-    }
-    return ImportUtils.nameCanBeImported(fqName, element);
+    return fqName != null && ImportUtils.nameCanBeImported(fqName, element);
   }
 
   private static boolean isInsideCommentInPackageInfo(@Nullable PsiJavaCodeReferenceElement referenceElement) {
-    PsiDocComment containingComment = PsiTreeUtil.getParentOfType(referenceElement, PsiDocComment.class);
+    final PsiDocComment containingComment = PsiTreeUtil.getParentOfType(referenceElement, PsiDocComment.class);
     return JavaDocUtil.isInsidePackageInfo(containingComment);
   }
 }

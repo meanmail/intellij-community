@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -30,12 +16,9 @@ import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- */
 public class PsiOldInferenceHelper implements PsiInferenceHelper {
-    private static final Logger LOG = Logger.getInstance("#" + PsiOldInferenceHelper.class.getName());
-    public static final Pair<PsiType,ConstraintType> RAW_INFERENCE = new Pair<PsiType, ConstraintType>(null, ConstraintType.EQUALS);
+  private static final Logger LOG = Logger.getInstance(PsiOldInferenceHelper.class);
+    public static final Pair<PsiType,ConstraintType> RAW_INFERENCE = new Pair<>(null, ConstraintType.EQUALS);
     private final PsiManager myManager;
   
     public PsiOldInferenceHelper(PsiManager manager) {
@@ -145,13 +128,13 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
       if (lowerBound != PsiType.NULL) {
         if (!wildcardToCapture.isAssignableFrom(lowerBound)) return getFailedInferenceConstraint(typeParameter);
         if (wildcardToCapture.isSuper()) {
-          return new Pair<PsiType, ConstraintType>(wildcardToCapture, ConstraintType.SUPERTYPE);
+          return new Pair<>(wildcardToCapture, ConstraintType.SUPERTYPE);
         }
         lowerBound = GenericsUtil.getLeastUpperBound(lowerBound, wildcardToCapture, myManager);
       }
       else {
         if (upperBound != PsiType.NULL && !upperBound.isAssignableFrom(wildcardToCapture)) return getFailedInferenceConstraint(typeParameter);
-        return new Pair<PsiType, ConstraintType>(wildcardToCapture, ConstraintType.EQUALS);
+        return new Pair<>(wildcardToCapture, ConstraintType.EQUALS);
       }
     }
 
@@ -179,7 +162,8 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
   }
 
   private static Pair<PsiType, ConstraintType> getFailedInferenceConstraint(@NotNull PsiTypeParameter typeParameter) {
-    return new Pair<PsiType, ConstraintType>(JavaPsiFacade.getInstance(typeParameter.getProject()).getElementFactory().createType(typeParameter), ConstraintType.EQUALS);
+    return new Pair<>(JavaPsiFacade.getElementFactory(typeParameter.getProject()).createType(typeParameter),
+                      ConstraintType.EQUALS);
   }
 
   @Override
@@ -297,7 +281,7 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
       }
 
       if (substitution == null) {
-        PsiElementFactory factory = JavaPsiFacade.getInstance(myManager.getProject()).getElementFactory();
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(myManager.getProject());
         return factory.createRawSubstitutor(partialSubstitutor, typeParameters);
       }
       if (substitution != PsiType.NULL) {
@@ -305,6 +289,15 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
       }
     }
     return partialSubstitutor;
+  }
+
+  @NotNull
+  @Override
+  public PsiSubstitutor inferTypeArguments(@NotNull PsiTypeParameter[] typeParameters,
+                                           @NotNull PsiType[] leftTypes,
+                                           @NotNull PsiType[] rightTypes,
+                                           @NotNull LanguageLevel languageLevel) {
+    return inferTypeArguments(typeParameters, leftTypes, rightTypes, PsiSubstitutor.EMPTY, languageLevel);
   }
 
   private static boolean compareSubtypes(final PsiType type, final PsiType parentType) {
@@ -316,6 +309,7 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
   public PsiSubstitutor inferTypeArguments(@NotNull PsiTypeParameter[] typeParameters,
                                            @NotNull PsiType[] leftTypes,
                                            @NotNull PsiType[] rightTypes,
+                                           @NotNull PsiSubstitutor partialSubstitutor,
                                            @NotNull LanguageLevel languageLevel) {
     if (leftTypes.length != rightTypes.length) throw new IllegalArgumentException("Types must be of the same length");
     PsiSubstitutor substitutor = PsiSubstitutor.EMPTY;
@@ -448,7 +442,6 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
     }
 
     if (!(param instanceof PsiClassType)) return null;
-    PsiManager manager = myManager;
     if (arg instanceof PsiPrimitiveType) {
       if (!JavaVersionService.getInstance().isAtLeast(typeParam, JavaSdkVersion.JDK_1_7) && !isContraVariantPosition) return null;
       arg = ((PsiPrimitiveType)arg).getBoxedType(typeParam);
@@ -483,7 +476,7 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
     PsiClass argClass = (PsiClass)argResult.getElement();
     if (argClass == null) return null;
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myManager.getProject());
     PsiType patternType = factory.createType(typeParam);
     if (isContraVariantPosition) {
       PsiSubstitutor substitutor = TypeConversionUtil.getClassSubstitutor(paramClass, argClass, argResult.getSubstitutor());
@@ -512,7 +505,7 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
   }
 
   //represents the result of failed type inference: in case we failed inferring from parameters, do not perform inference from context
-  private static final Pair<PsiType, ConstraintType> FAILED_INFERENCE = new Pair<PsiType, ConstraintType>(PsiType.NULL, ConstraintType.EQUALS);
+  private static final Pair<PsiType, ConstraintType> FAILED_INFERENCE = new Pair<>(PsiType.NULL, ConstraintType.EQUALS);
 
   @Nullable
   private Pair<PsiType, ConstraintType> getSubstitutionForTypeParameterInner(PsiType param,
@@ -692,6 +685,10 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
         expectedType = methodCall instanceof PsiCallExpression ? policy.getDefaultExpectedType((PsiCallExpression)methodCall) : null;
       }
 
+      if (policy.requestForBoxingExplicitly() && TypeConversionUtil.isPrimitiveAndNotNull(expectedType)) {
+        expectedType = ((PsiPrimitiveType)expectedType).getBoxedType(typeParameter);
+      }
+
       returnType = ((PsiMethod)typeParameter.getOwner()).getReturnType();
 
       constraint =
@@ -743,7 +740,7 @@ public class PsiOldInferenceHelper implements PsiInferenceHelper {
       PsiSubstitutor newSubstitutor = substitutor.put(typeParameter, guess);
       for (PsiClassType extendsType1 : extendsTypes) {
         PsiType extendsType = newSubstitutor.substitute(extendsType1);
-        if (guess != null && !extendsType.isAssignableFrom(guess)) {
+        if (guess != null && extendsType != null && !extendsType.isAssignableFrom(guess)) {
           if (guess.isAssignableFrom(extendsType)) {
             guess = extendsType;
             newSubstitutor = substitutor.put(typeParameter, guess);

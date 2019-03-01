@@ -32,9 +32,12 @@ import java.util.Collection;
 import java.util.List;
 
 /**
+ * Combobox which allows to select a loaded modules from a project. If you need to show unloaded modules as well, use {@link ModuleDescriptionsComboBox}
+ * instead.
+ *
  * @author nik
  */
-public class ModulesComboBox extends ComboBox {
+public class ModulesComboBox extends ComboBox<Module> {
   private final SortedComboBoxModel<Module> myModel;
   private boolean myAllowEmptySelection;
 

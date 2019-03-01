@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.components;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.extensions.AreaInstance;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.UserDataHolder;
@@ -27,19 +14,15 @@ import org.picocontainer.PicoContainer;
  * Provides access to components. Serves as a base interface for {@link com.intellij.openapi.application.Application}
  * and {@link com.intellij.openapi.project.Project}.
  *
- * @see ApplicationComponent
  * @see ProjectComponent
  * @see com.intellij.openapi.application.Application
  * @see com.intellij.openapi.project.Project
  */
 public interface ComponentManager extends UserDataHolder, Disposable {
   /**
-   * Gets the component by its name
-   *
-   * @param name the name of the component
-   * @return component with given name or null if there is no such component
-   * @see com.intellij.openapi.components.NamedComponent#getComponentName()
+   * @deprecated Use {@link #getComponent(Class)} instead.
    */
+  @Deprecated
   BaseComponent getComponent(@NotNull String name);
 
   /**
@@ -64,29 +47,36 @@ public interface ComponentManager extends UserDataHolder, Disposable {
    * Checks whether there is a component with the specified interface class.
    *
    * @param interfaceClass interface class of component to be checked
-   * @return <code>true</code> if there is a component with the specified interface class;
-   * <code>false</code> otherwise
+   * @return {@code true} if there is a component with the specified interface class;
+   * {@code false} otherwise
    */
   boolean hasComponent(@NotNull Class interfaceClass);
 
   /**
-   * Gets all components whose implementation class is derived from <code>baseClass</code>.
+   * Gets all components whose implementation class is derived from {@code baseClass}.
    *
-   * @return array of components
-   * @deprecated use extension points instead
+   * @deprecated use <a href="http://www.jetbrains.org/intellij/sdk/docs/basics/plugin_structure/plugin_extensions_and_extension_points.html">extension points</a> instead
    */
+  @Deprecated
   @NotNull
   <T> T[] getComponents(@NotNull Class<T> baseClass);
 
   @NotNull
   PicoContainer getPicoContainer();
 
+  /**
+   * @see com.intellij.application.Topics#subscribe
+   */
   @NotNull
   MessageBus getMessageBus();
 
   boolean isDisposed();
 
+  /**
+   * @deprecated Use {@link ExtensionPointName#getExtensionList(AreaInstance)}
+   */
   @NotNull
+  @Deprecated
   <T> T[] getExtensions(@NotNull ExtensionPointName<T> extensionPointName);
 
   /**
@@ -94,5 +84,5 @@ public interface ComponentManager extends UserDataHolder, Disposable {
    * see {@link com.intellij.openapi.application.Application#invokeLater(Runnable, Condition)} for the usage example.
    */
   @NotNull
-  Condition getDisposed();
+  Condition<?> getDisposed();
 }

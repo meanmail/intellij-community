@@ -20,11 +20,9 @@ import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
 
-/**
- * @author yole
- */
+@Deprecated
 public interface ExportableComponent {
-  ExtensionPointName<ServiceBean> EXTENSION_POINT = new ExtensionPointName<ServiceBean>("com.intellij.exportable");
+  ExtensionPointName<ServiceBean> EXTENSION_POINT = new ExtensionPointName<>("com.intellij.exportable");
 
   @NotNull
   File[] getExportFiles();

@@ -34,6 +34,7 @@ import com.intellij.psi.xml.*;
 import com.intellij.ui.ColorUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.ui.ColorIcon;
+import com.intellij.util.ui.JBUI;
 import com.intellij.xml.util.ColorMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.javaFX.fxml.FxmlConstants;
@@ -48,19 +49,20 @@ import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 
-/**
- * User: anna
- */
 public class JavaFxAnnotator implements Annotator {
   @Override
   public void annotate(@NotNull final PsiElement element, @NotNull AnnotationHolder holder) {
-    final PsiFile containingFile = element.getContainingFile();
+    final PsiFile containingFile = holder.getCurrentAnnotationSession().getFile();
     if (!JavaFxFileTypeFactory.isFxml(containingFile)) return;
     if (element instanceof XmlAttributeValue) {
-      final PsiReference[] references = element.getReferences();
       final String value = ((XmlAttributeValue)element).getValue();
       if (!JavaFxPsiUtil.isExpressionBinding(value) && !JavaFxPsiUtil.isIncorrectExpressionBinding(value)) {
+        final PsiReference[] references = element.getReferences();
         for (PsiReference reference : references) {
+          if (reference instanceof JavaFxColorReference) {
+            attachColorIcon(element, holder, StringUtil.unquoteString(element.getText()));
+            continue;
+          }
           final PsiElement resolve = reference.resolve();
           if (resolve instanceof PsiMember) {
             if (!JavaFxPsiUtil.isVisibleInFxml((PsiMember)resolve)) {
@@ -73,9 +75,6 @@ public class JavaFxAnnotator implements Annotator {
             }
           }
         }
-      }
-      if (references.length == 1 && references[0] instanceof JavaFxColorReference) {
-        attachColorIcon(element, holder, StringUtil.unquoteString(element.getText()));
       }
     } else if (element instanceof XmlAttribute) {
       final XmlAttribute attribute = (XmlAttribute)element;
@@ -131,7 +130,7 @@ public class JavaFxAnnotator implements Annotator {
         }
       }
       if (color != null) {
-        final ColorIcon icon = new ColorIcon(8, color);
+        final ColorIcon icon = JBUI.scale(new ColorIcon(8, color));
         final Annotation annotation = holder.createInfoAnnotation(element, null);
         annotation.setGutterIconRenderer(new ColorIconRenderer(icon, element));
       }
@@ -144,7 +143,7 @@ public class JavaFxAnnotator implements Annotator {
     private final ColorIcon myIcon;
     private final PsiElement myElement;
 
-    public ColorIconRenderer(ColorIcon icon, PsiElement element) {
+    ColorIconRenderer(ColorIcon icon, PsiElement element) {
       myIcon = icon;
       myElement = element;
     }
@@ -176,10 +175,10 @@ public class JavaFxAnnotator implements Annotator {
     public AnAction getClickAction() {
       return new AnAction() {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           final Editor editor = CommonDataKeys.EDITOR.getData(e.getDataContext());
           if (editor != null) {
-            XmlChooseColorIntentionAction.chooseColor(editor.getComponent(), myElement, "Color Chooser", true);
+            XmlChooseColorIntentionAction.chooseColor(editor.getComponent(), myElement);
           }
         }
       };

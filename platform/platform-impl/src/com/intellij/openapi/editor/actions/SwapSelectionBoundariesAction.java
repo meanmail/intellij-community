@@ -21,13 +21,13 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.actionSystem.EditorAction;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.editor.ex.EditorEx;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Provides functionality similar to the emacs
  * <a href="http://www.gnu.org/software/emacs/manual/html_node/emacs/Setting-Mark.html">exchange-point-and-mark</a>.
  * 
  * @author Denis Zhdanov
- * @since 3/18/12 3:14 PM
  */
 public class SwapSelectionBoundariesAction extends EditorAction {
 
@@ -36,12 +36,12 @@ public class SwapSelectionBoundariesAction extends EditorAction {
   }
   
   private static class Handler extends EditorActionHandler {
-    public Handler() {
+    Handler() {
       super(true);
     }
 
     @Override
-    public void doExecute(Editor editor, Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, Caret caret, DataContext dataContext) {
       assert caret != null;
       
       if (!caret.hasSelection()) {

@@ -15,9 +15,8 @@
  */
 package com.siyeh.ig.style;
 
-import com.intellij.codeInspection.InspectionProfileEntry;
 import com.siyeh.ig.LightInspectionTestCase;
-import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Bas Leijdekkers
@@ -27,10 +26,17 @@ public class UnnecessarySuperQualifierInspectionTest extends LightInspectionTest
   public void testUnnecessarySuperQualifier() {
     doTest();
   }
+  
+  public void testIgnoreClarificationSuperQualifier() {
+    UnnecessarySuperQualifierInspection inspection = getInspection();
+    inspection.ignoreClarification = true;
+    myFixture.enableInspections(inspection);
+    doTest();
+  }
 
-  @Nullable
+  @NotNull
   @Override
-  protected InspectionProfileEntry getInspection() {
+  protected UnnecessarySuperQualifierInspection getInspection() {
     return new UnnecessarySuperQualifierInspection();
   }
 }

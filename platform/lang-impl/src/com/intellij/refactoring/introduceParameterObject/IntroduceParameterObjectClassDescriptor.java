@@ -29,6 +29,7 @@ public abstract class IntroduceParameterObjectClassDescriptor<M extends PsiNamed
   /**
    * Class name to create/existing class short name
    */
+  @NotNull
   private final String myClassName;
   /**
    * Package name where class should be created/package name of the existing class. Won't be used if 'create inner class' option is chosen
@@ -36,12 +37,12 @@ public abstract class IntroduceParameterObjectClassDescriptor<M extends PsiNamed
   private final String myPackageName;
 
   /**
-   * Flag to search for existing class with fqn: <code>myPackageName.myClassName</code>
+   * Flag to search for existing class with fqn: {@code myPackageName.myClassName}
    */
   private final boolean myUseExistingClass;
 
   /**
-   * Flag that inner class with name <code>myClassName</code> should be created in outer class: <code>method.getContainingClass()</code>
+   * Flag that inner class with name {@code myClassName} should be created in outer class: {@code method.getContainingClass()}
    */
   private final boolean myCreateInnerClass;
 
@@ -69,7 +70,7 @@ public abstract class IntroduceParameterObjectClassDescriptor<M extends PsiNamed
    */
   private M myExistingClassCompatibleConstructor;
 
-  public IntroduceParameterObjectClassDescriptor(String className,
+  public IntroduceParameterObjectClassDescriptor(@NotNull String className,
                                                  String packageName,
                                                  boolean useExistingClass,
                                                  boolean createInnerClass,
@@ -85,6 +86,7 @@ public abstract class IntroduceParameterObjectClassDescriptor<M extends PsiNamed
     myParamsToMerge = parameters;
   }
 
+  @NotNull
   public String getClassName() {
     return myClassName;
   }

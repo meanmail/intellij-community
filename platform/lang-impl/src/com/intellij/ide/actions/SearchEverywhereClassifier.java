@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.actions;
 
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.psi.search.GlobalSearchScope;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,14 +19,14 @@ public interface SearchEverywhereClassifier {
     private EP_Manager() {}
 
     public static boolean isClass(@Nullable Object o) {
-      for (SearchEverywhereClassifier classifier : Extensions.getExtensions(SearchEverywhereClassifier.EP_NAME)) {
+      for (SearchEverywhereClassifier classifier : SearchEverywhereClassifier.EP_NAME.getExtensionList()) {
         if (classifier.isClass(o)) return true;
       }
       return false;
     }
 
     public static boolean isSymbol(@Nullable Object o) {
-      for (SearchEverywhereClassifier classifier : Extensions.getExtensions(SearchEverywhereClassifier.EP_NAME)) {
+      for (SearchEverywhereClassifier classifier : SearchEverywhereClassifier.EP_NAME.getExtensionList()) {
         if (classifier.isSymbol(o)) return true;
       }
       return false;
@@ -47,7 +34,7 @@ public interface SearchEverywhereClassifier {
 
     @Nullable
     public static VirtualFile getVirtualFile(@NotNull Object o) {
-      for (SearchEverywhereClassifier classifier : Extensions.getExtensions(SearchEverywhereClassifier.EP_NAME)) {
+      for (SearchEverywhereClassifier classifier : SearchEverywhereClassifier.EP_NAME.getExtensionList()) {
         VirtualFile virtualFile = classifier.getVirtualFile(o);
         if (virtualFile != null) return virtualFile;
       }
@@ -56,9 +43,18 @@ public interface SearchEverywhereClassifier {
 
     @Nullable
     public static Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-      for (SearchEverywhereClassifier classifier : Extensions.getExtensions(SearchEverywhereClassifier.EP_NAME)) {
+      for (SearchEverywhereClassifier classifier : SearchEverywhereClassifier.EP_NAME.getExtensionList()) {
         Component component = classifier.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
         if (component != null) return component;
+      }
+      return null;
+    }
+
+    @Nullable
+    public static GlobalSearchScope getProjectScope(@NotNull Project project) {
+      for (SearchEverywhereClassifier classifier : SearchEverywhereClassifier.EP_NAME.getExtensionList()) {
+        GlobalSearchScope scope = classifier.getProjectScope(project);
+        if (scope != null) return scope;
       }
       return null;
     }
@@ -75,4 +71,7 @@ public interface SearchEverywhereClassifier {
 
   @Nullable
   Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus);
+
+  @Nullable
+  default GlobalSearchScope getProjectScope(@NotNull Project project) { return null; }
 }

@@ -27,9 +27,9 @@ class DeletedVirtualFileStub extends LightVirtualFile implements VirtualFileWith
   private final int myFileId;
   private boolean myResurrected;
 
-  DeletedVirtualFileStub(VirtualFileWithId original) {
+  DeletedVirtualFileStub(@NotNull VirtualFileWithId original) {
     setOriginalFile((VirtualFile)original);
-    myFileId = -Math.abs(original.getId());
+    myFileId = -original.getId();
   }
 
   @Override

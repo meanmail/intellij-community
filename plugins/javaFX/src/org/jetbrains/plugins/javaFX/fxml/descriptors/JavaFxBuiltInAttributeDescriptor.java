@@ -27,12 +27,8 @@ import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
 import java.util.List;
 
-/**
- * User: anna
- * Date: 1/10/13
- */
 public class JavaFxBuiltInAttributeDescriptor extends JavaFxPropertyAttributeDescriptor {
-  private static final Logger LOG = Logger.getInstance("#" + JavaFxBuiltInAttributeDescriptor.class.getName());
+  private static final Logger LOG = Logger.getInstance(JavaFxBuiltInAttributeDescriptor.class);
 
   private final String myParentTagName;
 
@@ -130,6 +126,7 @@ public class JavaFxBuiltInAttributeDescriptor extends JavaFxPropertyAttributeDes
       return psiClass.isEnum() ? psiClass : null;
     }
 
+    @Override
     protected boolean isConstant(PsiField field) {
       return field instanceof PsiEnumConstant;
     }
@@ -170,6 +167,7 @@ public class JavaFxBuiltInAttributeDescriptor extends JavaFxPropertyAttributeDes
       return getPsiClass();
     }
 
+    @Override
     protected boolean isConstant(PsiField field) {
       return field.hasModifierProperty(PsiModifier.STATIC) &&
              field.hasModifierProperty(PsiModifier.FINAL) &&

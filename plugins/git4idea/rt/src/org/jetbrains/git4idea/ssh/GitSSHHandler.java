@@ -39,6 +39,10 @@ public interface GitSSHHandler {
    */
   @NonNls String GIT_SSH_ENV = "GIT_SSH";
   /**
+   * Name of environment variable for SSH executable variant
+   */
+  @NonNls String GIT_SSH_VAR = "GIT_SSH_VARIANT";
+  /**
    * Name of the handler
    */
   @NonNls String HANDLER_NAME = "Git4ideaSSHHandler";
@@ -110,7 +114,7 @@ public interface GitSSHHandler {
    * Ask password for the specified user name
    *
    * @param token         Access token.
-   * @param userName      a name of user to ask password for
+   * @param userName      a name of user to ask password for (ex: "user@host:port" string)
    * @param resetPassword a reset password if one was stored in password database
    * @param lastError     a last error
    * @return the password or null if authentication failed.

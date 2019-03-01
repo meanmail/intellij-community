@@ -21,6 +21,18 @@ import org.jetbrains.annotations.Nullable;
 public interface CodeStyleSettingsCustomizable {
   enum OptionAnchor {NONE, BEFORE, AFTER}
 
+  enum IndentOption {
+    INDENT_SIZE,
+    CONTINUATION_INDENT_SIZE,
+    TAB_SIZE,
+    USE_TAB_CHARACTER,
+    SMART_TABS,
+    LABEL_INDENT_SIZE,
+    LABEL_INDENT_ABSOLUTE,
+    USE_RELATIVE_INDENTS,
+    KEEP_INDENTS_ON_EMPTY_LINES
+  }
+
   enum SpacingOption {
     INSERT_FIRST_SPACE_IN_LINE,
     SPACE_AROUND_ASSIGNMENT_OPERATORS,
@@ -97,6 +109,7 @@ public interface CodeStyleSettingsCustomizable {
     KEEP_BLANK_LINES_IN_DECLARATIONS,
     KEEP_BLANK_LINES_IN_CODE,
     KEEP_BLANK_LINES_BEFORE_RBRACE,
+    KEEP_BLANK_LINES_BETWEEN_PACKAGE_DECLARATION_AND_HEADER,
     BLANK_LINES_BEFORE_PACKAGE,
     BLANK_LINES_AFTER_PACKAGE,
     BLANK_LINES_BEFORE_IMPORTS,
@@ -108,15 +121,14 @@ public interface CodeStyleSettingsCustomizable {
     BLANK_LINES_AROUND_FIELD_IN_INTERFACE,
     BLANK_LINES_AROUND_METHOD_IN_INTERFACE,
     BLANK_LINES_AFTER_CLASS_HEADER,
-    BLANK_LINES_AFTER_ANONYMOUS_CLASS_HEADER
+    BLANK_LINES_AFTER_ANONYMOUS_CLASS_HEADER,
+    BLANK_LINES_BEFORE_CLASS_END
   }
 
   enum WrappingOrBraceOption {
     RIGHT_MARGIN,
     WRAP_ON_TYPING,
     KEEP_CONTROL_STATEMENT_IN_ONE_LINE,
-    LINE_COMMENT_AT_FIRST_COLUMN,
-    BLOCK_COMMENT_AT_FIRST_COLUMN,
     KEEP_LINE_BREAKS,
     KEEP_FIRST_COLUMN_COMMENT,
     CALL_PARAMETERS_WRAP,
@@ -188,6 +200,7 @@ public interface CodeStyleSettingsCustomizable {
     BRACE_STYLE,
     CLASS_BRACE_STYLE,
     METHOD_BRACE_STYLE,
+    LAMBDA_BRACE_STYLE,
     USE_FLYING_GEESE_BRACES,
     FLYING_GEESE_BRACES_GAP,
     DO_NOT_INDENT_TOP_LEVEL_CLASS_MEMBERS,
@@ -196,15 +209,19 @@ public interface CodeStyleSettingsCustomizable {
     CATCH_ON_NEW_LINE,
     FINALLY_ON_NEW_LINE,
     INDENT_CASE_FROM_SWITCH,
+    CASE_STATEMENT_ON_NEW_LINE,
     SPECIAL_ELSE_IF_TREATMENT,
     ENUM_CONSTANTS_WRAP,
     ALIGN_CONSECUTIVE_VARIABLE_DECLARATIONS,
+    ALIGN_CONSECUTIVE_ASSIGNMENTS,
     ALIGN_SUBSEQUENT_SIMPLE_METHODS,
     INDENT_BREAK_FROM_CASE
   }
   
   enum CommenterOption {
-    LINE_COMMENT_ADD_SPACE
+    LINE_COMMENT_ADD_SPACE,
+    LINE_COMMENT_AT_FIRST_COLUMN,
+    BLOCK_COMMENT_AT_FIRST_COLUMN
   }
   
 
@@ -329,7 +346,7 @@ public interface CodeStyleSettingsCustomizable {
 
   /**
    * Moves a standard option to another group.
-   * @param fieldName The field name of the option to move (as defined in <code>CommonCodeStyleSettings</code> class).
+   * @param fieldName The field name of the option to move (as defined in {@code CommonCodeStyleSettings} class).
    * @param newGroup  The new group name (the group may be one of existing ones). A custom group name can be used if supported by consumer.
    */
   default void moveStandardOption(String fieldName, String newGroup) {

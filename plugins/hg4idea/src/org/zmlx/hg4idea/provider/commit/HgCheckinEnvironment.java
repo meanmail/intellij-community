@@ -15,6 +15,7 @@ package org.zmlx.hg4idea.provider.commit;
 import com.intellij.dvcs.AmendComponent;
 import com.intellij.dvcs.push.ui.VcsPushDialog;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
@@ -22,17 +23,20 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vcs.CheckinProjectPanel;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vcs.changes.*;
+import com.intellij.openapi.vcs.changes.Change;
+import com.intellij.openapi.vcs.changes.ChangesUtil;
+import com.intellij.openapi.vcs.changes.ContentRevision;
+import com.intellij.openapi.vcs.changes.VcsDirtyScopeManager;
 import com.intellij.openapi.vcs.checkin.CheckinEnvironment;
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.ui.GuiUtils;
 import com.intellij.util.FunctionUtil;
 import com.intellij.util.NullableFunction;
 import com.intellij.util.PairConsumer;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.GridBag;
 import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
 import com.intellij.vcsUtil.VcsUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import org.jetbrains.annotations.NotNull;
@@ -53,8 +57,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 import static com.intellij.util.ObjectUtils.assertNotNull;
 import static org.zmlx.hg4idea.util.HgUtil.getRepositoryManager;
@@ -73,6 +77,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     myProject = project;
   }
 
+  @Override
   public RefreshableOnComponent createAdditionalOptionsPanel(CheckinProjectPanel panel,
                                                              PairConsumer<Object, Object> additionalDataConsumer) {
     reset();
@@ -87,18 +92,17 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     myRepos = null;
   }
 
-  public String getDefaultMessageFor(FilePath[] filesToCheckin) {
-    return null;
-  }
-
+  @Override
   public String getHelpId() {
     return null;
   }
 
+  @Override
   public String getCheckinOperationName() {
     return HgVcsMessages.message("hg4idea.commit");
   }
 
+  @Override
   public List<VcsException> commit(List<Change> changes,
                                    String preparedComment,
                                    @NotNull NullableFunction<Object, Object> parametersHolder,
@@ -135,7 +139,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
             //abort
             return exceptions;
           }
-          //firstly selected changes marked dirty in CommitHelper -> postRefresh, so we need to mark others
+          //firstly selected changes marked dirty in SingleChangeListCommitter -> doPostRefresh, so we need to mark others
           VcsDirtyScopeManager dirtyManager = VcsDirtyScopeManager.getInstance(myProject);
           for (HgFile hgFile : changedFilesNotInCommit) {
             dirtyManager.fileDirty(hgFile.toFilePath());
@@ -161,11 +165,9 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     // push if needed
     if (myNextCommitIsPushed && exceptions.isEmpty()) {
       final List<HgRepository> preselectedRepositories = ContainerUtil.newArrayList(repositoriesMap.keySet());
-      UIUtil.invokeLaterIfNeeded(new Runnable() {
-        public void run() {
-          new VcsPushDialog(myProject, preselectedRepositories, HgUtil.getCurrentRepository(myProject)).show();
-        }
-      });
+      GuiUtils.invokeLaterIfNeeded(() ->
+                                     new VcsPushDialog(myProject, preselectedRepositories, HgUtil.getCurrentRepository(myProject)).show(),
+                                   ModalityState.defaultModalityState());
     }
 
     return exceptions;
@@ -199,24 +201,22 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
 
   private boolean mayCommitEverything(final String filesNotIncludedString) {
     final int[] choice = new int[1];
-    Runnable runnable = new Runnable() {
-      public void run() {
-        choice[0] = Messages.showOkCancelDialog(
-          myProject,
-          HgVcsMessages.message("hg4idea.commit.partial.merge.message", filesNotIncludedString),
-          HgVcsMessages.message("hg4idea.commit.partial.merge.title"),
-          null
-        );
-      }
-    };
+    Runnable runnable = () -> choice[0] = Messages.showOkCancelDialog(
+      myProject,
+      HgVcsMessages.message("hg4idea.commit.partial.merge.message", filesNotIncludedString),
+      HgVcsMessages.message("hg4idea.commit.partial.merge.title"),
+      null
+    );
     ApplicationManager.getApplication().invokeAndWait(runnable);
     return choice[0] == Messages.OK;
   }
 
+  @Override
   public List<VcsException> commit(List<Change> changes, String preparedComment) {
     return commit(changes, preparedComment, FunctionUtil.nullConstant(), null);
   }
 
+  @Override
   public List<VcsException> scheduleMissingFileForDeletion(List<FilePath> files) {
     final List<HgFile> filesWithRoots = new ArrayList<>();
     for (FilePath filePath : files) {
@@ -235,13 +235,10 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     return null;
   }
 
+  @Override
   public List<VcsException> scheduleUnversionedFilesForAddition(final List<VirtualFile> files) {
     new HgAddCommand(myProject).addWithProgress(files);
     return null;
-  }
-
-  public boolean keepChangeListAfterCommit(ChangeList changeList) {
-    return false;
   }
 
   @Override
@@ -305,7 +302,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     if (myRepos == null) return;
     for (HgRepository repository : myRepos) {
       if (!repositoryMap.keySet().contains(repository)) {
-        repositoryMap.put(repository, Collections.<HgFile>emptySet());
+        repositoryMap.put(repository, Collections.emptySet());
       }
     }
   }
@@ -348,7 +345,8 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     @Override
     public void refresh() {
       myAmend.refresh();
-      restoreState();
+      myNextCommitAmend = false;
+      myShouldCommitSubrepos = false;
     }
 
     @Override
@@ -359,8 +357,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
 
     @Override
     public void restoreState() {
-      myNextCommitAmend = false;
-      myShouldCommitSubrepos = false;
+      refresh();
     }
 
     @Override
@@ -373,7 +370,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     }
 
     private class MyAmendComponent extends AmendComponent {
-      public MyAmendComponent(@NotNull Project project,
+      MyAmendComponent(@NotNull Project project,
                               @NotNull HgRepositoryManager repoManager,
                               @NotNull CheckinProjectPanel panel,
                               @NotNull String title) {
@@ -382,13 +379,13 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
 
       @NotNull
       @Override
-      protected Set<VirtualFile> getVcsRoots(@NotNull Collection<FilePath> filePaths) {
+      protected Set<VirtualFile> getVcsRoots(@NotNull Collection<? extends FilePath> filePaths) {
         return HgUtil.hgRoots(myProject, filePaths);
       }
 
       @Nullable
       @Override
-      protected String getLastCommitMessage(@NotNull VirtualFile repo) throws VcsException {
+      protected String getLastCommitMessage(@NotNull VirtualFile repo) {
         HgCommandExecutor commandExecutor = new HgCommandExecutor(myProject);
         List<String> args = new ArrayList<>();
         args.add("-r");
@@ -403,7 +400,7 @@ public class HgCheckinEnvironment implements CheckinEnvironment {
     private class MySelectionListener implements ActionListener {
       private final JCheckBox myUnselectedComponent;
 
-      public MySelectionListener(JCheckBox unselectedComponent) {
+      MySelectionListener(JCheckBox unselectedComponent) {
         myUnselectedComponent = unselectedComponent;
       }
 

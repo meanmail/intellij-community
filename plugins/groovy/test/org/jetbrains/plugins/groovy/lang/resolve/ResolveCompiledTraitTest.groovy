@@ -1,51 +1,51 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.resolve
 
 import com.intellij.openapi.module.Module
-import com.intellij.openapi.roots.ContentEntry
 import com.intellij.openapi.roots.ModifiableRootModel
+import com.intellij.openapi.roots.OrderRootType
+import com.intellij.openapi.vfs.JarFileSystem
 import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiMethod
 import com.intellij.psi.impl.compiled.ClsClassImpl
 import com.intellij.testFramework.LightProjectDescriptor
-import com.intellij.testFramework.PsiTestUtil
 import groovy.transform.CompileStatic
 import org.jetbrains.annotations.NotNull
 import org.jetbrains.plugins.groovy.GroovyFileType
-import org.jetbrains.plugins.groovy.GroovyLightProjectDescriptor
+import org.jetbrains.plugins.groovy.LibraryLightProjectDescriptor
+import org.jetbrains.plugins.groovy.TestLibrary
+import org.jetbrains.plugins.groovy.codeInspection.bugs.GroovyAccessibilityInspection
+import org.jetbrains.plugins.groovy.codeInspection.untypedUnresolvedAccess.GrUnresolvedAccessInspection
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrTraitField
 import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrTraitMethod
 import org.jetbrains.plugins.groovy.util.TestUtils
+import org.jetbrains.plugins.groovy.util.ThrowingDecompiler
 
-import static org.jetbrains.plugins.groovy.config.GroovyFacetUtil.getBundledGroovyJar
+import static org.jetbrains.plugins.groovy.GroovyProjectDescriptors.LIB_GROOVY_LATEST
 
 @CompileStatic
 class ResolveCompiledTraitTest extends GroovyResolveTestCase {
 
   final String basePath = "resolve/"
 
-  final LightProjectDescriptor projectDescriptor = new GroovyLightProjectDescriptor(bundledGroovyJar as String) {
+  private static final TestLibrary SOME_LIBRARY = new TestLibrary() {
+
     @Override
-    void configureModule(@NotNull Module module, @NotNull ModifiableRootModel model, @NotNull ContentEntry contentEntry) {
-      super.configureModule(module, model, contentEntry)
-      PsiTestUtil.addLibrary(module, model, "some-library", "${TestUtils.absoluteTestDataPath}/lib", 'some-library.jar')
+    void addTo(@NotNull Module module, @NotNull ModifiableRootModel model) {
+      model.moduleLibraryTable.createLibrary("some-library").modifiableModel.with {
+        def fs = JarFileSystem.instance
+        def root = "${TestUtils.absoluteTestDataPath}/lib"
+        addRoot(fs.refreshAndFindFileByPath("$root/some-library.jar!/"), OrderRootType.CLASSES)
+        addRoot(fs.refreshAndFindFileByPath("$root/some-library-src.jar!/"), OrderRootType.SOURCES)
+        commit()
+      }
     }
   }
+
+  private static final LightProjectDescriptor DESCRIPTOR = new LibraryLightProjectDescriptor(LIB_GROOVY_LATEST + SOME_LIBRARY)
+
+  final LightProjectDescriptor projectDescriptor = DESCRIPTOR
 
   void 'test resolve trait'() {
     resolveByText '''\
@@ -275,6 +275,80 @@ class ExternalConcrete2 implements somepackage.GenericTrait<String, somepackage.
     assert substitutor.substitute(method.parameterList.parameters[0].type).canonicalText == "java.lang.Integer"
     assert method.parameterList.parameters[1].type.canonicalText == "java.lang.String"
     assert method.parameterList.parameters[2].type.canonicalText == "PojoInheritor"
+  }
+
+  void 'test do not resolve private trait method'() {
+    fixture.enableInspections GrUnresolvedAccessInspection, GroovyAccessibilityInspection
+    testHighlighting '''\
+import privateTraitMethods.C 
+import privateTraitMethods.T
+
+def foo(T t) {
+  t.<warning descr="Cannot resolve symbol 'privateMethod'">privateMethod</warning>() // via interface
+}
+
+new C().<warning descr="Cannot resolve symbol 'privateMethod'">privateMethod</warning>() // via implementation
+'''
+  }
+
+  void 'test do not get mirror in completion'() {
+    ThrowingDecompiler.disableDecompilers(testRootDisposable)
+    fixture.configureByText '_.groovy', '''\
+class CC implements somepackage.TT {
+  def foo() {
+    someMet<caret>
+  }
+}
+'''
+    fixture.completeBasic()
+    assertContainsElements(
+      fixture.lookupElementStrings,
+      "someMethod", "someAbstractMethod", "someStaticMethod"
+    )
+  }
+
+  void 'test static trait method with @DelegatesTo(type)'() {
+    configureTraitInheritor()
+    def method = resolveByText '''\
+def usage(ExternalConcrete ec) {
+  ec.delegatesTo { <caret>toUpperCase() }
+}
+''', PsiMethod
+    assert method.name == 'toUpperCase'
+    assert method.containingClass.qualifiedName == 'java.lang.String'
+  }
+
+  void 'test static trait method with @ClosureParams(FromString)'() {
+    configureTraitInheritor()
+    def method = resolveByText '''\
+def usage(ExternalConcrete ec) {
+  ec.closureParams { it.<caret>toUpperCase() }
+}
+''', PsiMethod
+    assert method.name == 'toUpperCase'
+    assert method.containingClass.qualifiedName == 'java.lang.String'
+  }
+
+  void 'test static trait method with @DelegatesTo(type) on lambda'() {
+    configureTraitInheritor()
+    def method = resolveByText '''\
+def usage(ExternalConcrete ec) {
+  ec.delegatesTo () -> <caret>toUpperCase()
+}
+''', PsiMethod
+    assert method.name == 'toUpperCase'
+    assert method.containingClass.qualifiedName == 'java.lang.String'
+  }
+
+  void 'test static trait method with @ClosureParams(FromString) on lambda'() {
+    configureTraitInheritor()
+    def method = resolveByText '''\
+def usage(ExternalConcrete ec) {
+  ec.closureParams (it) -> it.<caret>toUpperCase() 
+}
+''', PsiMethod
+    assert method.name == 'toUpperCase'
+    assert method.containingClass.qualifiedName == 'java.lang.String'
   }
 
   private PsiClass configureTraitInheritor() {

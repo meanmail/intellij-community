@@ -18,7 +18,7 @@ package com.jetbrains.python.console;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.io.BaseOutputReader;
 import com.intellij.util.ui.UIUtil;
 import com.jetbrains.python.run.PythonProcessHandler;
 import org.jetbrains.annotations.NotNull;
@@ -52,8 +52,8 @@ public class PyConsoleProcessHandler extends PythonProcessHandler {
   }
 
   @Override
-  public void coloredTextAvailable(final String text, final Key attributes) {
-    String string = PyConsoleUtil.processPrompts(myConsoleView, StringUtil.convertLineSeparators(text));
+  public void coloredTextAvailable(@NotNull final String text, @NotNull final Key attributes) {
+    String string = PyConsoleUtil.processPrompts(myConsoleView, text);
 
     myConsoleView.print(string, attributes);
 
@@ -72,28 +72,35 @@ public class PyConsoleProcessHandler extends PythonProcessHandler {
   }
 
   @Override
-  protected boolean shouldKillProcessSoftly() {
+  public boolean shouldKillProcessSoftly() {
     return false;
+  }
+
+  @NotNull
+  @Override
+  protected BaseOutputReader.Options readerOptions() {
+    return BaseOutputReader.Options.forMostlySilentProcess();
   }
 
   private void doCloseCommunication() {
     if (myPydevConsoleCommunication != null) {
 
-      UIUtil.invokeAndWaitIfNeeded(new Runnable() {
-        @Override
-        public void run() {
-          try {
-            myPydevConsoleCommunication.close();
-            Thread.sleep(300);
-          }
-          catch (Exception e1) {
-            // Ignore
-          }
+      UIUtil.invokeAndWaitIfNeeded((Runnable)() -> {
+        try {
+          myPydevConsoleCommunication.close();
+          Thread.sleep(300);
+        }
+        catch (Exception e1) {
+          // Ignore
         }
       });
 
       // waiting for REPL communication before destroying process handler
     }
+  }
+
+  public PydevConsoleCommunication getPydevConsoleCommunication() {
+    return myPydevConsoleCommunication;
   }
 }
 

@@ -26,7 +26,6 @@ import java.util.Map;
 
 /**
  * @author Dmitry Avdeev
- * @since 31.10.2011
  */
 public abstract class VirtualFileVisitor<T> {
   public static class Option {
@@ -45,6 +44,7 @@ public abstract class VirtualFileVisitor<T> {
   public static final Option SKIP_ROOT = new Option();
   public static final Option ONE_LEVEL_DEEP = limit(1);
 
+  @NotNull
   public static Option limit(int maxDepth) {
     return new Option.LimitOption(maxDepth);
   }
@@ -75,20 +75,20 @@ public abstract class VirtualFileVisitor<T> {
 
 
   protected static class VisitorException extends RuntimeException {
-    public VisitorException(Throwable cause) {
+    public VisitorException(@NotNull Throwable cause) {
       super(cause);
     }
   }
 
 
   private boolean myFollowSymLinks = true;
-  private boolean mySkipRoot = false;
+  private boolean mySkipRoot;
   private int myDepthLimit = -1;
 
   private Map<VirtualFile, List<VirtualFile>> myVisitedTargets;
-  private int myLevel = 0;
-  private Stack<T> myValueStack = null;
-  private T myValue = null;
+  private int myLevel;
+  private Stack<T> myValueStack;
+  private T myValue;
 
   protected VirtualFileVisitor(@NotNull Option... options) {
     for (Option option : options) {
@@ -157,12 +157,12 @@ public abstract class VirtualFileVisitor<T> {
    * The visitor maintains the stack of stored values. I.e:
    * This value is held here only during the visiting the current file and all its children. As soon as the visitor finished with
    * the current file and all its subtree and returns to the level up, the value is cleared
-   * and the {@link #getCurrentValue()} returns the previous value which was stored here before the {@link #setValueForChildren} call.
+   * and the {@link #getCurrentValue()} returns the previous value which was stored here before this method call.
    */
   public final void setValueForChildren(@Nullable T value) {
     myValue = value;
     if (myValueStack == null) {
-      myValueStack = new Stack<T>();
+      myValueStack = new Stack<>();
     }
   }
 

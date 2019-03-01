@@ -23,7 +23,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 22-Oct-14
  */
 public class PreloadedData {
   @Nullable 
@@ -31,7 +30,7 @@ public class PreloadedData {
   @Nullable
   private ProjectDescriptor projectDescriptor;
   
-  private final List<BuildMessage> loadMessages = new ArrayList<BuildMessage>();
+  private final List<BuildMessage> loadMessages = new ArrayList<>();
   
   private long fsEventOrdinal;
   private boolean hasWorkFlag = true;

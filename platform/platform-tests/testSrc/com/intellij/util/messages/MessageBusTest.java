@@ -19,8 +19,12 @@
  */
 package com.intellij.util.messages;
 
+import com.intellij.openapi.Disposable;
+import com.intellij.openapi.progress.ProcessCanceledException;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.PlatformTestUtil;
+import com.intellij.util.ConcurrencyUtil;
 import com.intellij.util.messages.impl.MessageBusImpl;
 import junit.framework.TestCase;
 
@@ -45,11 +49,12 @@ public class MessageBusTest extends TestCase {
 
   private static final Topic<T1Listener> TOPIC1 = new Topic<>("T1", T1Listener.class);
   private static final Topic<T2Listener> TOPIC2 = new Topic<>("T2", T2Listener.class);
+  private static final Topic<Runnable> RUNNABLE_TOPIC = new Topic<>("runnableTopic", Runnable.class);
 
   private class T1Handler implements T1Listener {
     private final String id;
 
-    public T1Handler(final String id) {
+    T1Handler(final String id) {
       this.id = id;
     }
 
@@ -66,7 +71,7 @@ public class MessageBusTest extends TestCase {
   private class T2Handler implements T2Listener {
     private final String id;
 
-    public T2Handler(final String id) {
+    T2Handler(final String id) {
       this.id = id;
     }
 
@@ -92,9 +97,10 @@ public class MessageBusTest extends TestCase {
   @Override
   protected void tearDown() throws Exception {
     try {
-      myBus.dispose();
+      Disposer.dispose(myBus);
     }
     finally {
+      myBus = null;
       super.tearDown();
     }
   }
@@ -211,6 +217,33 @@ public class MessageBusTest extends TestCase {
                  "C2T1Handler:t12");
   }
 
+  public void testMessageDeliveredDespitePCE() {
+    final MessageBusConnection conn1 = myBus.connect();
+    conn1.subscribe(TOPIC1, new T1Listener() {
+      @Override
+      public void t11() {
+        myLog.add("pce");
+        throw new ProcessCanceledException();
+      }
+
+      @Override
+      public void t12() {
+        throw new UnsupportedOperationException();
+      }
+    });
+
+    final MessageBusConnection conn2 = myBus.connect();
+    conn2.subscribe(TOPIC1, new T1Handler("handler2"));
+
+    try {
+      myBus.syncPublisher(TOPIC1).t11();
+      fail("PCE expected");
+    }
+    catch (ProcessCanceledException ignored) {
+    }
+    assertEvents("pce", "handler2:t11");
+  }
+
   public void testPostingPerformanceWithLowListenerDensityInHierarchy() {
     //simulating million fileWithNoDocumentChanged events on refresh in a thousand-module project
     MessageBusImpl childBus = new MessageBusImpl(this, myBus);
@@ -249,7 +282,6 @@ public class MessageBusTest extends TestCase {
           try {
             int remains = iterationsNumber;
             while (remains-- > 0) {
-              //noinspection ThrowableResultOfMethodCallIgnored
               if (exception.get() != null) {
                 break;
               }
@@ -272,9 +304,7 @@ public class MessageBusTest extends TestCase {
     if (e != null) {
       throw e;
     }
-    for (Thread thread : threads) {
-      thread.join();
-    }
+    ConcurrencyUtil.joinAll(threads);
   }
 
 
@@ -283,5 +313,66 @@ public class MessageBusTest extends TestCase {
     String joinActual = StringUtil.join(myLog, "\n");
 
     assertEquals("events mismatch", joinExpected, joinActual);
+  }
+
+  public void testHasUndeliveredEvents() {
+    assertFalse(myBus.hasUndeliveredEvents(RUNNABLE_TOPIC));
+    assertFalse(myBus.hasUndeliveredEvents(TOPIC2));
+
+    myBus.connect().subscribe(RUNNABLE_TOPIC, () -> {
+      assertTrue(myBus.hasUndeliveredEvents(RUNNABLE_TOPIC));
+      assertFalse(myBus.hasUndeliveredEvents(TOPIC2));
+    });
+    myBus.connect().subscribe(RUNNABLE_TOPIC, () -> {
+      assertFalse(myBus.hasUndeliveredEvents(RUNNABLE_TOPIC));
+      assertFalse(myBus.hasUndeliveredEvents(TOPIC2));
+    });
+    myBus.syncPublisher(RUNNABLE_TOPIC).run();
+  }
+
+  public void testHasUndeliveredEventsInChildBys() {
+    MessageBusImpl childBus = new MessageBusImpl(this, myBus);
+    myBus.connect().subscribe(RUNNABLE_TOPIC, () -> assertTrue(myBus.hasUndeliveredEvents(RUNNABLE_TOPIC)));
+    childBus.connect().subscribe(RUNNABLE_TOPIC, () -> assertFalse(myBus.hasUndeliveredEvents(RUNNABLE_TOPIC)));
+    myBus.syncPublisher(RUNNABLE_TOPIC).run();
+  }
+
+  public void testDisposingBusInsideEvent() {
+    MessageBusImpl child = new MessageBusImpl(this, myBus);
+    myBus.connect().subscribe(TOPIC1, new T1Listener() {
+      @Override
+      public void t11() {
+        myLog.add("root 11");
+        myBus.syncPublisher(TOPIC1).t12();
+        Disposer.dispose(child);
+      }
+
+      @Override
+      public void t12() {
+        myLog.add("root 12");
+      }
+    });
+    child.connect().subscribe(TOPIC1, new T1Listener() {
+      @Override
+      public void t11() {
+        myLog.add("child 11");
+      }
+
+      @Override
+      public void t12() {
+        myLog.add("child 12");
+      }
+    });
+    myBus.syncPublisher(TOPIC1).t11();
+    assertEvents("root 11", "child 11", "root 12", "child 12");
+  }
+
+  public void testTwoHandlersBothDisconnecting() {
+    Disposable disposable = Disposer.newDisposable();
+    for (int i = 0; i < 2; i++) {
+      myBus.connect(disposable).subscribe(RUNNABLE_TOPIC, () -> Disposer.dispose(disposable));
+    }
+    myBus.syncPublisher(RUNNABLE_TOPIC).run();
+    assertTrue(Disposer.isDisposed(disposable));
   }
 }

@@ -1,67 +1,55 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.history;
 
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.RepositoryLocation;
-import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vfs.LocalFileSystem;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.NotNullFunction;
-import com.intellij.vcsUtil.VcsUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.svn.RootUrlInfo;
 import org.jetbrains.idea.svn.SvnUtil;
-import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.idea.svn.api.Url;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
-import org.tmatesoft.svn.core.SVNURL;
 
-import java.io.File;
-
-/**
- * @author yole
- */
 public class SvnRepositoryLocation implements RepositoryLocation {
 
-  private final String myURL;
+  private final String myUrlValue;
+  @Nullable private final Url myUrl;
+  @Nullable private final Url myRepositoryUrl;
   @Nullable private final FilePath myRoot;
 
   public SvnRepositoryLocation(final String url) {
-    this(url, null);
+    myUrl = null;
+    myUrlValue = url;
+    myRepositoryUrl = null;
+    myRoot = null;
   }
 
-  public SvnRepositoryLocation(String url, @Nullable FilePath root) {
-    myURL = url;
+  public SvnRepositoryLocation(@NotNull Url url) {
+    this(url, null, null);
+  }
+
+  public SvnRepositoryLocation(@NotNull Url url, @Nullable Url repositoryUrl, @Nullable FilePath root) {
+    myUrl = url;
+    myUrlValue = url.toString();
+    myRepositoryUrl = repositoryUrl;
     myRoot = root;
   }
 
   public String toString() {
-    return myURL;
+    return myUrlValue;
   }
 
+  @Override
   public String toPresentableString() {
-    return myURL;
+    return myUrlValue;
   }
 
   public String getURL() {
-    return myURL;
+    return myUrlValue;
   }
 
+  @Override
   public String getKey() {
-    return myURL;
+    return myUrlValue;
   }
 
   @Nullable
@@ -70,7 +58,7 @@ public class SvnRepositoryLocation implements RepositoryLocation {
   }
 
   @Override
-  public void onBeforeBatch() throws VcsException {
+  public void onBeforeBatch() {
   }
 
   @Override
@@ -78,22 +66,12 @@ public class SvnRepositoryLocation implements RepositoryLocation {
   }
 
   @Nullable
-  public static FilePath getLocalPath(final String fullPath, final NotNullFunction<File, Boolean> detector, final SvnVcs vcs) {
-    if (vcs.getProject().isDefault()) return null;
-    final RootUrlInfo rootForUrl = vcs.getSvnFileUrlMapping().getWcRootForUrl(fullPath);
-    FilePath result = null;
-
-    if (rootForUrl != null) {
-      String relativePath = SvnUtil.getRelativeUrl(rootForUrl.getUrl(), fullPath);
-      File file = new File(rootForUrl.getPath(), relativePath);
-      VirtualFile virtualFile = LocalFileSystem.getInstance().findFileByIoFile(file);
-      result = virtualFile != null ? VcsUtil.getFilePath(virtualFile) : VcsUtil.getFilePath(file, detector.fun(file).booleanValue());
-    }
-
-    return result;
+  public Url getRepositoryUrl() {
+    return myRepositoryUrl;
   }
 
-  public SVNURL toSvnUrl() throws SvnBindException {
-    return SvnUtil.createUrl(myURL);
+  @NotNull
+  public Url toSvnUrl() throws SvnBindException {
+    return myUrl != null ? myUrl : SvnUtil.createUrl(myUrlValue);
   }
 }

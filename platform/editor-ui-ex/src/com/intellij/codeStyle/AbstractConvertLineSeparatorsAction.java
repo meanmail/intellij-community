@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,24 +15,21 @@
  */
 package com.intellij.codeStyle;
 
+import com.intellij.injected.editor.VirtualFileWindow;
 import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.impl.LoadTextUtil;
 import com.intellij.openapi.fileTypes.FileTypeRegistry;
-import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.FileIndexFacade;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.openapi.vfs.VirtualFileVisitor;
 import com.intellij.project.ProjectKt;
 import com.intellij.util.LineSeparator;
-import com.intellij.util.containers.Convertor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -57,7 +54,7 @@ public abstract class AbstractConvertLineSeparatorsAction extends AnAction {
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project != null) {
@@ -78,7 +75,7 @@ public abstract class AbstractConvertLineSeparatorsAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent event) {
+  public void actionPerformed(@NotNull AnActionEvent event) {
     final DataContext dataContext = event.getDataContext();
     final Project project = CommonDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
@@ -93,43 +90,32 @@ public abstract class AbstractConvertLineSeparatorsAction extends AnAction {
     VirtualFile projectVirtualDirectory = ProjectKt.getStateStore(project).getDirectoryStoreFile();
     final FileTypeRegistry fileTypeManager = FileTypeRegistry.getInstance();
     for (VirtualFile file : virtualFiles) {
-      VfsUtilCore.processFilesRecursively(
-        file,
-        file1 -> {
-          if (shouldProcess(file1, project)) {
-            changeLineSeparators(project, file1, mySeparator);
+      VfsUtilCore.visitChildrenRecursively(file, new VirtualFileVisitor() {
+        @NotNull
+        @Override
+        public Result visitFileEx(@NotNull VirtualFile file) {
+          if (shouldProcess(file, project)) {
+            changeLineSeparators(project, file, mySeparator);
           }
-          return true;
-        },
-        new Convertor<VirtualFile, Boolean>() {
-          @Override
-          public Boolean convert(VirtualFile dir) {
-            return !dir.equals(projectVirtualDirectory)
-                   && !fileTypeManager.isFileIgnored(dir); // Exclude files like '.git'
-          }
+          return file.isDirectory() && (file.equals(projectVirtualDirectory) || fileTypeManager.isFileIgnored(file)) ? SKIP_CHILDREN : CONTINUE;
         }
-      );
+      });
     }
   }
 
   public static boolean shouldProcess(@NotNull VirtualFile file, @NotNull Project project) {
-    if (file.isDirectory()
-        || !file.isWritable()
-        || FileTypeRegistry.getInstance().isFileIgnored(file)
-        || file.getFileType().isBinary()
-        || file.equals(project.getProjectFile())
-        || file.equals(project.getWorkspaceFile()))
-    {
-      return false;
-    }
-    Module module = FileIndexFacade.getInstance(project).getModuleForFile(file);
-    return module == null || !ModuleUtilCore.isModuleFile(module, file);
+    return !(file.isDirectory()
+             || !file.isWritable()
+             || file instanceof VirtualFileWindow
+             || FileTypeRegistry.getInstance().isFileIgnored(file)
+             || file.getFileType().isBinary()
+             || file.equals(project.getProjectFile())
+             || file.equals(project.getWorkspaceFile()));
   }
 
   public static void changeLineSeparators(@NotNull final Project project,
                                           @NotNull final VirtualFile virtualFile,
-                                          @NotNull final String newSeparator)
-  {
+                                          @NotNull final String newSeparator) {
     FileDocumentManager fileDocumentManager = FileDocumentManager.getInstance();
     Document document = fileDocumentManager.getCachedDocument(virtualFile);
     if (document != null) {
@@ -146,16 +132,13 @@ public abstract class AbstractConvertLineSeparatorsAction extends AnAction {
                                   LineSeparator.fromString(currentSeparator), LineSeparator.fromString(newSeparator));
     }
 
-    new WriteCommandAction(project, commandText) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        try {
-          LoadTextUtil.changeLineSeparators(project, virtualFile, newSeparator, this);
-        }
-        catch (IOException e) {
-          LOG.info(e);
-        }
+    WriteCommandAction.writeCommandAction(project).withName(commandText).run(() -> {
+      try {
+        LoadTextUtil.changeLineSeparators(project, virtualFile, newSeparator, virtualFile);
       }
-    }.execute();
+      catch (IOException e) {
+        LOG.info(e);
+      }
+    });
   }
 }

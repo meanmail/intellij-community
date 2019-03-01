@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.codeInsight.controlflow.ControlFlow;
@@ -28,36 +14,39 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiPolyVariantReference;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.Function;
-import com.intellij.util.containers.HashSet;
 import com.jetbrains.python.PyBundle;
-import com.jetbrains.python.inspections.quickfix.AddGlobalQuickFix;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ReadWriteInstruction;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.Scope;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeUtil;
 import com.jetbrains.python.codeInsight.dataflow.scope.ScopeVariable;
+import com.jetbrains.python.inspections.quickfix.AddGlobalQuickFix;
 import com.jetbrains.python.psi.*;
 import com.jetbrains.python.psi.impl.PyBuiltinCache;
 import com.jetbrains.python.psi.impl.PyGlobalStatementNavigator;
+import com.jetbrains.python.psi.resolve.PyResolveUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.HashSet;
 import java.util.Set;
 
 /**
  * @author oleg
  */
 public class PyUnboundLocalVariableInspection extends PyInspection {
-  private static Key<Set<ScopeOwner>> LARGE_FUNCTIONS_KEY = Key.create("PyUnboundLocalVariableInspection.LargeFunctions");
+  private static final Key<Set<ScopeOwner>> LARGE_FUNCTIONS_KEY = Key.create("PyUnboundLocalVariableInspection.LargeFunctions");
 
+  @Override
   @NotNull
   @Nls
   public String getDisplayName() {
     return PyBundle.message("INSP.NAME.unbound");
   }
 
+  @Override
   @NotNull
   public PsiElementVisitor buildVisitor(@NotNull ProblemsHolder holder, boolean isOnTheFly, @NotNull final LocalInspectionToolSession session) {
     session.putUserData(LARGE_FUNCTIONS_KEY, new HashSet<>());
@@ -69,8 +58,13 @@ public class PyUnboundLocalVariableInspection extends PyInspection {
     public Visitor(final ProblemsHolder holder, LocalInspectionToolSession session) {
       super(holder, session);
     }
+
     @Override
     public void visitPyReferenceExpression(final PyReferenceExpression node) {
+      if (PyResolveUtil.allowForwardReferences(node)) {
+        return;
+      }
+
       if (node.getContainingFile() instanceof PyExpressionCodeFragment) {
         return;
       }
@@ -128,15 +122,15 @@ public class PyUnboundLocalVariableInspection extends PyInspection {
           return;
         }
         final PsiPolyVariantReference ref = node.getReference(getResolveContext());
-        if (ref == null) {
-          return;
-        }
         final PsiElement resolved = ref.resolve();
         final boolean isBuiltin = PyBuiltinCache.getInstance(node).isBuiltin(resolved);
         if (owner instanceof PyClass) {
           if (isBuiltin || ScopeUtil.getDeclarationScopeOwner(owner, name) != null) {
             return;
           }
+        }
+        if (resolvedUnderWithStatement(node, resolved)) {
+          return;
         }
         if (PyUnreachableCodeInspection.hasAnyInterruptedControlFlowPaths(node)) {
           return;
@@ -159,6 +153,12 @@ public class PyUnboundLocalVariableInspection extends PyInspection {
       }
     }
 
+    private static boolean resolvedUnderWithStatement(@NotNull PyReferenceExpression node, @Nullable PsiElement resolved) {
+      return resolved != null &&
+             PyUtil.inSameFile(node, resolved) &&
+             PsiTreeUtil.getParentOfType(resolved, PyWithStatement.class, true, ScopeOwner.class) != null;
+    }
+
     private static boolean isFirstUnboundRead(@NotNull PyReferenceExpression node, @NotNull ScopeOwner owner) {
       final String nodeName = node.getReferencedName();
       final Scope scope = ControlFlowCache.getScope(owner);
@@ -174,7 +174,7 @@ public class PyUnboundLocalVariableInspection extends PyInspection {
           final ReadWriteInstruction rwInstruction = (ReadWriteInstruction)instruction;
           final String name = rwInstruction.getName();
           final PsiElement element = rwInstruction.getElement();
-          if (element != null && name != null && name.equals(nodeName) && instruction.num() != num) {
+          if (element != null && name != null && name.equals(nodeName) && instruction.num() < num) {
             try {
               if (scope.getDeclaredVariable(element, name) == null) {
                 final ReadWriteInstruction.ACCESS access = rwInstruction.getAccess();

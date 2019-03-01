@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.fileChooser.impl;
 
 import com.intellij.openapi.Disposable;
@@ -26,7 +12,9 @@ import com.intellij.openapi.fileChooser.ex.LocalFsFinder;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
+import com.intellij.ui.mac.MacFileSaverDialog;
 import com.intellij.ui.mac.MacPathChooserDialog;
+import com.intellij.ui.win.WinPathChooserDialog;
 import com.intellij.util.SystemProperties;
 import gnu.trove.THashMap;
 import org.jetbrains.annotations.NotNull;
@@ -54,13 +42,27 @@ public class FileChooserFactoryImpl extends FileChooserFactory {
     }
   }
 
+  @Nullable
+  public static PathChooserDialog createNativePathChooserIfEnabled(@NotNull FileChooserDescriptor descriptor, @Nullable Project project, @Nullable Component parent) {
+    if (useNativeMacChooser(descriptor)) {
+      return new MacPathChooserDialog(descriptor, parent, project);
+    }
+    else if (useNativeWinChooser()) {
+      return new WinPathChooserDialog(descriptor, parent, project);
+    }
+    else {
+      return null;
+    }
+  }
+
   @NotNull
   @Override
   public PathChooserDialog createPathChooser(@NotNull FileChooserDescriptor descriptor,
                                              @Nullable Project project,
                                              @Nullable Component parent) {
-    if (useNativeMacChooser(descriptor)) {
-      return new MacPathChooserDialog(descriptor, parent, project);
+    PathChooserDialog chooser = createNativePathChooserIfEnabled(descriptor, project, parent);
+    if (chooser != null) {
+      return chooser;
     }
     else if (parent != null) {
       return new FileChooserDialogImpl(descriptor, parent, project);
@@ -70,11 +72,17 @@ public class FileChooserFactoryImpl extends FileChooserFactory {
     }
   }
 
+  private static boolean useNativeWinChooser () {
+    return SystemInfo.isWindows &&
+           Registry.is("ide.win.file.chooser.native");
+  }
+
   private static boolean useNativeMacChooser(final FileChooserDescriptor descriptor) {
     return SystemInfo.isMac &&
+           !descriptor.isForcedToUseIdeaFileChooser() &&
            SystemProperties.getBooleanProperty("native.mac.file.chooser.enabled", true) &&
            Registry.is("ide.mac.file.chooser.native") &&
-           SystemInfo.isJetbrainsJvm;
+           SystemInfo.isJetBrainsJvm;
   }
 
   @NotNull
@@ -107,12 +115,14 @@ public class FileChooserFactoryImpl extends FileChooserFactory {
   @NotNull
   @Override
   public FileSaverDialog createSaveFileDialog(@NotNull FileSaverDescriptor descriptor, @Nullable Project project) {
-    return new FileSaverDialogImpl(descriptor, project);
+    return SystemInfo.isMac && Registry.is("ide.mac.native.save.dialog")
+           ? new MacFileSaverDialog(descriptor, project) : new FileSaverDialogImpl(descriptor, project);
   }
 
   @NotNull
   @Override
   public FileSaverDialog createSaveFileDialog(@NotNull FileSaverDescriptor descriptor, @NotNull Component parent) {
-    return new FileSaverDialogImpl(descriptor, parent);
+    return SystemInfo.isMac && Registry.is("ide.mac.native.save.dialog")
+           ? new MacFileSaverDialog (descriptor, parent) : new FileSaverDialogImpl(descriptor, parent);
   }
 }

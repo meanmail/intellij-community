@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.JDOMUtil;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.util.containers.ConcurrentFactoryMap;
-import com.intellij.util.containers.FactoryMap;
 import com.intellij.util.xmlb.XmlSerializer;
 import gnu.trove.THashMap;
 import org.jdom.Element;
@@ -42,20 +41,13 @@ import java.util.Map;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
 public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
   private static final Logger LOG = Logger.getInstance(JpsGradleExtensionServiceImpl.class);
-  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("production on test");
+  private static final JpsElementChildRole<JpsSimpleElement<Boolean>> PRODUCTION_ON_TEST_ROLE = JpsElementChildRoleBase.create("gradle production on test");
   private final Map<File, GradleProjectConfiguration> myLoadedConfigs =
-    new THashMap<File, GradleProjectConfiguration>(FileUtil.FILE_HASHING_STRATEGY);
-  private final FactoryMap<File, Boolean> myConfigFileExists = new ConcurrentFactoryMap<File, Boolean>() {
-    @Nullable
-    @Override
-    protected Boolean create(File key) {
-      return key.exists();
-    }
-  };
+    new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+  private final Map<File, Boolean> myConfigFileExists = ConcurrentFactoryMap.createMap(key -> key.exists());
 
   public JpsGradleExtensionServiceImpl() {
     ResourcesBuilder.registerEnabler(new StandardResourceBuilderEnabler() {
@@ -77,9 +69,15 @@ public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
   @NotNull
   @Override
   public JpsGradleModuleExtension getOrCreateExtension(@NotNull JpsModule module, Element rootElement) {
+    return getOrCreateExtension(module, rootElement.getAttributeValue("external.system.module.type"));
+  }
+
+  @Override
+  @NotNull
+  public JpsGradleModuleExtension getOrCreateExtension(@NotNull JpsModule module, @Nullable String moduleType) {
     JpsGradleModuleExtension extension = module.getContainer().getChild(JpsGradleModuleExtensionImpl.ROLE);
     if (extension == null) {
-      extension = new JpsGradleModuleExtensionImpl(rootElement.getAttributeValue("external.system.module.type"));
+      extension = new JpsGradleModuleExtensionImpl(moduleType);
       module.getContainer().setChild(JpsGradleModuleExtensionImpl.ROLE, extension);
     }
     return extension;
@@ -121,11 +119,13 @@ public class JpsGradleExtensionServiceImpl extends JpsGradleExtensionService {
       config = myLoadedConfigs.get(configFile);
       if (config == null) {
         config = new GradleProjectConfiguration();
-        try {
-          XmlSerializer.deserializeInto(config, JDOMUtil.load(configFile));
-        }
-        catch (Exception e) {
-          LOG.info(e);
+        if (configFile.exists()) {
+          try {
+            XmlSerializer.deserializeInto(config, JDOMUtil.load(configFile));
+          }
+          catch (Exception e) {
+            LOG.info(e);
+          }
         }
         myLoadedConfigs.put(configFile, config);
       }

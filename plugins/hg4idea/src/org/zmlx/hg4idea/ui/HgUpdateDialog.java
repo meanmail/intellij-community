@@ -28,7 +28,7 @@ import java.awt.event.ItemListener;
  */
 public class HgUpdateDialog {
 
-  private JComponent myContentPanel;
+  private final JComponent myContentPanel;
   private JCheckBox myPullCheckBox;
   private JCheckBox myCommitAfterMergeCheckBox;
   private JRadioButton myOnlyUpdateButton;
@@ -65,7 +65,7 @@ public class HgUpdateDialog {
 
   @NotNull
   public JComponent createCenterPanel() {
-    String panelConstraints = "flowy, ins 0, fill";
+    String panelConstraints = "flowy, ins 0 0 0 10, fill";
     MigLayout migLayout = new MigLayout(panelConstraints);
     JPanel contentPane = new JPanel(migLayout);
 

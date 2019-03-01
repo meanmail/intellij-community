@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -33,17 +33,21 @@ public abstract class OccurrenceAction extends DumbAwareAction implements Shortc
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     EditorSearchSession search = e.getData(EditorSearchSession.SESSION_KEY);
     if (search == null) {
       e.getPresentation().setEnabledAndVisible(false);
       return;
     }
 
-    boolean isFind = !search.getFindModel().isReplaceState();
+    boolean visible = !search.getFindModel().isReplaceState() || availableForReplace();
     boolean hasMatches = search.hasMatches();
-    e.getPresentation().setVisible(isFind);
-    e.getPresentation().setEnabled(isFind && hasMatches);
+    e.getPresentation().setVisible(visible);
+    e.getPresentation().setEnabled(visible && hasMatches);
+  }
+
+  protected boolean availableForReplace() {
+    return false;
   }
 
   @Nullable

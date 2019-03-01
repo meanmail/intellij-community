@@ -18,6 +18,7 @@ package com.intellij.ui;
 import com.intellij.notification.NotificationType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.util.Ref;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -55,12 +56,26 @@ public class BalloonLayoutData {
 
   public BalloonLayoutConfiguration configuration;
 
-  public Runnable lafHandler;
-
   public long fadeoutTime;
 
+  public Color textColor;
   public Color fillColor;
   public Color borderColor;
+
+  @NotNull
+  public static BalloonLayoutData createEmpty() {
+    BalloonLayoutData layoutData = new BalloonLayoutData();
+    layoutData.groupId = "";
+    layoutData.showSettingButton = false;
+    return layoutData;
+  }
+
+  @NotNull
+  public static Ref<BalloonLayoutData> fullContent() {
+    BalloonLayoutData layoutData = createEmpty();
+    layoutData.showFullContent = true;
+    return new Ref<>(layoutData);
+  }
 
   @NotNull
   public MergeInfo merge() {

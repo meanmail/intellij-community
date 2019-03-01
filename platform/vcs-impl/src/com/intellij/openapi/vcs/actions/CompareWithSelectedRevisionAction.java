@@ -23,7 +23,9 @@ import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.ProjectLevelVcsManager;
 import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.diff.DiffProvider;
-import com.intellij.openapi.vcs.history.*;
+import com.intellij.openapi.vcs.history.HistoryAsTreeProvider;
+import com.intellij.openapi.vcs.history.VcsCachingHistory;
+import com.intellij.openapi.vcs.history.VcsFileRevision;
 import com.intellij.openapi.vcs.impl.VcsBackgroundableActions;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.*;
@@ -34,6 +36,7 @@ import com.intellij.util.Consumer;
 import com.intellij.util.TreeItem;
 import com.intellij.util.text.DateFormatUtil;
 import com.intellij.util.ui.ColumnInfo;
+import com.intellij.util.ui.JBDimension;
 import com.intellij.util.ui.ListTableModel;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.NotNull;
@@ -46,6 +49,8 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import java.awt.*;
 import java.util.Date;
 import java.util.List;
+
+import static com.intellij.util.ObjectUtils.notNull;
 
 public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
 
@@ -108,7 +113,7 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
 
   @Override
   public void update(@NotNull VcsContext e, @NotNull Presentation presentation) {
-    AbstractShowDiffAction.updateDiffAction(presentation, e, VcsBackgroundableActions.COMPARE_WITH);
+    AbstractShowDiffAction.updateDiffAction(presentation, e);
   }
 
 
@@ -116,48 +121,35 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
   protected void actionPerformed(@NotNull VcsContext vcsContext) {
     final VirtualFile file = vcsContext.getSelectedFiles()[0];
     final Project project = vcsContext.getProject();
-    final AbstractVcs vcs = ProjectLevelVcsManager.getInstance(project).getVcsFor(file);
-    final VcsHistoryProvider vcsHistoryProvider = vcs.getVcsHistoryProvider();
+    final AbstractVcs vcs = notNull(ProjectLevelVcsManager.getInstance(project).getVcsFor(file));
 
-    new VcsHistoryProviderBackgroundableProxy(vcs, vcsHistoryProvider, vcs.getDiffProvider()).
-      createSessionFor(vcs.getKeyInstanceMethod(), VcsUtil.getFilePath(file),
-        new Consumer<VcsHistorySession>() {
-          @Override
-          public void consume(VcsHistorySession session) {
-            if (session == null) return;
-            final List<VcsFileRevision> revisions = session.getRevisionList();
-            final HistoryAsTreeProvider treeHistoryProvider = session.getHistoryAsTreeProvider();
-            if (treeHistoryProvider != null) {
-              showTreePopup(treeHistoryProvider.createTreeOn(revisions), file, project, vcs.getDiffProvider());
-            }
-            else {
-              showListPopup(revisions, project, new Consumer<VcsFileRevision>() {
-                @Override
-                public void consume(final VcsFileRevision revision) {
-                  DiffActionExecutor.showDiff(vcs.getDiffProvider(), revision.getRevisionNumber(), file, project,
-                                              VcsBackgroundableActions.COMPARE_WITH);
-                }
-              }, true);
-            }
-          }
-        }, VcsBackgroundableActions.COMPARE_WITH, false, null);
+    VcsCachingHistory.collectInBackground(vcs, VcsUtil.getFilePath(file), VcsBackgroundableActions.COMPARE_WITH,
+                       session -> {
+                         if (session == null) return;
+                         final List<VcsFileRevision> revisions = session.getRevisionList();
+                         final HistoryAsTreeProvider treeHistoryProvider = session.getHistoryAsTreeProvider();
+                         if (treeHistoryProvider != null) {
+                           showTreePopup(treeHistoryProvider.createTreeOn(revisions), file, project, vcs.getDiffProvider());
+                         }
+                         else {
+                           showListPopup(revisions, project,
+                                         revision -> DiffActionExecutor.showDiff(vcs.getDiffProvider(), revision.getRevisionNumber(), file, project), true);
+                         }
+                       });
   }
 
   private static void showTreePopup(final List<TreeItem<VcsFileRevision>> roots, final VirtualFile file, final Project project, final DiffProvider diffProvider) {
     final TreeTableView treeTable = new TreeTableView(new ListTreeTableModelOnColumns(new TreeNodeAdapter(null, null, roots),
                                                                                       new ColumnInfo[]{BRANCH_COLUMN, REVISION_COLUMN,
                                                                                       DATE_COLUMN, AUTHOR_COLUMN}));
-    Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        int index = treeTable.getSelectionModel().getMinSelectionIndex();
-        if (index == -1) {
-          return;
-        }
-        VcsFileRevision revision = getRevisionAt(treeTable, index);
-        if (revision != null) {
-          DiffActionExecutor.showDiff(diffProvider, revision.getRevisionNumber(), file, project, VcsBackgroundableActions.COMPARE_WITH);
-        }
+    Runnable runnable = () -> {
+      int index = treeTable.getSelectionModel().getMinSelectionIndex();
+      if (index == -1) {
+        return;
+      }
+      VcsFileRevision revision = getRevisionAt(treeTable, index);
+      if (revision != null) {
+        DiffActionExecutor.showDiff(diffProvider, revision.getRevisionNumber(), file, project);
       }
     };
 
@@ -224,7 +216,7 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
     return textArea;
   }
 
-  public static void showListPopup(final List<VcsFileRevision> revisions, final Project project, final Consumer<VcsFileRevision> selectedRevisionConsumer,
+  public static void showListPopup(final List<VcsFileRevision> revisions, final Project project, final Consumer<? super VcsFileRevision> selectedRevisionConsumer,
                                    final boolean showComments) {
     ColumnInfo[] columns = new ColumnInfo[] { REVISION_TABLE_COLUMN, DATE_TABLE_COLUMN, AUTHOR_TABLE_COLUMN };
     for(VcsFileRevision revision: revisions) {
@@ -236,13 +228,10 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
     final TableView<VcsFileRevision> table = new TableView<>(new ListTableModel<>(columns, revisions, 0));
     table.setShowHorizontalLines(false);
     table.setTableHeader(null);
-    Runnable runnable = new Runnable() {
-      @Override
-      public void run() {
-        VcsFileRevision revision = table.getSelectedObject();
-        if (revision != null) {
-          selectedRevisionConsumer.consume(revision);
-        }
+    Runnable runnable = () -> {
+      VcsFileRevision revision = table.getSelectedObject();
+      if (revision != null) {
+        selectedRevisionConsumer.consume(revision);
       }
     };
 
@@ -261,6 +250,7 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
         return table.convertRowIndexToModel(viewIndex);
       }
 
+      @NotNull
       @Override
       protected Object[] getAllElements() {
         return revisions.toArray();
@@ -280,7 +270,7 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
       }
     };
 
-    table.setMinimumSize(new Dimension(300, 50));
+    table.setMinimumSize(new JBDimension(300, 50));
     final PopupChooserBuilder builder = new PopupChooserBuilder(table);
 
     if (showComments) {
@@ -290,9 +280,9 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
     builder.setTitle(VcsBundle.message("lookup.title.vcs.file.revisions")).
         setItemChoosenCallback(runnable).
         setResizable(true).
-        setDimensionServiceKey("Vcs.CompareWithSelectedRevision.Popup").setMinSize(new Dimension(300, 300));
+        setDimensionServiceKey("Vcs.CompareWithSelectedRevision.Popup").setMinSize(new JBDimension(300, 300));
     final JBPopup popup = builder.createPopup();
-    
+
     popup.showCenteredInCurrentWindow(project);
   }
 
@@ -319,14 +309,14 @@ public class CompareWithSelectedRevisionAction extends AbstractVcsAction {
     commentLabel.setBorder(IdeBorderFactory.createBorder(SideBorder.TOP | SideBorder.LEFT | SideBorder.BOTTOM));
     textScrollPane.setBorder(null);
     jPanel.add(textScrollPane, BorderLayout.CENTER);
-    jPanel.setPreferredSize(new Dimension(300, 100));
+    jPanel.setPreferredSize(new JBDimension(300, 100));
     return jPanel;
   }
 
   private static class TreeNodeAdapter extends DefaultMutableTreeNode {
     private final TreeItem<VcsFileRevision> myRevision;
 
-    public TreeNodeAdapter(TreeNodeAdapter parent, TreeItem<VcsFileRevision> revision, List<TreeItem<VcsFileRevision>> children) {
+    TreeNodeAdapter(TreeNodeAdapter parent, TreeItem<VcsFileRevision> revision, List<TreeItem<VcsFileRevision>> children) {
       if (parent != null) {
         parent.add(this);
       }

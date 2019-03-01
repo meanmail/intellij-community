@@ -23,6 +23,7 @@ import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupStep;
@@ -44,14 +45,14 @@ import java.util.List;
  */
 public class ShowRecentFindUsagesAction extends AnAction {
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     UsageView usageView = e.getData(UsageView.USAGE_VIEW_KEY);
     Project project = e.getData(CommonDataKeys.PROJECT);
     e.getPresentation().setEnabled(usageView != null && project != null);
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     UsageView usageView = e.getData(UsageView.USAGE_VIEW_KEY);
     Project project = e.getData(CommonDataKeys.PROJECT);
     final FindUsagesManager findUsagesManager = ((FindManagerImpl)FindManager.getInstance(project)).getFindUsagesManager();
@@ -87,7 +88,8 @@ public class ShowRecentFindUsagesAction extends AnAction {
         public PopupStep onChosen(final ConfigurableUsageTarget selectedValue, final boolean finalChoice) {
           return doFinalStep(() -> {
             if (selectedValue != null) {
-              findUsagesManager.rerunAndRecallFromHistory(selectedValue);
+              TransactionGuard.getInstance().submitTransactionAndWait(
+                () -> findUsagesManager.rerunAndRecallFromHistory(selectedValue));
             }
           });
         }

@@ -29,6 +29,7 @@ import java.util.*;
 public class ExpectedTypeUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.ExpectedTypeUtil");
 
+  @NotNull
   public static ExpectedTypeInfo[] intersect(List<ExpectedTypeInfo[]> typeInfos) {
     if (typeInfos.isEmpty()) return ExpectedTypeInfo.EMPTY_ARRAY;
 
@@ -88,8 +89,9 @@ public class ExpectedTypeUtil {
       return myInfos.iterator();
     }
 
+    @NotNull
     public ExpectedTypeInfo[] toArray() {
-      return myInfos.toArray(new ExpectedTypeInfo[myInfos.size()]);
+      return myInfos.toArray(ExpectedTypeInfo.EMPTY_ARRAY);
     }
   }
 
@@ -139,9 +141,9 @@ public class ExpectedTypeUtil {
   }
 
   public static class ExpectedClassesFromSetProvider implements ExpectedTypesProvider.ExpectedClassProvider {
-    private final Set<PsiClass> myOccurrenceClasses;
+    private final Set<? extends PsiClass> myOccurrenceClasses;
 
-    public ExpectedClassesFromSetProvider(@NotNull Set<PsiClass> occurrenceClasses) {
+    public ExpectedClassesFromSetProvider(@NotNull Set<? extends PsiClass> occurrenceClasses) {
       myOccurrenceClasses = occurrenceClasses;
     }
 
@@ -153,7 +155,7 @@ public class ExpectedTypeUtil {
         final PsiField field = aClass.findFieldByName(name, true);
         if (field != null) fields.add(field);
       }
-      return fields.toArray(new PsiField[fields.size()]);
+      return fields.toArray(PsiField.EMPTY_ARRAY);
     }
 
     @NotNull
@@ -164,7 +166,7 @@ public class ExpectedTypeUtil {
         final PsiMethod[] occMethod = aClass.findMethodsByName(name, true);
         ContainerUtil.addAll(methods, occMethod);
       }
-      return methods.toArray(new PsiMethod[methods.size()]);
+      return methods.toArray(PsiMethod.EMPTY_ARRAY);
     }
   }
 

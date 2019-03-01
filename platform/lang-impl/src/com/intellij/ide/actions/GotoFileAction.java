@@ -17,6 +17,7 @@ package com.intellij.ide.actions;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.IdeBundle;
+import com.intellij.ide.actions.searcheverywhere.FileSearchEverywhereContributor;
 import com.intellij.ide.util.gotoByName.ChooseByNameFilter;
 import com.intellij.ide.util.gotoByName.ChooseByNamePopup;
 import com.intellij.ide.util.gotoByName.GotoFileConfiguration;
@@ -30,6 +31,7 @@ import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.fileTypes.FileTypes;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.pom.Navigatable;
 import com.intellij.psi.PsiFile;
@@ -52,7 +54,16 @@ public class GotoFileAction extends GotoActionBase implements DumbAware {
   public static final String ID = "GotoFile";
 
   @Override
-  public void gotoActionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
+    if (Registry.is("new.search.everywhere")) {
+      showInSearchEverywherePopup(FileSearchEverywhereContributor.class.getSimpleName(), e, true, true);
+    } else {
+      super.actionPerformed(e);
+    }
+  }
+
+  @Override
+  public void gotoActionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     if (project == null) return;
 
@@ -83,8 +94,7 @@ public class GotoFileAction extends GotoActionBase implements DumbAware {
         }
       }
     };
-    GotoFileItemProvider provider = new GotoFileItemProvider(project, getPsiContext(e), gotoFileModel);
-    showNavigationPopup(e, gotoFileModel, callback, IdeBundle.message("go.to.file.toolwindow.title"), true, true, provider);
+    showNavigationPopup(e, gotoFileModel, callback, IdeBundle.message("go.to.file.toolwindow.title"), true, true);
   }
 
   protected static class GotoFileFilter extends ChooseByNameFilter<FileType> {
@@ -120,11 +130,11 @@ public class GotoFileAction extends GotoActionBase implements DumbAware {
    * <li>File type with greater name is greater (case is ignored).</li>
    * </ol>
    */
-  static class FileTypeComparator implements Comparator<FileType> {
+  public static class FileTypeComparator implements Comparator<FileType> {
     /**
      * an instance of comparator
      */
-    static final Comparator<FileType> INSTANCE = new FileTypeComparator();
+    public static final Comparator<FileType> INSTANCE = new FileTypeComparator();
 
     /**
      * {@inheritDoc}

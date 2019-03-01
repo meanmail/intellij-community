@@ -40,6 +40,7 @@ import java.io.IOException;
 import java.util.Collection;
 import java.util.Set;
 
+@Deprecated
 public interface MergeVersion {
   Document createWorkingDocument(Project project);
 
@@ -66,6 +67,10 @@ public interface MergeVersion {
       LOG.assertTrue(document.isWritable(), "document should be writable");
       myDocument = document;
       myOriginalText = originalText;
+    }
+
+    public String getOriginalText() {
+      return myOriginalText;
     }
 
     @Override
@@ -107,7 +112,7 @@ public interface MergeVersion {
     }
 
     @Nullable
-    public static Runnable prepareToReportChangedProjectFiles(@NotNull final Project project, @NotNull Collection<VirtualFile> files) {
+    public static Runnable prepareToReportChangedProjectFiles(@NotNull final Project project, @NotNull Collection<? extends VirtualFile> files) {
       final Set<VirtualFile> vfs = new THashSet<>();
       for (VirtualFile file : files) {
         if (file != null && !file.isDirectory()) {
@@ -116,7 +121,7 @@ public interface MergeVersion {
           }
         }
       }
-      return vfs.isEmpty() ? null : (Runnable)() -> {
+      return vfs.isEmpty() ? null : () -> {
         ProjectManagerEx ex = ProjectManagerEx.getInstanceEx();
         for (VirtualFile vf : vfs) {
           ex.saveChangedProjectFile(vf, project);

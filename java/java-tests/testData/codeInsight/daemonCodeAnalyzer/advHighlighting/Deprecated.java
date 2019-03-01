@@ -16,7 +16,7 @@ class a  {
   * @deprecated
   */
   a(int i,int j,int k) {
-     new <warning descr="'a(int, int, int)' is deprecated">a</warning>(k+i+j,<warning descr="'dep' is deprecated">dep</warning>,notdep);
+     new a(k+i+j,dep,notdep);
   }
 }
 
@@ -26,19 +26,23 @@ class b extends a {
   }
 
   b() {
-    <warning descr="'b(int)' is deprecated">this</warning>(1);
+    this(1);
   }
 
   /**
   * @deprecated
   */
   b(int i) {
-    <warning descr="'a(int, int, int)' is deprecated">super</warning>(0,0,i);
+    super(0,0,i);
     System.out.print(i);
   }
 }
 
 class c extends b {
+  c(int i) {
+    <warning descr="'b(int)' is deprecated">super</warning>(i);
+  }
+
   // b.f is not deprecated 
   void f() {}
 }
@@ -83,6 +87,12 @@ class Anonym {
     public Anonym(String sss) {
         System.out.println(sss);
     }
+    public void foo() {
+        new Anonym("asdasd") {};
+    }
+}
+
+class UseAnonym {
     public void foo() {
         new <warning descr="'Anonym(java.lang.String)' is deprecated">Anonym</warning>("asdasd") {};
     }

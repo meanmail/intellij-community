@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.notNullVerification;
 
 import com.intellij.compiler.instrumentation.FailSafeClassReader;
@@ -30,87 +16,132 @@ import java.util.Set;
  * @author ven
  */
 public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcodes {
-  private static final String SYNTHETIC_CLASS_NAME = "java/lang/Synthetic";
-  private static final String SYNTHETIC_TYPE = "L" + SYNTHETIC_CLASS_NAME + ";";
   private static final String IAE_CLASS_NAME = "java/lang/IllegalArgumentException";
   private static final String ISE_CLASS_NAME = "java/lang/IllegalStateException";
 
   private static final String ANNOTATION_DEFAULT_METHOD = "value";
 
-  @SuppressWarnings("SSBasedInspection") private static final String[] EMPTY_STRING_ARRAY = new String[0];
-  private final Map<String, Map<Integer, String>> myMethodParamNames;
+  @SuppressWarnings("SSBasedInspection")
+  private static final String[] EMPTY_STRING_ARRAY = new String[0];
 
+  private final MethodData myMethodData;
   private String myClassName;
   private boolean myIsModification = false;
   private RuntimeException myPostponedError;
   private final AuxiliaryMethodGenerator myAuxGenerator;
-  private final Set<String> myNotNullAnnos = new HashSet<String>();
+  private final Set<String> myNotNullAnnotations = new HashSet<String>();
+  private boolean myEnum;
+  private boolean myInner;
 
-  private NotNullVerifyingInstrumenter(final ClassVisitor classVisitor, ClassReader reader, String[] notNullAnnotations) {
+  private NotNullVerifyingInstrumenter(ClassVisitor classVisitor, ClassReader reader, String[] notNullAnnotations) {
     super(Opcodes.API_VERSION, classVisitor);
     for (String annotation : notNullAnnotations) {
-      myNotNullAnnos.add("L" + annotation.replace('.', '/') + ";");
+      myNotNullAnnotations.add('L' + annotation.replace('.', '/') + ';');
     }
-    myMethodParamNames = getAllParameterNames(reader);
+    myMethodData = collectMethodData(reader, myNotNullAnnotations);
     myAuxGenerator = new AuxiliaryMethodGenerator(reader);
   }
 
-  public static boolean processClassFile(final FailSafeClassReader reader, final ClassVisitor writer, String[] notNullAnnotations) {
+  public static boolean processClassFile(FailSafeClassReader reader, ClassVisitor writer, String[] notNullAnnotations) {
     NotNullVerifyingInstrumenter instrumenter = new NotNullVerifyingInstrumenter(writer, reader, notNullAnnotations);
     reader.accept(instrumenter, 0);
-    instrumenter.myAuxGenerator.generateReportingMethod(writer);
-    return instrumenter.isModification();
+    return instrumenter.myIsModification;
   }
 
-  private static Map<String, Map<Integer, String>> getAllParameterNames(ClassReader reader) {
-    final Map<String, Map<Integer, String>> methodParamNames = new LinkedHashMap<String, Map<Integer, String>>();
+  private static final class MethodData {
+    private String myClassName;
+    final Map<String, Map<Integer, String>> paramNames = new LinkedHashMap<String, Map<Integer, String>>();
+    final Set<String> alwaysNotNullMethods = new HashSet<String>(); // methods we are 100% sure return a non-null value
 
+    public void setClassName(String className) {
+      myClassName = className;
+    }
+
+    static String key(String methodName, String desc) {
+      return methodName + desc;
+    }
+
+    String lookupParamName(String methodName, String desc, Integer num) {
+      final Map<Integer, String> names = paramNames.get(key(methodName, desc));
+      return names != null? names.get(num) : null;
+    }
+
+    void markNotNull(String methodName, String desc) {
+      alwaysNotNullMethods.add(key(methodName, desc));
+    }
+
+    boolean isAlwaysNotNull(String className, String methodName, String desc) {
+      return myClassName.equals(className) && alwaysNotNullMethods.contains(key(methodName, desc));
+    }
+  }
+  
+  private static MethodData collectMethodData(ClassReader reader, final Set<String> notNullAnnotations) {
+    final MethodData result = new MethodData();
     reader.accept(new ClassVisitor(Opcodes.API_VERSION) {
-      private String myClassName = null;
 
-      public void visit(final int version, final int access, final String name, final String signature, final String superName, final String[] interfaces) {
-        myClassName = name;
+      @Override
+      public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
+        result.setClassName(name);
       }
 
-      public MethodVisitor visitMethod(final int access, final String name, final String desc, final String signature, final String[] exceptions) {
-        final String methodName = myClassName + '.' + name + desc;
+      @Override
+      public MethodVisitor visitMethod(int access, final String name, final String desc, String signature, String[] exceptions) {
         final Map<Integer, String> names = new LinkedHashMap<Integer, String>();
+        result.paramNames.put(MethodData.key(name, desc), names);
         final Type[] args = Type.getArgumentTypes(desc);
-        methodParamNames.put(methodName, names);
-
-        final boolean isStatic = (access & ACC_STATIC) != 0;
+        final boolean shouldRegisterNotNull = isReferenceType(Type.getReturnType(desc)) && (access & (Opcodes.ACC_FINAL | Opcodes.ACC_STATIC | Opcodes.ACC_PRIVATE)) != 0;
 
         final Map<Integer, Integer> paramSlots = new LinkedHashMap<Integer, Integer>(); // map: localVariableSlot -> methodParameterIndex
-        int slotIndex = isStatic? 0 : 1;
+        int slotIndex = isStatic(access) ? 0 : 1;
         for (int paramIndex = 0; paramIndex < args.length; paramIndex++) {
-          final Type arg = args[paramIndex];
+          Type arg = args[paramIndex];
           paramSlots.put(slotIndex, paramIndex);
           slotIndex += arg.getSize();
         }
 
         return new MethodVisitor(api) {
+          @Override
+          public AnnotationVisitor visitAnnotation(String anno, boolean isRuntime) {
+            if (shouldRegisterNotNull && notNullAnnotations.contains(anno)) {
+              result.markNotNull(name, desc);
+            }
+            return super.visitAnnotation(anno, isRuntime);
+          }
+
+          @Override
+          public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath, String anno, boolean visible) {
+            if (shouldRegisterNotNull && new TypeReference(typeRef).getSort() == TypeReference.METHOD_RETURN && notNullAnnotations.contains(anno)) {
+              result.markNotNull(name, desc);
+            }
+            return super.visitTypeAnnotation(typeRef, typePath, anno, visible);
+          }
 
           @Override
           public void visitLocalVariable(String name2, String desc, String signature, Label start, Label end, int slotIndex) {
-            final Integer paramIndex = paramSlots.get(slotIndex);
+            Integer paramIndex = paramSlots.get(slotIndex);
             if (paramIndex != null) {
               names.put(paramIndex, name2);
             }
           }
         };
       }
-    }, 0);
-    return methodParamNames;
-  }
-
-  public boolean isModification() {
-    return myIsModification;
+    }, ClassReader.SKIP_FRAMES);
+    return result;
   }
 
   @Override
   public void visit(int version, int access, String name, String signature, String superName, String[] interfaces) {
     super.visit(version, access, name, signature, superName, interfaces);
     myClassName = name;
+    myEnum = (access & ACC_ENUM) != 0;
+  }
+
+  @Override
+  public void visitInnerClass(String name, String outerName, String innerName, int access) {
+    super.visitInnerClass(name, outerName, innerName, access);
+    if (myClassName.equals(name)) {
+      myInner = (access & ACC_STATIC) == 0;
+    }
   }
 
   private static class NotNullState {
@@ -125,16 +156,14 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
 
     String getNullParamMessage(String paramName) {
       if (message != null) return message;
-
-      final String shortName = getAnnoShortName();
+      String shortName = getAnnoShortName();
       if (paramName != null) return "Argument for @" + shortName + " parameter '%s' of %s.%s must not be null";
       return "Argument %s for @" + shortName + " parameter of %s.%s must not be null";
     }
 
     String getNullResultMessage() {
       if (message != null) return message;
-
-      final String shortName = getAnnoShortName();
+      String shortName = getAnnoShortName();
       return "@" + shortName + " method %s.%s must not return null";
     }
 
@@ -145,18 +174,20 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
   }
 
   @Override
-  public MethodVisitor visitMethod(final int access, final String name, String desc, String signature, String[] exceptions) {
+  public MethodVisitor visitMethod(int access, final String name, final String desc, String signature, String[] exceptions) {
     if ((access & Opcodes.ACC_BRIDGE) != 0) {
       return new FailSafeMethodVisitor(Opcodes.API_VERSION, super.visitMethod(access, name, desc, signature, exceptions));
     }
 
+    final boolean isStatic = isStatic(access);
     final Type[] args = Type.getArgumentTypes(desc);
+    final int paramAnnotationOffset = !"<init>".equals(name) ? 0 : myEnum ? 2 : myInner ? 1 : 0;
+
     final Type returnType = Type.getReturnType(desc);
-    final MethodVisitor v = cv.visitMethod(access, name, desc, signature, exceptions);
-    final Map<Integer, String> paramNames = myMethodParamNames.get(myClassName + '.' + name + desc);
-    return new FailSafeMethodVisitor(Opcodes.API_VERSION, v) {
+    final NotNullInstructionTracker instrTracker = new NotNullInstructionTracker(cv.visitMethod(access, name, desc, signature, exceptions));
+    return new FailSafeMethodVisitor(Opcodes.API_VERSION, instrTracker) {
       private final Map<Integer, NotNullState> myNotNullParams = new LinkedHashMap<Integer, NotNullState>();
-      private int mySyntheticCount = 0;
+      private int myParamAnnotationOffset = paramAnnotationOffset;
       private NotNullState myMethodNotNull;
       private Label myStartGeneratedCodeLabel;
 
@@ -175,16 +206,40 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
         };
       }
 
-      public AnnotationVisitor visitParameterAnnotation(final int parameter, final String anno, final boolean visible) {
-        AnnotationVisitor av = mv.visitParameterAnnotation(parameter, anno, visible);
-        if (isReferenceType(args[parameter]) && myNotNullAnnos.contains(anno)) {
-          NotNullState state = new NotNullState(anno, IAE_CLASS_NAME);
-          myNotNullParams.put(new Integer(parameter), state);
-          av = collectNotNullArgs(av, state);
+      @Override
+      public AnnotationVisitor visitTypeAnnotation(int typeRef, TypePath typePath, String desc, boolean visible) {
+        AnnotationVisitor base = mv.visitTypeAnnotation(typeRef, typePath, desc, visible);
+        if (typePath != null) return base;
+
+        TypeReference ref = new TypeReference(typeRef);
+        if (ref.getSort() == TypeReference.METHOD_RETURN) {
+          return checkNotNullMethod(desc, base);
         }
-        else if (anno.equals(SYNTHETIC_TYPE)) {
-          // see http://forge.ow2.org/tracker/?aid=307392&group_id=23&atid=100023&func=detail
-          mySyntheticCount++;
+        if (ref.getSort() == TypeReference.METHOD_FORMAL_PARAMETER) {
+          return checkNotNullParameter(ref.getFormalParameterIndex() + paramAnnotationOffset, desc, base);
+        }
+        return base;
+      }
+
+      @Override
+      public void visitAnnotableParameterCount(int parameterCount, boolean visible) {
+        if (myParamAnnotationOffset != 0 && parameterCount == args.length) {
+          myParamAnnotationOffset = 0;
+        }
+        super.visitAnnotableParameterCount(parameterCount, visible);
+      }
+
+      @Override
+      public AnnotationVisitor visitParameterAnnotation(int parameter, String anno, boolean visible) {
+        AnnotationVisitor base = mv.visitParameterAnnotation(parameter, anno, visible);
+        return checkNotNullParameter(parameter + myParamAnnotationOffset, anno, base);
+      }
+
+      private AnnotationVisitor checkNotNullParameter(int parameter, String anno, AnnotationVisitor av) {
+        if (parameter >= 0 && parameter < args.length && isReferenceType(args[parameter]) && myNotNullAnnotations.contains(anno)) {
+          NotNullState state = new NotNullState(anno, IAE_CLASS_NAME);
+          myNotNullParams.put(parameter, state);
+          return collectNotNullArgs(av, state);
         }
 
         return av;
@@ -192,13 +247,15 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
 
       @Override
       public AnnotationVisitor visitAnnotation(String anno, boolean isRuntime) {
-        AnnotationVisitor av = mv.visitAnnotation(anno, isRuntime);
-        if (isReferenceType(returnType) && myNotNullAnnos.contains(anno)) {
-          myMethodNotNull = new NotNullState(anno, ISE_CLASS_NAME);
-          av = collectNotNullArgs(av, myMethodNotNull);
-        }
+        return checkNotNullMethod(anno, mv.visitAnnotation(anno, isRuntime));
+      }
 
-        return av;
+      private AnnotationVisitor checkNotNullMethod(String anno, AnnotationVisitor base) {
+        if (isReferenceType(returnType) && myNotNullAnnotations.contains(anno)) {
+          myMethodNotNull = new NotNullState(anno, ISE_CLASS_NAME);
+          return collectNotNullArgs(base, myMethodNotNull);
+        }
+        return base;
       }
 
       @Override
@@ -209,7 +266,7 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
         }
         for (Map.Entry<Integer, NotNullState> entry : myNotNullParams.entrySet()) {
           Integer param = entry.getKey();
-          int var = ((access & ACC_STATIC) == 0) ? 1 : 0;
+          int var = isStatic ? 0 : 1;
           for (int i = 0; i < param; ++i) {
             var += args[i].getSize();
           }
@@ -219,50 +276,45 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
           mv.visitJumpInsn(IFNONNULL, end);
 
           NotNullState state = entry.getValue();
-          String paramName = paramNames == null ? null : paramNames.get(param);
+          String paramName = myMethodData.lookupParamName(name, desc, param);
           String descrPattern = state.getNullParamMessage(paramName);
           String[] args = state.message != null
-                          ? EMPTY_STRING_ARRAY 
-                          : new String[]{paramName != null ? paramName : String.valueOf(param - mySyntheticCount), myClassName, name};
+                          ? EMPTY_STRING_ARRAY
+                          : new String[]{paramName != null ? paramName : String.valueOf(param - paramAnnotationOffset), myClassName, name};
           reportError(state.exceptionType, end, descrPattern, args);
         }
       }
 
       @Override
       public void visitLocalVariable(String name, String desc, String signature, Label start, Label end, int index) {
-        final boolean isStatic = (access & ACC_STATIC) != 0;
-        final boolean isParameterOrThisRef = isStatic ? index < args.length : index <= args.length;
-        final Label label = (isParameterOrThisRef && myStartGeneratedCodeLabel != null) ? myStartGeneratedCodeLabel : start;
+        boolean isParameterOrThisRef = isStatic ? index < args.length : index <= args.length;
+        Label label = (isParameterOrThisRef && myStartGeneratedCodeLabel != null) ? myStartGeneratedCodeLabel : start;
         mv.visitLocalVariable(name, desc, signature, label, end, index);
       }
 
       @Override
       public void visitInsn(int opcode) {
-        if (opcode == ARETURN) {
-          if (myMethodNotNull != null) {
-            mv.visitInsn(DUP);
-            final Label skipLabel = new Label();
-            mv.visitJumpInsn(IFNONNULL, skipLabel);
-            String descrPattern = myMethodNotNull.getNullResultMessage();
-            String[] args = myMethodNotNull.message != null ? EMPTY_STRING_ARRAY : new String[]{myClassName, name};
-            reportError(myMethodNotNull.exceptionType, skipLabel, descrPattern, args);
-          }
+        if (opcode == ARETURN && myMethodNotNull != null && instrTracker.canBeNull()) {
+          mv.visitInsn(DUP);
+          Label skipLabel = new Label();
+          mv.visitJumpInsn(IFNONNULL, skipLabel);
+          String descrPattern = myMethodNotNull.getNullResultMessage();
+          String[] args = myMethodNotNull.message != null ? EMPTY_STRING_ARRAY : new String[]{myClassName, name};
+          reportError(myMethodNotNull.exceptionType, skipLabel, descrPattern, args);
         }
 
         mv.visitInsn(opcode);
       }
 
-      private void reportError(final String exceptionClass, final Label end, final String descrPattern, final String[] args) {
+      private void reportError(String exceptionClass, Label end, String descrPattern, String[] args) {
         myAuxGenerator.reportError(mv, myClassName, exceptionClass, descrPattern, args);
-
         mv.visitLabel(end);
-
         myIsModification = true;
         processPostponedErrors();
       }
 
       @Override
-      public void visitMaxs(final int maxStack, final int maxLocals) {
+      public void visitMaxs(int maxStack, int maxLocals) {
         try {
           super.visitMaxs(maxStack, maxLocals);
         }
@@ -274,29 +326,40 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
     };
   }
 
-  private static boolean isReferenceType(final Type type) {
+  @Override
+  public void visitEnd() {
+    myAuxGenerator.generateReportingMethod(cv);
+    super.visitEnd();
+  }
+
+  private static boolean isStatic(int access) {
+    return (access & ACC_STATIC) != 0;
+  }
+
+  private static boolean isReferenceType(Type type) {
     return type.getSort() == Type.OBJECT || type.getSort() == Type.ARRAY;
   }
 
-  private void registerError(String methodName, String operationName, Throwable e) {
+  private void registerError(String methodName, @SuppressWarnings("SameParameterValue") String operationName, Throwable e) {
     if (myPostponedError == null) {
       // throw the first error that occurred
       Throwable err = e.getCause();
       if (err == null) {
         err = e;
       }
-      final StringBuilder message = new StringBuilder();
+
+      StringBuilder message = new StringBuilder();
       message.append("Operation '").append(operationName).append("' failed for ").append(myClassName).append(".").append(methodName).append("(): ");
-      
-      final String errMessage = err.getMessage();
+
+      String errMessage = err.getMessage();
       if (errMessage != null) {
         message.append(errMessage);
       }
-      
-      final ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+      ByteArrayOutputStream out = new ByteArrayOutputStream();
       err.printStackTrace(new PrintStream(out));
       message.append('\n').append(out.toString());
-      
+
       myPostponedError = new RuntimeException(message.toString(), err);
     }
     if (myIsModification) {
@@ -305,10 +368,133 @@ public class NotNullVerifyingInstrumenter extends ClassVisitor implements Opcode
   }
 
   private void processPostponedErrors() {
-    final RuntimeException error = myPostponedError;
+    RuntimeException error = myPostponedError;
     if (error != null) {
       throw error;
     }
   }
-}
 
+  private final class NotNullInstructionTracker extends MethodVisitor {
+    private boolean myCanBeNull = true; // initially assume the value can be null
+
+    NotNullInstructionTracker(MethodVisitor delegate) {
+      super(Opcodes.API_VERSION, delegate);
+    }
+
+    public boolean canBeNull() {
+      return myCanBeNull;
+    }
+
+    @Override
+    public void visitIntInsn(int opcode, int operand) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitIntInsn(opcode, operand);
+    }
+
+    @Override
+    public void visitVarInsn(int opcode, int var) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitVarInsn(opcode, var);
+    }
+
+    @Override
+    public void visitTypeInsn(int opcode, String type) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitTypeInsn(opcode, type);
+    }
+
+    @Override
+    public void visitFieldInsn(int opcode, String owner, String name, String descriptor) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitFieldInsn(opcode, owner, name, descriptor);
+    }
+
+    @Override
+    public void visitMethodInsn(int opcode, String owner, String name, String descriptor, boolean isInterface) {
+      myCanBeNull = nextCanBeNullValue(opcode, owner, name, descriptor); /*is not a constructor call*/
+      super.visitMethodInsn(opcode, owner, name, descriptor, isInterface);
+    }
+
+    @Override
+    public void visitInvokeDynamicInsn(String name, String descriptor, Handle bootstrapMethodHandle, Object... bootstrapMethodArguments) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.INVOKEDYNAMIC);
+      super.visitInvokeDynamicInsn(name, descriptor, bootstrapMethodHandle, bootstrapMethodArguments);
+    }
+
+    @Override
+    public void visitJumpInsn(int opcode, Label label) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitJumpInsn(opcode, label);
+    }
+
+    @Override
+    public void visitLdcInsn(Object value) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.LDC);
+      super.visitLdcInsn(value);
+    }
+
+    @Override
+    public void visitIincInsn(int var, int increment) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.IINC);
+      super.visitIincInsn(var, increment);
+    }
+
+    @Override
+    public void visitTableSwitchInsn(int min, int max, Label dflt, Label... labels) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.TABLESWITCH);
+      super.visitTableSwitchInsn(min, max, dflt, labels);
+    }
+
+    @Override
+    public void visitLookupSwitchInsn(Label dflt, int[] keys, Label[] labels) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.LOOKUPSWITCH);
+      super.visitLookupSwitchInsn(dflt, keys, labels);
+    }
+
+    @Override
+    public void visitMultiANewArrayInsn(String descriptor, int numDimensions) {
+      myCanBeNull = nextCanBeNullValue(Opcodes.MULTIANEWARRAY);
+      super.visitMultiANewArrayInsn(descriptor, numDimensions);
+    }
+
+    @Override
+    public void visitInsn(int opcode) {
+      myCanBeNull = nextCanBeNullValue(opcode);
+      super.visitInsn(opcode);
+    }
+
+    private boolean nextCanBeNullValue(int nextMethodCallOpcode, String owner, String name, String descriptor) {
+      if (nextMethodCallOpcode == Opcodes.INVOKESPECIAL && ("<init>".equals(name) || myMethodData.isAlwaysNotNull(owner, name, descriptor))) {
+        // a constructor call or a NotNull marked own method
+        return false;
+      }
+      if ((nextMethodCallOpcode == Opcodes.INVOKESTATIC || nextMethodCallOpcode == Opcodes.INVOKEVIRTUAL) && myMethodData.isAlwaysNotNull(owner, name, descriptor)) {
+        return false;
+      }
+      return true;
+    }
+
+    private boolean nextCanBeNullValue(int nextOpcode) {
+      // if instruction guaranteed produces non-null stack value
+      if (nextOpcode == Opcodes.LDC || nextOpcode == NEW || nextOpcode == ANEWARRAY || nextOpcode == Opcodes.NEWARRAY || nextOpcode == Opcodes.MULTIANEWARRAY) {
+        return false;
+      }
+      // for some instructions it is safe not to change previously calculated flag value
+      if (nextOpcode == Opcodes.DUP ||
+        nextOpcode == Opcodes.DUP_X1 ||
+        nextOpcode == Opcodes.DUP_X2 ||
+        nextOpcode == Opcodes.DUP2 ||
+        nextOpcode == Opcodes.DUP2_X1 ||
+        nextOpcode == Opcodes.DUP2_X2 ||
+        nextOpcode == Opcodes.JSR ||
+        nextOpcode == Opcodes.GOTO ||
+        nextOpcode == Opcodes.NOP ||
+        nextOpcode == Opcodes.RET ||
+        nextOpcode == Opcodes.CHECKCAST) {
+        return myCanBeNull;
+      }
+      // by default assume nullable
+      return true;
+    }
+  }
+}

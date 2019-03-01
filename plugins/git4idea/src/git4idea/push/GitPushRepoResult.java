@@ -15,7 +15,6 @@
  */
 package git4idea.push;
 
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import git4idea.GitLocalBranch;
 import git4idea.GitRemoteBranch;
@@ -35,9 +34,9 @@ import java.util.List;
  *
  * @see git4idea.push.GitPushNativeResult
  */
-class GitPushRepoResult {
+public class GitPushRepoResult {
 
-  enum Type {
+  public enum Type {
     SUCCESS,
     NEW_BRANCH,
     UP_TO_DATE,
@@ -45,15 +44,10 @@ class GitPushRepoResult {
     REJECTED_NO_FF,
     REJECTED_OTHER,
     ERROR,
-    NOT_PUSHED;
+    NOT_PUSHED
   }
 
-  static Comparator<Type> TYPE_COMPARATOR = new Comparator<Type>() {
-    @Override
-    public int compare(Type o1, Type o2) {
-      return o1.ordinal() - o2.ordinal();
-    }
-  };
+  static Comparator<Type> TYPE_COMPARATOR = (o1, o2) -> o1.ordinal() - o2.ordinal();
 
   @NotNull private final Type myType;
   private final int myCommits;
@@ -65,31 +59,27 @@ class GitPushRepoResult {
   @Nullable private final GitUpdateResult myUpdateResult;
 
   @NotNull
-  static GitPushRepoResult convertFromNative(@NotNull GitPushNativeResult result,
-                                             @NotNull List<GitPushNativeResult> tagResults,
+  public static GitPushRepoResult convertFromNative(@NotNull GitPushNativeResult result,
+                                             @NotNull List<? extends GitPushNativeResult> tagResults,
                                              int commits,
                                              @NotNull GitLocalBranch source,
                                              @NotNull GitRemoteBranch target) {
-    List<String> tags = ContainerUtil.map(tagResults, new Function<GitPushNativeResult, String>() {
-      @Override
-      public String fun(GitPushNativeResult result) {
-        return result.getSourceRef();
-      }
-    });
+    List<String> tags = ContainerUtil.map(tagResults, result1 -> result1.getSourceRef());
+    String error = result.getType() == GitPushNativeResult.Type.ERROR ? result.getReason() : null;
     return new GitPushRepoResult(convertType(result), commits, source.getFullName(), target.getFullName(),
-                                 target.getRemote().getName(), tags, null, null);
+                                 target.getRemote().getName(), tags, error, null);
   }
 
   @NotNull
-  static GitPushRepoResult error(@NotNull GitLocalBranch source, @NotNull GitRemoteBranch target, @NotNull String error) {
+  public static GitPushRepoResult error(@NotNull GitLocalBranch source, @NotNull GitRemoteBranch target, @NotNull String error) {
     return new GitPushRepoResult(Type.ERROR, -1, source.getFullName(), target.getFullName(),
-                                 target.getRemote().getName(), Collections.<String>emptyList(), error, null);
+                                 target.getRemote().getName(), Collections.emptyList(), error, null);
   }
 
   @NotNull
-  static GitPushRepoResult notPushed(GitLocalBranch source, GitRemoteBranch target) {
+  public static GitPushRepoResult notPushed(GitLocalBranch source, GitRemoteBranch target) {
     return new GitPushRepoResult(Type.NOT_PUSHED, -1, source.getFullName(), target.getFullName(),
-                                 target.getRemote().getName(), Collections.<String>emptyList(), null, null);
+                                 target.getRemote().getName(), Collections.emptyList(), null, null);
   }
 
   @NotNull
@@ -113,7 +103,7 @@ class GitPushRepoResult {
   }
 
   @NotNull
-  Type getType() {
+  public Type getType() {
     return myType;
   }
 

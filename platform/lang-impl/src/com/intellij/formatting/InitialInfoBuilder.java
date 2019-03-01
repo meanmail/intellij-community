@@ -19,7 +19,6 @@ package com.intellij.formatting;
 import com.intellij.formatting.engine.ExpandableIndent;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.openapi.util.UnfairTextRange;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.util.containers.ContainerUtil;
@@ -43,9 +42,9 @@ public class InitialInfoBuilder {
   private static final boolean INLINE_TABS_ENABLED = "true".equalsIgnoreCase(System.getProperty("inline.tabs.enabled"));
 
   private final Map<AbstractBlockWrapper, Block> myResult = new THashMap<>();
-  private MultiMap<ExpandableIndent, AbstractBlockWrapper> myBlocksToForceChildrenIndent = new LinkedMultiMap<>();
-  private MultiMap<Alignment, Block> myBlocksToAlign = new MultiMap<>();
-  private Set<Alignment> myAlignmentsInsideRangeToModify = ContainerUtil.newHashSet();
+  private final MultiMap<ExpandableIndent, AbstractBlockWrapper> myBlocksToForceChildrenIndent = new LinkedMultiMap<>();
+  private final MultiMap<Alignment, Block> myBlocksToAlign = new MultiMap<>();
+  private final Set<Alignment> myAlignmentsInsideRangeToModify = ContainerUtil.newHashSet();
   
   private boolean myCollectAlignmentsInsideFormattingRange = false;
 
@@ -62,7 +61,7 @@ public class InitialInfoBuilder {
 
   private final Stack<InitialInfoBuilderState> myStates = new Stack<>();
   
-  private WhiteSpace                       myCurrentWhiteSpace;
+  private @NotNull WhiteSpace              myCurrentWhiteSpace;
   private CompositeBlockWrapper            myRootBlockWrapper;
   private LeafBlockWrapper                 myPreviousBlock;
   private LeafBlockWrapper                 myFirstTokenBlock;
@@ -80,7 +79,7 @@ public class InitialInfoBuilder {
   {
     myModel = model;
     myAffectedRanges = affectedRanges;
-    myExtendedAffectedRanges = getExtendedAffectedRanges(affectedRanges);
+    myExtendedAffectedRanges = affectedRanges != null ? affectedRanges.getExtendedFormattingRanges() : null;
     myProgressCallback = progressCallback;
     myCurrentWhiteSpace = new WhiteSpace(getStartOffset(rootBlock), true);
     myOptions = options;
@@ -224,22 +223,6 @@ public class InitialInfoBuilder {
     return false;
   }
 
-  @Nullable
-  private static List<TextRange> getExtendedAffectedRanges(FormatTextRanges formatTextRanges) {
-    if (formatTextRanges == null) return null;
-
-    List<FormatTextRange> ranges = formatTextRanges.getRanges();
-    List<TextRange> extended = ContainerUtil.newArrayList();
-
-    final int extendOffset = 500;
-    for (FormatTextRange textRange : ranges) {
-      TextRange range = textRange.getTextRange();
-      extended.add(new UnfairTextRange(range.getStartOffset() - extendOffset, range.getEndOffset() + extendOffset));
-    }
-
-    return extended;
-  }
-
   private CompositeBlockWrapper buildCompositeBlock(Block rootBlock,
                                                     @Nullable CompositeBlockWrapper parent,
                                                     int index,
@@ -303,7 +286,7 @@ public class InitialInfoBuilder {
   }
   
   private void initCurrentWhiteSpace(@NotNull Block currentRoot, @Nullable Block previousBlock, @NotNull Block currentBlock) {
-    if (previousBlock != null || (myCurrentWhiteSpace != null && myCurrentWhiteSpace.isIsFirstWhiteSpace())) {
+    if (previousBlock != null || myCurrentWhiteSpace.isIsFirstWhiteSpace()) {
       myCurrentSpaceProperty = (SpacingImpl)currentRoot.getSpacing(previousBlock, currentBlock);
     }
   }
@@ -343,7 +326,6 @@ public class InitialInfoBuilder {
     checkInsideFormatterOffTag(rootBlock);
 
     TextRange textRange = rootBlock.getTextRange();
-    checkRange(textRange);
 
     if (myPreviousBlock != null) {
       myPreviousBlock.setNextBlock(info);
@@ -386,12 +368,6 @@ public class InitialInfoBuilder {
         break;
       case NONE:
         break;
-    }
-  }
-
-  private void checkRange(TextRange textRange) {
-    if (textRange.getLength() == 0) {
-      ASSERT.assertInvalidRanges(textRange.getStartOffset(), textRange.getEndOffset(), myModel, "empty block");
     }
   }
 

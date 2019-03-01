@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.openapi.vcs.changes.shelf;
 
@@ -44,6 +30,7 @@ public class ShelvedBinaryFile implements JDOMExternalizable {
   public String BEFORE_PATH;
   public String AFTER_PATH;
   @Nullable public String SHELVED_PATH;         // null if binary file was deleted
+  private Change myChange;
 
   public ShelvedBinaryFile() {
   }
@@ -67,11 +54,13 @@ public class ShelvedBinaryFile implements JDOMExternalizable {
     SHELVED_PATH = convertToSystemIndependent(SHELVED_PATH);
   }
 
+  @Override
   public void readExternal(Element element) throws InvalidDataException {
     DefaultJDOMExternalizer.readExternal(this, element);
     convertPathsToSystemIndependent();
   }
 
+  @Override
   public void writeExternal(Element element) throws WriteExternalException {
     DefaultJDOMExternalizer.writeExternal(this, element);
   }
@@ -86,25 +75,34 @@ public class ShelvedBinaryFile implements JDOMExternalizable {
     return FileStatus.MODIFIED;
   }
 
-  public Change createChange(final Project project) {
-    ContentRevision before = null;
-    ContentRevision after = null;
-    final File baseDir = new File(project.getBaseDir().getPath());
-    if (BEFORE_PATH != null) {
-      final FilePath file = VcsUtil.getFilePath(new File(baseDir, BEFORE_PATH), false);
-      before = new CurrentBinaryContentRevision(file) {
-        @NotNull
-        @Override
-        public VcsRevisionNumber getRevisionNumber() {
-          return new TextRevisionNumber(VcsBundle.message("local.version.title"));
-        }
-      };
+  @NotNull
+  public Change createChange(@NotNull final Project project) {
+    if (myChange == null) {
+      ContentRevision before = null;
+      ContentRevision after = null;
+      final File baseDir = new File(project.getBaseDir().getPath());
+      if (BEFORE_PATH != null) {
+        final FilePath file = VcsUtil.getFilePath(new File(baseDir, BEFORE_PATH), false);
+        before = new CurrentBinaryContentRevision(file) {
+          @NotNull
+          @Override
+          public VcsRevisionNumber getRevisionNumber() {
+            return new TextRevisionNumber(VcsBundle.message("local.version.title"));
+          }
+        };
+      }
+      if (AFTER_PATH != null) {
+        after = createBinaryContentRevision(project);
+      }
+      myChange = new Change(before, after);
     }
-    if (AFTER_PATH != null) {
-      final FilePath file = VcsUtil.getFilePath(new File(baseDir, AFTER_PATH), false);
-      after = new ShelvedBinaryContentRevision(file, SHELVED_PATH);
-    }
-    return new Change(before, after);
+    return myChange;
+  }
+
+  @NotNull
+  ShelvedBinaryContentRevision createBinaryContentRevision(@NotNull Project project) {
+    final FilePath file = VcsUtil.getFilePath(new File(project.getBasePath(), AFTER_PATH), false);
+   return new ShelvedBinaryContentRevision(file, SHELVED_PATH);
   }
 
   @Override

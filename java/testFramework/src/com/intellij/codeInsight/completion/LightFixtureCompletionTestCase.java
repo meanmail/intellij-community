@@ -15,14 +15,17 @@
  */
 package com.intellij.codeInsight.completion;
 
+import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupEvent;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
-import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.psi.statistics.StatisticsManager;
+import com.intellij.psi.statistics.impl.StatisticsManagerImpl;
 import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -40,9 +43,24 @@ public abstract class LightFixtureCompletionTestCase extends LightCodeInsightFix
   }
 
   @Override
+  protected void setUp() throws Exception {
+    super.setUp();
+    ((StatisticsManagerImpl)StatisticsManager.getInstance()).enableStatistics(myFixture.getTestRootDisposable());
+  }
+
+  @Override
   protected void tearDown() throws Exception {
-    myItems = null;
-    super.tearDown();
+    try {
+      myItems = null;
+      CodeInsightSettings.getInstance().COMPLETION_CASE_SENSITIVE = CodeInsightSettings.FIRST_LETTER;
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+
+      super.tearDown();
+    }
   }
 
   protected void configureByFile(String path) {
@@ -77,12 +95,7 @@ public abstract class LightFixtureCompletionTestCase extends LightCodeInsightFix
     final LookupImpl lookup = getLookup();
     lookup.setCurrentItem(item);
     if (LookupEvent.isSpecialCompletionChar(completionChar)) {
-      new WriteCommandAction.Simple(getProject()) {
-        @Override
-        protected void run() throws Throwable {
-          lookup.finishLookup(completionChar);
-        }
-      }.execute().throwException();
+      lookup.finishLookup(completionChar);
     } else {
       type(completionChar);
     }
@@ -95,10 +108,12 @@ public abstract class LightFixtureCompletionTestCase extends LightCodeInsightFix
   protected void assertFirstStringItems(String... items) {
     List<String> strings = myFixture.getLookupElementStrings();
     assertNotNull(strings);
-    assertOrderedEquals(strings.subList(0, Math.min(items.length, strings.size())), items);
+    assertOrderedEquals(ContainerUtil.getFirstItems(strings, items.length), items);
   }
   protected void assertStringItems(String... items) {
-    assertOrderedEquals(myFixture.getLookupElementStrings(), items);
+    List<String> strings = myFixture.getLookupElementStrings();
+    assertNotNull(strings);
+    assertOrderedEquals(strings, items);
   }
 
   protected void type(String s) {

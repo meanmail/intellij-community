@@ -1,9 +1,11 @@
 // "Replace 'switch' with 'if'" "true"
-class Test {
-  void foo(Object e) {
-      Class<?> i = e.getClass();
-      if (i.equals(RuntimeException.class)) {
-      } else if (i.equals(IOException.class)) {
+abstract class Test {
+  abstract Object getObject();
+
+  void foo() {
+      Class<?> aClass = getObject().getClass();
+      if (RuntimeException.class.equals(aClass)) {
+      } else if (IOException.class.equals(aClass)) {
       }
   }
 }

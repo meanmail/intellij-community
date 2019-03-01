@@ -14,15 +14,10 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 23-Jun-2009
- */
 package com.intellij.refactoring.extractMethod;
 
 import com.intellij.codeInsight.PsiEquivalenceUtil;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Pair;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.SuggestedNameInfo;
@@ -84,7 +79,7 @@ public class ParametersFolder {
     return false;
   }
 
-  public void foldParameterUsagesInBody(@NotNull List<VariableData> datum, PsiElement[] elements, SearchScope scope) {
+  public void foldParameterUsagesInBody(@NotNull List<? extends VariableData> datum, PsiElement[] elements, SearchScope scope) {
     Map<VariableData, Set<PsiExpression>> equivalentExpressions = new LinkedHashMap<>();
     for (VariableData data : datum) {
       if (myDeleted.contains(data.variable)) continue;
@@ -220,28 +215,34 @@ public class ParametersFolder {
   private List<PsiExpression> getMentionedExpressions(PsiVariable var, LocalSearchScope scope, final List<? extends PsiVariable> inputVariables) {
     if (myMentionedInExpressions.containsKey(var)) return myMentionedInExpressions.get(var);
     final PsiElement[] scopeElements = scope.getScope();
+
     List<PsiExpression> expressions = null;
     for (PsiReference reference : ReferencesSearch.search(var, scope)) {
       PsiElement expression = reference.getElement();
       if (expressions == null) {
         expressions = new ArrayList<>();
-        while (expression != null) {
+        while (expression instanceof PsiExpression) {
           if (isAccessedForWriting((PsiExpression)expression)) {
             return null;
           }
-          for (PsiElement scopeElement : scopeElements) {
-            if (PsiTreeUtil.isAncestor(expression, scopeElement, true)) {
-              expression = null;
-              break;
-            }
+          if (isAncestor(expression, scopeElements)) {
+            break;
           }
-          if (expression == null) break;
-
+          if (dependsOnLocals(expression, inputVariables)) {
+            break;
+          }
+          final PsiElement parent = expression.getParent();
+          if (parent instanceof PsiExpressionStatement) {
+            break;
+          }
           final PsiType expressionType = ((PsiExpression)expression).getType();
-          if (expressionType != null && !PsiType.VOID.equals(expressionType) && !(expression.getParent() instanceof PsiExpressionStatement)) {
-            if (dependsOnLocals(expression, inputVariables)) {
-              break;
-            }
+          if (expressionType == null || PsiType.VOID.equals(expressionType)) {
+            break;
+          }
+          if (isTooLongExpressionChain(expression)) {
+            break;
+          }
+          if (!isMethodNameExpression(expression)) {
             expressions.add((PsiExpression)expression);
           }
           expression = PsiTreeUtil.getParentOfType(expression, PsiExpression.class);
@@ -279,6 +280,47 @@ public class ParametersFolder {
     return exprWithWriteAccessInside[0] != null;
   }
 
+  private static boolean isAncestor(PsiElement expression, PsiElement[] scopeElements) {
+    for (PsiElement scopeElement : scopeElements) {
+      if (PsiTreeUtil.isAncestor(expression, scopeElement, false)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isTooLongExpressionChain(PsiElement expression) {
+    int count = 0;
+    for (PsiElement element = getInnerExpression(expression); element != null; element = getInnerExpression(element)) {
+      count++;
+      if (count > 1) { // expression chains like 'var.foo().bar()' and 'var.foo[i].bar()' are too long
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static PsiElement getInnerExpression(PsiElement expression) {
+    if (expression instanceof PsiMethodCallExpression) {
+      return ((PsiMethodCallExpression)expression).getMethodExpression().getQualifierExpression();
+    }
+    if (expression instanceof PsiArrayAccessExpression) {
+      while (expression instanceof PsiArrayAccessExpression) {
+        expression = ((PsiArrayAccessExpression)expression).getArrayExpression();
+      }
+      return expression;
+    }
+    return null;
+  }
+
+  private static boolean isMethodNameExpression(@NotNull PsiElement expression) {
+    final PsiElement parent = expression.getParent();
+    return expression instanceof PsiReferenceExpression &&
+           parent instanceof PsiMethodCallExpression &&
+           ((PsiReferenceExpression)expression).getReferenceNameElement() ==
+           ((PsiMethodCallExpression)parent).getMethodExpression().getReferenceNameElement();
+  }
+
   private static boolean dependsOnLocals(final PsiElement expression, final List<? extends PsiVariable> inputVariables) {
     final boolean[] localVarsUsed = new boolean[]{false};
     expression.accept(new JavaRecursiveElementWalkingVisitor(){
@@ -303,12 +345,16 @@ public class ParametersFolder {
     return myArgs.containsKey(data.variable) ? myArgs.get(data.variable) : data.variable.getName();
   }
 
+  void putCallArgument(@NotNull PsiVariable argument, @NotNull PsiExpression value) {
+    myArgs.put(argument, value.getText());
+  }
+
   public boolean annotateWithParameter(@NotNull VariableData data, @NotNull PsiElement element) {
     final PsiExpression psiExpression = myExpressions.get(data.variable);
     if (psiExpression != null) {
       final PsiExpression expression = findEquivalent(psiExpression, element);
       if (expression != null) {
-        expression.putUserData(DuplicatesFinder.PARAMETER, Pair.create(data.variable, expression.getType()));
+        expression.putUserData(DuplicatesFinder.PARAMETER, new DuplicatesFinder.Parameter(data.variable, expression.getType(), true));
         return true;
       }
     }

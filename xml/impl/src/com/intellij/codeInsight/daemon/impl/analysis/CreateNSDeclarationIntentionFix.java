@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.analysis;
 
 import com.intellij.application.options.XmlSettings;
-import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.completion.ExtendedTagInsertHandler;
 import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.codeInsight.daemon.impl.ShowAutoImportPass;
@@ -28,6 +13,8 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.javaee.ExternalResourceManager;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -36,7 +23,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiAnchor;
@@ -46,9 +33,9 @@ import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.cache.impl.id.IdTableBuilding;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.xml.*;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlExtension;
 import com.intellij.xml.XmlNamespaceHelper;
@@ -60,7 +47,6 @@ import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import javax.swing.*;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -114,12 +100,6 @@ public class CreateNSDeclarationIntentionFix implements HintAction, LocalQuickFi
 
   @Override
   @NotNull
-  public String getName() {
-    return getFamilyName();
-  }
-
-  @Override
-  @NotNull
   public String getFamilyName() {
     return getText();
   }
@@ -161,9 +141,7 @@ public class CreateNSDeclarationIntentionFix implements HintAction, LocalQuickFi
   }
 
   @Override
-  public void invoke(@NotNull final Project project, final Editor editor, final PsiFile file) throws IncorrectOperationException {
-    if (!FileModificationService.getInstance().prepareFileForWrite(file)) return;
-
+  public void invoke(@NotNull final Project project, final Editor editor, @NotNull PsiFile file) throws IncorrectOperationException {
     final PsiElement element = myElement.retrieve();
     if (element == null) return;
     XmlFile xmlFile = getFile();
@@ -194,16 +172,12 @@ public class CreateNSDeclarationIntentionFix implements HintAction, LocalQuickFi
           }
           final int offset = editor.getCaretModel().getOffset();
           final RangeMarker marker = editor.getDocument().createRangeMarker(offset, offset);
-          final XmlNamespaceHelper helper = XmlNamespaceHelper.getHelper(file);
-          helper.insertNamespaceDeclaration((XmlFile)file, editor, Collections.singleton(namespace), prefix,
-                                               new XmlNamespaceHelper.Runner<String, IncorrectOperationException>() {
-                                                 @Override
-                                                 public void run(final String param) throws IncorrectOperationException {
-                                                   if (!namespace.isEmpty()) {
-                                                     editor.getCaretModel().moveToOffset(marker.getStartOffset());
-                                                   }
-                                                 }
-                                               });
+          final XmlNamespaceHelper helper = XmlNamespaceHelper.getHelper(xmlFile);
+          helper.insertNamespaceDeclaration(xmlFile, editor, Collections.singleton(namespace), prefix, __ -> {
+            if (!namespace.isEmpty()) {
+              editor.getCaretModel().moveToOffset(marker.getStartOffset());
+            }
+          });
         }
       }, getTitle(),
       this,
@@ -317,54 +291,47 @@ public class CreateNSDeclarationIntentionFix implements HintAction, LocalQuickFi
                                                                                            final Editor editor) throws IncorrectOperationException {
 
     if (namespacesToChooseFrom.length > 1 && !ApplicationManager.getApplication().isUnitTestMode()) {
-      final JList list = new JBList(namespacesToChooseFrom);
-      list.setCellRenderer(XmlNSRenderer.INSTANCE);
-      Runnable runnable = () -> {
-        final int index = list.getSelectedIndex();
-        if (index < 0) return;
-        PsiDocumentManager.getInstance(project).commitAllDocuments();
-
-        CommandProcessor.getInstance().executeCommand(
-          project,
-          () -> ApplicationManager.getApplication().runWriteAction(
-            () -> {
-              try {
-                onSelection.doSomethingWithGivenStringToProduceXmlAttributeNowPlease(namespacesToChooseFrom[index]);
-              } catch (IncorrectOperationException ex) {
-                throw new RuntimeException(ex);
+      JBPopupFactory.getInstance()
+        .createPopupChooserBuilder(ContainerUtil.newArrayList(namespacesToChooseFrom))
+        .setRenderer(XmlNSRenderer.INSTANCE)
+        .setTitle(title)
+        .setItemChosenCallback((selectedValue) -> {
+          PsiDocumentManager.getInstance(project).commitAllDocuments();
+          CommandProcessor.getInstance().executeCommand(
+            project,
+            () -> ApplicationManager.getApplication().runWriteAction(
+              () -> {
+                try {
+                  onSelection.doSomethingWithGivenStringToProduceXmlAttributeNowPlease(selectedValue);
+                }
+                catch (IncorrectOperationException ex) {
+                  throw new RuntimeException(ex);
+                }
               }
-            }
-          ),
-          requestor.getText(),
-          requestor.getFamilyName()
-        );
-      };
-
-      new PopupChooserBuilder(list).
-        setTitle(title).
-        setItemChoosenCallback(runnable).
-        createPopup().
-        showInBestPositionFor(editor);
+            ),
+            requestor.getText(),
+            requestor.getFamilyName()
+          );
+        })
+        .createPopup()
+        .showInBestPositionFor(editor);
     } else {
-      onSelection.doSomethingWithGivenStringToProduceXmlAttributeNowPlease(namespacesToChooseFrom.length == 0 ? "" : namespacesToChooseFrom[0]);
+      WriteAction.run(() -> {
+        String attrName = namespacesToChooseFrom.length == 0 ? "" : namespacesToChooseFrom[0];
+        onSelection.doSomethingWithGivenStringToProduceXmlAttributeNowPlease(attrName);
+      });
     }
   }
 
   public static void processExternalUris(final MetaHandler metaHandler,
                                          final PsiFile file,
-                                         final ExternalUriProcessor processor,
-                                         final boolean showProgress) {
-    if (!showProgress || ApplicationManager.getApplication().isUnitTestMode()) {
-      processExternalUrisImpl(metaHandler, file, processor);
-    }
-    else {
-      ProgressManager.getInstance().runProcessWithProgressSynchronously(
-        () -> processExternalUrisImpl(metaHandler, file, processor),
-        XmlErrorMessages.message("finding.acceptable.uri"),
-        false,
-        file.getProject()
-      );
-    }
+                                         final ExternalUriProcessor processor) {
+    ProgressManager.getInstance().runProcessWithProgressSynchronously(
+      () -> ReadAction.run(() -> processExternalUrisImpl(metaHandler, file, processor)),
+      XmlErrorMessages.message("finding.acceptable.uri"),
+      false,
+      file.getProject()
+    );
   }
 
   public interface MetaHandler {
@@ -404,7 +371,10 @@ public class CreateNSDeclarationIntentionFix implements HintAction, LocalQuickFi
 
     final String searchFor = metaHandler.searchFor();
 
-    if (pi != null) pi.setText(XmlErrorMessages.message("looking.in.schemas"));
+    if (pi != null) {
+      pi.setText(XmlErrorMessages.message("looking.in.schemas"));
+      pi.setIndeterminate(false);
+    }
     final ExternalResourceManager instanceEx = ExternalResourceManager.getInstance();
     final String[] availableUrls = instanceEx.getResourceUrls(null, true);
     int i = 0;

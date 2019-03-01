@@ -25,7 +25,6 @@ import java.util.Set;
 
 /**
  * @author Vladislav.Soroka
- * @since 2/10/14
  */
 public class War extends Jar {
   private static final long serialVersionUID = 1L;
@@ -70,7 +69,7 @@ public class War extends Jar {
   }
 
   public void setWebResources(@Nullable List<WebResource> webResources) {
-    myWebResources = webResources == null ? Collections.<WebResource>emptyList() : webResources;
+    myWebResources = webResources == null ? Collections.emptyList() : webResources;
   }
 
   @NotNull
@@ -79,7 +78,7 @@ public class War extends Jar {
   }
 
   public void setClasspath(@Nullable Set<File> classpath) {
-    myClasspath = classpath == null ? Collections.<File>emptySet() : classpath;
+    myClasspath = classpath == null ? Collections.emptySet() : classpath;
   }
 
   @NotNull

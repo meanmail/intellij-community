@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.psi.impl;
 
 import com.google.common.collect.Lists;
@@ -23,13 +9,13 @@ import com.intellij.lang.Language;
 import com.intellij.navigation.ItemPresentation;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.roots.ProjectFileIndex;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
+import com.intellij.psi.scope.DelegatingScopeProcessor;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.util.PsiModificationTracker;
@@ -62,14 +48,14 @@ import java.io.File;
 import java.util.*;
 
 public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
-  protected PyType myType;
+  @Nullable protected volatile PyType myType;
 
   //private volatile Boolean myAbsoluteImportEnabled;
   private final Map<FutureFeature, Boolean> myFutureFeatures;
-  private List<String> myDunderAll;
-  private boolean myDunderAllCalculated;
-  private volatile SoftReference<ExportedNameCache> myExportedNameCache = new SoftReference<>(null);
-  private final PsiModificationTracker myModificationTracker;
+  @Nullable private volatile List<String> myDunderAll;
+  private volatile boolean myDunderAllCalculated;
+  @NotNull private volatile SoftReference<ExportedNameCache> myExportedNameCache = new SoftReference<>(null);
+  @NotNull private final PsiModificationTracker myModificationTracker;
 
   private class ExportedNameCache {
     private final List<String> myNameDefinerNegativeCache = new ArrayList<>();
@@ -81,15 +67,13 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
     private ExportedNameCache(long modificationStamp) {
       myModificationStamp = modificationStamp;
 
-      processDeclarations(PyPsiUtils.collectAllStubChildren(PyFileImpl.this, getStub()), element -> {
-        if (element instanceof PsiNamedElement && !(element instanceof PyKeywordArgument)) {
+      final StubElement stub = getStub();
+      processDeclarations(PyPsiUtils.collectAllStubChildren(PyFileImpl.this, stub), element -> {
+        if (element instanceof PsiNamedElement &&
+            !(element instanceof PyKeywordArgument) &&
+            !(stub == null && element.getParent() instanceof PyImportElement)) {
           final PsiNamedElement namedElement = (PsiNamedElement)element;
-          final String name = namedElement.getName();
-          if (!myNamedElements.containsKey(name)) {
-            myNamedElements.put(name, Lists.<PsiNamedElement>newArrayList());
-          }
-          final List<PsiNamedElement> elements = myNamedElements.get(name);
-          elements.add(namedElement);
+          myNamedElements.computeIfAbsent(namedElement.getName(), __ -> new ArrayList<>()).add(namedElement);
         }
         if (element instanceof PyImportedNameDefiner) {
           myImportedNameDefiners.add((PyImportedNameDefiner)element);
@@ -180,6 +164,7 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
             }
           }
         }
+
         return resultList;
       }
 
@@ -210,27 +195,28 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
     return PythonFileType.INSTANCE;
   }
 
+  @Override
   public String toString() {
     return "PyFile:" + getName();
   }
 
   @Override
-  public PyFunction findTopLevelFunction(String name) {
+  public PyFunction findTopLevelFunction(@NotNull String name) {
     return findByName(name, getTopLevelFunctions());
   }
 
   @Override
-  public PyClass findTopLevelClass(String name) {
+  public PyClass findTopLevelClass(@NotNull String name) {
     return findByName(name, getTopLevelClasses());
   }
 
   @Override
-  public PyTargetExpression findTopLevelAttribute(String name) {
+  public PyTargetExpression findTopLevelAttribute(@NotNull String name) {
     return findByName(name, getTopLevelAttributes());
   }
 
   @Nullable
-  private static <T extends PsiNamedElement> T findByName(String name, List<T> namedElements) {
+  private static <T extends PsiNamedElement> T findByName(@NotNull String name, @NotNull List<T> namedElements) {
     for (T namedElement : namedElements) {
       if (name.equals(namedElement.getName())) {
         return namedElement;
@@ -271,6 +257,12 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
       }
     }
   }
+  //
+  //@Override
+  //public PsiElement getNavigationElement() {
+  //  final PsiElement element = PyiUtil.getOriginalElement(this);
+  //  return element != null ? element : super.getNavigationElement();
+  //}
 
   public boolean isAcceptedFor(@NotNull Class visitorClass) {
     for (Language lang : getViewProvider().getLanguages()) {
@@ -293,24 +285,14 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
                                      @NotNull PsiElement place) {
     final List<String> dunderAll = getDunderAll();
     final List<String> remainingDunderAll = dunderAll == null ? null : new ArrayList<>(dunderAll);
-    PsiScopeProcessor wrapper = new PsiScopeProcessor() {
+    PsiScopeProcessor wrapper = new DelegatingScopeProcessor(processor) {
       @Override
       public boolean execute(@NotNull PsiElement element, @NotNull ResolveState state) {
-        if (!processor.execute(element, state)) return false;
+        if (!super.execute(element, state)) return false;
         if (remainingDunderAll != null && element instanceof PyElement) {
           remainingDunderAll.remove(((PyElement)element).getName());
         }
         return true;
-      }
-
-      @Override
-      public <T> T getHint(@NotNull Key<T> hintKey) {
-        return processor.getHint(hintKey);
-      }
-
-      @Override
-      public void handleEvent(@NotNull Event event, @Nullable Object associated) {
-        processor.handleEvent(event, associated);
       }
     };
 
@@ -368,19 +350,20 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   }
 
   @Override
+  @NotNull
   public List<PyClass> getTopLevelClasses() {
-    return PyPsiUtils.collectStubChildren(this, this.getStub(), PyElementTypes.CLASS_DECLARATION, PyClass.class);
+    return PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.CLASS_DECLARATION);
   }
 
   @NotNull
   @Override
   public List<PyFunction> getTopLevelFunctions() {
-    return PyPsiUtils.collectStubChildren(this, this.getStub(), PyElementTypes.FUNCTION_DECLARATION, PyFunction.class);
+    return PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.FUNCTION_DECLARATION);
   }
 
   @Override
   public List<PyTargetExpression> getTopLevelAttributes() {
-    return PyPsiUtils.collectStubChildren(this, this.getStub(), PyElementTypes.TARGET_EXPRESSION, PyTargetExpression.class);
+    return PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.TARGET_EXPRESSION);
   }
 
   @Override
@@ -411,26 +394,37 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   @NotNull
   @Override
   public List<RatedResolveResult> multiResolveName(@NotNull final String name) {
+    return multiResolveName(name, true);
+  }
+
+  @NotNull
+  @Override
+  public List<RatedResolveResult> multiResolveName(@NotNull String name, boolean exported) {
     final List<RatedResolveResult> results = RecursionManager.doPreventingRecursion(this, false,
                                                                                     () -> getExportedNameCache().multiResolve(name));
     if (results != null && !results.isEmpty()) {
       return results;
     }
     final List<String> allNames = getDunderAll();
-    if (allNames != null && allNames.contains(name)) {
-      final PsiElement allElement = findExportedName(PyNames.ALL);
+    if (allNames != null && !name.contains(".") && allNames.contains(name)) {
       final ResolveResultList allFallbackResults = new ResolveResultList();
+
+      PyResolveImportUtil
+        .resolveModuleAt(QualifiedName.fromComponents(name), getContainingDirectory(), PyResolveImportUtil.fromFoothold(this))
+        .forEach(module -> allFallbackResults.poke(module, RatedResolveResult.RATE_LOW));
+
+      final PsiElement allElement = findExportedName(PyNames.ALL);
       allFallbackResults.poke(allElement, RatedResolveResult.RATE_LOW);
+
       return allFallbackResults;
     }
     return Collections.emptyList();
   }
 
   private ExportedNameCache getExportedNameCache() {
-    ExportedNameCache cache;
-    cache = myExportedNameCache != null ? myExportedNameCache.get() : null;
+    ExportedNameCache cache = myExportedNameCache.get();
     final long modificationStamp = getModificationStamp();
-    if (myExportedNameCache != null && cache != null && modificationStamp != cache.getModificationStamp()) {
+    if (cache != null && modificationStamp != cache.getModificationStamp()) {
       myExportedNameCache.clear();
       cache = null;
     }
@@ -441,10 +435,11 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
     return cache;
   }
 
+  @Override
   @Nullable
   public PsiElement getElementNamed(final String name) {
     final List<RatedResolveResult> results = multiResolveName(name);
-    final List<PsiElement> elements = PyUtil.filterTopPriorityResults(results.toArray(new ResolveResult[results.size()]));
+    final List<PsiElement> elements = PyUtil.filterTopPriorityResults(results.toArray(ResolveResult.EMPTY_ARRAY));
     final PsiElement element = elements.isEmpty() ? null : elements.get(elements.size() - 1);
     if (element != null) {
       if (!element.isValid()) {
@@ -455,12 +450,13 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
     return null;
   }
 
+  @Override
   @NotNull
   public Iterable<PyElement> iterateNames() {
     final List<PyElement> result = new ArrayList<>();
-    VariantsProcessor processor = new VariantsProcessor(this) {
+    final VariantsProcessor processor = new VariantsProcessor(this) {
       @Override
-      protected void addElement(String name, PsiElement element) {
+      protected void addElement(@NotNull String name, @NotNull PsiElement element) {
         element = PyUtil.turnDirIntoInit(element);
         if (element instanceof PyElement) {
           result.add((PyElement)element);
@@ -475,9 +471,8 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   @Override
   @NotNull
   public List<PyImportElement> getImportTargets() {
-    List<PyImportElement> ret = new ArrayList<>();
-    List<PyImportStatement> imports =
-      PyPsiUtils.collectStubChildren(this, this.getStub(), PyElementTypes.IMPORT_STATEMENT, PyImportStatement.class);
+    final List<PyImportElement> ret = new ArrayList<>();
+    final List<PyImportStatement> imports = PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.IMPORT_STATEMENT);
     for (PyImportStatement one : imports) {
       ContainerUtil.addAll(ret, one.getImportElements());
     }
@@ -487,9 +482,10 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   @Override
   @NotNull
   public List<PyFromImportStatement> getFromImports() {
-    return PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.FROM_IMPORT_STATEMENT, PyFromImportStatement.class);
+    return PyPsiUtils.collectStubChildren(this, getStub(), PyElementTypes.FROM_IMPORT_STATEMENT);
   }
 
+  @Nullable
   @Override
   public List<String> getDunderAll() {
     final StubElement stubElement = getStub();
@@ -512,11 +508,14 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   }
 
   private static class DunderAllBuilder extends PyRecursiveElementVisitor {
-    private List<String> myResult = null;
+
+    @NotNull
+    private final List<String> myResult = new ArrayList<>();
     private boolean myDynamic = false;
     private boolean myFoundDunderAll = false;
 
     // hashlib builds __all__ by concatenating multiple lists of strings, and we want to understand this
+    @NotNull
     private final Map<String, List<String>> myDunderLike = new HashMap<>();
 
     @Override
@@ -528,54 +527,65 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
 
     @Override
     public void visitPyTargetExpression(PyTargetExpression node) {
+      if (myDynamic) return;
+
       if (PyNames.ALL.equals(node.getName())) {
         myFoundDunderAll = true;
-        PyExpression value = node.findAssignedValue();
+        final PyExpression value = node.findAssignedValue();
         if (value instanceof PyBinaryExpression) {
-          PyBinaryExpression binaryExpression = (PyBinaryExpression)value;
+          final PyBinaryExpression binaryExpression = (PyBinaryExpression)value;
           if (binaryExpression.isOperator("+")) {
-            List<String> lhs = getStringListFromValue(binaryExpression.getLeftExpression());
-            List<String> rhs = getStringListFromValue(binaryExpression.getRightExpression());
-            if (lhs != null && rhs != null) {
-              myResult = new ArrayList<>(lhs);
-              myResult.addAll(rhs);
-            }
+            processSubList(getStringListFromValue(binaryExpression.getLeftExpression()));
+            processSubList(getStringListFromValue(binaryExpression.getRightExpression()));
+          }
+          else {
+            myDynamic = true;
           }
         }
         else {
-          myResult = PyUtil.getStringListFromTargetExpression(node);
+          processSubList(getStringListFromValue(value));
         }
       }
+
       if (!myFoundDunderAll) {
-        List<String> names = PyUtil.getStringListFromTargetExpression(node);
+        final List<String> names = getStringListFromValue(node.findAssignedValue());
         if (names != null) {
           myDunderLike.put(node.getName(), names);
         }
       }
     }
 
-    @Nullable
-    private List<String> getStringListFromValue(PyExpression expression) {
-      if (expression instanceof PyReferenceExpression && !((PyReferenceExpression)expression).isQualified()) {
-        return myDunderLike.get(((PyReferenceExpression)expression).getReferencedName());
-      }
-      return PyUtil.strListValue(expression);
-    }
-
     @Override
     public void visitPyAugAssignmentStatement(PyAugAssignmentStatement node) {
+      if (myDynamic || !myFoundDunderAll) return;
+
       if (PyNames.ALL.equals(node.getTarget().getName())) {
-        myDynamic = true;
+        processSubList(getStringListFromValue(node.getValue()));
       }
     }
 
     @Override
     public void visitPyCallExpression(PyCallExpression node) {
+      if (myDynamic || !myFoundDunderAll) return;
+
       final PyExpression callee = node.getCallee();
       if (callee instanceof PyQualifiedExpression) {
         final PyExpression qualifier = ((PyQualifiedExpression)callee).getQualifier();
         if (qualifier != null && PyNames.ALL.equals(qualifier.getText())) {
-          // TODO handle append and extend with constant arguments here
+          final String calleeName = callee.getName();
+          if (PyNames.APPEND.equals(calleeName)) {
+            final PyStringLiteralExpression argument = node.getArgument(0, PyStringLiteralExpression.class);
+            if (argument != null) {
+              myResult.add(argument.getStringValue());
+              return;
+            }
+          }
+          else if (PyNames.EXTEND.equals(calleeName)) {
+            final PyExpression argument = node.getArgument(0, PyExpression.class);
+            processSubList(getStringListFromValue(argument));
+            return;
+          }
+
           myDynamic = true;
         }
       }
@@ -583,18 +593,25 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
 
     @Nullable
     List<String> result() {
-      return myDynamic ? null : myResult;
+      return myDynamic || !myFoundDunderAll ? null : myResult;
     }
-  }
 
-  @Nullable
-  public static List<String> getStringListFromTargetExpression(final String name, List<PyTargetExpression> attrs) {
-    for (PyTargetExpression attr : attrs) {
-      if (name.equals(attr.getName())) {
-        return PyUtil.getStringListFromTargetExpression(attr);
+    private void processSubList(@Nullable List<String> list) {
+      if (list == null) {
+        myDynamic = true;
+      }
+      else {
+        myResult.addAll(list);
       }
     }
-    return null;
+
+    @Nullable
+    private List<String> getStringListFromValue(@Nullable PyExpression expression) {
+      if (expression instanceof PyReferenceExpression && !((PyReferenceExpression)expression).isQualified()) {
+        return myDunderLike.get(((PyReferenceExpression)expression).getReferencedName());
+      }
+      return PyUtil.strListValue(expression);
+    }
   }
 
   @Override
@@ -675,6 +692,7 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   }
 
 
+  @Nullable
   @Override
   public PyType getType(@NotNull TypeEvalContext context, @NotNull TypeEvalContext.Key key) {
     if (myType == null) myType = new PyModuleType(this);
@@ -700,8 +718,8 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
   }
 
   @Override
-  public void subtreeChanged() {
-    super.subtreeChanged();
+  public void clearCaches() {
+    super.clearCaches();
     ControlFlowCache.clear(this);
     myDunderAllCalculated = false;
     myFutureFeatures.clear(); // probably no need to synchronize
@@ -721,13 +739,6 @@ public class PyFileImpl extends PsiFileBase implements PyFile, PyExpression {
     final PsiElement newElement = super.setName(name);
     PyUtil.deletePycFiles(path);
     return newElement;
-  }
-
-  private static class ArrayListThreadLocal extends ThreadLocal<List<String>> {
-    @Override
-    protected List<String> initialValue() {
-      return new ArrayList<>();
-    }
   }
 
   @Override

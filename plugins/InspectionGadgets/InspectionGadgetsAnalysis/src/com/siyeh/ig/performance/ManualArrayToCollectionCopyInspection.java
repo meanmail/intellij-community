@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2015 Bas Leijdekkers
+ * Copyright 2006-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
  */
 package com.siyeh.ig.performance;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.InheritanceUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -34,6 +34,8 @@ import com.siyeh.ig.psiutils.VariableAccessUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import static com.intellij.util.ObjectUtils.tryCast;
 
 public class ManualArrayToCollectionCopyInspection extends BaseInspection {
 
@@ -61,7 +63,7 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
     return new ManualArrayToCollectionCopyFix();
   }
 
-  private static PsiArrayAccessExpression getArrayAccessExpression(PsiForStatement forStatement) {
+  static PsiArrayAccessExpression getArrayAccessExpression(PsiForStatement forStatement) {
     final PsiStatement body = getBody(forStatement);
     if (body == null) {
       return null;
@@ -119,20 +121,12 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message(
-        "manual.array.to.collection.copy.replace.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return CommonQuickFixBundle.message("fix.replace.with.x", "Collections.addAll(...,...)");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement forElement = descriptor.getPsiElement();
       final PsiElement parent = forElement.getParent();
       final String newExpression;
@@ -159,9 +153,7 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
     }
 
     @Nullable
-    private static String getCollectionsAddAllText(
-      PsiForeachStatement foreachStatement)
-      throws IncorrectOperationException {
+    private static String getCollectionsAddAllText(PsiForeachStatement foreachStatement) {
       final PsiStatement body = getBody(foreachStatement);
       if (!(body instanceof PsiExpressionStatement)) {
         return null;
@@ -202,49 +194,31 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
     }
 
     @Nullable
-    private static String getCollectionsAddAllText(
-      PsiForStatement forStatement)
-      throws IncorrectOperationException {
+    private static String getCollectionsAddAllText(PsiForStatement forStatement) {
       final PsiExpression expression = forStatement.getCondition();
-      final PsiBinaryExpression condition =
-        (PsiBinaryExpression)ParenthesesUtils.stripParentheses(
-          expression);
-      if (condition == null) {
-        return null;
-      }
-      final PsiStatement initialization =
-        forStatement.getInitialization();
-      if (initialization == null) {
-        return null;
-      }
-      if (!(initialization instanceof PsiDeclarationStatement)) {
-        return null;
-      }
-      final PsiDeclarationStatement declaration =
-        (PsiDeclarationStatement)initialization;
-      final PsiElement[] declaredElements =
-        declaration.getDeclaredElements();
-      if (declaredElements.length != 1) {
-        return null;
-      }
-      final PsiElement declaredElement = declaredElements[0];
-      if (!(declaredElement instanceof PsiLocalVariable)) {
-        return null;
-      }
-      final PsiLocalVariable variable = (PsiLocalVariable)declaredElement;
+      final PsiBinaryExpression condition = tryCast(ParenthesesUtils.stripParentheses(expression), PsiBinaryExpression.class);
+      if (condition == null) return null;
+      final PsiDeclarationStatement declaration = tryCast(forStatement.getInitialization(), PsiDeclarationStatement.class);
+      if (declaration == null) return null;
+      final PsiElement[] declaredElements = declaration.getDeclaredElements();
+      if (declaredElements.length != 1) return null;
+      final PsiLocalVariable variable = tryCast(declaredElements[0], PsiLocalVariable.class);
+      if (variable == null) return null;
       final String collectionText = buildCollectionText(forStatement);
-      final PsiArrayAccessExpression arrayAccessExpression =
-        getArrayAccessExpression(forStatement);
-      if (arrayAccessExpression == null) {
-        return null;
-      }
+      final PsiArrayAccessExpression arrayAccessExpression = getArrayAccessExpression(forStatement);
+      if (arrayAccessExpression == null) return null;
+
       final PsiExpression arrayExpression =
         arrayAccessExpression.getArrayExpression();
       final String arrayText = arrayExpression.getText();
       final PsiExpression indexExpression =
         arrayAccessExpression.getIndexExpression();
+      final String indexOffset = getIndexOffset(indexExpression, variable);
+      if (indexOffset == null) {
+        return null;
+      }
       final String fromOffsetText =
-        buildFromOffsetText(indexExpression, variable);
+        addIndexOffset(variable.getInitializer(), indexOffset, false);
       if (fromOffsetText == null) {
         return null;
       }
@@ -257,9 +231,11 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
       else {
         limit = condition.getLOperand();
       }
-      @NonNls final String toOffsetText =
-        buildToOffsetText(limit, tokenType == JavaTokenType.LE ||
-                                 tokenType == JavaTokenType.GE);
+
+      final String toOffsetText =
+        addIndexOffset(limit, indexOffset,
+                       tokenType == JavaTokenType.LE ||
+                       tokenType == JavaTokenType.GE);
       if (toOffsetText == null) {
         return null;
       }
@@ -303,51 +279,35 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
           return null;
         }
       }
-      if (!(body instanceof PsiExpressionStatement)) {
-        return null;
-      }
-      final PsiExpressionStatement expressionStatement =
-        (PsiExpressionStatement)body;
-      final PsiExpression expression =
-        expressionStatement.getExpression();
-      if (!(expression instanceof PsiMethodCallExpression)) {
-        return null;
-      }
-      final PsiMethodCallExpression methodCallExpression =
-        (PsiMethodCallExpression)expression;
-      final PsiReferenceExpression methodExpression =
-        methodCallExpression.getMethodExpression();
-      final PsiElement qualifier = methodExpression.getQualifier();
-      if (qualifier == null) {
-        // fixme for when the array is added to 'this'
-        return null;
-      }
-      return qualifier.getText();
+      if (!(body instanceof PsiExpressionStatement)) return null;
+      final PsiExpression expression = PsiUtil.skipParenthesizedExprDown(((PsiExpressionStatement)body).getExpression());
+      if (!(expression instanceof PsiMethodCallExpression)) return null;
+      final PsiMethodCallExpression call = (PsiMethodCallExpression)expression;
+      return ExpressionUtils.getQualifierOrThis(call.getMethodExpression()).getText();
     }
 
     @Nullable
-    private static String buildFromOffsetText(PsiExpression expression,
-                                              PsiLocalVariable variable)
-      throws IncorrectOperationException {
+    private static String getIndexOffset(PsiExpression expression,
+                                         PsiLocalVariable variable) {
       expression = ParenthesesUtils.stripParentheses(expression);
       if (expression == null) {
         return null;
       }
+      if (ExpressionUtils.isZero(expression)) {
+        return "0";
+      }
       final String expressionText = expression.getText();
       final String variableName = variable.getName();
       if (expressionText.equals(variableName)) {
-        final PsiExpression initialValue = variable.getInitializer();
-        if (initialValue == null) {
-          return null;
-        }
-        return initialValue.getText();
+        return "0";
       }
       if (expression instanceof PsiBinaryExpression) {
-        final PsiBinaryExpression binaryExpression =
+        PsiBinaryExpression binaryExpression =
           (PsiBinaryExpression)expression;
         final PsiExpression lhs = binaryExpression.getLOperand();
         final PsiExpression rhs = binaryExpression.getROperand();
-        final String rhsText = buildFromOffsetText(rhs, variable);
+
+        final String rhsText = getIndexOffset(rhs, variable);
         final PsiJavaToken sign = binaryExpression.getOperationSign();
         final IElementType tokenType = sign.getTokenType();
         if (ExpressionUtils.isZero(lhs)) {
@@ -356,64 +316,110 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
           }
           return rhsText;
         }
-        final String lhsText = buildFromOffsetText(lhs, variable);
+        final String lhsText = getIndexOffset(lhs, variable);
         if (ExpressionUtils.isZero(rhs)) {
           return lhsText;
         }
-        return collapseConstant(lhsText + sign.getText() + rhsText,
+        return collapseConstant(lhsText + " " + sign.getText() + " " + rhsText,
                                 variable);
       }
-      return collapseConstant(expression.getText(), variable);
+      return collapseConstant(expressionText, variable);
     }
 
-    private static String buildToOffsetText(PsiExpression expression,
-                                            boolean plusOne) {
-      expression = ParenthesesUtils.stripParentheses(expression);
+    private static String addIndexOffset(PsiExpression expression,
+                                         String indexOffset,
+                                         boolean plusOne) {
       if (expression == null) {
         return null;
       }
-      if (!plusOne) {
-        return expression.getText();
+      if (plusOne) {
+        indexOffset = collapseConstant("(" + indexOffset + ") + 1", expression);
       }
+      final String expressionText = expression.getText();
+      if ("0".equals(indexOffset)) {
+        return expressionText;
+      }
+
       if (expression instanceof PsiBinaryExpression) {
         final PsiBinaryExpression binaryExpression =
           (PsiBinaryExpression)expression;
         final IElementType tokenType =
           binaryExpression.getOperationTokenType();
+        final PsiExpression lhs = binaryExpression.getLOperand();
+        final PsiExpression rhs = binaryExpression.getROperand();
+
+        if (tokenType == JavaTokenType.PLUS) {
+          Object rhConstant = ExpressionUtils.computeConstantExpression(rhs);
+          if (rhConstant != null) {
+            final String rhText = collapseConstant(
+              rhConstant + " + (" + indexOffset + ")", expression);
+            if ("0".equals(rhText)) {
+              return lhs.getText();
+            }
+            return lhs.getText() + getAddendum(rhText, expression);
+          }
+        }
+
         if (tokenType == JavaTokenType.MINUS) {
-          final PsiExpression rhs =
-            binaryExpression.getROperand();
-          if (ExpressionUtils.isOne(rhs)) {
-            return binaryExpression.getLOperand().getText();
+          Object rhConstant = ExpressionUtils.computeConstantExpression(rhs);
+          if (rhConstant != null) {
+            final String rhText = collapseConstant(
+              "(" + indexOffset + ") - " + rhConstant, expression);
+            if ("0".equals(rhText)) {
+              return lhs.getText();
+            }
+            return lhs.getText() + getAddendum(rhText, expression);
+          }
+        }
+
+        if (rhs != null &&
+            (tokenType == JavaTokenType.PLUS ||
+             tokenType == JavaTokenType.MINUS)) {
+          Object lhConstant = ExpressionUtils.computeConstantExpression(lhs);
+          if (lhConstant != null) {
+            String lhText = collapseConstant(
+              lhConstant + " + (" + indexOffset + ")", expression);
+            if ("0".equals(lhText)) {
+              return tokenType == JavaTokenType.MINUS ? "-" + rhs.getText() : rhs.getText();
+            }
+            return lhText + (tokenType == JavaTokenType.MINUS ? " - " : " + ") + rhs.getText();
           }
         }
       }
+
+      final String addendum = getAddendum(indexOffset, expression);
       final int precedence = ParenthesesUtils.getPrecedence(expression);
-      if (precedence > ParenthesesUtils.ADDITIVE_PRECEDENCE) {
-        return '(' + expression.getText() + ")+1";
-      }
-      else {
-        return expression.getText() + "+1";
-      }
+      final String text = precedence > ParenthesesUtils.ADDITIVE_PRECEDENCE
+                          ? '(' + expressionText + ")" + addendum
+                          : expressionText + addendum;
+      return collapseConstant(text, expression);
     }
 
-    private static String collapseConstant(String expressionText,
-                                           PsiElement context)
-      throws IncorrectOperationException {
+    private static String getAddendum(String expressionText, PsiElement context) {
+      if (expressionText.startsWith("-")) {
+        final String negatedExpressionText = expressionText.substring(1);
+        final Object lhConstant = computeConstant(negatedExpressionText, context);
+        if (lhConstant != null) {
+          return " - " + lhConstant.toString();
+        }
+        return " + (" + expressionText + ")";
+      }
+      return " + " + expressionText;
+    }
+
+    private static String collapseConstant(String expressionText, PsiElement context) {
+      final Object fromOffsetConstant = computeConstant(expressionText, context);
+      return fromOffsetConstant != null ? fromOffsetConstant.toString() : expressionText;
+    }
+
+    private static Object computeConstant(String expressionText,
+                                          PsiElement context) {
       final Project project = context.getProject();
       final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(project);
       final PsiElementFactory factory = psiFacade.getElementFactory();
       final PsiExpression fromOffsetExpression =
         factory.createExpressionFromText(expressionText, context);
-      final Object fromOffsetConstant =
-        ExpressionUtils.computeConstantExpression(
-          fromOffsetExpression);
-      if (fromOffsetConstant != null) {
-        return fromOffsetConstant.toString();
-      }
-      else {
-        return expressionText;
-      }
+      return ExpressionUtils.computeConstantExpression(fromOffsetExpression);
     }
   }
 
@@ -561,13 +567,14 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
       if (arguments.length != 1) {
         return false;
       }
-      final PsiReferenceExpression methodExpression =
-        methodCallExpression.getMethodExpression();
-      final PsiExpression qualifier =
-        methodExpression.getQualifierExpression();
+      final PsiReferenceExpression methodExpression = methodCallExpression.getMethodExpression();
+      final PsiExpression qualifier = methodExpression.getQualifierExpression();
       if (!(qualifier instanceof PsiReferenceExpression) &&
           !(qualifier instanceof PsiThisExpression) &&
           !(qualifier instanceof PsiSuperExpression)) {
+        return false;
+      }
+      if (VariableAccessUtils.variableIsUsed(variable, qualifier)) {
         return false;
       }
       final PsiExpression argument = arguments[0];
@@ -583,8 +590,7 @@ public class ManualArrayToCollectionCopyInspection extends BaseInspection {
           return false;
         }
       }
-      else if (!VariableAccessUtils.evaluatesToVariable(argument,
-                                                        variable)) {
+      else if (!ExpressionUtils.isReferenceTo(argument, variable)) {
         return false;
       }
       final PsiMethod method = methodCallExpression.resolveMethod();

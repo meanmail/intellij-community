@@ -17,11 +17,10 @@
 package org.intellij.plugins.intelliLang.inject;
 
 import com.intellij.lang.Language;
-import com.intellij.lang.injection.MultiHostRegistrar;
 import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.options.Configurable;
+import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogBuilder;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -53,8 +52,14 @@ public abstract class AbstractLanguageInjectionSupport extends LanguageInjection
     return false;
   }
 
+  @Override
   public boolean useDefaultInjector(final PsiLanguageInjectionHost host) {
     return false;
+  }
+
+  @Override
+  public boolean useDefaultCommentInjector() {
+    return true;
   }
 
   @Nullable
@@ -63,70 +68,74 @@ public abstract class AbstractLanguageInjectionSupport extends LanguageInjection
     return InjectorUtils.findCommentInjection(host, "comment", commentRef);
   }
 
-  public void getLanguagesToInject(@NotNull MultiHostRegistrar registrar, @NotNull PsiElement context) {
-  }
-
+  @Override
   public boolean addInjectionInPlace(final Language language, final PsiLanguageInjectionHost psiElement) {
     return false;
   }
 
+  @Override
   public boolean removeInjectionInPlace(final PsiLanguageInjectionHost psiElement) {
     return false;
   }
 
+  @Override
   public boolean editInjectionInPlace(final PsiLanguageInjectionHost psiElement) {
     return false;
   }
 
+  @Override
   public BaseInjection createInjection(final Element element) {
     return new BaseInjection(getId());
   }
 
+  @Override
   public void setupPresentation(final BaseInjection injection, final SimpleColoredText presentation, final boolean isSelected) {
     presentation.append(injection.getDisplayName(), SimpleTextAttributes.REGULAR_ATTRIBUTES);
   }
 
+  @Override
   public Configurable[] createSettings(final Project project, final Configuration configuration) {
     return new Configurable[0];
   }
 
-  public AnAction[] createAddActions(final Project project, final Consumer<BaseInjection> consumer) {
+  @Override
+  public AnAction[] createAddActions(final Project project, final Consumer<? super BaseInjection> consumer) {
     return new AnAction[] { createDefaultAddAction(project, consumer, this) };
   }
 
-  public AnAction createEditAction(final Project project, final Factory<BaseInjection> producer) {
+  @Override
+  public AnAction createEditAction(final Project project, final Factory<? extends BaseInjection> producer) {
     return createDefaultEditAction(project, producer);
   }
 
-  public static AnAction createDefaultEditAction(final Project project, final Factory<BaseInjection> producer) {
-    return new AnAction() {
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        final BaseInjection originalInjection = producer.create();
-        final BaseInjection newInjection = showDefaultInjectionUI(project, originalInjection.copy());
-        if (newInjection != null) {
-          originalInjection.copyFrom(newInjection);
-        }
-      }
-    };
+  public static AnAction createDefaultEditAction(Project project, Factory<? extends BaseInjection> producer) {
+    return DumbAwareAction.create(e -> perform(project, producer));
+  }
+
+  protected static void perform(Project project, Factory<? extends BaseInjection> producer) {
+    BaseInjection originalInjection = producer.create();
+    BaseInjection newInjection = showDefaultInjectionUI(project, originalInjection.copy());
+    if (newInjection != null) {
+      originalInjection.copyFrom(newInjection);
+    }
   }
 
   public static AnAction createDefaultAddAction(final Project project,
-                                                final Consumer<BaseInjection> consumer,
+                                                final Consumer<? super BaseInjection> consumer,
                                                 final AbstractLanguageInjectionSupport support) {
     final String supportTitle = StringUtil.capitalize(support.getId());
     Icon icon = FileTypeManager.getInstance().getFileTypeByExtension(support.getId()).getIcon();
-    return new AnAction("Generic "+ supportTitle, null, icon) {
-      @Override
-      public void actionPerformed(AnActionEvent e) {
-        final BaseInjection injection = new BaseInjection(support.getId());
-        injection.setDisplayName("New "+ supportTitle +" Injection");
-        final BaseInjection newInjection = showDefaultInjectionUI(project, injection);
-        if (newInjection != null) {
-          consumer.consume(injection);
-        }
+    AnAction action = DumbAwareAction.create(e -> {
+      BaseInjection injection = new BaseInjection(support.getId());
+      injection.setDisplayName("New " + supportTitle + " Injection");
+      final BaseInjection newInjection = showDefaultInjectionUI(project, injection);
+      if (newInjection != null) {
+        consumer.consume(injection);
       }
-    };
+    });
+    action.getTemplatePresentation().setText("Generic " + supportTitle);
+    action.getTemplatePresentation().setIcon(icon);
+    return action;
   }
 
   @Nullable

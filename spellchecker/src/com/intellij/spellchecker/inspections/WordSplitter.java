@@ -15,6 +15,7 @@
  */
 package com.intellij.spellchecker.inspections;
 
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.util.Consumer;
 import org.jetbrains.annotations.NonNls;
@@ -23,6 +24,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
 
 public class WordSplitter extends BaseSplitter {
   private static final WordSplitter INSTANCE = new WordSplitter();
@@ -39,14 +41,18 @@ public class WordSplitter extends BaseSplitter {
     if (text == null || range.getLength() <= 1) {
       return;
     }
-    Matcher specialMatcher = SPECIAL.matcher(text);
-    specialMatcher.region(range.getStartOffset(), range.getEndOffset());
-    if (specialMatcher.find()) {
-      TextRange found = new TextRange(specialMatcher.start(), specialMatcher.end());
-      addWord(consumer, true, found);
+    try {
+      Matcher specialMatcher = SPECIAL.matcher(newBombedCharSequence(text));
+      specialMatcher.region(range.getStartOffset(), range.getEndOffset());
+      if (specialMatcher.find()) {
+        TextRange found = new TextRange(specialMatcher.start(), specialMatcher.end());
+        addWord(consumer, true, found);
+      }
+      else {
+        IdentifierSplitter.getInstance().split(text, range, consumer);
+      }
     }
-    else {
-      IdentifierSplitter.getInstance().split(text, range, consumer);
+    catch (ProcessCanceledException ignored) {
     }
   }
 }

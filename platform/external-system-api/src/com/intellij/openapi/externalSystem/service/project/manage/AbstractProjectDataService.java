@@ -18,9 +18,11 @@ package com.intellij.openapi.externalSystem.service.project.manage;
 import com.intellij.openapi.externalSystem.model.DataNode;
 import com.intellij.openapi.externalSystem.model.Key;
 import com.intellij.openapi.externalSystem.model.project.ProjectData;
+import com.intellij.openapi.externalSystem.service.project.IdeModelsProvider;
 import com.intellij.openapi.externalSystem.service.project.IdeModifiableModelsProvider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,12 +31,11 @@ import java.util.Collections;
 
 /**
  * @author Vladislav.Soroka
- * @since 5/5/2015
  */
 public abstract class AbstractProjectDataService<E, I> implements ProjectDataService<E, I> {
 
   public final Computable.PredefinedValueComputable<Collection<I>> EMPTY_LIST =
-    new Computable.PredefinedValueComputable<>(Collections.<I>emptyList());
+    new Computable.PredefinedValueComputable<>(Collections.emptyList());
 
   @NotNull
   @Override
@@ -70,6 +71,13 @@ public abstract class AbstractProjectDataService<E, I> implements ProjectDataSer
                           @NotNull IdeModifiableModelsProvider modelsProvider) {
   }
 
-  public void onSuccessImport(@NotNull Project project) {
+  public void onSuccessImport(@NotNull Collection<DataNode<E>> imported,
+                              @Nullable ProjectData projectData,
+                              @NotNull Project project,
+                              @NotNull IdeModelsProvider modelsProvider) {
+  }
+
+  @ApiStatus.Experimental
+  public void onFailureImport(Project project) {
   }
 }

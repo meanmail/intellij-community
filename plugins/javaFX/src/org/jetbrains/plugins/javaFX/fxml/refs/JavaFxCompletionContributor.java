@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.fxml.refs;
 
 import com.intellij.codeInsight.completion.*;
@@ -30,7 +31,7 @@ public class JavaFxCompletionContributor extends CompletionContributor {
   private static class JavaFxTagCompletionContributor extends CompletionProvider<CompletionParameters> {
     @Override
     protected void addCompletions(@NotNull CompletionParameters parameters,
-                                  ProcessingContext context,
+                                  @NotNull ProcessingContext context,
                                   @NotNull CompletionResultSet result) {
       PsiReference reference = parameters.getPosition().getContainingFile().findReferenceAt(parameters.getOffset());
       if (reference instanceof JavaFxTagNameReference) {
@@ -58,7 +59,7 @@ public class JavaFxCompletionContributor extends CompletionContributor {
     public static final JavaFxTagInsertHandler INSTANCE = new JavaFxTagInsertHandler();
 
     @Override
-    public void handleInsert(InsertionContext context, LookupElement item) {
+    public void handleInsert(@NotNull InsertionContext context, @NotNull LookupElement item) {
       super.handleInsert(context, item);
       final Object object = item.getObject();
       if (object instanceof JavaFxClassTagDescriptorBase) {

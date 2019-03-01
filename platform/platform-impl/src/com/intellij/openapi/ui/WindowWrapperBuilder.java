@@ -1,10 +1,12 @@
 package com.intellij.openapi.ui;
 
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.WindowWrapper.Mode;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.ui.mac.touchbar.TouchBarsManager;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -14,6 +16,7 @@ import javax.swing.border.Border;
 import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.util.List;
 
 public class WindowWrapperBuilder {
   @NotNull private final Mode myMode;
@@ -91,6 +94,7 @@ public class WindowWrapperBuilder {
       @Override
       public void windowOpened(WindowEvent e) {
         onShowCallback.run();
+        e.getWindow().removeWindowListener(this);
       }
     });
   }
@@ -102,7 +106,7 @@ public class WindowWrapperBuilder {
 
     @NotNull private final MyDialogWrapper myDialog;
 
-    public DialogWindowWrapper(@NotNull final WindowWrapperBuilder builder) {
+    DialogWindowWrapper(@NotNull final WindowWrapperBuilder builder) {
       myProject = builder.myProject;
       myComponent = builder.myComponent;
       myMode = builder.myMode;
@@ -169,7 +173,7 @@ public class WindowWrapperBuilder {
     }
 
     @Override
-    public void setImage(@Nullable Image image) {
+    public void setImages(@Nullable List<Image> images) {
     }
 
     @Override
@@ -178,22 +182,22 @@ public class WindowWrapperBuilder {
     }
 
     private static class MyDialogWrapper extends DialogWrapper {
-      @NotNull private JComponent myComponent;
+      @NotNull private final JComponent myComponent;
       @Nullable private String myDimensionServiceKey;
-      @Nullable private Computable<JComponent> myPreferredFocusedComponent;
+      @Nullable private Computable<? extends JComponent> myPreferredFocusedComponent;
 
-      public MyDialogWrapper(@Nullable Project project, @NotNull JComponent component) {
+      MyDialogWrapper(@Nullable Project project, @NotNull JComponent component) {
         super(project, true);
         myComponent = component;
       }
 
-      public MyDialogWrapper(@NotNull Component parent, @NotNull JComponent component) {
+      MyDialogWrapper(@NotNull Component parent, @NotNull JComponent component) {
         super(parent, true);
         myComponent = component;
       }
 
       public void setParameters(@Nullable String dimensionServiceKey,
-                                @Nullable Computable<JComponent> preferredFocusedComponent) {
+                                @Nullable Computable<? extends JComponent> preferredFocusedComponent) {
         myDimensionServiceKey = dimensionServiceKey;
         myPreferredFocusedComponent = preferredFocusedComponent;
       }
@@ -245,7 +249,7 @@ public class WindowWrapperBuilder {
 
     @NotNull private final MyFrameWrapper myFrame;
 
-    public FrameWindowWrapper(@NotNull WindowWrapperBuilder builder) {
+    FrameWindowWrapper(@NotNull WindowWrapperBuilder builder) {
       assert builder.myMode == Mode.FRAME;
 
       myProject = builder.myProject;
@@ -265,6 +269,10 @@ public class WindowWrapperBuilder {
 
     @Override
     public void show() {
+      final Disposable tb = TouchBarsManager.showDialogWrapperButtons(myComponent);
+      if (tb != null)
+        Disposer.register(myFrame, tb);
+
       myFrame.show();
       if (myOnShowCallback != null) myOnShowCallback.run();
     }
@@ -304,8 +312,8 @@ public class WindowWrapperBuilder {
     }
 
     @Override
-    public void setImage(@Nullable Image image) {
-      myFrame.setImage(image);
+    public void setImages(@Nullable List<Image> images) {
+      myFrame.setImages(images);
     }
 
     @Override
@@ -319,13 +327,13 @@ public class WindowWrapperBuilder {
     }
 
     private static class MyFrameWrapper extends FrameWrapper {
-      private Computable<JComponent> myPreferredFocusedComponent;
+      private Computable<? extends JComponent> myPreferredFocusedComponent;
 
-      public MyFrameWrapper(Project project, @Nullable @NonNls String dimensionServiceKey) {
+      MyFrameWrapper(Project project, @Nullable @NonNls String dimensionServiceKey) {
         super(project, dimensionServiceKey);
       }
 
-      public void setParameters(@Nullable Computable<JComponent> preferredFocusedComponent) {
+      public void setParameters(@Nullable Computable<? extends JComponent> preferredFocusedComponent) {
         myPreferredFocusedComponent = preferredFocusedComponent;
       }
 

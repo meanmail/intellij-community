@@ -1,46 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
-/*
- * User: anna
- * Date: 28-Apr-2010
- */
 package com.theoryinpractice.testng.configuration;
 
 import com.intellij.execution.CantRunException;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.testframework.SearchForTestsTask;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.PathManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
 import com.intellij.psi.util.ClassUtil;
-import com.intellij.util.Function;
-import com.intellij.util.containers.ContainerUtil;
 import com.theoryinpractice.testng.model.TestData;
 import com.theoryinpractice.testng.model.TestNGTestObject;
 import com.theoryinpractice.testng.model.TestType;
 import com.theoryinpractice.testng.util.TestNGUtil;
-import org.jetbrains.annotations.Nullable;
 import org.testng.TestNGXmlSuiteHelper;
 import org.testng.xml.LaunchSuite;
 import org.testng.xml.Parser;
@@ -52,7 +29,7 @@ import java.net.ServerSocket;
 import java.util.*;
 
 public class SearchingForTestsTask extends SearchForTestsTask {
-  private static final Logger LOG = Logger.getInstance("#" + SearchingForTestsTask.class.getName());
+  private static final Logger LOG = Logger.getInstance(SearchingForTestsTask.class);
   protected final Map<PsiClass, Map<PsiMethod, List<String>>> myClasses;
   private final TestData myData;
   private final Project myProject;
@@ -99,6 +76,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
     fillTestObjects(myClasses);
   }
 
+  @Override
   protected void logCantRunException(ExecutionException e) {
     try {
       final String message = "CantRunException" + e.getMessage() + "\n";
@@ -123,18 +101,11 @@ public class SearchingForTestsTask extends SearchForTestsTask {
       if (findTestMethodsForClass && depMethods.isEmpty()) {
         for (PsiMethod method : entry.getKey().getMethods()) {
           if (TestNGUtil.hasTest(method)) {
-            methods.put(method.getName(), Collections.<String>emptyList());
+            methods.put(method.getName(), Collections.emptyList());
           }
         }
       }
-      final String className = ApplicationManager.getApplication().runReadAction(
-        new Computable<String>() {
-          @Nullable
-          public String compute() {
-            return ClassUtil.getJVMClassName(entry.getKey());
-          }
-        }
-      );
+      final String className = ReadAction.compute(() -> ClassUtil.getJVMClassName(entry.getKey()));
       if (className != null) {
         map.put(className, methods);
       }
@@ -147,7 +118,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
     int logLevel = 1;
     try {
       final Properties properties = new Properties();
-      properties.load(new ByteArrayInputStream(myConfig.getPersistantData().VM_PARAMETERS.getBytes()));
+      properties.load(new ByteArrayInputStream(myConfig.getVMParameters().getBytes()));
       final String verbose = properties.getProperty("-Dtestng.verbose");
       if (verbose != null) {
         logLevel = Integer.parseInt(verbose);
@@ -168,7 +139,7 @@ public class SearchingForTestsTask extends SearchForTestsTask {
       xmlFile = suite.save(new File(PathManager.getSystemPath()));
     }
     else {
-      xmlFile = TestNGXmlSuiteHelper.writeSuite(map, testParams, myProject.getName(), 
+      xmlFile = TestNGXmlSuiteHelper.writeSuite(map, testParams, myProject.getName(),
                                                 PathManager.getSystemPath(),
                                                 new TestNGXmlSuiteHelper.Logger() {
                                                   @Override

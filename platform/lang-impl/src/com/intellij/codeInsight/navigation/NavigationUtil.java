@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.navigation;
 
@@ -23,22 +9,21 @@ import com.intellij.navigation.GotoRelatedItem;
 import com.intellij.navigation.GotoRelatedProvider;
 import com.intellij.navigation.NavigationItem;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ex.MarkupModelEx;
-import com.intellij.openapi.editor.ex.RangeHighlighterEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.impl.DocumentMarkupModel;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.MarkupModel;
 import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.fileEditor.impl.EditorHistoryManager;
-import com.intellij.openapi.ui.popup.JBPopup;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
-import com.intellij.openapi.ui.popup.PopupStep;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.popup.*;
 import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.TextRange;
@@ -49,20 +34,23 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.ElementBase;
 import com.intellij.psi.search.PsiElementProcessor;
-import com.intellij.ui.*;
+import com.intellij.ui.ColoredListCellRenderer;
+import com.intellij.ui.JBColor;
+import com.intellij.ui.SeparatorWithText;
+import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.popup.list.ListPopupImpl;
 import com.intellij.ui.popup.list.PopupListElementRenderer;
 import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author ven
@@ -79,7 +67,7 @@ public final class NavigationUtil {
 
   @NotNull
   public static JBPopup getPsiElementPopup(@NotNull PsiElement[] elements,
-                                           @NotNull final PsiElementListCellRenderer<PsiElement> renderer,
+                                           @NotNull final PsiElementListCellRenderer<? super PsiElement> renderer,
                                            final String title) {
     return getPsiElementPopup(elements, renderer, title, new PsiElementProcessor<PsiElement>() {
       @Override
@@ -97,7 +85,7 @@ public final class NavigationUtil {
   public static <T extends PsiElement> JBPopup getPsiElementPopup(@NotNull T[] elements,
                                                                   @NotNull final PsiElementListCellRenderer<T> renderer,
                                                                   final String title,
-                                                                  @NotNull final PsiElementProcessor<T> processor) {
+                                                                  @NotNull final PsiElementProcessor<? super T> processor) {
     return getPsiElementPopup(elements, renderer, title, processor, null);
   }
 
@@ -105,45 +93,50 @@ public final class NavigationUtil {
   public static <T extends PsiElement> JBPopup getPsiElementPopup(@NotNull T[] elements,
                                                                   @NotNull final PsiElementListCellRenderer<T> renderer,
                                                                   @Nullable final String title,
-                                                                  @NotNull final PsiElementProcessor<T> processor,
+                                                                  @NotNull final PsiElementProcessor<? super T> processor,
                                                                   @Nullable final T selection) {
-    final JList list = new JBListWithHintProvider(elements) {
-      @Nullable
-      @Override
-      protected PsiElement getPsiElementForHint(Object selectedValue) {
-        return (PsiElement)selectedValue;
-      }
-    };
-    list.setCellRenderer(renderer);
-
-    list.setFont(EditorUtil.getEditorFont());
-
+    assert elements.length > 0 : "Attempted to show a navigation popup with zero elements";
+    IPopupChooserBuilder<T> builder = JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(ContainerUtil.newArrayList(elements))
+      .setRenderer(renderer)
+      .setFont(EditorUtil.getEditorFont())
+      .withHintUpdateSupply();
     if (selection != null) {
-      list.setSelectedValue(selection, true);
+      builder.setSelectedValue(selection, true);
     }
-
-    final Runnable runnable = () -> {
-      int[] ids = list.getSelectedIndices();
-      if (ids == null || ids.length == 0) return;
-      for (Object element : list.getSelectedValues()) {
-        if (element != null) {
-          processor.execute((T)element);
-        }
-      }
-    };
-
-    PopupChooserBuilder builder = new PopupChooserBuilder(list);
     if (title != null) {
       builder.setTitle(title);
     }
     renderer.installSpeedSearch(builder, true);
 
-    JBPopup popup = builder.setItemChoosenCallback(runnable).createPopup();
+    JBPopup popup = builder.setItemsChosenCallback((selectedValues) -> {
+      for (T element : selectedValues) {
+        if (element != null) {
+          processor.execute(element);
+        }
+      }
+    }).createPopup();
 
-    builder.getScrollPane().setBorder(null);
-    builder.getScrollPane().setViewportBorder(null);
+    if (builder instanceof PopupChooserBuilder) {
+      JScrollPane pane = ((PopupChooserBuilder)builder).getScrollPane();
+      pane.setBorder(null);
+      pane.setViewportBorder(null);
+    }
+
+    hidePopupIfDumbModeStarts(popup, elements[0].getProject());
 
     return popup;
+  }
+
+  public static void hidePopupIfDumbModeStarts(@NotNull JBPopup popup, @NotNull Project project) {
+    if (!DumbService.isDumb(project)) {
+      project.getMessageBus().connect(popup).subscribe(DumbService.DUMB_MODE, new DumbService.DumbModeListener() {
+        @Override
+        public void enteredDumbMode() {
+          popup.cancel();
+        }
+      });
+    }
   }
 
   public static boolean activateFileWithPsiElement(@NotNull PsiElement elt) {
@@ -170,12 +163,22 @@ public final class NavigationUtil {
       element.putUserData(FileEditorManager.USE_CURRENT_WINDOW, true);
     }
 
-    if (openAsNative || !activatePsiElementIfOpen(element, searchForOpen, requestFocus)) {
-      final NavigationItem navigationItem = (NavigationItem)element;
-      if (!navigationItem.canNavigate()) return false;
-      navigationItem.navigate(requestFocus);
-      return true;
-    }
+    Ref<Boolean> resultRef = new Ref<>();
+    boolean openAsNativeFinal = openAsNative;
+    // all navigation inside should be treated as a single operation, so that 'Back' action undoes it in one go
+    CommandProcessor.getInstance().executeCommand(element.getProject(), () -> {
+      if (openAsNativeFinal || !activatePsiElementIfOpen(element, searchForOpen, requestFocus)) {
+        final NavigationItem navigationItem = (NavigationItem)element;
+        if (!navigationItem.canNavigate()) {
+          resultRef.set(Boolean.FALSE);
+        }
+        else {
+          navigationItem.navigate(requestFocus);
+          resultRef.set(Boolean.TRUE);
+        }
+      }
+    }, "", null);
+    if (!resultRef.isNull()) return resultRef.get();
 
     element.putUserData(FileEditorManager.USE_CURRENT_WINDOW, null);
     return false;
@@ -261,18 +264,21 @@ public final class NavigationUtil {
    */
   @NotNull
   public static JBPopup getRelatedItemsPopup(final List<? extends GotoRelatedItem> items, String title, boolean showContainingModules) {
-    Object[] elements = new Object[items.size()];
+    List<Object> elements = new ArrayList<>(items.size());
     //todo[nik] move presentation logic to GotoRelatedItem class
     final Map<PsiElement, GotoRelatedItem> itemsMap = new HashMap<>();
-    for (int i = 0; i < items.size(); i++) {
-      GotoRelatedItem item = items.get(i);
-      elements[i] = item.getElement() != null ? item.getElement() : item;
-      itemsMap.put(item.getElement(), item);
+    for (GotoRelatedItem item : items) {
+      if (item.getElement() != null) {
+        if (itemsMap.putIfAbsent(item.getElement(), item) == null) {
+          elements.add(item.getElement());
+        }
+      }
+      else {
+        elements.add(item);
+      }
     }
-
     return getPsiElementPopup(elements, itemsMap, title, showContainingModules, element -> {
       if (element instanceof PsiElement) {
-        //noinspection SuspiciousMethodCalls
         itemsMap.get(element).navigate();
       }
       else {
@@ -283,7 +289,7 @@ public final class NavigationUtil {
     );
   }
 
-  private static JBPopup getPsiElementPopup(final Object[] elements, final Map<PsiElement, GotoRelatedItem> itemsMap,
+  private static JBPopup getPsiElementPopup(final List<Object> elements, final Map<PsiElement, GotoRelatedItem> itemsMap,
                                            final String title, final boolean showContainingModules, final Processor<Object> processor) {
 
     final Ref<Boolean> hasMnemonic = Ref.create(false);
@@ -364,7 +370,7 @@ public final class NavigationUtil {
         return component;
       }
     };
-    final ListPopupImpl popup = new ListPopupImpl(new BaseListPopupStep<Object>(title, Arrays.asList(elements)) {
+    final ListPopupImpl popup = new ListPopupImpl(new BaseListPopupStep<Object>(title, elements) {
       @Override
       public boolean isSpeedSearchEnabled() {
         return true;
@@ -373,7 +379,6 @@ public final class NavigationUtil {
       @Override
       public String getIndexedString(Object value) {
         if (value instanceof GotoRelatedItem) {
-          //noinspection ConstantConditions
           return ((GotoRelatedItem)value).getCustomName();
         }
         PsiElement element = (PsiElement)value;
@@ -389,7 +394,7 @@ public final class NavigationUtil {
     }) {
     };
     popup.getList().setCellRenderer(new PopupListElementRenderer(popup) {
-      Map<Object, String> separators = new HashMap<>();
+      final Map<Object, String> separators = new HashMap<>();
       {
         final ListModel model = popup.getList().getModel();
         String current = null;
@@ -399,7 +404,7 @@ public final class NavigationUtil {
           final GotoRelatedItem item = itemsMap.get(element);
           if (item != null && !StringUtil.equals(current, item.getGroup())) {
             current = item.getGroup();
-            separators.put(element, current);
+            separators.put(element, hasTitle && StringUtil.isEmpty(current) ? "Other" : current);
             if (!hasTitle && !StringUtil.isEmpty(current)) {
               hasTitle = true;
             }
@@ -421,7 +426,7 @@ public final class NavigationUtil {
           final SeparatorWithText sep = new SeparatorWithText() {
             @Override
             protected void paintComponent(Graphics g) {
-              g.setColor(new JBColor(Color.WHITE, UIUtil.getSeparatorColor()));
+              g.setColor(new JBColor(Color.WHITE, JBUI.CurrentTheme.CustomFrameDecorations.separatorForeground()));
               g.fillRect(0,0,getWidth(), getHeight());
               super.paintComponent(g);
             }
@@ -441,7 +446,7 @@ public final class NavigationUtil {
       if (mnemonic != -1) {
         final Action action = createNumberAction(mnemonic, popup, itemsMap, processor);
         popup.registerAction(mnemonic + "Action", KeyStroke.getKeyStroke(String.valueOf(mnemonic)), action);
-        popup.registerAction(mnemonic + "Action", KeyStroke.getKeyStroke("NUMPAD" + String.valueOf(mnemonic)), action);
+        popup.registerAction(mnemonic + "Action", KeyStroke.getKeyStroke("NUMPAD" + mnemonic), action);
         hasMnemonic.set(true);
       }
     }
@@ -472,13 +477,13 @@ public final class NavigationUtil {
   @NotNull
   public static List<GotoRelatedItem> collectRelatedItems(@NotNull PsiElement contextElement, @Nullable DataContext dataContext) {
     Set<GotoRelatedItem> items = ContainerUtil.newLinkedHashSet();
-    for (GotoRelatedProvider provider : Extensions.getExtensions(GotoRelatedProvider.EP_NAME)) {
+    for (GotoRelatedProvider provider : GotoRelatedProvider.EP_NAME.getExtensionList()) {
       items.addAll(provider.getItems(contextElement));
       if (dataContext != null) {
         items.addAll(provider.getItems(dataContext));
       }
     }
-    GotoRelatedItem[] result = items.toArray(new GotoRelatedItem[items.size()]);
+    GotoRelatedItem[] result = items.toArray(new GotoRelatedItem[0]);
     Arrays.sort(result, (i1, i2) -> {
       String o1 = i1.getGroup();
       String o2 = i2.getGroup();

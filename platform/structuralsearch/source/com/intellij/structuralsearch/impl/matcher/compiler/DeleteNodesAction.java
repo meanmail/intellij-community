@@ -4,18 +4,11 @@ import com.intellij.psi.PsiElement;
 
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: maxim
- * Date: 17.11.2004
- * Time: 19:24:40
- * To change this template use File | Settings | File Templates.
- */
 class DeleteNodesAction implements Runnable {
 
-  private final List<PsiElement> elements;
+  private final List<? extends PsiElement> elements;
 
-  DeleteNodesAction(List<PsiElement> _elements) {
+  DeleteNodesAction(List<? extends PsiElement> _elements) {
     elements = _elements;
   }
 

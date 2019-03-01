@@ -31,9 +31,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpres
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
 
-/**
-* Created by Max Medvedev on 14/05/14
-*/
 class GrThisSuperCompletionProvider extends CompletionProvider<CompletionParameters> {
   private static final ElementPattern<PsiElement> AFTER_DOT = PlatformPatterns.psiElement().afterLeaf(".").withParent(GrReferenceExpression.class);
   private static final String[] THIS_SUPER = {"this", "super"};
@@ -44,7 +41,7 @@ class GrThisSuperCompletionProvider extends CompletionProvider<CompletionParamet
 
   @Override
   protected void addCompletions(@NotNull CompletionParameters parameters,
-                                ProcessingContext context,
+                                @NotNull ProcessingContext context,
                                 @NotNull CompletionResultSet result) {
     final PsiElement position = parameters.getPosition();
 

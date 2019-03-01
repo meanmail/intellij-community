@@ -18,12 +18,12 @@ package org.intellij.plugins.intelliLang.util;
 
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.patterns.StringPattern;
-import com.intellij.util.Function;
-import com.intellij.util.containers.WeakHashMap;
+import com.intellij.util.containers.ContainerUtil;
 
 import java.util.LinkedHashSet;
-import java.util.Set;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Simple abstraction of a String matcher that can be based on simple and vastly more
@@ -45,6 +45,7 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public String getPattern() {
       return myTarget;
     }
@@ -55,10 +56,12 @@ public abstract class StringMatcher<T> {
       super(java.util.regex.Pattern.compile(target));
     }
 
+    @Override
     public boolean matches(String what) {
       return myTarget.matcher(StringPattern.newBombedCharSequence(what)).matches();
     }
 
+    @Override
     public String getPattern() {
       return myTarget.pattern();
     }
@@ -69,6 +72,7 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public boolean matches(String what) {
       return myTarget.equals(what);
     }
@@ -79,10 +83,12 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public boolean matches(String what) {
       return what.startsWith(myTarget);
     }
 
+    @Override
     public String getPattern() {
       return super.getPattern() + ".*";
     }
@@ -93,10 +99,12 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public boolean matches(String what) {
       return what.endsWith(myTarget);
     }
 
+    @Override
     public String getPattern() {
       return ".*" + super.getPattern();
     }
@@ -107,10 +115,12 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public boolean matches(String what) {
       return what.contains(myTarget);
     }
 
+    @Override
     public String getPattern() {
       return ".*" + super.getPattern() + ".*";
     }
@@ -124,6 +134,7 @@ public abstract class StringMatcher<T> {
       myMatches = matches;
     }
 
+    @Override
     public boolean matches(String what) {
       return myMatches;
     }
@@ -134,26 +145,30 @@ public abstract class StringMatcher<T> {
       super(target);
     }
 
+    @Override
     public boolean matches(String what) {
       return myTarget.matches(what.toLowerCase());
     }
 
+    @Override
     public String getPattern() {
       return "(?i)" + myTarget.getPattern();
     }
   }
 
   private static final class Cache extends StringMatcher<StringMatcher> {
-    private final WeakHashMap<String, Boolean> myCache = new WeakHashMap<>();
+    private final Map<String, Boolean> myCache = ContainerUtil.createWeakMap();
 
     Cache(StringMatcher target) {
       super(target);
     }
 
+    @Override
     public String getPattern() {
       return myTarget.getPattern();
     }
 
+    @Override
     public synchronized boolean matches(String what) {
       final Boolean o = myCache.get(what);
       if (o != null) {
@@ -178,6 +193,7 @@ public abstract class StringMatcher<T> {
       return matchers.size() > 3 ? new Cache(m) : m;
     }
 
+    @Override
     public boolean matches(String what) {
       for (StringMatcher matcher : myTarget) {
         if (matcher.matches(what)) {
@@ -187,6 +203,7 @@ public abstract class StringMatcher<T> {
       return false;
     }
 
+    @Override
     public String getPattern() {
       return myPattern;
     }

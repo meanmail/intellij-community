@@ -39,6 +39,9 @@ public interface DiffUserDataKeys {
   Key<Pair<ThreeSide, Integer>> SCROLL_TO_LINE_THREESIDE = Key.create("Diff.ScrollToLineThreeside");
 
   Key<String> HELP_ID = Key.create("Diff.HelpId");
+  /**
+   * Used IN ADDITION to FORCE_READ_ONLY data key
+   */
   Key<boolean[]> FORCE_READ_ONLY_CONTENTS = Key.create("Diff.ForceReadOnlyContents");
 
   //
@@ -57,6 +60,8 @@ public interface DiffUserDataKeys {
   // Both data from DiffContext / DiffRequest will be used. Data from DiffRequest will be used first.
   //
 
+  Key<Boolean> THREESIDE_DIFF_WITH_RESULT = Key.create("Diff.ThreesideDiffWithResult");
+
   Key<Side> MASTER_SIDE = Key.create("Diff.MasterSide");
   Key<Side> PREFERRED_FOCUS_SIDE = Key.create("Diff.PreferredFocusSide");
   Key<ThreeSide> PREFERRED_FOCUS_THREESIDE = Key.create("Diff.PreferredFocusThreeSide");
@@ -65,5 +70,10 @@ public interface DiffUserDataKeys {
   Key<List<AnAction>> CONTEXT_ACTIONS = Key.create("Diff.ContextActions");
   Key<DataProvider> DATA_PROVIDER = Key.create("Diff.DataProvider");
   Key<Boolean> GO_TO_SOURCE_DISABLE = Key.create("Diff.GoToSourceDisable");
+
+  //
+  // DiffContext / DiffRequest / DiffContent
+  //
+
   Key<Boolean> FORCE_READ_ONLY = Key.create("Diff.ForceReadOnly");
 }

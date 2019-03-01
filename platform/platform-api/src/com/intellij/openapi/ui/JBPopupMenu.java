@@ -37,7 +37,7 @@ import java.awt.event.MouseWheelEvent;
  * @author ignatov
  */
 public class JBPopupMenu extends JPopupMenu {
-  private MyLayout myLayout;
+  private final MyLayout myLayout;
 
   public JBPopupMenu() {
     this(null);
@@ -55,6 +55,8 @@ public class JBPopupMenu extends JPopupMenu {
   public void processMouseWheelEvent(MouseWheelEvent e) {
     if (!isShowing()) return;
 
+    int rotation = e.getWheelRotation();
+    if (rotation == 0) return;
     if (e.getComponent() != this) {
       e = (MouseWheelEvent)SwingUtilities.convertMouseEvent(e.getComponent(), e, this);
     }
@@ -62,7 +64,7 @@ public class JBPopupMenu extends JPopupMenu {
     SwingUtilities.convertPointToScreen(p, this);
     Point tPoint = getLocationOnScreen();
     if (p.x >= tPoint.x && p.x <= tPoint.x + getWidth() && p.y >= tPoint.y && p.y <= tPoint.y + getHeight()) {
-      myLayout.updateShift(e.getWheelRotation() * 10);
+      myLayout.updateShift(rotation * 10);
     }
   }
 
@@ -84,12 +86,12 @@ public class JBPopupMenu extends JPopupMenu {
   }
 
   private static class MyLayout extends DefaultMenuLayout implements ActionListener {
-    private JPopupMenu myTarget;
+    private final JPopupMenu myTarget;
     int myShift = 0;
     int myScrollDirection = 0;
     Timer myTimer;
 
-    public MyLayout(final JPopupMenu target) {
+    MyLayout(final JPopupMenu target) {
       super(target, BoxLayout.PAGE_AXIS);
       myTarget = target;
       myTimer = UIUtil.createNamedTimer("PopupTimer", 40, this);
@@ -166,10 +168,16 @@ public class JBPopupMenu extends JPopupMenu {
         myShift = newShift;
         myTarget.revalidate();
         myTarget.repaint();
+        Window w = UIUtil.getWindow(myTarget.getComponent());
+        if (w != null) {
+          for (Window window : w.getOwnedWindows()) {
+            window.dispose();
+          }
+        }
       }
     }
 
-    private Color[] dim = new Color[]{
+    private final Color[] dim = new Color[]{
       JBColor.background(),
       ColorUtil.withAlpha(JBColor.background(), .9),
       ColorUtil.withAlpha(JBColor.background(), .8),
@@ -188,7 +196,7 @@ public class JBPopupMenu extends JPopupMenu {
           g.setColor(dim[i]);
           g.drawLine(0, i, myTarget.getWidth(), i);
         }
-        AllIcons.General.SplitUp.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.SplitUp.getIconWidth() / 2, 0);
+        AllIcons.General.ArrowUp.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.ArrowUp.getIconWidth() / 2, 0);
       }
       if (super.preferredLayoutSize(myTarget).height - getMaxHeight() - myShift > 0) {
         for (int i = 0; i < dim.length; i++) {
@@ -196,8 +204,8 @@ public class JBPopupMenu extends JPopupMenu {
           g.drawLine(0, myTarget.getHeight() - i, myTarget.getWidth(),
                      myTarget.getHeight() - i);
         }
-        AllIcons.General.SplitDown.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.SplitDown.getIconWidth() / 2,
-                                             myTarget.getHeight() - AllIcons.General.SplitDown.getIconHeight());
+        AllIcons.General.ArrowDown.paintIcon(myTarget, g, myTarget.getWidth() / 2 - AllIcons.General.ArrowDown.getIconWidth() / 2,
+                                             myTarget.getHeight() - AllIcons.General.ArrowDown.getIconHeight());
       }
     }
 

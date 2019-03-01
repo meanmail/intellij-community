@@ -16,27 +16,31 @@
 package com.intellij.openapi.actionSystem;
 
 import org.intellij.lang.annotations.JdkConstants;
+import org.jetbrains.annotations.NotNull;
 
 import java.awt.event.MouseEvent;
 
 public class PressureShortcut extends MouseShortcut {
 
-  private double myStage;
+  private final double myStage;
 
   public PressureShortcut(double stage) {
     super(MouseEvent.BUTTON1, 0, 1);
     this.myStage = stage;
   }
 
+  @Override
   public int getButton() {
     return MouseEvent.BUTTON1;
   }
 
+  @Override
   @JdkConstants.InputEventMask
   public int getModifiers() {
     return 0;
   }
 
+  @Override
   public int getClickCount() {
     return 1;
   }
@@ -55,12 +59,7 @@ public class PressureShortcut extends MouseShortcut {
   }
 
   @Override
-  public boolean isKeyboard() {
-    return false;
-  }
-
-  @Override
-  public boolean startsWith(final Shortcut sc) {
+  public boolean startsWith(@NotNull final Shortcut sc) {
     return equals(sc);
   }
 

@@ -26,9 +26,6 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import java.awt.event.MouseEvent;
 
-/**
- * User: spLeaner
- */
 public interface StatusBarWidget extends Disposable {
   enum PlatformType {
     DEFAULT, MAC
@@ -65,7 +62,7 @@ public interface StatusBarWidget extends Disposable {
 
     @NotNull
     @Deprecated
-    String getMaxPossibleText();
+    default String getMaxPossibleText() { return ""; }
 
     float getAlignment();
   }
@@ -79,7 +76,7 @@ public interface StatusBarWidget extends Disposable {
 
     @NotNull
     @Deprecated
-    String getMaxValue();
+    default String getMaxValue() { return ""; }
   }
 
   abstract class WidgetBorder implements Border {

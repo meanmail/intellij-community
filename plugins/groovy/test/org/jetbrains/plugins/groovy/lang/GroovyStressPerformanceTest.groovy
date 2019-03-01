@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang
 
 import com.intellij.openapi.command.WriteCommandAction
@@ -26,8 +12,7 @@ import com.intellij.testFramework.LightProjectDescriptor
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.util.ThrowableRunnable
 import groovy.transform.CompileStatic
-import org.jetbrains.annotations.NotNull
-import org.jetbrains.plugins.groovy.GroovyLightProjectDescriptor
+import org.jetbrains.plugins.groovy.GroovyProjectDescriptors
 import org.jetbrains.plugins.groovy.LightGroovyTestCase
 import org.jetbrains.plugins.groovy.codeInspection.assignment.GroovyAssignabilityCheckInspection
 import org.jetbrains.plugins.groovy.codeInspection.confusing.GrUnusedIncDecInspection
@@ -36,8 +21,11 @@ import org.jetbrains.plugins.groovy.codeInspection.unusedDef.UnusedDefInspection
 import org.jetbrains.plugins.groovy.dsl.GroovyDslFileIndex
 import org.jetbrains.plugins.groovy.lang.psi.GrReferenceElement
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrAssignmentExpression
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyPsiManager
+import org.jetbrains.plugins.groovy.lang.psi.impl.synthetic.GrBindingVariable
 import org.jetbrains.plugins.groovy.util.Slow
 import org.jetbrains.plugins.groovy.util.TestUtils
 
@@ -49,15 +37,11 @@ class GroovyStressPerformanceTest extends LightGroovyTestCase {
 
   final String basePath = TestUtils.testDataPath + 'highlighting/'
 
-  @Override
-  @NotNull
-  protected LightProjectDescriptor getProjectDescriptor() {
-    GroovyLightProjectDescriptor.GROOVY_2_3
-  }
-
+  final LightProjectDescriptor projectDescriptor = GroovyProjectDescriptors.GROOVY_2_3
 
   ThrowableRunnable configureAndHighlight(String text) {
     return {
+      myFixture.psiManager.dropPsiCaches()
       myFixture.configureByText 'a.groovy', text
       myFixture.doHighlighting()
     } as ThrowableRunnable
@@ -119,14 +103,14 @@ class GroovyStressPerformanceTest extends LightGroovyTestCase {
 
     myFixture.type 'foo {}\n'
     PsiDocumentManager.getInstance(project).commitAllDocuments()
-    
-    PlatformTestUtil.startPerformanceTest("Reparse is not incremental", 10000, {
+
+    PlatformTestUtil.startPerformanceTest(getTestName(false), 10000, {
       story.toCharArray().each {
         myFixture.type it
         PsiDocumentManager.getInstance(project).commitAllDocuments()
       }
 
-    } as ThrowableRunnable).useLegacyScaling().assertTiming()
+    } as ThrowableRunnable).assertTiming()
   }
 
   void testManyAnnotatedFields() {
@@ -136,15 +120,15 @@ class GroovyStressPerformanceTest extends LightGroovyTestCase {
     }
     text += "}"
 
-    measureHighlighting(text, 5000)
+    measureHighlighting(text, 250)
   }
 
   private void measureHighlighting(String text, int time) {
-    IdeaTestUtil.startPerformanceTest("slow", time, configureAndHighlight(text)).cpuBound().usesAllCPUCores().useLegacyScaling().assertTiming()
+    IdeaTestUtil.startPerformanceTest(getTestName(false), time, configureAndHighlight(text)).usesAllCPUCores().assertTiming()
   }
 
   void testDeeplyNestedClosures() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     String text = "println 'hi'"
     String defs = ""
     for (i in 1..10) {
@@ -152,11 +136,11 @@ class GroovyStressPerformanceTest extends LightGroovyTestCase {
       defs += "def foo$i(Closure cl) {}\n"
     }
     myFixture.enableInspections(new MissingReturnInspection())
-    measureHighlighting(defs + text, 10000)
+    measureHighlighting(defs + text, 300)
   }
 
   void testDeeplyNestedClosuresInCompileStatic() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
 
     String text = "println 'hi'"
     String defs = ""
@@ -167,42 +151,42 @@ class GroovyStressPerformanceTest extends LightGroovyTestCase {
     myFixture.enableInspections(new MissingReturnInspection())
 
     addCompileStatic()
-    measureHighlighting(defs + "\n @groovy.transform.CompileStatic def compiledStatically() {\ndef a = ''\n" + text + "\n}", 10000)
+    measureHighlighting(defs + "\n @groovy.transform.CompileStatic def compiledStatically() {\ndef a = ''\n" + text + "\n}", 500)
   }
 
   void testDeeplyNestedClosuresInGenericCalls() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     String text = "println it"
     for (i in 1..10) {
       text = "foo(it) { $text }"
     }
     myFixture.enableInspections(new MissingReturnInspection())
 
-    measureHighlighting("def <T> void foo(T t, Closure cl) {}\n$text", 10000)
+    measureHighlighting("def <T> void foo(T t, Closure cl) {}\n$text", 1600)
   }
 
   void testDeeplyNestedClosuresInGenericCalls2() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     String text = "println it"
     for (i in 1..10) {
       text = "foo(it) { $text }"
     }
     myFixture.enableInspections(new MissingReturnInspection())
-    measureHighlighting("def <T> void foo(T t, Closure<T> cl) {}\n$text", 10000)
+    measureHighlighting("def <T> void foo(T t, Closure<T> cl) {}\n$text", 1200)
   }
 
   void testManyAnnotatedScriptVariables() {
-    measureHighlighting((0..100).collect { "@Anno String i$it = null" }.join("\n"), 10000)
+    measureHighlighting((0..100).collect { "@Anno String i$it = null" }.join("\n"), 1000)
   }
 
   void "test no recursion prevention when resolving supertype"() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     myFixture.addClass("interface Bar {}")
     measureHighlighting("class Foo implements Bar {}", 200)
   }
 
   void "test no recursion prevention when contributing constructors"() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     myFixture.addClass("interface Bar {}")
     def text = """
 @groovy.transform.TupleConstructor
@@ -217,7 +201,7 @@ class Foo implements Bar {
   }
 
   void "test using non-reassigned for loop parameters"() {
-    RecursionManager.assertOnRecursionPrevention(testRootDisposable)
+    RecursionManager.assertOnRecursionPrevention(myFixture.testRootDisposable)
     def text = """
 def foo(List<File> list) {
   for (file in list) {
@@ -255,13 +239,38 @@ class SomeClass {
   void someMethod(String s) {}
 }
 """
-    measureHighlighting(text, 8000)
+    measureHighlighting(text, 14_000)
+  }
+
+  void "test constructor call's"() {
+    def text = """
+class Cl {
+
+    Cl(Map<String, Integer> a, Condition<Cl> con, String s) {
+    }
+
+    interface Condition<T> {}
+
+    static <T> Condition<T> alwaysFalse() {
+        return (Condition<T>)null
+    }
+
+
+    static m() {
+        ${'''new Cl(alwaysFalse(), name: 1, m: 2, new Object().toString(), sad: 12)\n'''*100}
+    }
+}
+"""
+    IdeaTestUtil.startPerformanceTest(getTestName(false), 750, configureAndHighlight(text))
+      .attempts(20)
+      .usesAllCPUCores()
+      .assertTiming()
   }
 
   void "test infer only the variable types that are needed"() {
     addGdsl '''contribute(currentType(String.name)) {
   println 'sleeping'
-  Thread.sleep(1000)
+  Thread.sleep(100_000)
   method name:'foo', type:String, params:[:], namedParams:[
     parameter(name:'param1', type:String),
   ]
@@ -274,7 +283,7 @@ while (true) {
   f.canoPath<caret>
 }
 '''
-    IdeaTestUtil.startPerformanceTest("slow", 300, configureAndComplete(text)).cpuBound().usesAllCPUCores().useLegacyScaling().assertTiming()
+    PlatformTestUtil.startPerformanceTest(getTestName(false), 20_000, configureAndComplete(text)).attempts(1).usesAllCPUCores().assertTiming()
   }
 
   void testClosureRecursion() {
@@ -447,7 +456,7 @@ class AwsService {
     }
 }
 '''
-    measureHighlighting(text, 1000)
+    measureHighlighting(text, 700)
   }
 
   ThrowableRunnable configureAndComplete(String text) {
@@ -477,7 +486,7 @@ ${(1..classMethodCount).collect({"void foo${it}() {}"}).join("\n")}
                   "}"
     myFixture.configureByText('a.groovy', '')
     assert myFixture.file instanceof GroovyFile
-    PlatformTestUtil.startPerformanceTest('many siblings', 10000, {
+    PlatformTestUtil.startPerformanceTest('many siblings', 1000, {
       // clear caches
       WriteCommandAction.runWriteCommandAction(project) {
         myFixture.editor.document.text = ""
@@ -491,7 +500,7 @@ ${(1..classMethodCount).collect({"void foo${it}() {}"}).join("\n")}
       for (ref in refs) {
         assert ref.resolve(): ref.text
       }
-    }).cpuBound().attempts(2).assertTiming()
+    }).attempts(2).assertTiming()
   }
 
   @CompileStatic
@@ -521,13 +530,65 @@ public class Yoo$i implements Serializable, Cloneable, Hoo$i<String> {}
 public class Doo$i {}
 """
     }
-    IdeaTestUtil.startPerformanceTest("testing dfa", 5000, {
+    IdeaTestUtil.startPerformanceTest("testing dfa", 800, {
       myFixture.checkHighlighting true, false, false
     }).setup({
       myFixture.enableInspections GroovyAssignabilityCheckInspection, UnusedDefInspection, GrUnusedIncDecInspection
       configure 1
       myFixture.checkHighlighting true, false, false
       configure 2
-    }).attempts(1).cpuBound().assertTiming()
+    }).attempts(1).assertTiming()
+  }
+
+  void 'test resolve long chain of references'() {
+    def header = """\
+class Node {
+  public Node nn
+}
+def a = new Node()
+"""
+    // a.nn.nn ... .nn
+    def file = (GroovyFile)fixture.configureByText('_.groovy', header + "a${'.nn' * 500}.nn")
+    def reference = (GrReferenceExpression)file.statements.last()
+    assert reference.resolve() != null
+  }
+
+  void 'test resolve long chain of method calls'() {
+    def header = """\
+class Node {
+  public Node nn
+  public Node nn() {}
+}
+def a = new Node()
+"""
+    // a.nn() ... .nn().nn
+    def file = (GroovyFile)fixture.configureByText('_.groovy', header + "a${'.nn()' * 250}.nn")
+    def reference = (GrReferenceExpression)file.statements.last()
+    assert reference.resolve() != null
+  }
+
+  void 'test resolve long chain of operators'() {
+    def header = """\
+class Node {
+  public Node plus(Node n) {n}
+}
+def a = new Node()
+"""
+    // a += a ... += a += new Node()
+    def file = (GroovyFile)fixture.configureByText('_.groovy', header + "a${' += a' * 500} += new Node()")
+    def reference = ((GrAssignmentExpression)file.statements.last()).reference
+    assert reference.resolve() != null
+  }
+
+  void "test do not resolve LHS and RHS of assignment when name doesn't match"() {
+    def text = new StringBuilder("a0 = 1\n")
+    def n = 1000
+    for (i in 1..n) {
+      text.append "a$i = a${i - 1}\n"
+    }
+    text.append "a$n"
+    def file = (GroovyFile)fixture.configureByText('_.groovy', text.toString())
+    def last = (GrReferenceExpression)file.statements.last()
+    assert last.resolve() instanceof GrBindingVariable
   }
 }

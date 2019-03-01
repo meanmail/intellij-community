@@ -55,15 +55,12 @@ public class DisjointPackageInspection extends BaseGlobalInspection {
     }
     final RefPackage refPackage = (RefPackage)refEntity;
     final List<RefEntity> children = refPackage.getChildren();
-    if (children == null) {
-      return null;
-    }
     final Set<RefClass> childClasses = new HashSet<>();
     for (RefEntity child : children) {
       if (!(child instanceof RefClass)) {
         continue;
       }
-      final PsiClass psiClass = ((RefClass)child).getElement();
+      final PsiClass psiClass = ((RefClass)child).getUastElement().getJavaPsi();
       if (ClassUtils.isInnerClass(psiClass)) {
         continue;
       }

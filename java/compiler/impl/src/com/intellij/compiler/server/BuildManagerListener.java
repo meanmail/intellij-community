@@ -2,19 +2,19 @@ package com.intellij.compiler.server;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.util.messages.Topic;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.UUID;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 7/3/13
  */
 public interface BuildManagerListener {
   Topic<BuildManagerListener> TOPIC = Topic.create("Build Manager", BuildManagerListener.class);
-  
-  void beforeBuildProcessStarted(Project project, UUID sessionId);
-  
-  void buildStarted(Project project, UUID sessionId, boolean isAutomake);
-  
-  void buildFinished(Project project, UUID sessionId, boolean isAutomake);
+
+  default void beforeBuildProcessStarted(@NotNull Project project, @NotNull UUID sessionId) {}
+
+  default void buildStarted(@NotNull Project project, @NotNull UUID sessionId, boolean isAutomake) {}
+
+  default void buildFinished(@NotNull Project project, @NotNull UUID sessionId, boolean isAutomake) {}
 }

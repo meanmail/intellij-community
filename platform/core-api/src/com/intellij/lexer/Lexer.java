@@ -35,7 +35,6 @@ public abstract class Lexer {
    * @param startOffset  offset to start lexing from
    * @param endOffset    offset to stop lexing at
    * @param initialState the initial state of the lexer.
-   * @since IDEA 7
    */
   public abstract void start(@NotNull CharSequence buffer, int startOffset, int endOffset, int initialState);
 
@@ -65,7 +64,7 @@ public abstract class Lexer {
   public abstract int getState();
 
   /**
-   * Returns the token at the current position of the lexer or <code>null</code> if lexing is finished.
+   * Returns the token at the current position of the lexer or {@code null} if lexing is finished.
    *
    * @return the current token.
    */
@@ -109,18 +108,17 @@ public abstract class Lexer {
 
   /**
    * Returns the buffer sequence over which the lexer is running. This method should return the
-   * same buffer instance which was passed to the <code>start()</code> method.
+   * same buffer instance which was passed to the {@code start()} method.
    *
    * @return the lexer buffer.
-   * @since IDEA 7
    */
   @NotNull
   public abstract CharSequence getBufferSequence();
 
   /**
    * Returns the offset at which the lexer will stop lexing. This method should return
-   * the length of the buffer or the value passed in the <code>endOffset</code> parameter
-   * to the <code>start()</code> method.
+   * the length of the buffer or the value passed in the {@code endOffset} parameter
+   * to the {@code start()} method.
    *
    * @return the lexing end offset
    */

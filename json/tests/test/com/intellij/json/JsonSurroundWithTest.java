@@ -1,44 +1,56 @@
 package com.intellij.json;
 
 import com.intellij.codeInsight.generation.surroundWith.SurroundWithHandler;
+import com.intellij.json.surroundWith.JsonWithArrayLiteralSurrounder;
 import com.intellij.json.surroundWith.JsonWithObjectLiteralSurrounder;
-import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.json.surroundWith.JsonWithQuotesSurrounder;
+import com.intellij.lang.surroundWith.Surrounder;
 
 /**
  * @author Mikhail Golubev
  */
 public class JsonSurroundWithTest extends JsonTestCase {
-  private void doTest() {
+  private void doTest(Surrounder surrounder) {
     myFixture.configureByFile("/surround/" + getTestName(false) + ".json");
-    new WriteCommandAction.Simple(myFixture.getProject()) {
-      @Override
-      protected void run() {
-        SurroundWithHandler.invoke(myFixture.getProject(), myFixture.getEditor(), myFixture.getFile(), new JsonWithObjectLiteralSurrounder());
-      }
-    }.execute();
+    SurroundWithHandler.invoke(myFixture.getProject(), myFixture.getEditor(), myFixture.getFile(), surrounder);
     myFixture.checkResultByFile("/surround/" + getTestName(false) + "_after.json", true);
   }
 
   public void testSingleValue() {
-    doTest();
+    doTest(new JsonWithObjectLiteralSurrounder());
   }
 
   public void testSingleProperty() {
-    doTest();
+    doTest(new JsonWithObjectLiteralSurrounder());
   }
 
   public void testMultipleProperties() {
-    doTest();
+    doTest(new JsonWithObjectLiteralSurrounder());
   }
 
   public void testCannotSurroundPropertyKey() {
-    doTest();
+    doTest(new JsonWithObjectLiteralSurrounder());
+  }
+
+  public void testArrayLiteral() {
+    doTest(new JsonWithArrayLiteralSurrounder());
+  }
+
+  public void testMultipleValuesIntoArray() {
+    doTest(new JsonWithArrayLiteralSurrounder());
+  }
+
+  public void testQuotes() {
+    doTest(new JsonWithQuotesSurrounder());
+  }
+
+  public void testMultipleValuesIntoString() {
+    doTest(new JsonWithQuotesSurrounder());
   }
 
   // Moved from JavaScript
 
-
   public void testObjectLiteral() {
-    doTest();
+    doTest(new JsonWithObjectLiteralSurrounder());
   }
 }

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
@@ -23,7 +9,7 @@ import com.intellij.codeInsight.completion.CompletionUtilCore;
 import com.intellij.codeInsight.daemon.XmlErrorMessages;
 import com.intellij.lang.PsiBuilder;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.tree.CustomParsingType;
+import com.intellij.psi.tree.ICustomParsingType;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.ILazyParseableElementType;
 import com.intellij.psi.xml.XmlElementType;
@@ -33,6 +19,8 @@ import com.intellij.xml.util.HtmlUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Objects;
 
 public class HtmlParsing {
   @NonNls private static final String TR_TAG = "tr";
@@ -95,7 +83,9 @@ public class HtmlParsing {
 
         tagEndError.error(XmlErrorMessages.message("xml.parsing.closing.tag.matches.nothing"));
       }
-      else {
+      else if (hasCustomTopLevelContent()) {
+        error = parseCustomTopLevelContent(error);
+      } else {
         if (error == null) error = mark();
         advance();
       }
@@ -108,13 +98,28 @@ public class HtmlParsing {
     document.done(XmlElementType.HTML_DOCUMENT);
   }
 
+  protected boolean hasCustomTopLevelContent() {
+    return false;
+  }
+
+  protected PsiBuilder.Marker parseCustomTopLevelContent(PsiBuilder.Marker error) {
+    return error;
+  }
+
+  protected boolean hasCustomTagContent() {
+    return false;
+  }
+
+  protected PsiBuilder.Marker parseCustomTagContent(PsiBuilder.Marker xmlText) {
+    return xmlText;
+  }
+
   @Nullable
-  private static PsiBuilder.Marker flushError(PsiBuilder.Marker error) {
+  protected static PsiBuilder.Marker flushError(PsiBuilder.Marker error) {
     if (error != null) {
       error.error(XmlErrorMessages.message("xml.parsing.unexpected.tokens"));
-      error = null;
     }
-    return error;
+    return null;
   }
 
   private void parseDoctype() {
@@ -133,7 +138,7 @@ public class HtmlParsing {
     doctype.done(XmlElementType.XML_DOCTYPE);
   }
 
-  private void parseTag() {
+  public void parseTag() {
     assert token() == XmlTokenType.XML_START_TAG_START : "Tag start expected";
     String originalTagName;
     PsiBuilder.Marker xmlText = null;
@@ -150,7 +155,7 @@ public class HtmlParsing {
           originalTagName = "";
         }
         else {
-          originalTagName = myBuilder.getTokenText();
+          originalTagName = Objects.requireNonNull(myBuilder.getTokenText());
           advance();
         }
 
@@ -181,8 +186,11 @@ public class HtmlParsing {
           continue;
         }
 
-        if (HtmlUtil.isSingleHtmlTagL(tagName)) {
+        if (originalTagName != null && isSingleTag(tagName, originalTagName)) {
           final PsiBuilder.Marker footer = mark();
+          while (token() == XmlTokenType.XML_REAL_WHITE_SPACE) {
+            advance();
+          }
           if (token() == XmlTokenType.XML_END_TAG_START) {
             advance();
             if (token() == XmlTokenType.XML_NAME) {
@@ -205,11 +213,7 @@ public class HtmlParsing {
         xmlText = terminateText(xmlText);
         parseProcessingInstruction();
       }
-      else if (tt == XmlTokenType.XML_ENTITY_REF_TOKEN) {
-        xmlText = terminateText(xmlText);
-        parseReference();
-      }
-      else if (tt == XmlTokenType.XML_CHAR_ENTITY_REF) {
+      else if (tt == XmlTokenType.XML_ENTITY_REF_TOKEN || tt == XmlTokenType.XML_CHAR_ENTITY_REF) {
         xmlText = startText(xmlText);
         parseReference();
       }
@@ -227,7 +231,7 @@ public class HtmlParsing {
         advance();
         error.error(XmlErrorMessages.message("unescaped.ampersand.or.nonterminated.character.entity.reference"));
       }
-      else if (tt instanceof CustomParsingType || tt instanceof ILazyParseableElementType) {
+      else if (tt instanceof ICustomParsingType || tt instanceof ILazyParseableElementType) {
         xmlText = terminateText(xmlText);
         advance();
       }
@@ -237,28 +241,24 @@ public class HtmlParsing {
         advance();
 
         if (token() == XmlTokenType.XML_NAME) {
-          String endName = StringUtil.toLowerCase(myBuilder.getTokenText());
+          String endName = StringUtil.toLowerCase(Objects.requireNonNull(myBuilder.getTokenText()));
           final String parentTagName = !myTagNamesStack.isEmpty() ? myTagNamesStack.peek() : "";
           if (!parentTagName.equals(endName) && !endName.endsWith(COMPLETION_NAME)) {
             final boolean isOptionalTagEnd = HtmlUtil.isOptionalEndForHtmlTagL(parentTagName);
             final boolean hasChancesToMatch = HtmlUtil.isOptionalEndForHtmlTagL(endName) ? childTerminatesParentInStack(endName) : myTagNamesStack.contains(endName);
             if (hasChancesToMatch) {
               footer.rollbackTo();
-              if (isOptionalTagEnd) {
-                doneTag(myTagMarkersStack.peek());
-              }
-              else {
+              if (!isOptionalTagEnd) {
                 error(XmlErrorMessages.message("named.element.is.not.closed", myOriginalTagNamesStack.peek()));
-                doneTag(myTagMarkersStack.peek());
               }
-              continue;
+              doneTag(myTagMarkersStack.peek());
             }
             else {
               advance();
               if (token() == XmlTokenType.XML_TAG_END) advance();
               footer.error(XmlErrorMessages.message("xml.parsing.closing.tag.matches.nothing"));
-              continue;
             }
+            continue;
           }
 
           advance();
@@ -283,6 +283,8 @@ public class HtmlParsing {
       } else if ((token() == XmlTokenType.XML_REAL_WHITE_SPACE || token() == XmlTokenType.XML_DATA_CHARACTERS) && !hasTags()) {
         xmlText = terminateText(xmlText);
         advance();
+      } else if (hasCustomTagContent()) {
+        xmlText = parseCustomTagContent(xmlText);
       } else {
         xmlText = startText(xmlText);
         advance();
@@ -298,7 +300,11 @@ public class HtmlParsing {
     }
   }
 
-  private boolean hasTags() {
+  protected boolean isSingleTag(@NotNull String tagName, @NotNull String originalTagName) {
+    return HtmlUtil.isSingleHtmlTagL(tagName);
+  }
+
+  protected boolean hasTags() {
     return !myTagNamesStack.isEmpty();
   }
 
@@ -306,6 +312,10 @@ public class HtmlParsing {
     myTagNamesStack.pop();
     myOriginalTagNamesStack.pop();
     return myTagMarkersStack.pop();
+  }
+
+  protected String peekTagName() {
+    return myTagNamesStack.peek();
   }
 
   private void doneTag(PsiBuilder.Marker tag) {
@@ -384,12 +394,15 @@ public class HtmlParsing {
   }
 
   @NotNull
-  private PsiBuilder.Marker startText(@Nullable PsiBuilder.Marker xmlText) {
+  protected PsiBuilder.Marker startText(@Nullable PsiBuilder.Marker xmlText) {
     if (xmlText == null) {
       xmlText = mark();
-      assert xmlText != null;
     }
     return xmlText;
+  }
+
+  protected final PsiBuilder getBuilder() {
+    return myBuilder;
   }
 
   protected final PsiBuilder.Marker mark() {
@@ -397,7 +410,7 @@ public class HtmlParsing {
   }
 
   @Nullable
-  private static PsiBuilder.Marker terminateText(@Nullable PsiBuilder.Marker xmlText) {
+  protected static PsiBuilder.Marker terminateText(@Nullable PsiBuilder.Marker xmlText) {
     if (xmlText != null) {
       xmlText.done(XmlElementType.XML_TEXT);
       xmlText = null;
@@ -405,7 +418,7 @@ public class HtmlParsing {
     return xmlText;
   }
 
-  private void parseCData() {
+  protected void parseCData() {
     assert token() == XmlTokenType.XML_CDATA_START;
     final PsiBuilder.Marker cdata = mark();
     while (token() != XmlTokenType.XML_CDATA_END && !eof()) {
@@ -448,7 +461,7 @@ public class HtmlParsing {
     comment.done(XmlElementType.XML_COMMENT);
   }
 
-  private void parseReference() {
+  protected void parseReference() {
     if (token() == XmlTokenType.XML_CHAR_ENTITY_REF) {
       advance();
     }
@@ -462,7 +475,7 @@ public class HtmlParsing {
     }
   }
 
-  private void parseAttribute() {
+  protected void parseAttribute() {
     assert token() == XmlTokenType.XML_NAME;
     final PsiBuilder.Marker att = mark();
     advance();
@@ -476,7 +489,7 @@ public class HtmlParsing {
     }
   }
 
-  private void parseAttributeValue() {
+  protected void parseAttributeValue() {
     final PsiBuilder.Marker attValue = mark();
     if (token() == XmlTokenType.XML_ATTRIBUTE_VALUE_START_DELIMITER) {
       while (true) {
@@ -552,7 +565,7 @@ public class HtmlParsing {
     prolog.done(XmlElementType.XML_PROLOG);
   }
 
-  private void parseProcessingInstruction() {
+  protected void parseProcessingInstruction() {
     assert token() == XmlTokenType.XML_PI_START;
     final PsiBuilder.Marker pi = mark();
     advance();
@@ -593,7 +606,7 @@ public class HtmlParsing {
     myBuilder.advanceLexer();
   }
 
-  private void error(final String message) {
+  protected void error(@NotNull String message) {
     myBuilder.error(message);
   }
 }

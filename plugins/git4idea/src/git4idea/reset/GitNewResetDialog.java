@@ -16,7 +16,6 @@
 package git4idea.reset;
 
 import com.intellij.dvcs.DvcsUtil;
-import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.util.text.StringUtil;
@@ -76,16 +75,17 @@ public class GitNewResetDialog extends DialogWrapper {
     String description = prepareDescription(myProject, myCommits);
     panel.add(new JBLabel(XmlStringUtil.wrapInHtml(description)), gb.nextLine().next().coverLine());
 
-    String explanation = "This will reset the current branch head to the selected commit, <br/>" +
-                         "and update the working tree and the index according to the selected mode:";
-    panel.add(new JBLabel(XmlStringUtil.wrapInHtml(explanation), UIUtil.ComponentStyle.SMALL), gb.nextLine().next().coverLine());
+    panel.add(new JBLabel(XmlStringUtil.wrapInHtmlLines(
+      "This will reset the current branch head to the selected commit,",
+      "and update the working tree and the index according to the selected mode:"
+      ), UIUtil.ComponentStyle.SMALL), gb.nextLine().next().coverLine());
 
     for (GitResetMode mode : GitResetMode.values()) {
       JBRadioButton button = new JBRadioButton(mode.getName());
       button.setMnemonic(mode.getName().charAt(0));
       myButtonGroup.add(button);
       panel.add(button, gb.nextLine().next());
-      panel.add(new JBLabel(XmlStringUtil.wrapInHtml(mode.getDescription()), UIUtil.ComponentStyle.SMALL), gb.next());
+      panel.add(new JBLabel(XmlStringUtil.wrapInHtmlLines(mode.getDescription()), UIUtil.ComponentStyle.SMALL), gb.next());
     }
 
     myEnumModel = RadioButtonEnumModel.bindEnum(GitResetMode.class, myButtonGroup);
@@ -106,7 +106,7 @@ public class GitNewResetDialog extends DialogWrapper {
       return String.format("%s -> %s", getSourceText(entry.getKey()), getTargetText(entry.getValue()));
     }
 
-    StringBuilder desc = new StringBuilder("");
+    StringBuilder desc = new StringBuilder();
     for (Map.Entry<GitRepository, VcsFullCommitDetails> entry : commits.entrySet()) {
       GitRepository repository = entry.getKey();
       VcsFullCommitDetails commit = entry.getValue();
@@ -118,7 +118,7 @@ public class GitNewResetDialog extends DialogWrapper {
 
   @NotNull
   private static String getTargetText(@NotNull VcsFullCommitDetails commit) {
-    String commitMessage = StringUtil.escapeXml(StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0));
+    String commitMessage = StringUtil.escapeXmlEntities(StringUtil.shortenTextWithEllipsis(commit.getSubject(), 20, 0));
     return String.format("<code><b>%s</b> \"%s\"</code> by <code>%s</code>",
                          commit.getId().toShortString(), commitMessage, VcsUserUtil.getShortPresentation(commit.getAuthor()));
   }
@@ -134,7 +134,7 @@ public class GitNewResetDialog extends DialogWrapper {
   }
 
   private static boolean isMultiRepo(@NotNull Project project) {
-    return ServiceManager.getService(project, GitRepositoryManager.class).moreThanOneRoot();
+    return GitRepositoryManager.getInstance(project).moreThanOneRoot();
   }
 
   @NotNull

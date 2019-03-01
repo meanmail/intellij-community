@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -67,7 +67,7 @@ public class UnnecessaryEnumModifierInspection extends BaseInspection implements
 
     private final String m_name;
 
-    private UnnecessaryEnumModifierFix(PsiElement modifier) {
+    UnnecessaryEnumModifierFix(PsiElement modifier) {
       m_name = InspectionGadgetsBundle.message("smth.unnecessary.remove.quickfix", modifier.getText());
     }
 
@@ -84,22 +84,11 @@ public class UnnecessaryEnumModifierInspection extends BaseInspection implements
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    public void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
-      final PsiModifierList modifierList;
-      if (element instanceof PsiModifierList) {
-        modifierList = (PsiModifierList)element;
-      }
-      else {
-        modifierList = (PsiModifierList)element.getParent();
-      }
-      assert modifierList != null;
-      if (modifierList.getParent() instanceof PsiClass) {
-        modifierList.setModifierProperty(PsiModifier.STATIC, false);
-      }
-      else {
-        modifierList.setModifierProperty(PsiModifier.PRIVATE, false);
-      }
+      final PsiModifierList modifierList = PsiTreeUtil.getNonStrictParentOfType(element, PsiModifierList.class);
+      if (modifierList == null) return;
+      modifierList.setModifierProperty(modifierList.getParent() instanceof PsiClass ? PsiModifier.STATIC : PsiModifier.PRIVATE, false);
     }
   }
 

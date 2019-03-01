@@ -1,49 +1,36 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
-import com.intellij.openapi.options.BaseSchemeProcessor
+import com.intellij.configurationStore.schemeManager.SchemeFileTracker
+import com.intellij.configurationStore.schemeManager.SchemeManagerImpl
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.components.RoamingType
 import com.intellij.openapi.options.ExternalizableScheme
 import com.intellij.openapi.options.SchemeManagerFactory
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.vfs.VirtualFileManager
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.ProjectRule
 import com.intellij.testFramework.TemporaryDirectory
-import com.intellij.util.SmartList
-import com.intellij.util.io.createDirectories
-import com.intellij.util.io.directoryStreamIfExists
-import com.intellij.util.io.write
-import com.intellij.util.lang.CompoundRuntimeException
+import com.intellij.testFramework.runInEdtAndWait
+import com.intellij.util.io.*
 import com.intellij.util.loadElement
 import com.intellij.util.toByteArray
-import com.intellij.util.xmlb.XmlSerializer
 import com.intellij.util.xmlb.annotations.Tag
-import com.intellij.util.xmlb.serialize
 import gnu.trove.THashMap
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
-import org.jdom.Element
 import org.junit.ClassRule
 import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Path
+import java.util.function.Function
 
-internal val FILE_SPEC = "REMOTE"
+internal const val FILE_SPEC = "REMOTE"
 
 /**
  * Functionality without stream provider covered, ICS has own test suite
@@ -51,11 +38,13 @@ internal val FILE_SPEC = "REMOTE"
 internal class SchemeManagerTest {
   companion object {
     @JvmField
-    @ClassRule val projectRule = ProjectRule()
+    @ClassRule
+    val projectRule = ProjectRule()
   }
 
-  private val tempDirManager = TemporaryDirectory()
-  @Rule fun getTemporaryFolder() = tempDirManager
+  @Rule
+  @JvmField
+  val tempDirManager = TemporaryDirectory()
 
   private var localBaseDir: Path? = null
   private var remoteBaseDir: Path? = null
@@ -82,22 +71,24 @@ internal class SchemeManagerTest {
     val manager = createAndLoad("options1")
 
     val scheme = manager.findSchemeByName("first")
-    assertThat(scheme).isNotNull()
-    scheme!!.name = "renamed"
+    assertThat(scheme).isNotNull
+    @Suppress("SpellCheckingInspection")
+    scheme!!.name = "Grünwald"
     manager.save()
 
-    checkSchemes("2->second;renamed->renamed")
+    @Suppress("SpellCheckingInspection")
+    checkSchemes("2->second;Grünwald->Grünwald")
   }
 
   @Test fun testRenameScheme2() {
     val manager = createAndLoad("options1")
 
     val first = manager.findSchemeByName("first")
-    assertThat(first).isNotNull()
+    assertThat(first).isNotNull
     assert(first != null)
     first!!.name = "2"
     val second = manager.findSchemeByName("second")
-    assertThat(second).isNotNull()
+    assertThat(second).isNotNull
     assert(second != null)
     second!!.name = "1"
     manager.save()
@@ -109,7 +100,7 @@ internal class SchemeManagerTest {
     val manager = createAndLoad("options1")
 
     val firstScheme = manager.findSchemeByName("first")
-    assertThat(firstScheme).isNotNull()
+    assertThat(firstScheme).isNotNull
     assert(firstScheme != null)
     firstScheme!!.name = "first_renamed"
     manager.save()
@@ -128,7 +119,7 @@ internal class SchemeManagerTest {
   @Test fun testDeleteAndCreateSchemeWithTheSameName() {
     val manager = createAndLoad("options1")
     val firstScheme = manager.findSchemeByName("first")
-    assertThat(firstScheme).isNotNull()
+    assertThat(firstScheme).isNotNull
 
     manager.removeScheme(firstScheme!!)
     manager.addScheme(TestScheme("first"))
@@ -139,35 +130,74 @@ internal class SchemeManagerTest {
   @Test fun testGenerateUniqueSchemeName() {
     val manager = createAndLoad("options1")
     val scheme = TestScheme("first")
-    manager.addNewScheme(scheme, false)
+    manager.addScheme(scheme, false)
 
     assertThat("first2").isEqualTo(scheme.name)
   }
 
   fun TestScheme.save(file: Path) {
-    file.write(serialize().toByteArray())
+    file.write(serialize()!!.toByteArray())
   }
 
-  @Test fun `different extensions`() {
+  @Test fun `different extensions - old, new`() {
+    doDifferentExtensionTest(listOf("1.xml", "1.icls"))
+  }
+
+  @Test fun `different extensions - new, old`() {
+    doDifferentExtensionTest(listOf("1.icls", "1.xml"))
+  }
+
+  private fun doDifferentExtensionTest(fileNames: List<String>) {
     val dir = tempDirManager.newPath()
 
     val scheme = TestScheme("local", "true")
     scheme.save(dir.resolve("1.icls"))
     TestScheme("local", "false").save(dir.resolve("1.xml"))
 
-    val schemesManager = SchemeManagerImpl(FILE_SPEC, object: TestSchemesProcessor() {
-      override val isUpgradeNeeded = true
-
+    class ATestSchemesProcessor : TestSchemesProcessor(), SchemeExtensionProvider {
       override val schemeExtension = ".icls"
-    }, null, dir)
-    schemesManager.loadSchemes()
-    assertThat(schemesManager.allSchemes).containsOnly(scheme)
+    }
+
+    // use provider to specify exact order of files (it is critical to test both variants - old, new or new, old)
+    val schemeManager = SchemeManagerImpl(FILE_SPEC, ATestSchemesProcessor(), object : StreamProvider {
+      override val isExclusive = true
+
+      override fun write(fileSpec: String, content: ByteArray, size: Int, roamingType: RoamingType) {
+        getFile(fileSpec).write(content, 0, size)
+      }
+
+      override fun read(fileSpec: String, roamingType: RoamingType, consumer: (InputStream?) -> Unit): Boolean {
+        getFile(fileSpec).inputStream().use(consumer)
+        return true
+      }
+
+      override fun processChildren(path: String,
+                                   roamingType: RoamingType,
+                                   filter: (name: String) -> Boolean,
+                                   processor: (name: String, input: InputStream, readOnly: Boolean) -> Boolean): Boolean {
+        for (name in fileNames) {
+          dir.resolve(name).inputStream().use {
+            processor(name, it, false)
+          }
+        }
+        return true
+      }
+
+      override fun delete(fileSpec: String, roamingType: RoamingType): Boolean {
+        getFile(fileSpec).delete()
+        return true
+      }
+
+      private fun getFile(fileSpec: String) = dir.resolve(fileSpec.substring(FILE_SPEC.length + 1))
+    }, dir)
+    schemeManager.loadSchemes()
+    assertThat(schemeManager.allSchemes).containsOnly(scheme)
 
     assertThat(dir.resolve("1.icls")).isRegularFile()
     assertThat(dir.resolve("1.xml")).isRegularFile()
 
     scheme.data = "newTrue"
-    schemesManager.save()
+    schemeManager.save()
 
     assertThat(dir.resolve("1.icls")).isRegularFile()
     assertThat(dir.resolve("1.xml")).doesNotExist()
@@ -175,22 +205,24 @@ internal class SchemeManagerTest {
 
   @Test fun setSchemes() {
     val dir = tempDirManager.newPath()
-    val schemeManager = createSchemeManager(dir)
+    val schemeManager = SchemeManagerImpl(FILE_SPEC, TestSchemesProcessor(), null, dir, schemeNameToFileName = MODERN_NAME_CONVERTER)
     schemeManager.loadSchemes()
     assertThat(schemeManager.allSchemes).isEmpty()
 
-    val scheme = TestScheme("s1")
+    @Suppress("SpellCheckingInspection")
+    val schemeName = "Grünwald и русский"
+    val scheme = TestScheme(schemeName)
     schemeManager.setSchemes(listOf(scheme))
 
     val schemes = schemeManager.allSchemes
     assertThat(schemes).containsOnly(scheme)
 
-    assertThat(dir.resolve("s1.xml")).doesNotExist()
+    assertThat(dir.resolve("$schemeName.xml")).doesNotExist()
 
     scheme.data = "newTrue"
     schemeManager.save()
 
-    assertThat(dir.resolve("s1.xml")).isRegularFile()
+    assertThat(dir.resolve("$schemeName.xml")).isRegularFile()
 
     schemeManager.setSchemes(emptyList())
 
@@ -219,9 +251,8 @@ internal class SchemeManagerTest {
   @Test fun `save only if scheme differs from bundled`() {
     val dir = tempDirManager.newPath()
     var schemeManager = createSchemeManager(dir)
-    val converter: (Element) -> TestScheme = { XmlSerializer.deserialize(it, TestScheme::class.java)!! }
     val bundledPath = "/com/intellij/configurationStore/bundledSchemes/default"
-    schemeManager.loadBundledScheme(bundledPath, this, converter)
+    schemeManager.loadBundledScheme(bundledPath, this)
     val customScheme = TestScheme("default")
     assertThat(schemeManager.allSchemes).containsOnly(customScheme)
 
@@ -239,7 +270,7 @@ internal class SchemeManagerTest {
     assertThat(dir.resolve("default.xml")).isRegularFile()
 
     schemeManager = createSchemeManager(dir)
-    schemeManager.loadBundledScheme(bundledPath, this, converter)
+    schemeManager.loadBundledScheme(bundledPath, this)
     schemeManager.loadSchemes()
 
     assertThat(schemeManager.allSchemes).containsOnly(customScheme)
@@ -312,12 +343,65 @@ internal class SchemeManagerTest {
     assertThat(dir.resolve("s2.xml")).isRegularFile()
   }
 
+  @Test fun `rename A to B and B to A`() {
+    val dir = tempDirManager.newPath()
+    val schemeManager = createSchemeManager(dir)
+
+    val a = TestScheme("a", "a")
+    val b = TestScheme("b", "b")
+    schemeManager.setSchemes(listOf(a, b))
+    schemeManager.save()
+
+    assertThat(dir.resolve("a.xml")).isRegularFile()
+    assertThat(dir.resolve("b.xml")).isRegularFile()
+
+    a.name = "b"
+    b.name = "a"
+
+    schemeManager.save()
+
+    assertThat(dir.resolve("a.xml").readText()).isEqualTo("""<scheme name="a" data="b" />""")
+    assertThat(dir.resolve("b.xml").readText()).isEqualTo("""<scheme name="b" data="a" />""")
+  }
+
+  @Test
+  fun `VFS - rename A to B and B to A`() {
+    val dir = tempDirManager.newPath(refreshVfs = true)
+    val busDisposable = Disposer.newDisposable()
+    try {
+      val schemeManager = SchemeManagerImpl(FILE_SPEC, TestSchemesProcessor(), null, dir, fileChangeSubscriber = { schemeManager ->
+        @Suppress("UNCHECKED_CAST")
+        val schemeFileTracker = SchemeFileTracker(schemeManager as SchemeManagerImpl<Any, Any>, projectRule.project)
+        ApplicationManager.getApplication().messageBus.connect(busDisposable).subscribe(VirtualFileManager.VFS_CHANGES, schemeFileTracker)
+      })
+
+      val a = TestScheme("a", "a")
+      val b = TestScheme("b", "b")
+      schemeManager.setSchemes(listOf(a, b))
+      runInEdtAndWait { schemeManager.save() }
+
+      assertThat(dir.resolve("a.xml")).isRegularFile()
+      assertThat(dir.resolve("b.xml")).isRegularFile()
+
+      a.name = "b"
+      b.name = "a"
+
+      runInEdtAndWait { schemeManager.save() }
+
+      assertThat(dir.resolve("a.xml").readText()).isEqualTo("""<scheme name="a" data="b" />""")
+      assertThat(dir.resolve("b.xml").readText()).isEqualTo("""<scheme name="b" data="a" />""")
+    }
+    finally {
+      Disposer.dispose(busDisposable)
+    }
+  }
+
   @Test fun `path must not contains ROOT_CONFIG macro`() {
-    assertThatThrownBy({ SchemeManagerFactory.getInstance().create("\$ROOT_CONFIG$/foo", TestSchemesProcessor()) }).hasMessage("Path must not contains ROOT_CONFIG macro, corrected: foo")
+    assertThatThrownBy { SchemeManagerFactory.getInstance().create("\$ROOT_CONFIG$/foo", TestSchemesProcessor()) }.hasMessage("Path must not contains ROOT_CONFIG macro, corrected: foo")
   }
 
   @Test fun `path must be system-independent`() {
-    assertThatThrownBy({ SchemeManagerFactory.getInstance().create("foo\\bar", TestSchemesProcessor())}).hasMessage("Path must be system-independent, use forward slash instead of backslash")
+    assertThatThrownBy { SchemeManagerFactory.getInstance().create("foo\\bar", TestSchemesProcessor())}.hasMessage("Path must be system-independent, use forward slash instead of backslash")
   }
 
   private fun createSchemeManager(dir: Path) = SchemeManagerImpl(FILE_SPEC, TestSchemesProcessor(), null, dir)
@@ -375,31 +459,31 @@ private fun checkSchemes(baseDir: Path, expected: String, ignoreDeleted: Boolean
   }
 
   baseDir.directoryStreamIfExists {
-    val schemesProcessor = TestSchemesProcessor()
     for (file in it) {
-      val scheme = schemesProcessor.readScheme(loadElement(file), true)!!
+      val scheme = loadElement(file).deserialize(TestScheme::class.java)
       assertThat(fileToSchemeMap.get(FileUtil.getNameWithoutExtension(file.fileName.toString()))).isEqualTo(scheme.name)
     }
   }
 }
 
 @Tag("scheme")
-data class TestScheme(@field:com.intellij.util.xmlb.annotations.Attribute @field:kotlin.jvm.JvmField var name: String = "", @field:com.intellij.util.xmlb.annotations.Attribute var data: String? = null) : ExternalizableScheme {
+data class TestScheme(@field:com.intellij.util.xmlb.annotations.Attribute @field:kotlin.jvm.JvmField var name: String = "", @field:com.intellij.util.xmlb.annotations.Attribute var data: String? = null) : ExternalizableScheme, SerializableScheme {
   override fun getName() = name
 
   override fun setName(value: String) {
     name = value
   }
+
+  override fun writeScheme() = serialize()!!
 }
 
-open class TestSchemesProcessor : BaseSchemeProcessor<TestScheme, TestScheme>() {
-  override fun readScheme(element: Element, duringLoad: Boolean) = XmlSerializer.deserialize(element, TestScheme::class.java)
-
-  override fun writeScheme(scheme: TestScheme) = scheme.serialize()
-}
-
-fun SchemeManagerImpl<*, *>.save() {
-  val errors = SmartList<Throwable>()
-  save(errors)
-  CompoundRuntimeException.throwIfNotEmpty(errors)
+open class TestSchemesProcessor : LazySchemeProcessor<TestScheme, TestScheme>() {
+  override fun createScheme(dataHolder: SchemeDataHolder<TestScheme>,
+                            name: String,
+                            attributeProvider: Function<in String, String?>,
+                            isBundled: Boolean): TestScheme {
+    val scheme = dataHolder.read().deserialize(TestScheme::class.java)
+    dataHolder.updateDigest(scheme)
+    return scheme
+  }
 }

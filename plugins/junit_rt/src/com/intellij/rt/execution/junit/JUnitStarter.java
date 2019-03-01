@@ -177,15 +177,20 @@ public class JUnitStarter {
 
   public static boolean isJUnit5Preferred() {
     final String useJUnit5 = System.getProperty(JUNIT5_KEY);
-    final Boolean boolValue = useJUnit5 == null ? null : Boolean.valueOf(useJUnit5);
-    return boolValue != null && boolValue.booleanValue();
+    if (useJUnit5 == null) {
+      return false;
+    }
+    else {
+      final Boolean boolValue = Boolean.valueOf(useJUnit5);
+      return boolValue != null && boolValue.booleanValue();
+    }
   }
 
   public static boolean checkVersion(String[] args, PrintStream printStream) {
     for (int i = 0; i < args.length; i++) {
       String arg = args[i];
       if (arg.startsWith(IDE_VERSION)) {
-        int ideVersion = Integer.parseInt(arg.substring(IDE_VERSION.length(), arg.length()));
+        int ideVersion = Integer.parseInt(arg.substring(IDE_VERSION.length()));
         if (ideVersion != VERSION) {
           printStream.println("Wrong agent version: " + VERSION + ". IDE expects version: " + ideVersion);
           printStream.flush();
@@ -230,13 +235,11 @@ public class JUnitStarter {
           final List newArgs = new ArrayList();
           newArgs.add(agentName);
           newArgs.addAll(listeners);
-          PrintStream printOutputStream = System.out;
-          PrintStream printErrStream = System.err;
-          return new JUnitForkedSplitter(ourWorkingDirs, ourForkMode, printOutputStream, printErrStream, newArgs)
+          return new JUnitForkedSplitter(ourWorkingDirs, ourForkMode, newArgs)
             .startSplitting(args, name, ourCommandFileName, ourRepeatCount);
         }
       }
-      return testRunner.startRunnerWithArgs(args, listeners, name, ourCount, true);
+      return IdeaTestRunner.Repeater.startRunnerWithArgs(testRunner, args, listeners, name, ourCount, true);
     }
     catch (Exception e) {
       e.printStackTrace(System.err);
@@ -249,12 +252,13 @@ public class JUnitStarter {
     return Class.forName(agentName);
   }
 
-  public static void printClassesList(List classNames, String packageName, String category, File tempFile) throws IOException {
+  public static void printClassesList(List classNames, String packageName, String category, String filters, File tempFile) throws IOException {
     final PrintWriter writer = new PrintWriter(new OutputStreamWriter(new FileOutputStream(tempFile), "UTF-8"));
 
     try {
       writer.println(packageName); //package name
       writer.println(category); //category
+      writer.println(filters); //patterns
       for (int i = 0; i < classNames.size(); i++) {
         writer.println(classNames.get(i));
       }

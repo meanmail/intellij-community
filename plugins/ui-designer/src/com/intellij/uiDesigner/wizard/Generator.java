@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.uiDesigner.wizard;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -21,7 +7,7 @@ import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
@@ -30,7 +16,7 @@ import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
 import com.intellij.psi.codeStyle.VariableKind;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.uiDesigner.FormEditingUtil;
@@ -64,7 +50,7 @@ public final class Generator {
    * @param rootContainer output parameter; should be LwRootContainer[1]
    */
   public static FormProperty[] exposeForm(final Project project, final VirtualFile formFile, final LwRootContainer[] rootContainer) throws MyException{
-    final Module module = ModuleUtil.findModuleForFile(formFile, project);
+    final Module module = ModuleUtilCore.findModuleForFile(formFile, project);
     LOG.assertTrue(module != null);
 
     final PsiPropertiesProvider propertiesProvider = new PsiPropertiesProvider(module);
@@ -99,6 +85,7 @@ public final class Generator {
     FormEditingUtil.iterate(
       _rootContainer,
       new FormEditingUtil.ComponentVisitor<LwComponent>() {
+        @Override
         public boolean visit(final LwComponent component) {
           final String binding = component.getBinding();
           if (binding == null) {
@@ -140,7 +127,7 @@ public final class Generator {
       throw exception[0];
     }
 
-    return result.toArray(new FormProperty[result.size()]);
+    return result.toArray(new FormProperty[0]);
   }
 
   private static PsiClass getClassByType(final PsiType type) {
@@ -184,7 +171,7 @@ public final class Generator {
 
       // check that bean contains the property, and if not, try to add the property to the bean
       {
-        final String setterName = PropertyUtil.suggestSetterName(form2bean.myBeanProperty.myName);
+        final String setterName = PropertyUtilBase.suggestSetterName(form2bean.myBeanProperty.myName);
         final PsiMethod[] methodsByName = data.myBeanClass.findMethodsByName(setterName, true);
         if (methodsByName.length < 1) {
           // bean does not contain this property
@@ -236,8 +223,8 @@ public final class Generator {
         }
       }
 
-      final PsiMethod propertySetter = PropertyUtil.findPropertySetter(data.myBeanClass, form2bean.myBeanProperty.myName, false, true);
-      final PsiMethod propertyGetter = PropertyUtil.findPropertyGetter(data.myBeanClass, form2bean.myBeanProperty.myName, false, true);
+      final PsiMethod propertySetter = PropertyUtilBase.findPropertySetter(data.myBeanClass, form2bean.myBeanProperty.myName, false, true);
+      final PsiMethod propertyGetter = PropertyUtilBase.findPropertyGetter(data.myBeanClass, form2bean.myBeanProperty.myName, false, true);
 
       if (propertyGetter == null) {
         // todo
@@ -258,9 +245,9 @@ public final class Generator {
     final LwRootContainer[] rootContainer = new LwRootContainer[1];
     final FormProperty[] formProperties = exposeForm(data.myProject, data.myFormFile, rootContainer);
 
-    final StringBuffer getDataBody = new StringBuffer();
-    final StringBuffer setDataBody = new StringBuffer();
-    final StringBuffer isModifiedBody = new StringBuffer();
+    final StringBuilder getDataBody = new StringBuilder();
+    final StringBuilder setDataBody = new StringBuilder();
+    final StringBuilder isModifiedBody = new StringBuilder();
 
     // iterate exposed formproperties
 
@@ -351,7 +338,7 @@ public final class Generator {
 
     // put them to the bound class
 
-    final Module module = ModuleUtil.findModuleForFile(data.myFormFile, data.myProject);
+    final Module module = ModuleUtilCore.findModuleForFile(data.myFormFile, data.myProject);
     LOG.assertTrue(module != null);
     final PsiClass boundClass = FormEditingUtil.findClassToBind(module, rootContainer[0].getClassToBind());
     LOG.assertTrue(boundClass != null);
@@ -554,7 +541,7 @@ public final class Generator {
     // setter
     final String parameterName = codeStyleManager.suggestVariableName(VariableKind.PARAMETER, property, null, null).names[0];
     methodsBuffer.append("public void ");
-    methodsBuffer.append(PropertyUtil.suggestSetterName(property));
+    methodsBuffer.append(PropertyUtilBase.suggestSetterName(property));
     methodsBuffer.append("(final ");
     methodsBuffer.append(type);
     methodsBuffer.append(" ");
@@ -569,9 +556,8 @@ public final class Generator {
     methodsBuffer.append(";}\n");
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
   private static String suggestGetterName(final String propertyName, final String propertyType) {
-    return PropertyUtil.suggestGetterName(propertyName, "boolean".equals(propertyType) ? PsiType.BOOLEAN : null);
+    return PropertyUtilBase.suggestGetterName(propertyName, "boolean".equals(propertyType) ? PsiType.BOOLEAN : null);
   }
 
   public static void prepareWizardData(final WizardData data, PsiClass boundClass) throws MyException {
@@ -583,9 +569,8 @@ public final class Generator {
     PsiClass beanClass = null;
 
     // find get/set pair and bean class
-    outer: for (int i = 0; i < allGetDataMethods.length; i++) {
-      final PsiMethod _getMethod = allGetDataMethods[i];
-
+    outer:
+    for (final PsiMethod _getMethod : allGetDataMethods) {
       if (!PsiType.VOID.equals(_getMethod.getReturnType())) {
         continue;
       }
@@ -717,11 +702,11 @@ public final class Generator {
             continue;
           }
 
-          if (!PropertyUtil.isSimplePropertyGetter(barMethod)) {
+          if (!PropertyUtilBase.isSimplePropertyGetter(barMethod)) {
             continue;
           }
 
-          final String propertyName = PropertyUtil.getPropertyName(barMethod);
+          final String propertyName = PropertyUtilBase.getPropertyName(barMethod);
 
           // There are two possible types: boolean and java.lang.String
           String typeName = barMethod.getReturnType().getCanonicalText();

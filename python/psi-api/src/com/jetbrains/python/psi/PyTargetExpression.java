@@ -22,6 +22,8 @@ import com.jetbrains.python.psi.stubs.PyTargetExpressionStub;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
+
 /**
  * @author yole
  */
@@ -42,12 +44,16 @@ public interface PyTargetExpression extends PyQualifiedExpression, PsiNamedEleme
   PyExpression findAssignedValue();
 
   /**
-   * Resolves the value that maps to this target expression in an enclosing assignment expression.
+   * Multi-resolves the value that maps to this target expression in an enclosing assignment expression.
    *
    * This method does not access AST if underlying PSI is stub based and the context doesn't allow switching to AST.
+   *
+   * @param resolveContext resolve context
+   * @return the resolved assigned values or an empty list.
+   * <i>Note: the returned list does not contain null values.</i>
    */
-  @Nullable
-  PsiElement resolveAssignedValue(@NotNull PyResolveContext resolveContext);
+  @NotNull
+  List<PsiElement> multiResolveAssignedValue(@NotNull PyResolveContext resolveContext);
 
   /**
    * Returns the qualified name (if there is any) assigned to the expression.
@@ -66,6 +72,18 @@ public interface PyTargetExpression extends PyQualifiedExpression, PsiNamedEleme
   @Nullable
   QualifiedName getCalleeName();
 
+  @Override
   @NotNull
   PsiReference getReference();
+
+  /**
+   * Checks if target has assigned value.
+   *
+   * This method does not access AST if underlying PSI is stub based.
+   *
+   * @return true if target has assigned expression, false otherwise (e.g. in type declaration statement).
+   */
+  default boolean hasAssignedValue() {
+    return true;
+  }
 }

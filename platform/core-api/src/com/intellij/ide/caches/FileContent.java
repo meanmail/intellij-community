@@ -36,17 +36,17 @@ public class FileContent extends UserDataHolderBase {
     myVirtualFile = virtualFile;
   }
 
-  public void cache() throws IOException {
-    getBytes();
-    getLength();
-    getTimeStamp();
-    isWritable();
-  }
-
   @NotNull
   public byte[] getBytes() throws IOException {
     if (myCachedBytes == null) {
-      myCachedBytes = myVirtualFile.isValid() ? myVirtualFile.contentsToByteArray(false) : ArrayUtil.EMPTY_BYTE_ARRAY;
+      if (myVirtualFile.isValid()) {
+        myCachedTimeStamp = myVirtualFile.getTimeStamp();
+        myCachedBytes = myVirtualFile.contentsToByteArray(false);
+      }
+      else {
+        myCachedTimeStamp = -1;
+        myCachedBytes = ArrayUtil.EMPTY_BYTE_ARRAY;
+      }
     }
     return myCachedBytes;
   }

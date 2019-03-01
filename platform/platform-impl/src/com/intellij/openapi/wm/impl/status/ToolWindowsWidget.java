@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,10 +19,8 @@ import com.intellij.icons.AllIcons;
 import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.ide.ui.UISettingsListener;
-import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupChooserBuilder;
@@ -32,14 +30,12 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.wm.*;
 import com.intellij.openapi.wm.impl.IdeFrameImpl;
-import com.intellij.ui.GotItMessage;
-import com.intellij.ui.IdeBorderFactory;
-import com.intellij.ui.UIBundle;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.Alarm;
 import com.intellij.util.ui.BaseButtonBehavior;
+import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.TimedDeadzone;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -142,16 +138,15 @@ class ToolWindowsWidget extends JLabel implements CustomStatusBarWidget, StatusB
         }
         Collections.sort(toolWindows, (o1, o2) -> StringUtil.naturalCompare(o1.getStripeTitle(), o2.getStripeTitle()));
 
-        final JBList list = new JBList(toolWindows);
-        list.setCellRenderer(new ListCellRenderer() {
+        final JBList<ToolWindow> list = new JBList(toolWindows);
+        list.setCellRenderer(new ListCellRenderer<ToolWindow>() {
           final JBLabel label = new JBLabel();
 
           @Override
-          public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
-            final ToolWindow toolWindow = (ToolWindow)value;
+          public Component getListCellRendererComponent(JList<? extends ToolWindow> list, ToolWindow toolWindow, int index, boolean isSelected, boolean cellHasFocus) {
             label.setText(toolWindow.getStripeTitle());
             label.setIcon(toolWindow.getIcon());
-            label.setBorder(IdeBorderFactory.createEmptyBorder(4, 10, 4, 10));
+            label.setBorder(JBUI.Borders.empty(4, 10));
             label.setForeground(UIUtil.getListForeground(isSelected));
             label.setBackground(UIUtil.getListBackground(isSelected));
             final JPanel panel = new JPanel(new BorderLayout());
@@ -171,38 +166,20 @@ class ToolWindowsWidget extends JLabel implements CustomStatusBarWidget, StatusB
         }
 
         list.setSelectedIndex(list.getItemsCount() - 1);
-        PopupChooserBuilder builder = JBPopupFactory.getInstance().createListPopupBuilder(list);
+        PopupChooserBuilder<ToolWindow> builder = JBPopupFactory.getInstance().createListPopupBuilder(list);
         popup = builder
           .setAutoselectOnMouseMove(true)
           .setRequestFocus(false)
-          .setItemChoosenCallback(() -> {
+          .setItemChosenCallback((selectedValue) -> {
             if (popup != null) popup.closeOk(null);
-            final Object value = list.getSelectedValue();
-            if (value instanceof ToolWindow) {
-              ((ToolWindow)value).activate(null, true, true);
-            }
+            selectedValue.activate(null, true, true);
           })
           .createPopup();
 
+        list.setVisibleRowCount(30); // override default of 15 set when createPopup() is called
+
         popup.show(point);
       }, 300);
-    }
-  }
-
-  @Override
-  public void addNotify() {
-    super.addNotify();
-    final String key = "toolwindow.stripes.buttons.info.shown";
-    if (UISettings.getInstance().HIDE_TOOL_STRIPES && !PropertiesComponent.getInstance().isTrueValue(key)) {
-      PropertiesComponent.getInstance().setValue(key, String.valueOf(true));
-      final Alarm alarm = new Alarm();
-      alarm.addRequest(() -> {
-        GotItMessage.createMessage(UIBundle.message("tool.window.quick.access.title"), UIBundle.message(
-          "tool.window.quick.access.message"))
-          .setDisposable(this)
-          .show(new RelativePoint(this, new Point(10, 0)), Balloon.Position.above);
-        Disposer.dispose(alarm);
-      }, 20000);
     }
   }
 
@@ -218,7 +195,7 @@ class ToolWindowsWidget extends JLabel implements CustomStatusBarWidget, StatusB
 
   private void performAction() {
     if (isActive()) {
-      UISettings.getInstance().HIDE_TOOL_STRIPES = !UISettings.getInstance().HIDE_TOOL_STRIPES;
+      UISettings.getInstance().setHideToolStripes(!UISettings.getInstance().getHideToolStripes());
       UISettings.getInstance().fireUISettingsChanged();
     }
   }
@@ -233,7 +210,7 @@ class ToolWindowsWidget extends JLabel implements CustomStatusBarWidget, StatusB
         changes = true;
       }
 
-      Icon icon = UISettings.getInstance().HIDE_TOOL_STRIPES ? AllIcons.General.TbShown : AllIcons.General.TbHidden;
+      Icon icon = UISettings.getInstance().getHideToolStripes() ? AllIcons.General.TbShown : AllIcons.General.TbHidden;
       if (icon != getIcon()) {
         setIcon(icon);
         changes = true;

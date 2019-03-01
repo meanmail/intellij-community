@@ -1,24 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.invertBoolean;
 
 import com.intellij.lang.Language;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
 import com.intellij.refactoring.rename.RenameProcessor;
@@ -34,7 +19,7 @@ public abstract class InvertBooleanDelegate {
 
   @Nullable
   public static InvertBooleanDelegate findInvertBooleanDelegate(PsiElement element) {
-    for (InvertBooleanDelegate delegate : Extensions.getExtensions(EP_NAME)) {
+    for (InvertBooleanDelegate delegate : EP_NAME.getExtensionList()) {
       if (delegate.isVisibleOnElement(element)) {
         return delegate;
       }
@@ -44,7 +29,7 @@ public abstract class InvertBooleanDelegate {
 
   /**
    * Quick check if element is potentially acceptable by delegate
-   * 
+   *
    * @return true if element is possible to invert, e.g. variable or method
    */
   public abstract boolean isVisibleOnElement(@NotNull PsiElement element);
@@ -56,16 +41,16 @@ public abstract class InvertBooleanDelegate {
 
   /**
    * Adjust element to invert, e.g. suggest to refactor super method instead of current
-   * 
+   *
    * @return null if user canceled the operation
    */
-  @Nullable 
+  @Nullable
   public abstract PsiElement adjustElement(PsiElement element, Project project, Editor editor);
 
   /**
    * Eventually collect additional elements to rename, e.g. override methods
    * and find expressions which need to be inverted, e.g. return method statements inside the method itself, etc
-   * 
+   *
    * @param renameProcessor null if element is not named or name was not changed
    */
   public abstract void collectRefElements(PsiElement element,
@@ -74,16 +59,29 @@ public abstract class InvertBooleanDelegate {
                                           Collection<PsiElement> elementsToInvert);
 
   /**
-   * Invoked from {@link #getForeignElementToInvert(PsiElement, PsiElement, Language)};
+   * Invoked from {@link #collectForeignElementsToInvert(PsiElement, PsiElement, Language, Collection)}
    * should be used to reject usages for elements from foreign language to be refactored
    * @return null, if reference should not be reverted
    */
   public abstract PsiElement getElementToInvert(PsiElement namedElement, PsiElement expression);
 
   /**
-   * Should be called from {@link #collectRefElements(PsiElement, RenameProcessor, String, Collection)}
-   * to process found usages in foreign languages
+   * @return true, if element was found in current language
    */
+  public boolean collectElementsToInvert(PsiElement namedElement, PsiElement expression, Collection<PsiElement> elementsToInvert) {
+    PsiElement elementToInvert = getElementToInvert(namedElement, expression);
+    if (elementToInvert != null) {
+      elementsToInvert.add(elementToInvert);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Use {@link #collectForeignElementsToInvert(PsiElement, PsiElement, Language, Collection)} instead
+   * To be removed in 2018.3
+   */
+  @Deprecated
   protected static PsiElement getForeignElementToInvert(PsiElement namedElement,
                                                         PsiElement expression,
                                                         Language language) {
@@ -97,6 +95,22 @@ public abstract class InvertBooleanDelegate {
   }
 
   /**
+   * Should be called from {@link #collectRefElements(PsiElement, RenameProcessor, String, Collection)}
+   * to process found usages in foreign languages
+   */
+  protected static void collectForeignElementsToInvert(PsiElement namedElement,
+                                                       PsiElement expression,
+                                                       Language language,
+                                                       Collection<PsiElement> elementsToInvert) {
+    if (!expression.getLanguage().is(language)){
+      final InvertBooleanDelegate delegate = findInvertBooleanDelegate(expression);
+      if (delegate != null) {
+        delegate.collectElementsToInvert(namedElement, expression, elementsToInvert);
+      }
+    }
+  }
+
+  /**
    * Replace expression with created negation
    * @param expression to be inverted, found in {@link #collectRefElements(PsiElement, RenameProcessor, String, Collection)}
    */
@@ -107,7 +121,7 @@ public abstract class InvertBooleanDelegate {
    * or invert variable initializer
    */
   public abstract void invertElementInitializer(PsiElement var);
-  
+
   /**
    * Detect usages which can't be inverted
    */

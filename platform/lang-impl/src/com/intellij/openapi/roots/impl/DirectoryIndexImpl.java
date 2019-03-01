@@ -1,40 +1,30 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.roots.impl;
 
 import com.intellij.ProjectTopics;
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileTypes.FileTypeEvent;
 import com.intellij.openapi.fileTypes.FileTypeListener;
 import com.intellij.openapi.fileTypes.FileTypeManager;
+import com.intellij.openapi.fileTypes.FileTypeRegistry;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.roots.ModuleRootAdapter;
 import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.roots.OrderEntry;
+import com.intellij.openapi.roots.SourceFolder;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.LowMemoryWatcher;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileManager;
+import com.intellij.openapi.vfs.ex.temp.TempFileSystem;
 import com.intellij.openapi.vfs.newvfs.BulkFileListener;
 import com.intellij.openapi.vfs.newvfs.NewVirtualFile;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFileMoveEvent;
+import com.intellij.openapi.vfs.newvfs.events.VFilePropertyChangeEvent;
 import com.intellij.util.Query;
-import com.intellij.util.containers.ConcurrentIntObjectMap;
-import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.messages.MessageBusConnection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -42,6 +32,7 @@ import org.jetbrains.annotations.TestOnly;
 import org.jetbrains.jps.model.module.JpsModuleSourceRootType;
 
 import java.util.List;
+import java.util.Set;
 
 public class DirectoryIndexImpl extends DirectoryIndex {
   private static final Logger LOG = Logger.getInstance(DirectoryIndexImpl.class);
@@ -56,16 +47,19 @@ public class DirectoryIndexImpl extends DirectoryIndex {
     myProject = project;
     myConnection = project.getMessageBus().connect(project);
     subscribeToFileChanges();
-    Disposer.register(project, new Disposable() {
-      @Override
-      public void dispose() {
-        myDisposed = true;
-        myRootIndex = null;
-      }
+    Disposer.register(project, () -> {
+      myDisposed = true;
+      myRootIndex = null;
     });
+    LowMemoryWatcher.register(() -> {
+      RootIndex index = myRootIndex;
+      if (index != null) {
+        index.onLowMemory();
+      }
+    }, project);
   }
 
-  protected void subscribeToFileChanges() {
+  private void subscribeToFileChanges() {
     myConnection.subscribe(FileTypeManager.TOPIC, new FileTypeListener() {
       @Override
       public void fileTypesChanged(@NotNull FileTypeEvent event) {
@@ -73,25 +67,55 @@ public class DirectoryIndexImpl extends DirectoryIndex {
       }
     });
 
-    myConnection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    myConnection.subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void beforeRootsChange(@NotNull ModuleRootEvent event) {
+        myRootIndex = null;
+      }
+
+      @Override
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         myRootIndex = null;
       }
     });
 
-    myConnection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener.Adapter() {
+    myConnection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener() {
       @Override
       public void after(@NotNull List<? extends VFileEvent> events) {
         RootIndex rootIndex = myRootIndex;
-        if (rootIndex != null && rootIndex.resetOnEvents(events)) {
-          myRootIndex = null;
+        if (rootIndex != null && shouldResetOnEvents(events)) {
+          rootIndex.myPackageDirectoryCache.clear();
+          for (VFileEvent event : events) {
+            // TempFileSystem doesn't properly support virtual file pointers, so reset unconditionally
+            if (event.getFileSystem() instanceof TempFileSystem ||
+                isIgnoredFileCreated(event)) {
+              myRootIndex = null;
+              break;
+            }
+          }
         }
       }
     });
   }
 
-  protected void dispatchPendingEvents() {
+  private static boolean shouldResetOnEvents(@NotNull List<? extends VFileEvent> events) {
+    for (VFileEvent event : events) {
+      VirtualFile file = event.getFile();
+      if (file == null || file.isDirectory()) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isIgnoredFileCreated(@NotNull VFileEvent event) {
+    return event instanceof VFileMoveEvent && FileTypeRegistry.getInstance().isFileIgnored(((VFileMoveEvent)event).getNewParent()) ||
+           event instanceof VFilePropertyChangeEvent &&
+           ((VFilePropertyChangeEvent)event).getPropertyName().equals(VirtualFile.PROP_NAME) &&
+           FileTypeRegistry.getInstance().isFileIgnored(((VFilePropertyChangeEvent)event).getFile());
+  }
+
+  private void dispatchPendingEvents() {
     myConnection.deliverImmediately();
   }
 
@@ -105,31 +129,9 @@ public class DirectoryIndexImpl extends DirectoryIndex {
   private RootIndex getRootIndex() {
     RootIndex rootIndex = myRootIndex;
     if (rootIndex == null) {
-      myRootIndex = rootIndex = new RootIndex(myProject, createRootInfoCache());
+      myRootIndex = rootIndex = new RootIndex(myProject);
     }
     return rootIndex;
-  }
-
-  protected RootIndex.InfoCache createRootInfoCache() {
-    return new RootIndex.InfoCache() {
-      // Upsource can't use int-mapping because different files may have the same id there
-      private final ConcurrentIntObjectMap<DirectoryInfo> myInfoCache = ContainerUtil.createConcurrentIntObjectMap();
-      @Override
-      public void cacheInfo(@NotNull VirtualFile dir, @NotNull DirectoryInfo info) {
-        myInfoCache.put(((NewVirtualFile)dir).getId(), info);
-      }
-
-      @Override
-      public DirectoryInfo getCachedInfo(@NotNull VirtualFile dir) {
-        return myInfoCache.get(((NewVirtualFile)dir).getId());
-      }
-    };
-  }
-
-  @Override
-  public DirectoryInfo getInfoForDirectory(@NotNull VirtualFile dir) {
-    DirectoryInfo info = getInfoForFile(dir);
-    return info.isInProject() ? info : null;
   }
 
   @NotNull
@@ -143,13 +145,21 @@ public class DirectoryIndexImpl extends DirectoryIndex {
     return getRootIndex().getInfoForFile(file);
   }
 
+  @Nullable
+  @Override
+  public SourceFolder getSourceRootFolder(@NotNull DirectoryInfo info) {
+    boolean inModuleSource = info instanceof DirectoryInfoImpl && ((DirectoryInfoImpl)info).isInModuleSource();
+    if (inModuleSource) {
+      return info.getSourceRootFolder();
+    }
+    return null;
+  }
+
   @Override
   @Nullable
   public JpsModuleSourceRootType<?> getSourceRootType(@NotNull DirectoryInfo info) {
-    if (info.isInModuleSource()) {
-      return getRootIndex().getSourceRootType(info);
-    }
-    return null;
+    SourceFolder folder = getSourceRootFolder(info);
+    return folder == null ? null : folder.getRootType();
   }
 
   @Override
@@ -167,8 +177,15 @@ public class DirectoryIndexImpl extends DirectoryIndex {
     return getRootIndex().getOrderEntries(info);
   }
 
+  @Override
+  @NotNull
+  public Set<String> getDependentUnloadedModules(@NotNull Module module) {
+    checkAvailability();
+    return getRootIndex().getDependentUnloadedModules(module);
+  }
+
   @TestOnly
-  void assertConsistency(DirectoryInfo info) {
+  public void assertConsistency(DirectoryInfo info) {
     List<OrderEntry> entries = getOrderEntries(info);
     for (int i = 1; i < entries.size(); i++) {
       assert RootIndex.BY_OWNER_MODULE.compare(entries.get(i - 1), entries.get(i)) <= 0;

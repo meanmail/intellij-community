@@ -28,8 +28,6 @@ import java.util.Set;
 
 /**
 * @author irengrig
-*         Date: 2/7/11
-*         Time: 10:40 AM
  *
  * We can have only limited number of nodes selected in a tree;
  * and children of selected nodes (any level) cannot change their state
@@ -58,7 +56,7 @@ public class SelectedState<T> {
     mySelected.remove(node);
   }
 
-  public void clearAllCachedMatching(final Processor<T> processor) {
+  public void clearAllCachedMatching(final Processor<? super T> processor) {
     final Set<Map.Entry<T, TreeNodeState>> entries = myCache.entrySet();
     for (Map.Entry<T, TreeNodeState> entry: entries){
       if(processor.process(entry.getKey())) {
@@ -92,7 +90,7 @@ public class SelectedState<T> {
     return Collections.unmodifiableSet(mySelected);
   }
 
-  public void setSelection(Collection<T> files) {
+  public void setSelection(Collection<? extends T> files) {
     mySelected.clear();
     mySelected.addAll(files);
   }

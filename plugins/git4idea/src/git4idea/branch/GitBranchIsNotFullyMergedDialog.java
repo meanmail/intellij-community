@@ -15,17 +15,15 @@
  */
 package git4idea.branch;
 
-import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.dvcs.ui.RepositoryComboboxListCellRenderer;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.ui.components.JBLabel;
-import com.intellij.util.ArrayUtil;
 import com.intellij.xml.util.XmlStringUtil;
 import git4idea.DialogManager;
 import git4idea.GitCommit;
 import git4idea.repo.GitRepository;
 import git4idea.ui.GitCommitListWithDiffPanel;
-import git4idea.ui.GitRepositoryComboboxListCellRenderer;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -40,21 +38,15 @@ import java.util.Map;
 /**
  * This dialog is shown when user tries to delete a local branch, which is not fully merged to the current branch.
  * It shows the list of commits not merged to the current branch and the list of branches, which the given branch is merged to.
- *
- * @author Kirill Likhodedov
  */
 public class GitBranchIsNotFullyMergedDialog extends DialogWrapper {
 
-  private static final Logger LOG = Logger.getInstance(GitBranchIsNotFullyMergedDialog.class);
-
-  private final Project myProject;
-  private final Map<GitRepository, List<GitCommit>> myCommits;
-
-  private final GitCommitListWithDiffPanel myCommitListWithDiffPanel;
-  private final Collection<GitRepository> myRepositories;
+  @NotNull private final Map<GitRepository, List<GitCommit>> myCommits;
+  @NotNull private final GitCommitListWithDiffPanel myCommitListWithDiffPanel;
+  @NotNull private final Collection<GitRepository> myRepositories;
   @NotNull private final String myRemovedBranch;
   @NotNull private final Map<GitRepository, String> myBaseBranches;
-  private final GitRepository myInitialRepository;
+  @NotNull private final GitRepository myInitialRepository;
 
   /**
    * Show the dialog and get user's answer, whether he wants to force delete the branch.
@@ -78,14 +70,13 @@ public class GitBranchIsNotFullyMergedDialog extends DialogWrapper {
                                           @NotNull Map<GitRepository, String> baseBranches,
                                           @NotNull String removedBranch) {
     super(project, false);
-    myProject = project;
     myCommits = commits;
     myRepositories = commits.keySet();
     myBaseBranches = baseBranches;
     myRemovedBranch = removedBranch;
 
     myInitialRepository = calcInitiallySelectedRepository();
-    myCommitListWithDiffPanel = new GitCommitListWithDiffPanel(myProject, new ArrayList<>(myCommits.get(myInitialRepository)));
+    myCommitListWithDiffPanel = new GitCommitListWithDiffPanel(project, new ArrayList<>(myCommits.get(myInitialRepository)));
 
     init();
 
@@ -123,8 +114,8 @@ public class GitBranchIsNotFullyMergedDialog extends DialogWrapper {
   protected JComponent createNorthPanel() {
     JBLabel descriptionLabel = new JBLabel(makeDescription(myInitialRepository));
 
-    JComboBox repositorySelector = new JComboBox(ArrayUtil.toObjectArray(myRepositories, GitRepository.class));
-    repositorySelector.setRenderer(new GitRepositoryComboboxListCellRenderer(repositorySelector));
+    JComboBox<GitRepository> repositorySelector = new JComboBox<>(myRepositories.toArray(new GitRepository[0]));
+    repositorySelector.setRenderer(new RepositoryComboboxListCellRenderer());
     repositorySelector.setSelectedItem(myInitialRepository);
     repositorySelector.addActionListener(new ActionListener() {
       @Override

@@ -15,6 +15,7 @@
  */
 package com.intellij.psi.impl.source.codeStyle;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.formatting.CoreFormatterUtil;
 import com.intellij.formatting.FormattingMode;
 import com.intellij.formatting.FormattingModel;
@@ -27,7 +28,6 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.formatter.DocumentBasedFormattingModel;
 import com.intellij.psi.impl.source.SourceTreeToPsiMap;
@@ -94,24 +94,35 @@ abstract class CodeStyleManagerRunnable<T> {
     final FormattingModelBuilder builder = LanguageFormatting.INSTANCE.forContext(file);
     FormattingModelBuilder elementBuilder = element != null ? LanguageFormatting.INSTANCE.forContext(element) : builder;
     if (builder != null && elementBuilder != null) {
-      mySettings = CodeStyleSettingsManager.getSettings(myCodeStyleManager.getProject());
+      mySettings = CodeStyle.getSettings(file);
 
       mySignificantRange = offset != -1 ? getSignificantRange(file, offset) : null;
       myIndentOptions = mySettings.getIndentOptionsByFile(file, mySignificantRange);
 
-      myModel = CoreFormatterUtil.buildModel(builder, file, mySettings, myMode);
-
-      if (document != null && useDocumentBaseFormattingModel()) {
-        myModel = new DocumentBasedFormattingModel(myModel, document, myCodeStyleManager.getProject(), mySettings,
-                                                   file.getFileType(), file);
+      FormattingMode currentMode = myCodeStyleManager.getCurrentFormattingMode();
+      myCodeStyleManager.setCurrentFormattingMode(myMode);
+      try {
+        myModel = buildModel(builder, file, document);
+        T result = doPerform(offset, range);
+        if (result != null) {
+          return result;
+        }
       }
-
-      final T result = doPerform(offset, range);
-      if (result != null) {
-        return result;
+      finally {
+        myCodeStyleManager.setCurrentFormattingMode(currentMode);
       }
     }
     return defaultValue;
+  }
+
+  @NotNull
+  private FormattingModel buildModel(@NotNull FormattingModelBuilder builder, @NotNull PsiFile file, @Nullable Document document) {
+    FormattingModel model = CoreFormatterUtil.buildModel(builder, file, mySettings, myMode);
+    if (document != null && useDocumentBaseFormattingModel()) {
+      model = new DocumentBasedFormattingModel(model, document, myCodeStyleManager.getProject(), mySettings,
+                                               file.getFileType(), file);
+    }
+    return model;
   }
 
   protected boolean useDocumentBaseFormattingModel() {
@@ -150,9 +161,11 @@ abstract class CodeStyleManagerRunnable<T> {
     }
 
     final FormattingModelBuilder builder = LanguageFormatting.INSTANCE.forContext(file);
-    final TextRange textRange = builder.getRangeAffectingIndent(file, offset, elementAtOffset);
-    if (textRange != null) {
-      return textRange;
+    if (builder != null) {
+      final TextRange textRange = builder.getRangeAffectingIndent(file, offset, elementAtOffset);
+      if (textRange != null) {
+        return textRange;
+      }
     }
 
     final TextRange elementRange = elementAtOffset.getTextRange();

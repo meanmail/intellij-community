@@ -1,19 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.lang;
 
 import com.intellij.ide.util.DirectoryUtil;
@@ -22,7 +7,6 @@ import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.fileChooser.FileChooserDescriptorFactory;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.ex.FileTypeChooser;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
@@ -37,6 +21,7 @@ import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.ui.DocumentAdapter;
 import com.intellij.util.IncorrectOperationException;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -47,12 +32,22 @@ import java.io.File;
  * @author ven
  */
 public class ExtractIncludeDialog extends DialogWrapper {
+  private static final String REFACTORING_NAME = RefactoringBundle.message("extractIncludeFile.name");
+
+  private final PsiDirectory myCurrentDirectory;
+  protected final String myExtension;
+
   protected TextFieldWithBrowseButton myTargetDirectoryField;
   private JTextField myNameField;
-  private final PsiDirectory myCurrentDirectory;
-  private static final String REFACTORING_NAME = RefactoringBundle.message("extractIncludeFile.name");
-  protected final String myExtension;
   protected JLabel myTargetDirLabel;
+
+  public ExtractIncludeDialog(final PsiDirectory currentDirectory, final String extension) {
+    super(true);
+    myCurrentDirectory = currentDirectory;
+    myExtension = extension;
+    setTitle(REFACTORING_NAME);
+    init();
+  }
 
   public PsiDirectory getTargetDirectory() {
     return myTargetDirectory;
@@ -63,14 +58,6 @@ public class ExtractIncludeDialog extends DialogWrapper {
   public String getTargetFileName () {
     String name = myNameField.getText().trim();
     return name.contains(".") ? name: name + "." + myExtension;
-  }
-
-  public ExtractIncludeDialog(final PsiDirectory currentDirectory, final String extension) {
-    super(true);
-    myCurrentDirectory = currentDirectory;
-    myExtension = extension;
-    setTitle(REFACTORING_NAME);
-    init();
   }
 
   @Override
@@ -89,7 +76,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
     nameLabel.setLabelFor(myNameField);
     myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      protected void textChanged(DocumentEvent e) {
+      protected void textChanged(@NotNull DocumentEvent e) {
         validateOKButton();
       }
     });
@@ -110,7 +97,7 @@ public class ExtractIncludeDialog extends DialogWrapper {
 
     myTargetDirectoryField.getTextField().getDocument().addDocumentListener(new DocumentAdapter() {
       @Override
-      public void textChanged(DocumentEvent event) {
+      public void textChanged(@NotNull DocumentEvent event) {
         validateOKButton();
       }
     });
@@ -156,8 +143,9 @@ public class ExtractIncludeDialog extends DialogWrapper {
       final Runnable action = () -> {
         try {
           PsiDirectory targetDirectory = DirectoryUtil.mkdirs(PsiManager.getInstance(project), directoryName);
+          assert targetDirectory != null : directoryName;
           targetDirectory.checkCreateFile(targetFileName);
-          final String webPath = PsiFileSystemItemUtil.getRelativePath(myCurrentDirectory, targetDirectory);
+          String webPath = PsiFileSystemItemUtil.findRelativePath(myCurrentDirectory, targetDirectory);
           myTargetDirectory = webPath == null ? null : targetDirectory;
         }
         catch (IncorrectOperationException e) {
@@ -170,19 +158,14 @@ public class ExtractIncludeDialog extends DialogWrapper {
     super.doOKAction();
   }
 
-  @Override
-  protected void doHelpAction() {
-    HelpManager.getInstance().invokeHelp(getHelpTopic());
-  }
-
+  @ApiStatus.ScheduledForRemoval(inVersion = "2019.1")
   protected String getHelpTopic() {
     return ExtractIncludeFileBase.HELP_ID;
   }
 
   @Override
-  @NotNull
-  protected Action[] createActions() {
-    return new Action[]{getOKAction(), getCancelAction(), getHelpAction()};
+  protected String getHelpId() {
+    return getHelpTopic();
   }
 
   protected void hideTargetDirectory() {

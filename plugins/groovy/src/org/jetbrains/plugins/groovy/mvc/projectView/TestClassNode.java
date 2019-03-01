@@ -30,16 +30,12 @@ import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMe
 
 import javax.swing.*;
 
-/**
- * User: Dmitry.Krasilschikov
- * Date: 15.04.2009
- */
 public class TestClassNode extends ClassNode {
   private final Icon myMethodIcon;
 
   public TestClassNode(@NotNull final Module module,
                        @NotNull final GrTypeDefinition controllerClass,
-                       @Nullable final ViewSettings viewSettings, final Icon methodIcon) {
+                       final ViewSettings viewSettings, final Icon methodIcon) {
     super(module, controllerClass, viewSettings);
     myMethodIcon = methodIcon;
   }

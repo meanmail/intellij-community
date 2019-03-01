@@ -15,12 +15,15 @@
  */
 package com.intellij.util;
 
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.util.containers.UnsignedShortArrayList;
 import org.jetbrains.annotations.NotNull;
 
 import java.awt.*;
+import java.util.concurrent.TimeUnit;
 
 public class PausesStat {
+  private static final Logger LOG = Logger.getInstance(PausesStat.class);
   private static final int N_MAX = 100000;
   // stores durations of the event: (timestamp of the event end) - (timestamp of the event start) in milliseconds.
   private final UnsignedShortArrayList durations = new UnsignedShortArrayList();
@@ -35,11 +38,11 @@ public class PausesStat {
 
   public PausesStat(@NotNull String name) {
     myName = name;
-    assert EventQueue.isDispatchThread() : Thread.currentThread();
+    if (!EventQueue.isDispatchThread()) throw new IllegalStateException("expected EDT but got "+Thread.currentThread());
     myEdtThread = Thread.currentThread();
   }
 
-  private int register(int duration) {
+  private void register(int duration) {
     if (durations.size() == N_MAX) {
       durations.set(indexToOverwrite, duration);
       indexToOverwrite = (indexToOverwrite + 1) % N_MAX;
@@ -47,33 +50,43 @@ public class PausesStat {
     else {
       durations.add(duration);
     }
-    return duration;
   }
 
   public void started() {
     assertEdt();
-    assert !started;
+    LOG.assertTrue(!started);
+    LOG.assertTrue(startTimeStamp == 0, startTimeStamp);
+    startTimeStamp = System.nanoTime();
     started = true;
-    startTimeStamp = System.currentTimeMillis();
   }
 
   private void assertEdt() {
-    assert Thread.currentThread() == myEdtThread : Thread.currentThread();
+    if (Thread.currentThread() != myEdtThread) {
+      LOG.error("wrong thread: "+Thread.currentThread());
+    }
   }
 
   public void finished(@NotNull String description) {
     assertEdt();
-    assert started;
-    long finishStamp = System.currentTimeMillis();
-    int duration = (int)(finishStamp - startTimeStamp);
+    LOG.assertTrue(started);
     started = false;
-    duration = Math.min(duration, (1 << 16) - 1);
-    if (duration > maxDuration) {
-      maxDuration = duration;
+    long finishStamp = System.nanoTime();
+    long startTimeStamp = this.startTimeStamp;
+    int durationMs = (int)TimeUnit.NANOSECONDS.toMillis(finishStamp - startTimeStamp);
+    this.startTimeStamp = 0;
+    if (finishStamp - startTimeStamp < 0 || durationMs < 0) {
+      // sometimes despite all efforts the System.nanoTime() can be non-monotonic
+      // ignore
+      return;
+    }
+
+    durationMs = Math.min(durationMs, Short.MAX_VALUE);
+    if (durationMs > maxDuration) {
+      maxDuration = durationMs;
       maxDurationDescription = description;
     }
     totalNumberRecorded++;
-    register(duration);
+    register(durationMs);
   }
 
   public String statistics() {
@@ -89,6 +102,6 @@ public class PausesStat {
            "\nTotal time spent: " + total + "ms" +
            "\nAverage duration: " + (number == 0 ? 0 : total / number) + "ms" +
            "\nMedian  duration: " + ArrayUtil.averageAmongMedians(duration, 3) + "ms" +
-           "\nMax  duration:    " + (maxDuration == 65535 ? ">" : "") + maxDuration+ "ms (it was '"+maxDurationDescription+"')";
+           "\nMax     duration: " + (maxDuration == 65535 ? ">" : "") + maxDuration+ "ms (it was '"+maxDurationDescription+"')";
   }
 }

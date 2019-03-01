@@ -44,8 +44,8 @@ import java.util.List;
  */
 public class JpsProjectImpl extends JpsRootElementBase<JpsProjectImpl> implements JpsProject {
   private static final JpsElementCollectionRole<JpsElementReference<?>> EXTERNAL_REFERENCES_COLLECTION_ROLE =
-    JpsElementCollectionRole.create(JpsElementChildRoleBase.<JpsElementReference<?>>create("external reference"));
-  private static final JpsElementCollectionRole<JpsRunConfiguration> RUN_CONFIGURATIONS_ROLE = JpsElementCollectionRole.create(JpsElementChildRoleBase.<JpsRunConfiguration>create("run configuration"));
+    JpsElementCollectionRole.create(JpsElementChildRoleBase.create("external reference"));
+  private static final JpsElementCollectionRole<JpsRunConfiguration> RUN_CONFIGURATIONS_ROLE = JpsElementCollectionRole.create(JpsElementChildRoleBase.create("run configuration"));
   private final JpsLibraryCollection myLibraryCollection;
   private String myName = "";
 
@@ -87,7 +87,7 @@ public class JpsProjectImpl extends JpsRootElementBase<JpsProjectImpl> implement
   <P extends JpsElement, ModuleType extends JpsModuleType<P> & JpsElementTypeWithDefaultProperties<P>>
   JpsModule addModule(@NotNull final String name, @NotNull ModuleType moduleType) {
     final JpsElementCollection<JpsModule> collection = myContainer.getChild(JpsModuleRole.MODULE_COLLECTION_ROLE);
-    return collection.addChild(new JpsModuleImpl<P>(moduleType, name, moduleType.createDefaultProperties()));
+    return collection.addChild(new JpsModuleImpl<>(moduleType, name, moduleType.createDefaultProperties()));
   }
 
   @NotNull
@@ -112,6 +112,11 @@ public class JpsProjectImpl extends JpsRootElementBase<JpsProjectImpl> implement
   @Override
   public void addModule(@NotNull JpsModule module) {
     myContainer.getChild(JpsModuleRole.MODULE_COLLECTION_ROLE).addChild(module);
+  }
+
+  @Override
+  public void removeModule(@NotNull JpsModule module) {
+    myContainer.getChild(JpsModuleRole.MODULE_COLLECTION_ROLE).removeChild(module);
   }
 
   @NotNull
@@ -143,7 +148,7 @@ public class JpsProjectImpl extends JpsRootElementBase<JpsProjectImpl> implement
   public <P extends JpsElement> JpsTypedRunConfiguration<P> addRunConfiguration(@NotNull String name,
                                                                                 @NotNull JpsRunConfigurationType<P> type,
                                                                                 @NotNull P properties) {
-    return getRunConfigurationsCollection().addChild(new JpsRunConfigurationImpl<P>(name, type, properties));
+    return getRunConfigurationsCollection().addChild(new JpsRunConfigurationImpl<>(name, type, properties));
   }
 
   private JpsElementCollection<JpsRunConfiguration> getRunConfigurationsCollection() {

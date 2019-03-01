@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import java.io.Serializable;
 
 /**
  * @author max
- * @since Sep 5, 2006
  */
 public class RawText implements Cloneable, Serializable {
   private static DataFlavor ourFlavor;
@@ -36,6 +35,7 @@ public class RawText implements Cloneable, Serializable {
     this.rawText = rawText;
   }
 
+  @Override
   public Object clone() {
     try {
       return super.clone();
@@ -53,8 +53,7 @@ public class RawText implements Cloneable, Serializable {
       ourFlavor = flavor;
       return flavor;
     }
-    catch (NoClassDefFoundError ignore) { }
-    catch (IllegalArgumentException ignore) { }
+    catch (NoClassDefFoundError | IllegalArgumentException ignore) { }
 
     return null;
   }
@@ -67,8 +66,7 @@ public class RawText implements Cloneable, Serializable {
       try {
         return (RawText)content.getTransferData(flavor);
       }
-      catch (UnsupportedFlavorException ignore) { }
-      catch (IOException ignore) { }
+      catch (UnsupportedFlavorException | IOException ignore) { }
     }
 
     return null;

@@ -30,7 +30,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jan 17, 2005
  */
 public class UsageInfoToUsageConverter {
   private UsageInfoToUsageConverter() {
@@ -54,7 +53,7 @@ public class UsageInfoToUsageConverter {
     }
 
     @NotNull
-    private static PsiElement[] convertToPsiElements(@NotNull List<SmartPsiElementPointer<PsiElement>> primary) {
+    private static PsiElement[] convertToPsiElements(@NotNull List<? extends SmartPsiElementPointer<PsiElement>> primary) {
       return ContainerUtil.toArray(ContainerUtil.mapNotNull(primary, SmartPsiElementPointer::getElement), PsiElement.ARRAY_FACTORY);
     }
 

@@ -16,6 +16,7 @@
 package com.intellij.diff.tools.simple;
 
 import com.intellij.diff.fragments.MergeLineFragment;
+import com.intellij.diff.tools.util.text.MergeInnerDifferences;
 import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.MergeConflictType;
 import com.intellij.diff.util.ThreeSide;
@@ -31,8 +32,8 @@ public class SimpleThreesideDiffChange extends ThreesideDiffChangeBase {
   @NotNull private final List<? extends EditorEx> myEditors;
   @Nullable private final MergeInnerDifferences myInnerFragments;
 
-  private int[] myLineStarts = new int[3];
-  private int[] myLineEnds = new int[3];
+  private final int[] myLineStarts = new int[3];
+  private final int[] myLineEnds = new int[3];
 
   public SimpleThreesideDiffChange(@NotNull MergeLineFragment fragment,
                                    @NotNull MergeConflictType conflictType,

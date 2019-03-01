@@ -134,6 +134,17 @@ public class UnnecessaryFullyQualifiedNameFixTest extends IGQuickFixesTestCase {
            "}");
   }
 
+  public void testCaretOnClassName() {
+    doTest(InspectionGadgetsBundle.message("unnecessary.fully.qualified.name.remove.quickfix"),
+           "class X {" +
+           "  java.lang.St/**/ring s;" +
+           "}",
+
+           "class X {" +
+           "  String s;" +
+           "}");
+  }
+
   private void doTest(@Language("JAVA") @NotNull @NonNls String before, @Language("JAVA") @NotNull @NonNls String after,
                       @MagicConstant(intValues = {
                         JavaCodeStyleSettings.FULLY_QUALIFY_NAMES_ALWAYS,
@@ -151,17 +162,9 @@ public class UnnecessaryFullyQualifiedNameFixTest extends IGQuickFixesTestCase {
                         JavaCodeStyleSettings.SHORTEN_NAMES_ALWAYS_AND_ADD_IMPORT
                       }) int classNamesInJavadoc,
                       String fileName) {
-    final CodeStyleSettings settings = CodeStyleSettingsManager.getSettings(getProject());
-    final JavaCodeStyleSettings javaSettings = settings.getCustomSettings(JavaCodeStyleSettings.class);
-
-    final int oldClassNamesInJavadoc = javaSettings.CLASS_NAMES_IN_JAVADOC;
-    try {
-      javaSettings.CLASS_NAMES_IN_JAVADOC = classNamesInJavadoc;
-      doTest(InspectionGadgetsBundle.message("unnecessary.fully.qualified.name.replace.quickfix"), before, after, fileName);
-    }
-    finally {
-      javaSettings.CLASS_NAMES_IN_JAVADOC = oldClassNamesInJavadoc;
-    }
+    final JavaCodeStyleSettings javaSettings = JavaCodeStyleSettings.getInstance(getProject());
+    javaSettings.CLASS_NAMES_IN_JAVADOC = classNamesInJavadoc;
+    doTest(InspectionGadgetsBundle.message("unnecessary.fully.qualified.name.replace.quickfix"), before, after, fileName);
   }
 
   @Override

@@ -1,30 +1,19 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 package com.intellij.ide.hierarchy.actions;
 
-import com.intellij.ide.hierarchy.HierarchyBrowser;
-import com.intellij.ide.hierarchy.HierarchyBrowserManager;
-import com.intellij.ide.hierarchy.HierarchyProvider;
+import com.intellij.ide.hierarchy.*;
 import com.intellij.lang.LanguageExtension;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.project.DumbUnawareHider;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiDocumentManager;
@@ -37,6 +26,7 @@ import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.awt.*;
 import java.util.List;
 
@@ -52,7 +42,7 @@ public abstract class BrowseHierarchyActionBase extends AnAction {
   }
 
   @Override
-  public final void actionPerformed(final AnActionEvent e) {
+  public final void actionPerformed(@NotNull final AnActionEvent e) {
     final DataContext dataContext = e.getDataContext();
     final Project project = e.getProject();
     if (project == null) return;
@@ -66,37 +56,58 @@ public abstract class BrowseHierarchyActionBase extends AnAction {
     createAndAddToPanel(project, provider, target);
   }
 
-  public static HierarchyBrowser createAndAddToPanel(@NotNull Project project, @NotNull final HierarchyProvider provider, @NotNull PsiElement target) {
-    final HierarchyBrowser hierarchyBrowser = provider.createHierarchyBrowser(target);
+  @NotNull
+  public static HierarchyBrowser createAndAddToPanel(@NotNull Project project,
+                                                     @NotNull final HierarchyProvider provider,
+                                                     @NotNull PsiElement target) {
+    HierarchyBrowser hierarchyBrowser = provider.createHierarchyBrowser(target);
 
-    final Content content;
-
-    final HierarchyBrowserManager hierarchyBrowserManager = HierarchyBrowserManager.getInstance(project);
+    HierarchyBrowserManager hierarchyBrowserManager = HierarchyBrowserManager.getInstance(project);
 
     final ContentManager contentManager = hierarchyBrowserManager.getContentManager();
     final Content selectedContent = contentManager.getSelectedContent();
+
+    JComponent browserComponent = hierarchyBrowser.getComponent();
+    if (!DumbService.isDumbAware(hierarchyBrowser)) {
+      browserComponent = DumbService.getInstance(project).wrapGently(browserComponent, project);
+    }
+
+    final Content content;
     if (selectedContent != null && !selectedContent.isPinned()) {
       content = selectedContent;
-      final Component component = content.getComponent();
+      Component component = content.getComponent();
+      if (component instanceof DumbUnawareHider) {
+        component = ((DumbUnawareHider)component).getContent();
+      }
       if (component instanceof Disposable) {
         Disposer.dispose((Disposable)component);
       }
-      content.setComponent(hierarchyBrowser.getComponent());
+      content.setComponent(browserComponent);
     }
     else {
-      content = ContentFactory.SERVICE.getInstance().createContent(hierarchyBrowser.getComponent(), null, true);
+      content = ContentFactory.SERVICE.getInstance().createContent(browserComponent, null, true);
       contentManager.addContent(content);
     }
+    content.setHelpId(HierarchyBrowserBaseEx.HELP_ID);
     contentManager.setSelectedContent(content);
     hierarchyBrowser.setContent(content);
 
-    final Runnable runnable = () -> provider.browserActivated(hierarchyBrowser);
-    ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.HIERARCHY).activate(runnable);
+    final Runnable runnable = () -> {
+      if (hierarchyBrowser instanceof HierarchyBrowserBase && ((HierarchyBrowserBase)hierarchyBrowser).isDisposed()) {
+        return;
+      }
+      provider.browserActivated(hierarchyBrowser);
+    };
+    ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.HIERARCHY);
+    toolWindow.activate(runnable);
+    if (hierarchyBrowser instanceof Disposable) {
+      Disposer.register(toolWindow.getContentManager(), (Disposable)hierarchyBrowser);
+    }
     return hierarchyBrowser;
   }
 
   @Override
-  public void update(final AnActionEvent e) {
+  public void update(@NotNull final AnActionEvent e) {
     if (!myExtension.hasAnyExtensions()) {
       e.getPresentation().setVisible(false);
     }

@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2011 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.branch;
 
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.vcs.log.Hash;
 import git4idea.GitBranch;
@@ -43,7 +28,7 @@ import java.util.Map;
 public final class GitBranchesCollection {
 
   public static final GitBranchesCollection EMPTY =
-    new GitBranchesCollection(Collections.<GitLocalBranch, Hash>emptyMap(), Collections.<GitRemoteBranch, Hash>emptyMap());
+    new GitBranchesCollection(Collections.emptyMap(), Collections.emptyMap());
 
   @NotNull
   private final Map<GitLocalBranch, Hash> myLocalBranches;
@@ -72,25 +57,28 @@ public final class GitBranchesCollection {
     return null;
   }
 
+  public Collection<GitLocalBranch> findLocalBranchesByHash(Hash hash) {
+    return ContainerUtil.filter(myLocalBranches.keySet(), key -> myLocalBranches.get(key).equals(hash));
+  }
+
+  public Collection<GitRemoteBranch> findRemoteBranchesByHash(Hash hash) {
+    return ContainerUtil.filter(myRemoteBranches.keySet(), key -> myRemoteBranches.get(key).equals(hash));
+  }
+
   @Nullable
   public GitLocalBranch findLocalBranch(@NotNull String name) {
-    return findByName(myLocalBranches.keySet(), name);
+    GitLocalBranch branch = new GitLocalBranch(name);
+    return myLocalBranches.containsKey(branch) ? branch : null;
   }
 
   @Nullable
   public GitBranch findBranchByName(@NotNull String name) {
-    GitLocalBranch branch = findByName(myLocalBranches.keySet(), name);
+    GitLocalBranch branch = findLocalBranch(name);
     return branch != null ? branch : findByName(myRemoteBranches.keySet(), name);
   }
 
   @Nullable
   private static <T extends GitBranch> T findByName(Collection<T> branches, @NotNull final String name) {
-    return ContainerUtil.find(branches, new Condition<T>() {
-      @Override
-      public boolean value(T branch) {
-        return GitReference.BRANCH_NAME_HASHING_STRATEGY.equals(name, branch.getName());
-      }
-    });
+    return ContainerUtil.find(branches, branch -> GitReference.BRANCH_NAME_HASHING_STRATEGY.equals(name, branch.getName()));
   }
-
 }

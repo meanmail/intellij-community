@@ -36,18 +36,6 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 public class GroovyConditionalCanBeElvisInspection extends BaseInspection {
 
   @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Conditional expression can be elvis";
-  }
-
-  @Override
-  @NotNull
-  public String getGroupDisplayName() {
-    return CONTROL_FLOW;
-  }
-
-  @Override
   public String buildErrorString(Object... args) {
     return "Conditional expression can be elvis #loc";
   }
@@ -57,7 +45,7 @@ public class GroovyConditionalCanBeElvisInspection extends BaseInspection {
     return new GroovyFix() {
       @Override
       @NotNull
-      public String getName() {
+      public String getFamilyName() {
         return "Convert Conditional to Elvis";
       }
 
@@ -138,7 +126,7 @@ public class GroovyConditionalCanBeElvisInspection extends BaseInspection {
 
     return resolved instanceof PsiMethod &&
            "isEmpty".equals(((PsiMethod)resolved).getName()) &&
-           ((PsiMethod)resolved).getParameterList().getParametersCount() == 0;
+           ((PsiMethod)resolved).getParameterList().isEmpty();
   }
 
   /**
@@ -172,7 +160,7 @@ public class GroovyConditionalCanBeElvisInspection extends BaseInspection {
 
     return resolved instanceof PsiMethod &&
            "isEmpty".equals(((PsiMethod)resolved).getName()) &&
-           ((PsiMethod)resolved).getParameterList().getParametersCount() == 0;
+           ((PsiMethod)resolved).getParameterList().isEmpty();
   }
 
   private static boolean checkForNull(GrExpression condition, GrExpression then) {

@@ -13,6 +13,7 @@ public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost>
     super(host);
   }
 
+  @Override
   public boolean decode(@NotNull final TextRange rangeInsideHost, @NotNull StringBuilder outChars) {
     String subText = rangeInsideHost.substring(myHost.getText());
 
@@ -24,12 +25,14 @@ public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost>
 
   protected abstract boolean isRegExpLiteral();
 
+  @Override
   public int getOffsetInHost(int offsetInDecoded, @NotNull final TextRange rangeInsideHost) {
     int result = offsetInDecoded < outSourceOffsets.length ? outSourceOffsets[offsetInDecoded] : -1;
     if (result == -1) return -1;
     return (result <= rangeInsideHost.getLength() ? result : rangeInsideHost.getLength()) + rangeInsideHost.getStartOffset();
   }
 
+  @Override
   public boolean isOneLine() {
     return true;
   }
@@ -62,7 +65,8 @@ public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost>
       c = chars.charAt(index++);
       if (escapeBacktick && c == '`') {
         outChars.append(c);
-      } else if (regExp) {
+      }
+      else if (regExp) {
         if (c != '/') {
           outChars.append('\\');
         }
@@ -178,7 +182,8 @@ public abstract class JSStringLiteralEscaper<T extends PsiLanguageInjectionHost>
             break;
 
           default:
-            return false;
+            outChars.append(c);
+            break;
         }
       }
 

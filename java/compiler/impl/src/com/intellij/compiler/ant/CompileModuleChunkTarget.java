@@ -30,7 +30,6 @@ import java.util.Map;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class CompileModuleChunkTarget extends CompositeGenerator {
 
@@ -163,7 +162,7 @@ public class CompileModuleChunkTarget extends CompositeGenerator {
   }
 
   private static String getChunkDependenciesString(ModuleChunk moduleChunk) {
-    final StringBuffer moduleDependencies = new StringBuffer();
+    final StringBuilder moduleDependencies = new StringBuilder();
     final ModuleChunk[] dependencies = moduleChunk.getDependentChunks();
     for (int idx = 0; idx < dependencies.length; idx++) {
       final ModuleChunk dependency = dependencies[idx];

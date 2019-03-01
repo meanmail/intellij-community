@@ -15,6 +15,7 @@
  */
 package com.intellij.openapi.application.ex;
 
+import com.intellij.openapi.application.Application;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -25,47 +26,22 @@ import com.intellij.util.ExceptionUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.ide.PooledThreadExecutor;
 
-import java.util.concurrent.*;
+import java.util.concurrent.Callable;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class ApplicationUtil {
   // throws exception if can't grab read action right now
   public static <T> T tryRunReadAction(@NotNull final Computable<T> computable) throws CannotRunReadActionException {
-    final Ref<T> result = new Ref<T>();
-    if (((ApplicationEx)ApplicationManager.getApplication()).tryRunReadAction(new Runnable() {
-      @Override
-      public void run() {
-        result.set(computable.compute());
-      }
-    })) {
-      return result.get();
-    }
-    throw new CannotRunReadActionException();
+    final Ref<T> result = new Ref<>();
+    tryRunReadAction(() -> result.set(computable.compute()));
+    return result.get();
   }
 
   public static void tryRunReadAction(@NotNull final Runnable computable) throws CannotRunReadActionException {
     if (!((ApplicationEx)ApplicationManager.getApplication()).tryRunReadAction(computable)) {
-      throw new CannotRunReadActionException();
-    }
-  }
-
-  /**
-   * Allows to interrupt a process which does not performs checkCancelled() calls by itself.
-   * Note that the process may continue to run in background indefinitely - so <b>avoid using this method unless absolutely needed</b>.
-   */
-  public static <T> T runWithCheckCanceled(@NotNull final Computable<T> computable, @NotNull ProgressIndicator indicator) {
-    try {
-      return runWithCheckCanceled(new Callable<T>() {
-        @Override
-        public T call() throws Exception {
-          return computable.compute();
-        }
-      }, indicator);
-    }
-    catch (RuntimeException e) {
-      throw e;
-    }
-    catch (Exception e) {
-      throw new RuntimeException(e);
+      throw CannotRunReadActionException.create();
     }
   }
 
@@ -77,46 +53,63 @@ public class ApplicationUtil {
     final Ref<T> result = Ref.create();
     final Ref<Throwable> error = Ref.create();
 
-    Future<?> future = PooledThreadExecutor.INSTANCE.submit(new Runnable() {
-      @Override
-      public void run() {
-        ProgressManager.getInstance().executeProcessUnderProgress(new Runnable() {
-          @Override
-          public void run() {
-            try {
-              result.set(callable.call());
-            }
-            catch (Throwable t) {
-              error.set(t);
-            }
-          }
-        }, indicator);
+    Future<?> future = PooledThreadExecutor.INSTANCE.submit(() -> ProgressManager.getInstance().executeProcessUnderProgress(() -> {
+      try {
+        result.set(callable.call());
       }
-    });
+      catch (Throwable t) {
+        error.set(t);
+      }
+    }, indicator));
 
+    try {
+      runWithCheckCanceled(future, indicator);
+      ExceptionUtil.rethrowAll(error.get());
+    }
+    catch (ProcessCanceledException e) {
+      future.cancel(true);
+      throw e;
+    }
+    return result.get();
+  }
+
+  /**
+   * Waits for {@code future} to be complete, or the current thread's indicator to be canceled
+   * Note that {@code future} will not be cancelled by this method
+   */
+  public static void runWithCheckCanceled(@NotNull Future<?> future, @NotNull final ProgressIndicator indicator) throws Exception {
     while (true) {
-      try {
-        indicator.checkCanceled();
-      }
-      catch (ProcessCanceledException e) {
-        future.cancel(true);
-        throw e;
-      }
+      indicator.checkCanceled();
 
       try {
-        future.get(200, TimeUnit.MILLISECONDS);
-        ExceptionUtil.rethrowAll(error.get());
-        return result.get();
+        future.get(25, TimeUnit.MILLISECONDS);
+        break;
       }
       catch (TimeoutException ignored) { }
     }
   }
 
-  public static class CannotRunReadActionException extends RuntimeException {
-    @SuppressWarnings({"NullableProblems", "NonSynchronizedMethodOverridesSynchronizedMethod"})
-    @Override
-    public Throwable fillInStackTrace() {
-      return this;
+  public static void showDialogAfterWriteAction(@NotNull Runnable runnable) {
+    Application application = ApplicationManager.getApplication();
+    if (application.isWriteAccessAllowed()) {
+      application.invokeLater(runnable);
     }
+    else {
+      runnable.run();
+    }
+  }
+
+  public static class CannotRunReadActionException extends ProcessCanceledException {
+    // When ForkJoinTask joins task which was exceptionally completed from the other thread
+    // it tries to re-create that exception (by reflection) and sets its cause to the original exception.
+    // That horrible hack causes all sorts of confusion when we try to analyze the exception cause, e.g. in GlobalInspectionContextImpl.inspectFile().
+    // To prevent creation of unneeded wrapped exception we restrict constructor visibility to private so that stupid ForkJoinTask has no choice
+    // but to use the original exception. (see ForkJoinTask.getThrowableException())
+    public static CannotRunReadActionException create() {
+      return new CannotRunReadActionException();
+    }
+    private CannotRunReadActionException() {
+    }
+
   }
 }

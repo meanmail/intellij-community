@@ -17,10 +17,6 @@ package com.intellij.byteCodeViewer;
 
 import com.intellij.execution.filters.LineNumbersMapping;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.ActionPlaces;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.DefaultActionGroup;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.ex.EditorEx;
@@ -41,13 +37,12 @@ import java.awt.*;
 
 /**
  * @author anna
- * @since 5/7/12
  */
 public class ByteCodeViewerComponent extends JPanel implements Disposable {
 
   private final Editor myEditor;
 
-  public ByteCodeViewerComponent(Project project, AnAction[] additionalActions) {
+  public ByteCodeViewerComponent(Project project) {
     super(new BorderLayout());
     final EditorFactory factory = EditorFactory.getInstance();
     final Document doc = ((EditorFactoryImpl)factory).createDocument("", true, false);
@@ -66,14 +61,6 @@ public class ByteCodeViewerComponent extends JPanel implements Disposable {
 
     myEditor.setBorder(null);
     add(myEditor.getComponent(), BorderLayout.CENTER);
-    final ActionManager actionManager = ActionManager.getInstance();
-    final DefaultActionGroup actions = new DefaultActionGroup();
-    if (additionalActions != null) {
-      for (final AnAction action : additionalActions) {
-        actions.add(action);
-      }
-    }
-    add(actionManager.createActionToolbar(ActionPlaces.JAVADOC_TOOLBAR, actions, true).getComponent(), BorderLayout.NORTH);
   }
 
   public void setText(final String bytecode) {
@@ -119,6 +106,10 @@ public class ByteCodeViewerComponent extends JPanel implements Disposable {
 
   public String getText() {
     return myEditor.getDocument().getText();
+  }
+  
+  public JComponent getEditorComponent() {
+    return myEditor.getContentComponent();
   }
 
   @Override

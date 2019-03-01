@@ -19,7 +19,6 @@ import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Roman.Shein
- * @since 16.09.2015.
  */
 public class CodeStyleSelectSettingPresentation extends CodeStyleSettingPresentation {
 
@@ -58,10 +57,8 @@ public class CodeStyleSelectSettingPresentation extends CodeStyleSettingPresenta
       for (int i = 0; i < myValues.length; ++i) {
         if (myValues[i] == intValue) return myValueUiNames[i];
       }
-      return super.getValueUiName(value);
-    } else {
-      return super.getValueUiName(value);
     }
+    return super.getValueUiName(value);
   }
 
   public int getLowerBound() {

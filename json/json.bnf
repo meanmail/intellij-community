@@ -40,8 +40,13 @@
         FALSE='false'
         NULL='null'
         // Actually not defined in RFC 4627, but may be used for JSON5 and helps with
-        // auto completion of keywords.
-        INDENTIFIER='regexp:[:jletter:] [:jletterdigit:]*'
+        // auto completion of keywords. Semantically, it represents "bad word" type
+        // of tokens
+        // Could be as loose as [^\s\[\]{}:,\"\']+, but is slightly more restricted
+        // for the time being to match most forms of npm package names and semver versions
+        // in package.json.
+        // See https://github.com/npm/validate-npm-package-name
+        IDENTIFIER="regexp:[[:jletterdigit:]~!()*\-./@\^<>=]+"
     ]
 
     extends("container|literal|reference_expression")=value
@@ -103,6 +108,7 @@ string_literal ::= SINGLE_QUOTED_STRING | DOUBLE_QUOTED_STRING {
   methods=[
     getTextFragments
     getValue
+    isPropertyName
     SINGLE_QUOTED_STRING=""
     DOUBLE_QUOTED_STRING=""
   ]
@@ -128,9 +134,9 @@ literal ::= string_literal | number_literal | boolean_literal | null_literal {
   mixin="com.intellij.json.psi.impl.JsonLiteralMixin"
 }
 
-fake container ::= object | literal
+fake container ::=
 
-reference_expression ::= INDENTIFIER
+reference_expression ::= IDENTIFIER
 
 value ::= object | array | literal | reference_expression
 

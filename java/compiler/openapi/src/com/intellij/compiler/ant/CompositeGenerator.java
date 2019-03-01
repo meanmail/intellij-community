@@ -27,7 +27,6 @@ import java.util.List;
  * A composite generator
  *
  * @author Eugene Zhuravlev
- *         Date: Mar 25, 2004
  */
 public class CompositeGenerator extends Generator {
   /**
@@ -93,6 +92,7 @@ public class CompositeGenerator extends Generator {
    * @throws IOException in case of IO propblem
    * @see #setHasLeadingNewline(boolean)
    */
+  @Override
   public void generate(PrintWriter out) throws IOException {
     boolean first = true;
     for (final Pair<Generator, Integer> pair : myGenerators) {

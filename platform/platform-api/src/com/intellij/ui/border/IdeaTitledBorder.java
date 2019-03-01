@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.border;
 
 import com.intellij.ui.TitledSeparator;
@@ -32,6 +18,7 @@ public class IdeaTitledBorder extends TitledBorder {
   private final TitledSeparator titledSeparator;
   private final Insets insideInsets;
   private final Insets outsideInsets;
+  private boolean myShowLine = true;
 
   public IdeaTitledBorder(String title, int indent, Insets insets) {
     super(title);
@@ -62,15 +49,16 @@ public class IdeaTitledBorder extends TitledBorder {
     label.paint(g);
 
     int separatorX = labelX + labelSize.width + TitledSeparator.SEPARATOR_LEFT_INSET;
-    int separatorY = labelY +  (UIUtil.isUnderAquaLookAndFeel() ? 2 : labelSize.height / 2 - 1);
+    int separatorY = labelY +  labelSize.height / 2 - 1;
     int separatorW = Math.max(0, width - separatorX - TitledSeparator.SEPARATOR_RIGHT_INSET);
     int separatorH = 2;
 
     JSeparator separator = titledSeparator.getSeparator();
     separator.setSize(separatorW, separatorH);
     g.translate(separatorX - labelX, separatorY - labelY);
-    separator.paint(g);
-
+    if (myShowLine) {
+      separator.paint(g);
+    }
     g.translate(-separatorX, -separatorY);
   }
 
@@ -79,6 +67,10 @@ public class IdeaTitledBorder extends TitledBorder {
     return titledSeparator;
   }
 
+  public IdeaTitledBorder setShowLine(boolean showLine) {
+    myShowLine = showLine;
+    return this;
+  }
 
   public void acceptMinimumSize(Component c) {
     Dimension minimumSize = getMinimumSize(c);

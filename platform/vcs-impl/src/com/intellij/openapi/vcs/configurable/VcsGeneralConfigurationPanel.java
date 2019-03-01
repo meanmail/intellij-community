@@ -16,8 +16,6 @@
 package com.intellij.openapi.vcs.configurable;
 
 import com.intellij.ide.actions.ShowFilePathAction;
-import com.intellij.openapi.options.ConfigurationException;
-import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.SystemInfo;
@@ -26,19 +24,20 @@ import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.ex.ProjectLevelVcsManagerEx;
 import com.intellij.openapi.vcs.readOnlyHandler.ReadonlyStatusHandlerImpl;
 import com.intellij.openapi.vfs.ReadonlyStatusHandler;
+import com.intellij.ui.border.IdeaTitledBorder;
 import com.intellij.util.ui.UIUtil;
-import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.border.Border;
 import java.awt.*;
-import java.util.*;
+import java.awt.event.ItemEvent;
+import java.awt.event.ItemListener;
 import java.util.List;
+import java.util.*;
 
 public class VcsGeneralConfigurationPanel {
 
-  private JCheckBox myForceNonEmptyComment;
   private JCheckBox myShowReadOnlyStatusDialog;
 
   private JRadioButton myShowDialogOnAddingFile;
@@ -61,21 +60,32 @@ public class VcsGeneralConfigurationPanel {
   Map<VcsShowOptionsSettingImpl, JCheckBox> myPromptOptions = new LinkedHashMap<>();
   private JPanel myRemoveConfirmationPanel;
   private JPanel myAddConfirmationPanel;
-  private JCheckBox myCbOfferToMoveChanges;
-  private JComboBox myFailedCommitChangelistCombo;
   private JComboBox myOnPatchCreation;
-  private JCheckBox myClearInitialCommitMessage;
+  private JCheckBox myReloadContext;
+  private JLabel myOnPatchCreationLabel;
+  private JPanel myEmptyChangeListPanel;
+  private JCheckBox myManageIgnoreFiles;
+  private JCheckBox myAddExternalFiles;
   private ButtonGroup myEmptyChangelistRemovingGroup;
 
   public VcsGeneralConfigurationPanel(final Project project) {
 
     myProject = project;
+    myOnPatchCreationLabel.setText(VcsBundle.message("combobox.show.patch.in.explorer.after.creation",
+                                                     ShowFilePathAction.getFileManagerName()));
 
     myOnFileAddingGroup = new JRadioButton[]{
       myShowDialogOnAddingFile,
       myPerformActionOnAddingFile,
       myDoNothingOnAddingFile
     };
+
+    myPerformActionOnAddingFile.addItemListener(new ItemListener() {
+      @Override
+      public void itemStateChanged(ItemEvent e) {
+        myAddExternalFiles.setEnabled(myPerformActionOnAddingFile.isSelected());
+      }
+    });
 
     myOnFileRemovingGroup = new JRadioButton[]{
       myShowDialogOnRemovingFile,
@@ -100,15 +110,15 @@ public class VcsGeneralConfigurationPanel {
                               ShowFilePathAction.getFileManagerName() + " after creation:");
   }
 
-  public void apply() throws ConfigurationException {
+  public void apply() {
 
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
+    VcsApplicationSettings applicationSettings = VcsApplicationSettings.getInstance();
 
-    settings.FORCE_NON_EMPTY_COMMENT = myForceNonEmptyComment.isSelected();
-    settings.CLEAR_INITIAL_COMMIT_MESSAGE = myClearInitialCommitMessage.isSelected();
-    settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT = myCbOfferToMoveChanges.isSelected();
     settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS = getSelected(myEmptyChangelistRemovingGroup);
-    settings.MOVE_TO_FAILED_COMMIT_CHANGELIST = getFailedCommitConfirm();
+    settings.RELOAD_CONTEXT = myReloadContext.isSelected();
+    settings.ADD_EXTERNAL_FILES_SILENTLY = myAddExternalFiles.isSelected();
+    applicationSettings.MANAGE_IGNORE_FILES = myManageIgnoreFiles.isSelected();
 
     for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
       setting.setValue(myPromptOptions.get(setting).isSelected());
@@ -137,14 +147,6 @@ public class VcsGeneralConfigurationPanel {
     }
   }
 
-  private VcsShowConfirmationOption.Value getFailedCommitConfirm() {
-    switch(myFailedCommitChangelistCombo.getSelectedIndex()) {
-      case 0: return VcsShowConfirmationOption.Value.DO_ACTION_SILENTLY;
-      case 1: return VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY;
-      default: return VcsShowConfirmationOption.Value.SHOW_CONFIRMATION;
-    }
-  }
-
   private VcsShowConfirmationOption getAddConfirmation() {
     return ProjectLevelVcsManagerEx.getInstanceEx(myProject)
       .getConfirmation(VcsConfiguration.StandardConfirmation.ADD);
@@ -153,6 +155,25 @@ public class VcsGeneralConfigurationPanel {
   private VcsShowConfirmationOption getRemoveConfirmation() {
     return ProjectLevelVcsManagerEx.getInstanceEx(myProject)
       .getConfirmation(VcsConfiguration.StandardConfirmation.REMOVE);
+  }
+
+  private void createUIComponents() {
+    myPanel = new JPanel() {
+      @Override
+      public void doLayout() {
+        updateMinSize(myAddConfirmationPanel, myRemoveConfirmationPanel, myEmptyChangeListPanel, myPromptsPanel);
+        super.doLayout();
+      }
+
+      private void updateMinSize(JPanel... panels) {
+        for (JPanel panel : panels) {
+          Border border = panel.getBorder();
+          if (border instanceof IdeaTitledBorder) {
+            ((IdeaTitledBorder)border).acceptMinimumSize(panel);
+          }
+        }
+      }
+    };
   }
 
 
@@ -179,22 +200,13 @@ public class VcsGeneralConfigurationPanel {
   public boolean isModified() {
 
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
-    if (settings.FORCE_NON_EMPTY_COMMENT != myForceNonEmptyComment.isSelected()){
-      return true;
-    }
-    if (settings.CLEAR_INITIAL_COMMIT_MESSAGE != myClearInitialCommitMessage.isSelected()){
-      return true;
-    }
-    if (settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT != myCbOfferToMoveChanges.isSelected()){
-      return true;
-    }
+    VcsApplicationSettings applicationSettings = VcsApplicationSettings.getInstance();
     if (settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS != getSelected(myEmptyChangelistRemovingGroup)){
       return true;
     }
-
-    if (!Comparing.equal(getFailedCommitConfirm(), settings.MOVE_TO_FAILED_COMMIT_CHANGELIST)) {
-      return true;
-    }
+    if (settings.RELOAD_CONTEXT != myReloadContext.isSelected()) return true;
+    if (settings.ADD_EXTERNAL_FILES_SILENTLY != myAddExternalFiles.isSelected()) return true;
+    if (applicationSettings.MANAGE_IGNORE_FILES != myManageIgnoreFiles.isSelected()) return true;
 
     if (getReadOnlyStatusHandler().getState().SHOW_DIALOG != myShowReadOnlyStatusDialog.isSelected()) {
       return true;
@@ -213,24 +225,16 @@ public class VcsGeneralConfigurationPanel {
 
   public void reset() {
     VcsConfiguration settings = VcsConfiguration.getInstance(myProject);
-    myForceNonEmptyComment.setSelected(settings.FORCE_NON_EMPTY_COMMENT);
-    myClearInitialCommitMessage.setSelected(settings.CLEAR_INITIAL_COMMIT_MESSAGE);
-    myCbOfferToMoveChanges.setSelected(settings.OFFER_MOVE_TO_ANOTHER_CHANGELIST_ON_PARTIAL_COMMIT);
+    VcsApplicationSettings applicationSettings = VcsApplicationSettings.getInstance();
+    myReloadContext.setSelected(settings.RELOAD_CONTEXT);
+    myAddExternalFiles.setSelected(settings.ADD_EXTERNAL_FILES_SILENTLY);
+    myManageIgnoreFiles.setSelected(applicationSettings.MANAGE_IGNORE_FILES);
+    myAddExternalFiles.setEnabled(myPerformActionOnAddingFile.isSelected());
     VcsShowConfirmationOption.Value value = settings.REMOVE_EMPTY_INACTIVE_CHANGELISTS;
     UIUtil.setSelectedButton(myEmptyChangelistRemovingGroup, value == VcsShowConfirmationOption.Value.SHOW_CONFIRMATION
                                                              ? 0
                                                              : value == VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY ? 2 : 1);
     myShowReadOnlyStatusDialog.setSelected(getReadOnlyStatusHandler().getState().SHOW_DIALOG);
-    if (settings.MOVE_TO_FAILED_COMMIT_CHANGELIST == VcsShowConfirmationOption.Value.DO_ACTION_SILENTLY) {
-      myFailedCommitChangelistCombo.setSelectedIndex(0);
-    }
-    else if (settings.MOVE_TO_FAILED_COMMIT_CHANGELIST == VcsShowConfirmationOption.Value.DO_NOTHING_SILENTLY) {
-      myFailedCommitChangelistCombo.setSelectedIndex(1);
-    }
-    else {
-      myFailedCommitChangelistCombo.setSelectedIndex(2);
-    }
-
     for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
       myPromptOptions.get(setting).setSelected(setting.getValue());
     }
@@ -249,7 +253,6 @@ public class VcsGeneralConfigurationPanel {
   private static void selectInGroup(final JRadioButton[] group, final VcsShowConfirmationOption confirmation) {
     final VcsShowConfirmationOption.Value value = confirmation.getValue();
     final int index;
-    //noinspection EnumSwitchStatementWhichMissesCases
     switch(value) {
       case SHOW_CONFIRMATION: index = 0; break;
       case DO_ACTION_SILENTLY: index = 1; break;
@@ -263,7 +266,7 @@ public class VcsGeneralConfigurationPanel {
     return myPanel;
   }
 
-  public void updateAvailableOptions(final Collection<AbstractVcs> activeVcses) {
+  public void updateAvailableOptions(final Collection<? extends AbstractVcs> activeVcses) {
     for (VcsShowOptionsSettingImpl setting : myPromptOptions.keySet()) {
       final JCheckBox checkBox = myPromptOptions.get(setting);
       checkBox.setEnabled(setting.isApplicableTo(activeVcses) || myProject.isDefault());
@@ -286,7 +289,7 @@ public class VcsGeneralConfigurationPanel {
     }
   }
 
-  private static String composeText(final List<AbstractVcs> applicableVcses) {
+  private static String composeText(final List<? extends AbstractVcs> applicableVcses) {
     final TreeSet<String> result = new TreeSet<>();
     for (AbstractVcs abstractVcs : applicableVcses) {
       result.add(abstractVcs.getDisplayName());

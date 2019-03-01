@@ -1,5 +1,5 @@
 /*
- * Copyright 2011-2015 Bas Leijdekkers
+ * Copyright 2011-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,7 +29,6 @@ import com.intellij.psi.javadoc.PsiInlineDocTag;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -65,17 +64,12 @@ public class HtmlTagCanBeJavadocTagInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("html.tag.can.be.javadoc.tag.quickfix");
-    }
-    @Override
-    @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("html.tag.can.be.javadoc.tag.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final TextRange range = descriptor.getTextRangeInElement();
       PsiElement element = descriptor.getPsiElement();
       final PsiFile file = PsiTreeUtil.getParentOfType(element, PsiFile.class);
@@ -118,7 +112,7 @@ public class HtmlTagCanBeJavadocTagInspection extends BaseInspection {
         out.append(' ');
       }
       final String s = text.substring(startOffset, endOffset);
-      out.append(StringUtil.unescapeXml(s));
+      out.append(StringUtil.unescapeXmlEntities(s));
     }
   }
 
@@ -155,14 +149,23 @@ public class HtmlTagCanBeJavadocTagInspection extends BaseInspection {
     }
 
     private static boolean hasMatchingCloseTag(PsiElement element, int offset) {
+      int balance = 0;
       while (element != null) {
         @NonNls final String text = element.getText();
         final int endIndex = StringUtil.indexOfIgnoreCase(text, "</code>", offset);
-        if (containsHtmlTag(text, offset, endIndex >= 0 ? endIndex : text.length())) {
+        final int end = endIndex >= 0 ? endIndex : text.length();
+        if (text.equals("{")) {
+          balance++;
+        }
+        else if (text.equals("}")) {
+          balance--;
+          if (balance < 0) return false;
+        }
+        if (containsHtmlTag(text, offset, end)) {
           return false;
         }
         if (endIndex >= 0) {
-          return true;
+          return balance == 0;
         }
         offset = 0;
         element = element.getNextSibling();
@@ -176,7 +179,7 @@ public class HtmlTagCanBeJavadocTagInspection extends BaseInspection {
 
   private static final Pattern START_TAG_PATTERN = Pattern.compile("<([a-zA-Z])+([^>])*>");
 
-  private static boolean containsHtmlTag(String text, int startIndex, int endIndex) {
+  static boolean containsHtmlTag(String text, int startIndex, int endIndex) {
     final Matcher matcher = START_TAG_PATTERN.matcher(text);
     if (matcher.find(startIndex)) {
       return matcher.start() < endIndex;

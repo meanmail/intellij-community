@@ -42,8 +42,9 @@ import java.awt.*;
  */
 public abstract class MoveInstanceMethodDialogBase extends MoveDialogBase {
   protected final PsiMethod myMethod;
-  protected final PsiVariable[] myVariables;
+  protected final Object[] myVariables;
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return myList;
   }
@@ -52,7 +53,7 @@ public abstract class MoveInstanceMethodDialogBase extends MoveDialogBase {
   protected JavaVisibilityPanel myVisibilityPanel;
   protected final String myRefactoringName;
 
-  public MoveInstanceMethodDialogBase(PsiMethod method, PsiVariable[] variables, String refactoringName) {
+  public MoveInstanceMethodDialogBase(PsiMethod method, Object[] variables, String refactoringName) {
     super(method.getProject(), true);
     myMethod = method;
     myVariables = variables;
@@ -90,6 +91,7 @@ public abstract class MoveInstanceMethodDialogBase extends MoveDialogBase {
     list.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
     list.setSelectedIndex(0);
     list.getSelectionModel().addListSelectionListener(new ListSelectionListener() {
+      @Override
       public void valueChanged(ListSelectionEvent e) {
         updateOnChanged(list);
       }
@@ -130,24 +132,32 @@ public abstract class MoveInstanceMethodDialogBase extends MoveDialogBase {
   }
 
   private class MyListModel extends AbstractListModel {
+    @Override
     public int getSize() {
       return myVariables.length;
     }
 
+    @Override
     public Object getElementAt(int index) {
       return myVariables[index];
     }
   }
 
   private static class MyListCellRenderer extends DefaultListCellRenderer {
+    @Override
     public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
       super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-      final PsiVariable psiVariable = (PsiVariable)value;
-      final String text = PsiFormatUtil.formatVariable(psiVariable,
-                                                       PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_TYPE,
-                                                       PsiSubstitutor.EMPTY);
-      setIcon(psiVariable.getIcon(0));
-      setText(text);
+      if (value instanceof PsiVariable) {
+        final PsiVariable psiVariable = (PsiVariable)value;
+        final String text = PsiFormatUtil.formatVariable(psiVariable,
+                                                         PsiFormatUtil.SHOW_NAME | PsiFormatUtil.SHOW_TYPE,
+                                                         PsiSubstitutor.EMPTY);
+        setIcon(psiVariable.getIcon(0));
+        setText(text);
+      }
+      else if (value instanceof String) {
+        setText((String)value);
+      }
       return this;
     }
   }

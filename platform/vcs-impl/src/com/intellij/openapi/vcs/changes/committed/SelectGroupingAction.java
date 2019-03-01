@@ -18,6 +18,7 @@ package com.intellij.openapi.vcs.changes.committed;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Condition;
@@ -34,7 +35,7 @@ import java.util.List;
 /**
  * @author yole
  */
-public class SelectGroupingAction extends LabeledComboBoxAction {
+public class SelectGroupingAction extends LabeledComboBoxAction implements DumbAware {
 
   @NotNull private final Project myProject;
   @NotNull private final CommittedChangesTreeBrowser myBrowser;
@@ -54,24 +55,14 @@ public class SelectGroupingAction extends LabeledComboBoxAction {
   @Override
   protected DefaultActionGroup createPopupActionGroup(JComponent button) {
     return new DefaultActionGroup(
-      ContainerUtil.map(collectStrategies(), new NotNullFunction<ChangeListGroupingStrategy, DumbAwareAction>() {
-        @NotNull
-        @Override
-        public DumbAwareAction fun(@NotNull ChangeListGroupingStrategy strategy) {
-          return new SetGroupingAction(strategy);
-        }
-      }));
+      ContainerUtil.map(collectStrategies(),
+                        (NotNullFunction<ChangeListGroupingStrategy, DumbAwareAction>)strategy -> new SetGroupingAction(strategy)));
   }
 
   @NotNull
   @Override
   protected Condition<AnAction> getPreselectCondition() {
-    return new Condition<AnAction>() {
-      @Override
-      public boolean value(AnAction action) {
-        return ((SetGroupingAction)action).myStrategy.equals(myBrowser.getGroupingStrategy());
-      }
-    };
+    return action -> ((SetGroupingAction)action).myStrategy.equals(myBrowser.getGroupingStrategy());
   }
 
   @NotNull

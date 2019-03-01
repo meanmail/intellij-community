@@ -20,8 +20,8 @@ import com.intellij.codeInsight.completion.CompletionParameters;
 import com.intellij.codeInsight.completion.CompletionResultSet;
 import com.intellij.codeInsight.completion.impl.CamelHumpMatcher;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
-import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeList;
 import com.intellij.openapi.vcs.changes.ContentRevision;
@@ -30,6 +30,8 @@ import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
 import com.intellij.ui.TextFieldWithAutoCompletionListProvider;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 /**
  * @author Dmitry Avdeev
@@ -40,25 +42,23 @@ public class CommitCompletionContributor extends CompletionContributor {
   public void fillCompletionVariants(@NotNull CompletionParameters parameters, @NotNull CompletionResultSet result) {
     PsiFile file = parameters.getOriginalFile();
     Document document = PsiDocumentManager.getInstance(file.getProject()).getDocument(file);
-    if (document == null) {
-      return;
-    }
-    DataContext dataContext = document.getUserData(CommitMessage.DATA_CONTEXT_KEY);
-    if (dataContext == null) {
-      return;
-    }
+    if (document == null) return;
+
+    CommitMessage commitMessage = document.getUserData(CommitMessage.DATA_KEY);
+    if (commitMessage == null) return;
+
     result.stopHere();
-    if (parameters.getInvocationCount() <= 0) {
-      return;
-    }
-    ChangeList[] lists = VcsDataKeys.CHANGE_LISTS.getData(dataContext);
-    if (lists == null) {
-      return;
-    }
+    if (parameters.getInvocationCount() <= 0) return;
+
+    List<ChangeList> lists = commitMessage.getChangeLists();
+    if (lists.isEmpty()) return;
+
     String prefix = TextFieldWithAutoCompletionListProvider.getCompletionPrefix(parameters);
     CompletionResultSet insensitive = result.caseInsensitive().withPrefixMatcher(new CamelHumpMatcher(prefix));
     for (ChangeList list : lists) {
+      ProgressManager.checkCanceled();
       for (Change change : list.getChanges()) {
+        ProgressManager.checkCanceled();
         ContentRevision revision = change.getAfterRevision() == null ? change.getBeforeRevision() : change.getAfterRevision();
         if (revision != null) {
           FilePath filePath = revision.getFile();

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.internal.validation;
 
 import com.intellij.openapi.actionSystem.AnAction;
@@ -42,7 +28,7 @@ public class MacMessagesTest extends AnAction {
 
   private static class SimpleDialogWrapper extends DialogWrapper {
 
-    private  JTextArea jbTextField = new JTextArea(1, 30);
+    private final JTextArea jbTextField = new JTextArea(1, 30);
 
     SimpleDialogWrapper(@Nullable Project project) {
       super(project);
@@ -69,7 +55,7 @@ public class MacMessagesTest extends AnAction {
   }
 
   @Override
-  public void actionPerformed(final AnActionEvent anActionEvent) {
+  public void actionPerformed(@NotNull final AnActionEvent anActionEvent) {
     JDialog controlDialog = new JDialog();
     controlDialog.setTitle("Messages testing control panel");
     controlDialog.setModalExclusionType(Dialog.ModalExclusionType.APPLICATION_EXCLUDE);
@@ -81,7 +67,7 @@ public class MacMessagesTest extends AnAction {
     JButton showDialogWrapperButton = new JButton("Show a dialog wrapper");
     showDialogWrapperButton.setFocusable(false);
 
-    FocusManagerImpl fmi = FocusManagerImpl.getInstance();
+    FocusManagerImpl fmi = (FocusManagerImpl)FocusManagerImpl.getInstance();
     final Project p = fmi.getLastFocusedFrame().getProject();
 
     showDialogWrapperButton.addActionListener(new ActionListener() {
@@ -110,16 +96,14 @@ public class MacMessagesTest extends AnAction {
       @Override
       public void actionPerformed(ActionEvent e) {
         final Task task = new Task.Modal(null, "Test task", true) {
+          @Override
           public void run(@NotNull final ProgressIndicator indicator) {
             ApplicationManager.getApplication().invokeAndWait(() -> {
-              FocusManagerImpl fmi1 = FocusManagerImpl.getInstance();
+              FocusManagerImpl fmi1 = (FocusManagerImpl)FocusManagerImpl.getInstance();
               final Project p1 = fmi1.getLastFocusedFrame().getProject();
               showTestMessage(p1);
             }, ModalityState.any());
           }
-
-          @Override
-          public void onCancel() {}
         };
         ProgressManager.getInstance().run(task);
 

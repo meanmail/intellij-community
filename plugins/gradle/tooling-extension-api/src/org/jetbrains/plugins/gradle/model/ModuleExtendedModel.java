@@ -25,10 +25,9 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * @deprecated Use {@link ExternalProject} model instead.
+ * @deprecated to be removed in 2018.1
  *
  * @author Vladislav.Soroka
- * @since 11/5/13
  */
 @Deprecated()
 public interface ModuleExtendedModel extends Serializable {

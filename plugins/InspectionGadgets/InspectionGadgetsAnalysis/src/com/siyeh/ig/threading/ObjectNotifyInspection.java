@@ -15,16 +15,14 @@
  */
 package com.siyeh.ig.threading;
 
-import com.intellij.codeInspection.ProblemDescriptor;
-import com.intellij.openapi.project.Project;
-import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.PsiExpressionList;
+import com.intellij.psi.PsiMethodCallExpression;
+import com.intellij.psi.PsiReferenceExpression;
 import com.siyeh.HardcodedMethodConstants;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
-import com.siyeh.ig.PsiReplacementUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class ObjectNotifyInspection extends BaseInspection {
@@ -58,40 +56,18 @@ public class ObjectNotifyInspection extends BaseInspection {
     return new ObjectNotifyFix();
   }
 
-  private static class ObjectNotifyFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
+  private static class ObjectNotifyFix extends AbstractReplaceWithAnotherMethodCallFix {
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "object.notify.replace.quickfix");
     }
 
     @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiElement methodNameElement = descriptor.getPsiElement();
-      final PsiReferenceExpression methodExpression =
-        (PsiReferenceExpression)methodNameElement.getParent();
-      assert methodExpression != null;
-      final PsiExpression qualifier =
-        methodExpression.getQualifierExpression();
-      if (qualifier == null) {
-        PsiReplacementUtil.replaceExpression(methodExpression,
-                                             HardcodedMethodConstants.NOTIFY_ALL);
-      }
-      else {
-        final String qualifierText = qualifier.getText();
-        PsiReplacementUtil.replaceExpression(methodExpression,
-                                             qualifierText + '.' +
-                                             HardcodedMethodConstants.NOTIFY_ALL
-        );
-      }
+    protected String getMethodName() {
+      return HardcodedMethodConstants.NOTIFY_ALL;
     }
   }
 
@@ -109,7 +85,7 @@ public class ObjectNotifyInspection extends BaseInspection {
         return;
       }
       final PsiExpressionList argumentList = expression.getArgumentList();
-      if (argumentList.getExpressions().length != 0) {
+      if (!argumentList.isEmpty()) {
         return;
       }
       registerMethodCallError(expression);

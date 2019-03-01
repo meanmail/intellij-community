@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.intellij.ui;
 import com.intellij.ide.AppLifecycleListener;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.application.PathManager;
 import com.intellij.util.messages.MessageBusConnection;
 import com.sun.jna.Library;
 import com.sun.jna.Native;
@@ -38,7 +37,7 @@ class LibNotifyWrapper implements SystemNotificationsImpl.Notifier {
     return ourInstance;
   }
 
-  @SuppressWarnings("SpellCheckingInspection")
+  @SuppressWarnings({"SpellCheckingInspection", "UnusedReturnValue"})
   private interface LibNotify extends Library {
     int notify_init(String appName);
     void notify_uninit();
@@ -52,18 +51,18 @@ class LibNotifyWrapper implements SystemNotificationsImpl.Notifier {
   private boolean myDisposed = false;
 
   private LibNotifyWrapper() {
-    myLibNotify = (LibNotify)Native.loadLibrary("libnotify.so.4", LibNotify.class);
+    myLibNotify = Native.loadLibrary("libnotify.so.4", LibNotify.class);
 
     String appName = ApplicationNamesInfo.getInstance().getProductName();
     if (myLibNotify.notify_init(appName) == 0) {
       throw new IllegalStateException("notify_init failed");
     }
 
-    String icon = AppUIUtil.findIcon(PathManager.getBinPath());
+    String icon = AppUIUtil.findIcon();
     myIcon = icon != null ? icon : "dialog-information";
 
     MessageBusConnection connection = ApplicationManager.getApplication().getMessageBus().connect();
-    connection.subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener.Adapter() {
+    connection.subscribe(AppLifecycleListener.TOPIC, new AppLifecycleListener() {
       @Override
       public void appClosing() {
         synchronized (myLock) {

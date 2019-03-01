@@ -31,11 +31,13 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.spellchecker.inspections.SpellCheckingInspection;
 import com.intellij.ui.SimpleEditorCustomization;
-import com.intellij.util.containers.WeakHashMap;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -44,18 +46,17 @@ import java.util.function.Function;
  * Thread-safe.
  *
  * @author Denis Zhdanov
- * @since Aug 20, 2010 3:54:42 PM
  */
 public class SpellCheckingEditorCustomization extends SimpleEditorCustomization {
   /**
    * @deprecated use {@link SpellCheckingEditorCustomizationProvider#getEnabledCustomization()} instead
    */
-  public static final SpellCheckingEditorCustomization ENABLED = (SpellCheckingEditorCustomization)SpellCheckingEditorCustomizationProvider.getInstance().getEnabledCustomization();
+  @Deprecated public static final SpellCheckingEditorCustomization ENABLED = (SpellCheckingEditorCustomization)SpellCheckingEditorCustomizationProvider.getInstance().getEnabledCustomization();
 
   /**
    * @deprecated use {@link SpellCheckingEditorCustomizationProvider#getDisabledCustomization()} instead
    */
-  public static final SpellCheckingEditorCustomization DISABLED = (SpellCheckingEditorCustomization)SpellCheckingEditorCustomizationProvider.getInstance().getDisabledCustomization();
+  @Deprecated public static final SpellCheckingEditorCustomization DISABLED = (SpellCheckingEditorCustomization)SpellCheckingEditorCustomizationProvider.getInstance().getDisabledCustomization();
 
   private static final Map<String, LocalInspectionToolWrapper> SPELL_CHECK_TOOLS = new HashMap<>();
   private static final boolean READY = init();
@@ -105,7 +106,7 @@ public class SpellCheckingEditorCustomization extends SimpleEditorCustomization 
       return;
     }
 
-    Function<InspectionProfile, InspectionProfileWrapper> strategy = file.getUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY);
+    Function<InspectionProfileImpl, InspectionProfileWrapper> strategy = file.getUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY);
     if (strategy == null) {
       file.putUserData(InspectionProfileWrapper.CUSTOMIZATION_KEY, strategy = new MyInspectionProfileStrategy());
     }
@@ -127,13 +128,17 @@ public class SpellCheckingEditorCustomization extends SimpleEditorCustomization 
     }
   }
 
-  private static class MyInspectionProfileStrategy implements Function<InspectionProfile, InspectionProfileWrapper> {
-    private final Map<InspectionProfile, MyInspectionProfileWrapper> myWrappers = new WeakHashMap<>();
+  public static Set<String> getSpellCheckingToolNames() {
+    return Collections.unmodifiableSet(SPELL_CHECK_TOOLS.keySet());
+  }
+
+  private static class MyInspectionProfileStrategy implements Function<InspectionProfileImpl, InspectionProfileWrapper> {
+    private final Map<InspectionProfile, MyInspectionProfileWrapper> myWrappers = ContainerUtil.createWeakMap();
     private boolean myUseSpellCheck;
 
     @NotNull
     @Override
-    public InspectionProfileWrapper apply(@NotNull InspectionProfile inspectionProfile) {
+    public InspectionProfileWrapper apply(@NotNull InspectionProfileImpl inspectionProfile) {
       if (!READY) {
         return new InspectionProfileWrapper(inspectionProfile);
       }
@@ -159,7 +164,7 @@ public class SpellCheckingEditorCustomization extends SimpleEditorCustomization 
 
     @Override
     public boolean isToolEnabled(HighlightDisplayKey key, PsiElement element) {
-      return myUseSpellCheck && SPELL_CHECK_TOOLS.containsKey(key.toString());
+      return SPELL_CHECK_TOOLS.containsKey(key.toString()) ? myUseSpellCheck : super.isToolEnabled(key, element);
     }
 
     public void setUseSpellCheck(boolean useSpellCheck) {

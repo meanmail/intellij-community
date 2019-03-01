@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +17,12 @@ package com.intellij.uiDesigner.propertyInspector;
 
 import com.intellij.designer.DesignerEditorPanelFacade;
 import com.intellij.designer.LightToolWindow;
+import com.intellij.icons.AllIcons;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.wm.ToolWindowAnchor;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.openapi.wm.impl.content.ToolWindowContentUi;
@@ -28,19 +31,21 @@ import com.intellij.ui.content.ContentManager;
 import com.intellij.uiDesigner.AbstractToolWindowManager;
 import com.intellij.uiDesigner.UIDesignerBundle;
 import com.intellij.uiDesigner.designSurface.GuiEditor;
-import icons.UIDesignerIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Alexander Lobas
  */
-public class DesignerToolWindowManager extends AbstractToolWindowManager {
+public class DesignerToolWindowManager extends AbstractToolWindowManager implements Disposable {
   private final DesignerToolWindow myToolWindowPanel;
 
   public DesignerToolWindowManager(Project project, FileEditorManager fileEditorManager) {
     super(project, fileEditorManager);
     myToolWindowPanel = ApplicationManager.getApplication().isHeadlessEnvironment() ? null : new DesignerToolWindow(project);
+    if (myToolWindowPanel != null) {
+      Disposer.register(this, () -> myToolWindowPanel.dispose());
+    }
   }
 
   public static DesignerToolWindow getInstance(GuiEditor designer) {
@@ -64,7 +69,7 @@ public class DesignerToolWindowManager extends AbstractToolWindowManager {
   protected void initToolWindow() {
     myToolWindow = ToolWindowManager.getInstance(myProject).registerToolWindow(UIDesignerBundle.message("toolwindow.ui.designer.name"),
                                                                                false, getAnchor(), myProject, true);
-    myToolWindow.setIcon(UIDesignerIcons.ToolWindowUIDesigner);
+    myToolWindow.setIcon(AllIcons.Toolwindows.ToolWindowUIDesigner);
 
     if (!ApplicationManager.getApplication().isHeadlessEnvironment()) {
       myToolWindow.getComponent().putClientProperty(ToolWindowContentUi.HIDE_ID_LABEL, "true");
@@ -109,18 +114,11 @@ public class DesignerToolWindowManager extends AbstractToolWindowManager {
     return createContent(designer,
                          toolWindowContent,
                          UIDesignerBundle.message("toolwindow.ui.designer.title"),
-                         UIDesignerIcons.ToolWindowUIDesigner,
+                         AllIcons.Toolwindows.ToolWindowUIDesigner,
                          toolWindowContent.getToolWindowPanel(),
                          toolWindowContent.getComponentTree(),
                          320,
                          null);
-  }
-
-  @Override
-  public void disposeComponent() {
-    if (myToolWindowPanel != null) {
-      myToolWindowPanel.dispose();
-    }
   }
 
   @NotNull

@@ -1,22 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.impl;
 
+import com.intellij.debugger.DebuggerBundle;
 import com.intellij.debugger.actions.DebuggerAction;
-import com.intellij.debugger.apiAdapters.TransportServiceWrapper;
 import com.intellij.debugger.engine.DebugProcess;
 import com.intellij.debugger.engine.DebugProcessImpl;
 import com.intellij.debugger.engine.StackFrameContext;
@@ -26,13 +12,16 @@ import com.intellij.debugger.engine.evaluation.TextWithImports;
 import com.intellij.debugger.engine.evaluation.TextWithImportsImpl;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilder;
 import com.intellij.debugger.engine.evaluation.expression.EvaluatorBuilderImpl;
+import com.intellij.debugger.impl.attach.PidRemoteConnection;
 import com.intellij.debugger.ui.impl.watch.DebuggerTreeNodeExpression;
 import com.intellij.debugger.ui.tree.DebuggerTreeNode;
 import com.intellij.debugger.ui.tree.render.BatchEvaluator;
 import com.intellij.execution.ExecutionException;
+import com.intellij.execution.configurations.RemoteConnection;
 import com.intellij.ide.util.TreeClassChooser;
 import com.intellij.ide.util.TreeClassChooserFactory;
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.application.ex.ApplicationManagerEx;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.util.ProgressIndicatorUtils;
@@ -47,16 +36,19 @@ import com.intellij.util.xmlb.SkipDefaultValuesSerializationFilters;
 import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionState;
-import com.sun.jdi.InternalException;
-import com.sun.jdi.ObjectCollectedException;
-import com.sun.jdi.VMDisconnectedException;
-import com.sun.jdi.Value;
-import com.sun.jdi.connect.spi.TransportService;
+import com.sun.jdi.*;
+import com.sun.jdi.connect.Connector;
+import com.sun.jdi.connect.IllegalConnectorArgumentsException;
+import com.sun.jdi.connect.ListeningConnector;
+import one.util.streamex.StreamEx;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 
 public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   public static final Key<PsiType> PSI_TYPE_KEY = Key.create("PSI_TYPE_KEY");
@@ -127,7 +119,7 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
       return new TextWithImportsImpl(CodeFragmentKind.EXPRESSION, s);
     }
     else {
-      Element option = JDOMExternalizerUtil.getOption(root, name);
+      Element option = JDOMExternalizerUtil.readOption(root, name);
       if (option != null) {
         XExpressionState state = new XExpressionState();
         XmlSerializer.deserializeInto(state, option);
@@ -194,15 +186,15 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
       return Integer.toString(freePort);
     }
     else {
-      TransportServiceWrapper transportService = TransportServiceWrapper.getTransportService(false);
+      ListeningConnector connector = (ListeningConnector)DebugProcessImpl.findConnector(false, true);
       try {
-        return tryShmemConnect(transportService, null);
+        return tryShmemConnect(connector, "");
       }
-      catch (IOException e) {
+      catch (Exception e) {
         int tryNum = 0;
         while (true) {
           try {
-            return tryShmemConnect(transportService, "javadebug_" + (int)(Math.random() * 1000));
+            return tryShmemConnect(connector, "javadebug_" + (int)(Math.random() * 1000));
           }
           catch (Exception ex) {
             if (tryNum++ > 10) {
@@ -214,10 +206,12 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
     }
   }
 
-  private static String tryShmemConnect(TransportServiceWrapper transportService, String address) throws IOException {
-    TransportService.ListenKey listenKey = transportService.startListening(address);
-    address = listenKey.address();
-    transportService.stopListening(listenKey);
+  private static String tryShmemConnect(ListeningConnector connector, String address)
+    throws IOException, IllegalConnectorArgumentsException {
+    Map<String, Connector.Argument> map = connector.defaultArguments();
+    map.get("name").setValue(address);
+    address = connector.startListening(map);
+    connector.stopListening(map);
     return address;
   }
 
@@ -225,20 +219,16 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
     return Boolean.TRUE.equals(debugProcess.getUserData(BatchEvaluator.REMOTE_SESSION_KEY));
   }
 
-  public interface SupplierThrowing<T, E extends Throwable> {
-    T get() throws E;
-  }
-
-  public static <T, E extends Exception> T suppressExceptions(SupplierThrowing<T, E> supplier, T defaultValue) throws E {
+  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<? extends T, ? extends E> supplier, T defaultValue) throws E {
     return suppressExceptions(supplier, defaultValue, true, null);
   }
 
-  public static <T, E extends Exception> T suppressExceptions(SupplierThrowing<T, E> supplier,
+  public static <T, E extends Exception> T suppressExceptions(ThrowableComputable<? extends T, ? extends E> supplier,
                                                               T defaultValue,
                                                               boolean ignorePCE,
                                                               Class<E> rethrow) throws E {
     try {
-      return supplier.get();
+      return supplier.compute();
     }
     catch (ProcessCanceledException e) {
       if (!ignorePCE) {
@@ -259,19 +249,62 @@ public class DebuggerUtilsImpl extends DebuggerUtilsEx{
   }
 
   public static <T> T runInReadActionWithWriteActionPriorityWithRetries(@NotNull Computable<T> action) {
+    if (ApplicationManagerEx.getApplicationEx().holdsReadLock()) {
+      return action.compute();
+    }
     Ref<T> res = Ref.create();
     while (true) {
       if (ProgressIndicatorUtils.runInReadActionWithWriteActionPriority(() -> res.set(action.compute()))) {
         return res.get();
       }
-      try {
-        //noinspection BusyWait
-        Thread.sleep(50);
-      }
-      catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return null;
-      }
+      ProgressIndicatorUtils.yieldToPendingWriteActions();
     }
+  }
+
+  public static String getConnectionDisplayName(RemoteConnection connection) {
+    if (connection instanceof PidRemoteConnection) {
+      return "pid " + ((PidRemoteConnection)connection).getPid();
+    }
+    String addressDisplayName = DebuggerBundle.getAddressDisplayName(connection);
+    String transportName = DebuggerBundle.getTransportName(connection);
+    return DebuggerBundle.message("string.connection", addressDisplayName, transportName);
+  }
+
+  public static boolean instanceOf(@Nullable ReferenceType type, @NotNull ReferenceType superType) {
+    if (type == null) {
+      return false;
+    }
+    if (superType.equals(type)) {
+      return true;
+    }
+    return supertypes(type).anyMatch(t -> instanceOf(t, superType));
+  }
+
+  public static Stream<? extends ReferenceType> supertypes(ReferenceType type) {
+    if (type instanceof InterfaceType) {
+      return ((InterfaceType)type).superinterfaces().stream();
+    } else if (type instanceof ClassType) {
+      return StreamEx.<ReferenceType>ofNullable(((ClassType)type).superclass()).prepend(((ClassType)type).interfaces());
+    }
+    return StreamEx.empty();
+  }
+
+  @Nullable
+  public static byte[] readBytesArray(Value bytesArray) {
+    if (bytesArray instanceof ArrayReference) {
+      List<Value> values = ((ArrayReference)bytesArray).getValues();
+      byte[] res = new byte[values.size()];
+      int idx = 0;
+      for (Value value : values) {
+        if (value instanceof ByteValue) {
+          res[idx++] = ((ByteValue)value).value();
+        }
+        else {
+          return null;
+        }
+      }
+      return res;
+    }
+    return null;
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -29,13 +29,15 @@ public class WhileStatementEvaluator extends LoopEvaluator {
 
   public WhileStatementEvaluator(@NotNull Evaluator conditionEvaluator, Evaluator bodyEvaluator, String labelName) {
     super(labelName, bodyEvaluator);
-    myConditionEvaluator = new DisableGC(conditionEvaluator);
+    myConditionEvaluator = DisableGC.create(conditionEvaluator);
   }
 
+  @Override
   public Modifier getModifier() {
     return myConditionEvaluator.getModifier();
   }
 
+  @Override
   public Object evaluate(EvaluationContextImpl context) throws EvaluateException {
     Object value;
     while (true) {

@@ -1,37 +1,23 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.source.resolve;
 
 import com.intellij.openapi.util.Key;
 import com.intellij.psi.*;
 import com.intellij.psi.infos.CandidateInfo;
-import com.intellij.psi.scope.BaseScopeProcessor;
 import com.intellij.psi.scope.NameHint;
+import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.util.SmartList;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 import java.util.ListIterator;
 
-public class StaticImportResolveProcessor extends BaseScopeProcessor implements NameHint {
+public class StaticImportResolveProcessor implements PsiScopeProcessor, NameHint {
   private final PsiImportStaticReferenceElement myReference;
   private final String myName;
-  private final List<JavaResolveResult> myFieldResults = new SmartList<JavaResolveResult>();
-  private final List<JavaResolveResult> myClassResult = new SmartList<JavaResolveResult>();
-  private final List<JavaResolveResult> myResults = new SmartList<JavaResolveResult>();
+  private final List<JavaResolveResult> myFieldResults = new SmartList<>();
+  private final List<JavaResolveResult> myClassResult = new SmartList<>();
+  private final List<JavaResolveResult> myResults = new SmartList<>();
 
   public StaticImportResolveProcessor(@NotNull PsiImportStaticReferenceElement reference) {
     myReference = reference;
@@ -96,9 +82,10 @@ public class StaticImportResolveProcessor extends BaseScopeProcessor implements 
       //noinspection unchecked
       return (T)this;
     }
-    return super.getHint(hintKey);
+    return null;
   }
 
+  @NotNull
   public JavaResolveResult[] getResults() {
     if (myResults.size() + myFieldResults.size() + myClassResult.size() > 1) {
       filterInvalid(myResults);
@@ -111,7 +98,7 @@ public class StaticImportResolveProcessor extends BaseScopeProcessor implements 
     if (!myClassResult.isEmpty()) {
       myResults.addAll(myClassResult);
     }
-    return myResults.toArray(new JavaResolveResult[myResults.size()]);
+    return myResults.toArray(JavaResolveResult.EMPTY_ARRAY);
   }
 
   private static void filterInvalid(final List<JavaResolveResult> resultList) {
@@ -124,7 +111,7 @@ public class StaticImportResolveProcessor extends BaseScopeProcessor implements 
   private static class OurResolveResult extends CandidateInfo {
     private final PsiImportStaticReferenceElement myReference;
 
-    public OurResolveResult(@NotNull PsiElement candidate, final PsiImportStaticReferenceElement reference) {
+    OurResolveResult(@NotNull PsiElement candidate, final PsiImportStaticReferenceElement reference) {
       super(candidate, PsiSubstitutor.EMPTY);
       myReference = reference;
     }

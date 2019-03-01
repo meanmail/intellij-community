@@ -20,11 +20,18 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 1/31/14
  */
 public interface ScalaCompileOptions extends Serializable {
+  /**
+   * @deprecated see https://docs.gradle.org/3.0/release-notes#ant-based-scala-compiler-has-been-removed
+   */
+  @Deprecated
   boolean isUseCompileDaemon();
 
+  /**
+   * @deprecated see https://docs.gradle.org/3.0/release-notes#ant-based-scala-compiler-has-been-removed
+   */
+  @Deprecated
   String getDaemonServer();
 
   boolean isFailOnError();
@@ -49,8 +56,16 @@ public interface ScalaCompileOptions extends Serializable {
 
   List<String> getLoggingPhases();
 
+  /**
+   * @deprecated see https://docs.gradle.org/3.0/release-notes#ant-based-scala-compiler-has-been-removed
+   */
+  @Deprecated
   boolean isFork();
 
+  /**
+   * @deprecated see https://docs.gradle.org/3.0/release-notes#ant-based-scala-compiler-has-been-removed
+   */
+  @Deprecated
   boolean isUseAnt();
 
   ScalaForkOptions getForkOptions();

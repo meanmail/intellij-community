@@ -15,12 +15,12 @@
  */
 package org.jetbrains.idea.maven.server;
 
-import com.intellij.openapi.util.text.StringUtil;
 import gnu.trove.THashMap;
 import org.apache.maven.RepositoryUtils;
 import org.apache.maven.artifact.Artifact;
 import org.apache.maven.model.Model;
 import org.apache.maven.model.Parent;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.idea.maven.model.*;
 import org.sonatype.aether.graph.DependencyNode;
 
@@ -32,16 +32,16 @@ import java.util.*;
  * {@link Maven30AetherModelConverter} provides adapted methods of {@link MavenModelConverter} for aether models conversion
  *
  * @author Vladislav.Soroka
- * @since 9/24/2014
  */
 public class Maven30AetherModelConverter extends MavenModelConverter {
 
+  @NotNull
   public static MavenModel convertModelWithAetherDependencyTree(Model model,
                                                                 List<String> sources,
                                                                 List<String> testSources,
-                                                                Collection<Artifact> dependencies,
-                                                                Collection<DependencyNode> dependencyTree,
-                                                                Collection<Artifact> extensions,
+                                                                Collection<? extends Artifact> dependencies,
+                                                                Collection<? extends DependencyNode> dependencyTree,
+                                                                Collection<? extends Artifact> extensions,
                                                                 File localRepository) throws RemoteException {
     MavenModel result = new MavenModel();
     result.setMavenId(new MavenId(model.getGroupId(), model.getArtifactId(), model.getVersion()));
@@ -70,7 +70,7 @@ public class Maven30AetherModelConverter extends MavenModelConverter {
   }
 
   public static List<MavenArtifactNode> convertAetherDependencyNodes(MavenArtifactNode parent,
-                                                                     Collection<DependencyNode> nodes,
+                                                                     Collection<? extends DependencyNode> nodes,
                                                                      Map<Artifact, MavenArtifact> nativeToConvertedMap,
                                                                      File localRepository) {
     List<MavenArtifactNode> result = new ArrayList<MavenArtifactNode>(nodes.size());

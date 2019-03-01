@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi;
 
 import com.intellij.extapi.psi.ASTWrapperPsiElement;
@@ -24,7 +10,6 @@ import com.intellij.psi.impl.source.resolve.JavaResolveUtil;
 import com.intellij.psi.impl.source.resolve.ResolveCache;
 import com.intellij.psi.meta.PsiMetaData;
 import com.intellij.psi.meta.PsiMetaOwner;
-import com.intellij.psi.scope.BaseScopeProcessor;
 import com.intellij.psi.scope.JavaScopeProcessorEvent;
 import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.scope.util.PsiScopesUtil;
@@ -42,13 +27,8 @@ import java.util.Set;
  */
 public abstract class AbstractQualifiedReference<T extends AbstractQualifiedReference<T>> extends ASTWrapperPsiElement
   implements PsiPolyVariantReference, PsiQualifiedReferenceElement {
-  private static final ResolveCache.PolyVariantResolver<AbstractQualifiedReference> MY_RESOLVER = new ResolveCache.PolyVariantResolver<AbstractQualifiedReference>() {
-    @NotNull
-    @Override
-    public ResolveResult[] resolve(@NotNull final AbstractQualifiedReference expression, final boolean incompleteCode) {
-      return expression.resolveInner();
-    }
-  };
+  private static final ResolveCache.PolyVariantResolver<AbstractQualifiedReference> MY_RESOLVER =
+    (expression, incompleteCode) -> expression.resolveInner();
 
   protected AbstractQualifiedReference(@NotNull final ASTNode node) {
     super(node);
@@ -59,11 +39,13 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
     return this;
   }
 
+  @NotNull
   @Override
   public final PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   protected abstract ResolveResult[] resolveInner();
 
   @Override
@@ -109,7 +91,7 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
   }
 
   @Override
-  public PsiElement handleElementRename(final String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull final String newElementName) throws IncorrectOperationException {
     CheckUtil.checkWritable(this);
     final PsiElement firstChildNode = ObjectUtils.assertNotNull(getFirstChild());
     final PsiElement firstInIdentifier = getClass().isInstance(firstChildNode) ? ObjectUtils.assertNotNull(firstChildNode.getNextSibling()).getNextSibling() : firstChildNode;
@@ -210,7 +192,7 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
   }
 
   @Override
-  public boolean isReferenceTo(final PsiElement element) {
+  public boolean isReferenceTo(@NotNull final PsiElement element) {
     final PsiManager manager = getManager();
     for (final ResolveResult result : multiResolve(false)) {
       if (manager.areElementsEquivalent(result.getElement(), element)) return true;
@@ -224,6 +206,7 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
   @Nullable
   protected abstract PsiElement getReferenceNameElement();
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final PsiElement element = getSeparator();
@@ -244,7 +227,7 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
     return false;
   }
 
-  protected abstract static class AbstractQualifiedReferenceResolvingProcessor extends BaseScopeProcessor {
+  protected abstract static class AbstractQualifiedReferenceResolvingProcessor implements PsiScopeProcessor {
     private boolean myFound;
     private final Set<ResolveResult> myResults = new LinkedHashSet<>();
 
@@ -268,7 +251,6 @@ public abstract class AbstractQualifiedReference<T extends AbstractQualifiedRefe
       if ((event == JavaScopeProcessorEvent.SET_CURRENT_FILE_CONTEXT || event == Event.SET_DECLARATION_HOLDER) && !myResults.isEmpty()) {
         setFound();
       }
-      super.handleEvent(event, associated);
     }
 
     protected final void setFound() {

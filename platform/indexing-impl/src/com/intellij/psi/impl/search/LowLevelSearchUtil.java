@@ -22,6 +22,7 @@ import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
@@ -51,10 +52,10 @@ public class LowLevelSearchUtil {
   // TRUE/FALSE -> injected psi has been discovered and processor returned true/false;
   // null -> there were nothing injected found
   private static Boolean processInjectedFile(PsiElement element,
-                                             final TextOccurenceProcessor processor,
-                                             final StringSearcher searcher,
+                                             @NotNull StringSearcher searcher,
                                              @NotNull ProgressIndicator progress,
-                                             InjectedLanguageManager injectedLanguageManager) {
+                                             InjectedLanguageManager injectedLanguageManager,
+                                             @NotNull TextOccurenceProcessor processor) {
     if (!(element instanceof PsiLanguageInjectionHost)) return null;
     if (injectedLanguageManager == null) return null;
     List<Pair<PsiElement,TextRange>> list = injectedLanguageManager.getInjectedPsiFiles(element);
@@ -71,15 +72,14 @@ public class LowLevelSearchUtil {
    * to be reused via <code>lastElement<code/> param in subsequent calls to avoid full tree rescan (n^2->n).
    */
   private static TreeElement processTreeUp(@NotNull Project project,
-                                           @NotNull TextOccurenceProcessor processor,
                                            @NotNull PsiElement scope,
                                            @NotNull StringSearcher searcher,
                                            final int offset,
                                            final boolean processInjectedPsi,
                                            @NotNull ProgressIndicator progress,
-                                           TreeElement lastElement) {
+                                           TreeElement lastElement, @NotNull TextOccurenceProcessor processor) {
     if (scope instanceof PsiCompiledElement) {
-      throw new IllegalArgumentException("Scope is compiled, can't scan: "+scope);
+      throw new IllegalArgumentException("Scope is compiled, can't scan: "+scope+"; containingFile: "+scope.getContainingFile());
     }
     final int scopeStartOffset = scope.getTextRange().getStartOffset();
     final int patternLength = searcher.getPatternLength();
@@ -116,7 +116,7 @@ public class LowLevelSearchUtil {
     TreeElement prevNode = null;
     PsiElement run = null;
     while (run != scope) {
-      progress.checkCanceled();
+      ProgressManager.checkCanceled();
       if (useTree) {
         start += prevNode == null ? 0 : prevNode.getStartOffsetInParent();
         prevNode = leafNode;
@@ -130,7 +130,7 @@ public class LowLevelSearchUtil {
       if (!contains) contains = run.getTextLength() - start >= patternLength;  //do not compute if already contains
       if (contains) {
         if (processInjectedPsi) {
-          Boolean result = processInjectedFile(run, processor, searcher, progress, injectedLanguageManager);
+          Boolean result = processInjectedFile(run, searcher, progress, injectedLanguageManager, processor);
           if (result != null) {
             return result.booleanValue() ? lastElement : null;
           }
@@ -183,8 +183,9 @@ public class LowLevelSearchUtil {
     return processElementsAtOffsets(scope, searcher, processInjectedPsi, progress, occurrences, processor);
   }
 
+  @NotNull
   static int[] getTextOccurrencesInScope(@NotNull PsiElement scope, @NotNull StringSearcher searcher, ProgressIndicator progress) {
-    if (progress != null) progress.checkCanceled();
+    ProgressManager.checkCanceled();
 
     PsiFile file = scope.getContainingFile();
     FileViewProvider viewProvider = file.getViewProvider();
@@ -218,11 +219,11 @@ public class LowLevelSearchUtil {
     if (offsetsInScope.length == 0) return true;
 
     Project project = scope.getProject();
-    TreeElement[] lastElement = {null};
+    TreeElement lastElement = null;
     for (int offset : offsetsInScope) {
       progress.checkCanceled();
-      lastElement[0] = processTreeUp(project, processor, scope, searcher, offset, processInjectedPsi, progress, lastElement[0]);
-      if (lastElement[0] == null) return false;
+      lastElement = processTreeUp(project, scope, searcher, offset, processInjectedPsi, progress, lastElement, processor);
+      if (lastElement == null) return false;
     }
     return true;
   }
@@ -265,6 +266,7 @@ public class LowLevelSearchUtil {
     return true;
   }
 
+  @NotNull
   private static int[] getTextOccurrences(@NotNull CharSequence text,
                                           int startOffset,
                                           int endOffset,
@@ -283,7 +285,7 @@ public class LowLevelSearchUtil {
       occurrences.add(newStart);
       occurrences.add(newEnd);
       for (int index = newStart; index < newEnd; index++) {
-        if (progress != null) progress.checkCanceled();
+        ProgressManager.checkCanceled();
         //noinspection AssignmentToForLoopParameter
         index = searcher.scan(text, index, newEnd);
         if (index < 0) break;

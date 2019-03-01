@@ -25,7 +25,6 @@ import java.util.Set;
 
 /**
  * @author: db
- * Date: 01.02.11
  */
 class FieldRepr extends ProtoMember {
   public void updateClassUsages(final DependencyContext context, final int owner, final Set<UsageRepr.Usage> s) {
@@ -42,7 +41,7 @@ class FieldRepr extends ProtoMember {
     super(access, signature, name, TypeRepr.getType(context, descriptor), annotations, value);
   }
 
-  public FieldRepr(final DependencyContext context, final DataInput in) {
+  FieldRepr(final DependencyContext context, final DataInput in) {
     super(context, in);
   }
 

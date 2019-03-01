@@ -50,6 +50,11 @@ public class GroovyResourceChecker extends TargetBuilder<GroovyResourceRootDescr
   }
 
   @Override
+  public long getExpectedBuildTime() {
+    return 50;
+  }
+
+  @Override
   public void build(@NotNull final CheckResourcesTarget target,
                     @NotNull DirtyFilesHolder<GroovyResourceRootDescriptor, CheckResourcesTarget> holder,
                     @NotNull final BuildOutputConsumer outputConsumer,
@@ -75,7 +80,7 @@ public class GroovyResourceChecker extends TargetBuilder<GroovyResourceRootDescr
 
     private final CheckResourcesTarget myTarget;
 
-    public ResourceCheckingGroovycRunner(CheckResourcesTarget target) {
+    ResourceCheckingGroovycRunner(CheckResourcesTarget target) {
       super(false);
       myTarget = target;
     }
@@ -109,7 +114,7 @@ public class GroovyResourceChecker extends TargetBuilder<GroovyResourceRootDescr
 
     @NotNull
     private List<File> getVisibleResourceOutputs(CompileContext context, boolean tests) {
-      List<File> resourceOutputs = new ArrayList<File>();
+      List<File> resourceOutputs = new ArrayList<>();
       JpsJavaDependenciesEnumerator enumerator = JpsJavaExtensionService.dependencies(myTarget.getModule()).
         includedIn(JpsJavaClasspathKind.compile(tests)).
         recursively();

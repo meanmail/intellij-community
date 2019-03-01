@@ -1,17 +1,13 @@
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.commandLine;
 
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.svn.api.Depth;
-import org.jetbrains.idea.svn.api.ProgressTracker;
+import org.jetbrains.idea.svn.api.*;
 import org.jetbrains.idea.svn.properties.PropertyValue;
-import org.tmatesoft.svn.core.SVNURL;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -19,9 +15,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
-/**
- * @author Konstantin Kolosovsky.
- */
 // TODO: Probably make command immutable and use CommandBuilder for updates.
 public class Command {
 
@@ -32,8 +25,8 @@ public class Command {
   private File workingDirectory;
   @Nullable private File myConfigDir;
   @Nullable private LineCommandListener myResultBuilder;
-  @Nullable private volatile SVNURL myRepositoryUrl;
-  @NotNull private SvnTarget myTarget;
+  @Nullable private volatile Url myRepositoryUrl;
+  @NotNull private Target myTarget;
   @Nullable private Collection<File> myTargets;
   @Nullable private PropertyValue myPropertyValue;
 
@@ -47,11 +40,11 @@ public class Command {
     CommandUtil.put(myParameters, depth, false);
   }
 
-  public void put(@NotNull SvnTarget target) {
+  public void put(@NotNull Target target) {
     CommandUtil.put(myParameters, target);
   }
 
-  public void put(@Nullable SVNRevision revision) {
+  public void put(@Nullable Revision revision) {
     CommandUtil.put(myParameters, revision);
   }
 
@@ -97,31 +90,26 @@ public class Command {
   }
 
   @Nullable
-  public SVNURL getRepositoryUrl() {
+  public Url getRepositoryUrl() {
     return myRepositoryUrl;
   }
 
   @NotNull
-  public SVNURL requireRepositoryUrl() {
-    SVNURL result = getRepositoryUrl();
+  public Url requireRepositoryUrl() {
+    Url result = getRepositoryUrl();
     assert result != null;
 
     return result;
   }
 
   @NotNull
-  public SvnTarget getTarget() {
+  public Target getTarget() {
     return myTarget;
   }
 
   @Nullable
   public List<String> getTargetsPaths() {
-    return ContainerUtil.isEmpty(myTargets) ? null : ContainerUtil.map(myTargets, new Function<File, String>() {
-      @Override
-      public String fun(File file) {
-        return CommandUtil.format(file.getAbsolutePath(), null);
-      }
-    });
+    return ContainerUtil.isEmpty(myTargets) ? null : ContainerUtil.map(myTargets, file -> CommandUtil.format(file.getAbsolutePath(), null));
   }
 
   @Nullable
@@ -146,11 +134,11 @@ public class Command {
     myResultBuilder = resultBuilder;
   }
 
-  public void setRepositoryUrl(@Nullable SVNURL repositoryUrl) {
+  public void setRepositoryUrl(@Nullable Url repositoryUrl) {
     myRepositoryUrl = repositoryUrl;
   }
 
-  public void setTarget(@NotNull SvnTarget target) {
+  public void setTarget(@NotNull Target target) {
     myTarget = target;
   }
 
@@ -212,10 +200,10 @@ public class Command {
   }
 
   @Nullable
-  private SVNRevision getRevision() {
+  private Revision getRevision() {
     int index = myParameters.indexOf("--revision");
 
-    return index >= 0 && index + 1 < myParameters.size() ? SVNRevision.parse(myParameters.get(index + 1)) : null;
+    return index >= 0 && index + 1 < myParameters.size() ? Revision.parse(myParameters.get(index + 1)) : null;
   }
 
   public boolean is(@NotNull SvnCommandName name) {
@@ -226,10 +214,10 @@ public class Command {
     return myTarget.isFile() && isLocal(myTarget.getPegRevision());
   }
 
-  private static boolean isLocal(@Nullable SVNRevision revision) {
+  private static boolean isLocal(@Nullable Revision revision) {
     return revision == null ||
-           SVNRevision.UNDEFINED.equals(revision) ||
-           SVNRevision.BASE.equals(revision) ||
-           SVNRevision.WORKING.equals(revision);
+           Revision.UNDEFINED.equals(revision) ||
+           Revision.BASE.equals(revision) ||
+           Revision.WORKING.equals(revision);
   }
 }

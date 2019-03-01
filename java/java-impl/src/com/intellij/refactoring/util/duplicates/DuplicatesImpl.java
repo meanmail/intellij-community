@@ -21,7 +21,6 @@ import com.intellij.codeInsight.highlighting.HighlightManager;
 import com.intellij.find.FindManager;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
@@ -74,10 +73,11 @@ public class DuplicatesImpl {
     }
   }
 
-  public static void invoke(final Project project, final MatchProvider provider) {
+  public static void invoke(final Project project, final MatchProvider provider, boolean showDialog) {
     final List<Match> duplicates = provider.getDuplicates();
     int idx = 0;
     final Ref<Boolean> showAll = new Ref<>();
+    if (!showDialog) showAll.set(true);
     final String confirmDuplicatePrompt = getConfirmationPrompt(provider, duplicates);
     for (final Match match : duplicates) {
       final PsiFile file = match.getFile();
@@ -128,7 +128,8 @@ public class DuplicatesImpl {
           final boolean allChosen = promptDialog.getExitCode() == FindManager.PromptResult.ALL;
           showAll.set(allChosen);
           if (allChosen && confirmDuplicatePrompt != null && prompt == null) {
-            if (Messages.showOkCancelDialog(project, "In order to replace all occurrences method signature will be changed. Proceed?", CommonBundle.getWarningTitle(), Messages.getWarningIcon()) !=
+            if (Messages.showOkCancelDialog(project, "In order to replace all occurrences method signature will be changed. Proceed?",
+                                            "Change Method Signature", CommonBundle.getContinueButtonText(), CommonBundle.getCancelButtonText(), Messages.getWarningIcon()) !=
                 Messages.OK) return true;
           }
           if (promptDialog.getExitCode() == FindManager.PromptResult.SKIP) return false;
@@ -143,17 +144,15 @@ public class DuplicatesImpl {
     // call change signature when needed
     provider.prepareSignature(match);
 
-    new WriteCommandAction(project, MethodDuplicatesHandler.REFACTORING_NAME, MethodDuplicatesHandler.REFACTORING_NAME) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        try {
-          provider.processMatch(match);
-        }
-        catch (IncorrectOperationException e) {
-          LOG.error(e);
-        }
+    WriteCommandAction.writeCommandAction(project).withName(MethodDuplicatesHandler.REFACTORING_NAME)
+                      .withGroupId(MethodDuplicatesHandler.REFACTORING_NAME).run(() -> {
+      try {
+        provider.processMatch(match);
       }
-    }.execute();
+      catch (IncorrectOperationException e) {
+        LOG.error(e);
+      }
+    });
 
     return false;
   }

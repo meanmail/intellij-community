@@ -15,7 +15,6 @@
  */
 package com.intellij.diff.requests;
 
-import com.intellij.diff.contents.DiffContent;
 import com.intellij.diff.contents.DocumentContent;
 import com.intellij.diff.merge.MergeResult;
 import com.intellij.diff.merge.TextMergeRequest;
@@ -39,7 +38,7 @@ public class TextMergeRequestImpl extends TextMergeRequest {
   @Nullable private final String myTitle;
   @NotNull private final List<String> myTitles;
 
-  @Nullable private final Consumer<MergeResult> myApplyCallback;
+  @Nullable private final Consumer<? super MergeResult> myApplyCallback;
 
   public TextMergeRequestImpl(@Nullable Project project,
                               @NotNull DocumentContent output,
@@ -47,7 +46,7 @@ public class TextMergeRequestImpl extends TextMergeRequest {
                               @NotNull List<DocumentContent> contents,
                               @Nullable String title,
                               @NotNull List<String> contentTitles,
-                              @Nullable Consumer<MergeResult> applyCallback) {
+                              @Nullable Consumer<? super MergeResult> applyCallback) {
     assert contents.size() == 3;
     assert contentTitles.size() == 3;
     myProject = project;
@@ -112,9 +111,7 @@ public class TextMergeRequestImpl extends TextMergeRequest {
       }
 
       if (applyContent != null) {
-        DiffUtil.executeWriteCommand(myOutput.getDocument(), myProject, null, () -> {
-          myOutput.getDocument().setText(applyContent);
-        });
+        DiffUtil.executeWriteCommand(myOutput.getDocument(), myProject, null, () -> myOutput.getDocument().setText(applyContent));
       }
 
       if (myApplyCallback != null) myApplyCallback.consume(result);

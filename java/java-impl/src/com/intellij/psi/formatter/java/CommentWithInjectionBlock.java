@@ -38,8 +38,9 @@ public class CommentWithInjectionBlock extends AbstractJavaBlock {
                                    Alignment alignment,
                                    Indent indent,
                                    CommonCodeStyleSettings settings,
-                                   JavaCodeStyleSettings javaSettings) {
-    super(node, wrap, alignment, indent, settings, javaSettings);
+                                   JavaCodeStyleSettings javaSettings,
+                                   @NotNull FormattingMode formattingMode) {
+    super(node, wrap, alignment, indent, settings, javaSettings, formattingMode);
     myInjectedBlockBuilder = new JavaCommentInjectedBlockBuilder();
   }
 
@@ -91,7 +92,7 @@ public class CommentWithInjectionBlock extends AbstractJavaBlock {
   private static class PartialCommentBlock extends LeafBlock {
     private final TextRange myRange;
 
-    public PartialCommentBlock(ASTNode node, Wrap wrap, Alignment alignment, Indent indent, TextRange range) {
+    PartialCommentBlock(ASTNode node, Wrap wrap, Alignment alignment, Indent indent, TextRange range) {
       super(node, wrap, alignment, indent);
       myRange = range;
     }

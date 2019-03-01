@@ -1,35 +1,20 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.annotation;
 
 import com.intellij.codeInsight.AnnotationTargetUtil;
 import com.intellij.lang.ASTNode;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.light.LightClassReference;
-import com.intellij.psi.meta.PsiMetaData;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.impl.source.tree.java.PsiAnnotationImpl;
 import com.intellij.util.PairFunction;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyEmptyStubElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
@@ -48,12 +33,13 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 import org.jetbrains.plugins.groovy.lang.psi.stubs.GrAnnotationStub;
 import org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil;
 
+import static org.jetbrains.plugins.groovy.lang.resolve.imports.GroovyImports.getAliasedFullyQualifiedNames;
+
 /**
  * @author: Dmitry.Krasilschikov
  * @date: 04.04.2007
  */
 public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implements GrAnnotation, StubBasedPsiElement<GrAnnotationStub> {
-  private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.lang.psi.impl.auxiliary.annotation.GrAnnotationImpl");
 
   private static final PairFunction<Project, String, PsiAnnotation> ANNOTATION_CREATOR =
     (project, text) -> GroovyPsiElementFactory.getInstance(project).createAnnotationFromText(text);
@@ -63,14 +49,15 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
   }
 
   public GrAnnotationImpl(GrAnnotationStub stub) {
-    super(stub, GroovyElementTypes.ANNOTATION);
+    super(stub, GroovyStubElementTypes.ANNOTATION);
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitAnnotation(this);
   }
 
+  @Override
   public String toString() {
     return "Annotation";
   }
@@ -78,7 +65,7 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
   @Override
   @NotNull
   public GrAnnotationArgumentList getParameterList() {
-    return findNotNullChildByClass(GrAnnotationArgumentList.class);
+    return getRequiredStubOrPsiChild(GroovyEmptyStubElementTypes.ANNOTATION_ARGUMENT_LIST);
   }
 
   @Override
@@ -99,7 +86,7 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
   @Override
   @Nullable
   public PsiJavaCodeReferenceElement getNameReferenceElement() {
-    final GroovyResolveResult resolveResult = resolveWithStub();
+    final GroovyResolveResult resolveResult = getClassReference().advancedResolve();
 
     final PsiElement resolved = resolveResult.getElement();
     if (!(resolved instanceof PsiClass)) return null;
@@ -107,50 +94,22 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
     return new LightClassReference(getManager(), getClassReference().getText(), (PsiClass)resolved, resolveResult.getSubstitutor());
   }
 
-  @NotNull
-  private GroovyResolveResult resolveWithStub() {
-    final GrAnnotationStub stub = getStub();
-    final GrCodeReferenceElement reference = stub != null ? stub.getPsiElement().getClassReference() : getClassReference();
-    return reference.advancedResolve();
-  }
-
   @Override
   @Nullable
   public PsiAnnotationMemberValue findAttributeValue(@Nullable String attributeName) {
-    final GrAnnotationStub stub = getStub();
-    if (stub != null) {
-      final GrAnnotation stubbedPsi = stub.getPsiElement();
-      final PsiAnnotationMemberValue value = PsiImplUtil.findAttributeValue(stubbedPsi, attributeName);
-      if (value == null || !PsiTreeUtil.isAncestor(stubbedPsi, value, true)) {         // if value is a default value we can use it
-        return value;
-      }
-    }
     return PsiImplUtil.findAttributeValue(this, attributeName);
   }
 
   @Override
   @Nullable
   public PsiAnnotationMemberValue findDeclaredAttributeValue(@NonNls final String attributeName) {
-    final GrAnnotationStub stub = getStub();
-    if (stub != null) {
-      final GrAnnotation stubbedPsi = stub.getPsiElement();
-      final PsiAnnotationMemberValue value = PsiImplUtil.findDeclaredAttributeValue(stubbedPsi, attributeName);
-      if (value == null) {
-        return null;
-      }
-    }
     return PsiImplUtil.findDeclaredAttributeValue(this, attributeName);
   }
 
   @Override
   public <T extends PsiAnnotationMemberValue> T setDeclaredAttributeValue(@Nullable @NonNls String attributeName, T value) {
+    //noinspection unchecked
     return (T)PsiImplUtil.setDeclaredAttributeValue(this, attributeName, value, ANNOTATION_CREATOR);
-  }
-
-  @Override
-  @Nullable
-  public PsiMetaData getMetaData() {
-    return null;
   }
 
   @Override
@@ -169,7 +128,7 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
   public String getShortName() {
     final GrAnnotationStub stub = getStub();
     if (stub != null) {
-      return stub.getPsiElement().getShortName();
+      return PsiAnnotationImpl.getAnnotationShortName(stub.getText());
     }
 
     final String referenceName = getClassReference().getReferenceName();
@@ -182,6 +141,17 @@ public class GrAnnotationImpl extends GrStubElementBase<GrAnnotationStub> implem
   public PsiAnnotationOwner getOwner() {
     PsiElement parent = getParent();
     return parent instanceof PsiAnnotationOwner ? (PsiAnnotationOwner)parent : null;
+  }
+
+  @Override
+  public boolean hasQualifiedName(@NotNull String qualifiedName) {
+    return mayHaveQualifiedName(qualifiedName) && qualifiedName.equals(getQualifiedName());
+  }
+
+  private boolean mayHaveQualifiedName(@NotNull String qualifiedName) {
+    String shortName = getShortName();
+    return shortName.equals(StringUtil.getShortName(qualifiedName)) ||
+           getAliasedFullyQualifiedNames(this, shortName).contains(qualifiedName);
   }
 
   @NotNull

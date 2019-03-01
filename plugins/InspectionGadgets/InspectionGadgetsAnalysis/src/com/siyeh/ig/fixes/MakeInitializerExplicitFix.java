@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2005 Dave Griffith
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,29 +18,22 @@ package com.siyeh.ig.fixes;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.InspectionGadgetsFix;
-import org.jetbrains.annotations.NonNls;
+import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
 
 public class MakeInitializerExplicitFix extends InspectionGadgetsFix {
 
   @Override
   @NotNull
-  public String getName() {
+  public String getFamilyName() {
     return InspectionGadgetsBundle.message(
       "make.initialization.explicit.quickfix");
   }
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
   @Override
-  public void doFix(Project project, ProblemDescriptor descriptor)
-    throws IncorrectOperationException {
+  public void doFix(Project project, ProblemDescriptor descriptor) {
     final PsiElement fieldName = descriptor.getPsiElement();
     final PsiElement parent = fieldName.getParent();
     if (!(parent instanceof PsiField)) return;
@@ -49,39 +42,8 @@ public class MakeInitializerExplicitFix extends InspectionGadgetsFix {
       return;
     }
     final PsiType type = field.getType();
-    final PsiManager psiManager = PsiManager.getInstance(project);
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(psiManager.getProject()).getElementFactory();
-    final PsiExpression initializer =
-      factory.createExpressionFromText(getDefaultValue(type), field);
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+    final PsiExpression initializer = factory.createExpressionFromText(TypeUtils.getDefaultValue(type), field);
     field.setInitializer(initializer);
-  }
-
-  @NonNls
-  private static String getDefaultValue(PsiType type) {
-    if (PsiType.INT.equals(type)) {
-      return "0";
-    }
-    else if (PsiType.LONG.equals(type)) {
-      return "0L";
-    }
-    else if (PsiType.DOUBLE.equals(type)) {
-      return "0.0";
-    }
-    else if (PsiType.FLOAT.equals(type)) {
-      return "0.0F";
-    }
-    else if (PsiType.SHORT.equals(type)) {
-      return "(short)0";
-    }
-    else if (PsiType.BYTE.equals(type)) {
-      return "(byte)0";
-    }
-    else if (PsiType.BOOLEAN.equals(type)) {
-      return PsiKeyword.FALSE;
-    }
-    else if (PsiType.CHAR.equals(type)) {
-      return "(char)0";
-    }
-    return PsiKeyword.NULL;
   }
 }

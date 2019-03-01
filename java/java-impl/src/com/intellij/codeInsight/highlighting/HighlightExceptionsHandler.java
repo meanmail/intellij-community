@@ -22,23 +22,24 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.Condition;
 import com.intellij.psi.*;
 import com.intellij.util.Consumer;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 import java.util.List;
 
-public class HighlightExceptionsHandler extends HighlightUsagesHandlerBase<PsiClass> {
+class HighlightExceptionsHandler extends HighlightUsagesHandlerBase<PsiClass> {
   private final PsiElement myTarget;
   private final PsiClassType[] myClassTypes;
   private final PsiElement myPlace, myOtherPlace;
-  private final Condition<PsiType> myTypeFilter;
+  private final Condition<? super PsiType> myTypeFilter;
 
-  public HighlightExceptionsHandler(Editor editor,
+  HighlightExceptionsHandler(Editor editor,
                                     PsiFile file,
                                     PsiElement target,
                                     PsiClassType[] classTypes,
                                     PsiElement place,
                                     PsiElement otherPlace,
-                                    Condition<PsiType> typeFilter) {
+                                    Condition<? super PsiType> typeFilter) {
     super(editor, file);
     myTarget = target;
     myClassTypes = classTypes;
@@ -56,7 +57,7 @@ public class HighlightExceptionsHandler extends HighlightUsagesHandlerBase<PsiCl
   protected void selectTargets(final List<PsiClass> targets, final Consumer<List<PsiClass>> selectionConsumer) {
     new ChooseClassAndDoHighlightRunnable(myClassTypes, myEditor, CodeInsightBundle.message("highlight.exceptions.thrown.chooser.title")) {
       @Override
-      protected void selected(PsiClass... classes) {
+      protected void selected(@NotNull PsiClass... classes) {
         selectionConsumer.consume(Arrays.asList(classes));
       }
     }.run();
@@ -66,7 +67,7 @@ public class HighlightExceptionsHandler extends HighlightUsagesHandlerBase<PsiCl
   public void computeUsages(final List<PsiClass> targets) {
     addOccurrence(myTarget);
 
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myEditor.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myEditor.getProject());
     for (PsiClass aClass : targets) {
       addExceptionThrowPlaces(factory.createType(aClass), myPlace);
       if (myOtherPlace != null) {

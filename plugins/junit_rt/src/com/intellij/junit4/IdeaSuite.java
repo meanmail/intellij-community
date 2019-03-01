@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 11-Jun-2009
- */
 package com.intellij.junit4;
 
 import junit.framework.Test;
@@ -38,12 +34,12 @@ import java.util.*;
 class IdeaSuite extends Suite {
   private final String myName;
 
-  public IdeaSuite(List runners, String name) throws InitializationError {
+  IdeaSuite(List runners, String name) throws InitializationError {
     super(null, runners);
     myName = name;
   }
 
-  public IdeaSuite(final RunnerBuilder builder, Class[] classes, String name) throws InitializationError {
+  IdeaSuite(final RunnerBuilder builder, Class[] classes, String name) throws InitializationError {
     super(builder, classes);
     myName = name;
   }
@@ -80,25 +76,36 @@ class IdeaSuite extends Suite {
 
   protected List getChildren() {
     final List children = new ArrayList(super.getChildren());
-    final Set allNames = new HashSet();
-    for (Iterator iterator = children.iterator(); iterator.hasNext();) {
-      final Object child = iterator.next();
-      allNames.add(describeChild((Runner)child).getDisplayName());
-    }
-    for (Iterator iterator = children.iterator(); iterator.hasNext();) {
-      final Object child = iterator.next();
-      if (isSuite(child)) {
-        skipSuiteComponents(allNames, child);
-      }
-    }
-
+    boolean containsSuiteInside = false;
     for (Iterator iterator = children.iterator(); iterator.hasNext(); ) {
       Object child = iterator.next();
-      if (!isSuite(child) && !allNames.contains(describeChild((Runner)child).getDisplayName())) {
-        iterator.remove();
+      if (isSuite(child)) {
+        containsSuiteInside = true;
+        break;
       }
     }
+    if (!containsSuiteInside) return children;
+    try {
+      final Set allNames = new HashSet();
+      for (Iterator iterator = children.iterator(); iterator.hasNext();) {
+        final Object child = iterator.next();
+        allNames.add(describeChild((Runner)child).getDisplayName());
+      }
+      for (Iterator iterator = children.iterator(); iterator.hasNext();) {
+        final Object child = iterator.next();
+        if (isSuite(child)) {
+          skipSuiteComponents(allNames, child);
+        }
+      }
 
+      for (Iterator iterator = children.iterator(); iterator.hasNext(); ) {
+        Object child = iterator.next();
+        if (!isSuite(child) && !allNames.contains(describeChild((Runner)child).getDisplayName())) {
+          iterator.remove();
+        }
+      }
+    }
+    catch (Throwable e){ }
     return children;
   }
 

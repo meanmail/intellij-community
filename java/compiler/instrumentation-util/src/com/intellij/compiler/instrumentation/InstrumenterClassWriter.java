@@ -5,7 +5,6 @@ import org.jetbrains.org.objectweb.asm.ClassWriter;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: 3/27/12
 */
 public class InstrumenterClassWriter extends ClassWriter {
   private final InstrumentationClassFinder myFinder;
@@ -20,6 +19,7 @@ public class InstrumenterClassWriter extends ClassWriter {
     myFinder = finder;
   }
 
+  @Override
   protected String getCommonSuperClass(final String type1, final String type2) {
     try {
       final InstrumentationClassFinder.PseudoClass cls1 = myFinder.loadClass(type1);

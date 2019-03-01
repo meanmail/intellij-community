@@ -30,7 +30,6 @@ import java.util.Properties;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 08-Jul-16
  */
 public class PropertiesEncryptionSupport {
   private final Key myKey;
@@ -58,10 +57,15 @@ public class PropertiesEncryptionSupport {
   }
 
   public void store(@NotNull Properties props, @NotNull String comments, @NotNull File file) throws Exception {
-    final ByteArrayOutputStream out = new ByteArrayOutputStream();
-    props.store(out, comments);
-    out.close();
-    FileUtil.writeToFile(file, encrypt(out.toByteArray()));
+    if (props.isEmpty()) {
+      FileUtil.delete(file);
+      return;
+    }
+
+    try (final ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+      props.store(out, comments);
+      FileUtil.writeToFile(file, encrypt(out.toByteArray()));
+    }
   }
 
   public byte[] encrypt(byte[] bytes) throws Exception {

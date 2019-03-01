@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.todo;
 
-import com.intellij.openapi.Disposable;
 import com.intellij.openapi.components.PersistentStateComponent;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.components.State;
@@ -23,11 +8,10 @@ import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.editor.colors.EditorColorsListener;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.search.*;
-import com.intellij.util.EventDispatcher;
 import com.intellij.util.SmartList;
 import com.intellij.util.messages.MessageBus;
+import com.intellij.util.messages.Topic;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -37,50 +21,52 @@ import java.beans.PropertyChangeListener;
 import java.util.Arrays;
 import java.util.List;
 
-@State(
-  name = "TodoConfiguration",
-  storages = {
-    @Storage("editor.xml"),
-    @Storage(value = "other.xml", deprecated = true)
-  }
-)
-public class TodoConfiguration implements PersistentStateComponent<Element>, Disposable {
+@State(name = "TodoConfiguration", storages = @Storage("editor.xml"))
+public class TodoConfiguration implements PersistentStateComponent<Element> {
+  public static final Topic<PropertyChangeListener> PROPERTY_CHANGE = new Topic<>("TodoConfiguration changes", PropertyChangeListener.class);
+
+  private boolean myMultiLine = true;
   private TodoPattern[] myTodoPatterns;
   private TodoFilter[] myTodoFilters;
   private IndexPattern[] myIndexPatterns;
 
-  private final EventDispatcher<PropertyChangeListener> myPropertyChangeMulticaster = EventDispatcher.create(PropertyChangeListener.class);
-
+  @NonNls public static final String PROP_MULTILINE = "multiLine";
   @NonNls public static final String PROP_TODO_PATTERNS = "todoPatterns";
   @NonNls public static final String PROP_TODO_FILTERS = "todoFilters";
+  @NonNls private static final String ELEMENT_MULTILINE = "multiLine";
   @NonNls private static final String ELEMENT_PATTERN = "pattern";
   @NonNls private static final String ELEMENT_FILTER = "filter";
   private final MessageBus myMessageBus;
+  private final PropertyChangeListener myTopic;
 
   public TodoConfiguration(@NotNull MessageBus messageBus) {
     myMessageBus = messageBus;
-    messageBus.connect(this).subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
+    messageBus.connect().subscribe(EditorColorsManager.TOPIC, new EditorColorsListener() {
       @Override
       public void globalSchemeChange(EditorColorsScheme scheme) {
         colorSettingsChanged();
       }
     });
     resetToDefaultTodoPatterns();
+    myTopic = messageBus.syncPublisher(PROPERTY_CHANGE);
   }
 
-  @Override
-  public void dispose() {
+  public static TodoConfiguration getInstance() {
+    return ServiceManager.getService(TodoConfiguration.class);
   }
 
-  @SuppressWarnings("SpellCheckingInspection")
   public void resetToDefaultTodoPatterns() {
     myTodoPatterns = getDefaultPatterns();
     myTodoFilters = new TodoFilter[]{};
     buildIndexPatterns();
   }
 
+  /**
+   * Returns the list of default TO_DO patterns. Can be customized in other IDEs (and is customized in Rider).
+   */
   @NotNull
-  private static TodoPattern[] getDefaultPatterns() {
+  protected TodoPattern[] getDefaultPatterns() {
+    //noinspection SpellCheckingInspection
     return new TodoPattern[]{
       new TodoPattern("\\btodo\\b.*", TodoAttributesUtil.createDefault(), false),
       new TodoPattern("\\bfixme\\b.*", TodoAttributesUtil.createDefault(), false),
@@ -92,10 +78,6 @@ public class TodoConfiguration implements PersistentStateComponent<Element>, Dis
     for (int i = 0; i < myTodoPatterns.length; i++) {
       myIndexPatterns[i] = myTodoPatterns[i].getIndexPattern();
     }
-  }
-
-  public static TodoConfiguration getInstance() {
-    return ServiceManager.getService(TodoConfiguration.class);
   }
 
   @NotNull
@@ -127,14 +109,13 @@ public class TodoConfiguration implements PersistentStateComponent<Element>, Dis
 
     // only trigger gui and code daemon refresh when either the index patterns or presentation attributes have changed
     if (!Arrays.deepEquals(myTodoPatterns, oldTodoPatterns)) {
-      PropertyChangeListener multicaster = myPropertyChangeMulticaster.getMulticaster();
-      multicaster.propertyChange(new PropertyChangeEvent(this, PROP_TODO_PATTERNS, oldTodoPatterns, todoPatterns));
+      myTopic.propertyChange(new PropertyChangeEvent(this, PROP_TODO_PATTERNS, oldTodoPatterns, todoPatterns));
     }
   }
 
   /**
-   * @return <code>TodoFilter</code> with specified <code>name</code>. Method returns
-   *         <code>null</code> if there is no filter with <code>name</code>.
+   * @return {@code TodoFilter} with specified {@code name}. Method returns
+   *         {@code null} if there is no filter with {@code name}.
    */
   public TodoFilter getTodoFilter(String name) {
     for (TodoFilter filter : myTodoFilters) {
@@ -146,71 +127,66 @@ public class TodoConfiguration implements PersistentStateComponent<Element>, Dis
   }
 
   /**
-   * @return all <code>TodoFilter</code>s.
+   * @return all {@code TodoFilter}s.
    */
   @NotNull
   public TodoFilter[] getTodoFilters() {
     return myTodoFilters;
   }
 
+  public boolean isMultiLine() {
+    return myMultiLine;
+  }
+
+  public void setMultiLine(boolean multiLine) {
+    if (multiLine != myMultiLine) {
+      myMultiLine = multiLine;
+      myTopic.propertyChange(new PropertyChangeEvent(this, PROP_MULTILINE, !multiLine, multiLine));
+    }
+  }
+
   public void setTodoFilters(@NotNull TodoFilter[] filters) {
     TodoFilter[] oldFilters = myTodoFilters;
     myTodoFilters = filters;
-    myPropertyChangeMulticaster.getMulticaster().propertyChange(new PropertyChangeEvent(this, PROP_TODO_FILTERS, oldFilters, filters));
-  }
-
-  /**
-   * @deprecated use {@link TodoConfiguration#addPropertyChangeListener(PropertyChangeListener, Disposable)} instead
-   */
-  public void addPropertyChangeListener(@NotNull PropertyChangeListener listener) {
-    myPropertyChangeMulticaster.addListener(listener);
-  }
-  public void addPropertyChangeListener(@NotNull PropertyChangeListener listener, @NotNull Disposable parentDisposable) {
-    myPropertyChangeMulticaster.addListener(listener,parentDisposable);
-  }
-  /**
-   * @deprecated use {@link TodoConfiguration#addPropertyChangeListener(PropertyChangeListener, Disposable)} instead
-   */
-  public void removePropertyChangeListener(@NotNull PropertyChangeListener listener) {
-    myPropertyChangeMulticaster.removeListener(listener);
+    myTopic.propertyChange(new PropertyChangeEvent(this, PROP_TODO_FILTERS, oldFilters, filters));
   }
 
   @Override
-  public void loadState(Element element) {
+  public void loadState(@NotNull Element element) {
+    String multiLineText = element.getChildText(ELEMENT_MULTILINE);
+    myMultiLine = multiLineText == null || Boolean.valueOf(multiLineText);
+
     List<TodoPattern> patternsList = new SmartList<>();
-    List<TodoFilter> filtersList = new SmartList<>();
-    for (Element child : element.getChildren()) {
-      if (ELEMENT_PATTERN.equals(child.getName())) {
-        TodoPattern pattern = new TodoPattern(TodoAttributesUtil.createDefault());
-        pattern.readExternal(child, TodoAttributesUtil.getDefaultColorSchemeTextAttributes());
-        patternsList.add(pattern);
-      }
-      else if (ELEMENT_FILTER.equals(child.getName())) {
-        TodoFilter filter = new TodoFilter();
-        filter.readExternal(child, patternsList);
-        filtersList.add(filter);
-      }
+    for (Element child : element.getChildren(ELEMENT_PATTERN)) {
+      patternsList.add(new TodoPattern(child, TodoAttributesUtil.getDefaultColorSchemeTextAttributes()));
     }
-    doSetTodoPatterns(patternsList.toArray(new TodoPattern[patternsList.size()]), false);
+
+    TodoPattern[] patterns = patternsList.isEmpty() ? getDefaultPatterns() : patternsList.toArray(new TodoPattern[0]);
+    doSetTodoPatterns(patterns, false);
+
+    List<TodoFilter> filtersList = new SmartList<>();
+    for (Element child : element.getChildren(ELEMENT_FILTER)) {
+      filtersList.add(new TodoFilter(child, Arrays.asList(patterns)));
+    }
 
     if (!(filtersList.isEmpty() && myTodoFilters.length == 0)) {
-      setTodoFilters(filtersList.toArray(new TodoFilter[filtersList.size()]));
+      setTodoFilters(filtersList.toArray(new TodoFilter[0]));
     }
   }
 
   @Override
   public Element getState() {
     Element element = new Element("state");
+    if (!myMultiLine) {
+      Element m = new Element(ELEMENT_MULTILINE);
+      m.setText(Boolean.FALSE.toString());
+      element.addContent(m);
+    }
     TodoPattern[] todoPatterns = myTodoPatterns;
     if (!Arrays.equals(myTodoPatterns, getDefaultPatterns())) {
       for (TodoPattern pattern : todoPatterns) {
         Element child = new Element(ELEMENT_PATTERN);
-        try {
-          pattern.writeExternal(child);
-        }
-        catch (WriteExternalException e) {
-          throw new RuntimeException(e);
-        }
+        pattern.writeExternal(child);
         element.addContent(child);
       }
     }

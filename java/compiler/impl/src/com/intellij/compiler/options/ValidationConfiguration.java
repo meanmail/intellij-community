@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.compiler.options;
 
-import com.intellij.openapi.compiler.CompileContext;
 import com.intellij.openapi.compiler.Compiler;
+import com.intellij.openapi.compiler.CompilerManager;
+import com.intellij.openapi.compiler.Validator;
 import com.intellij.openapi.compiler.options.ExcludedEntriesConfiguration;
 import com.intellij.openapi.compiler.options.ExcludesConfiguration;
 import com.intellij.openapi.components.PersistentStateComponent;
@@ -25,23 +12,25 @@ import com.intellij.openapi.components.State;
 import com.intellij.openapi.components.Storage;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.xmlb.XmlSerializerUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.jps.model.serialization.java.compiler.JpsCompilerValidationExcludeSerializer;
-
-import java.util.HashMap;
-import java.util.Map;
+import org.jetbrains.jps.model.serialization.java.compiler.JpsValidationSerializer;
 
 /**
  * @author Dmitry Avdeev
  */
-@State(name = "ValidationConfiguration", storages = @Storage("validation.xml"))
-public class ValidationConfiguration implements PersistentStateComponent<ValidationConfiguration> {
+@State(name = JpsValidationSerializer.COMPONENT_NAME, storages = @Storage(JpsValidationSerializer.CONFIG_FILE_NAME))
+public class ValidationConfiguration implements PersistentStateComponent<JpsValidationSerializer.ValidationConfigurationState> {
+  private final JpsValidationSerializer.ValidationConfigurationState myState = new JpsValidationSerializer.ValidationConfigurationState();
+  private final Project myProject;
 
-  public boolean VALIDATE_ON_BUILD = false;
-  public Map<String, Boolean> VALIDATORS = new HashMap<>();
+  public ValidationConfiguration(Project project) {
+    myProject = project;
+  }
 
-  public static boolean shouldValidate(Compiler validator, CompileContext context) {
-    ValidationConfiguration configuration = getInstance(context.getProject());
-    return (configuration.VALIDATE_ON_BUILD) && configuration.isSelected(validator);
+  public static boolean shouldValidate(Compiler validator, Project project) {
+    ValidationConfiguration configuration = getInstance(project);
+    return (configuration.myState.VALIDATE_ON_BUILD) && configuration.isSelected(validator);
   }
 
   public boolean isSelected(Compiler validator) {
@@ -49,16 +38,30 @@ public class ValidationConfiguration implements PersistentStateComponent<Validat
   }
 
   public boolean isSelected(String validatorDescription) {
-    final Boolean selected = VALIDATORS.get(validatorDescription);
+    final Boolean selected = myState.VALIDATORS.get(validatorDescription);
     return selected == null || selected.booleanValue();
+  }
+
+  public boolean isValidateOnBuild() {
+    return myState.VALIDATE_ON_BUILD;
+  }
+
+  public void setValidateOnBuild(boolean value) {
+    myState.VALIDATE_ON_BUILD = value;
   }
 
   public void setSelected(Compiler validator, boolean selected) {
     setSelected(validator.getDescription(), selected);
   }
 
+  public void deselectAllValidators() {
+    for (Validator validator : CompilerManager.getInstance(myProject).getCompilers(Validator.class)) {
+      myState.VALIDATORS.put(validator.getDescription(), false);
+    }
+  }
+
   public void setSelected(String validatorDescription, boolean selected) {
-    VALIDATORS.put(validatorDescription, selected);
+    myState.VALIDATORS.put(validatorDescription, selected);
   }
 
   public static ValidationConfiguration getInstance(Project project) {
@@ -69,17 +72,24 @@ public class ValidationConfiguration implements PersistentStateComponent<Validat
     return ServiceManager.getService(project, ExcludedFromValidationConfiguration.class);
   }
 
-  public ValidationConfiguration getState() {
-    return this;
+  @Override
+  @NotNull
+  public JpsValidationSerializer.ValidationConfigurationState getState() {
+    return myState;
   }
 
-  public void loadState(final ValidationConfiguration state) {
-    XmlSerializerUtil.copyBean(state, this);
+  @Override
+  public void loadState(@NotNull final JpsValidationSerializer.ValidationConfigurationState state) {
+    XmlSerializerUtil.copyBean(state, myState);
   }
 
   @State(
     name = JpsCompilerValidationExcludeSerializer.COMPONENT_NAME,
     storages = @Storage(JpsCompilerValidationExcludeSerializer.CONFIG_FILE_NAME)
   )
-  public static class ExcludedFromValidationConfiguration extends ExcludedEntriesConfiguration {}
+  public static class ExcludedFromValidationConfiguration extends ExcludedEntriesConfiguration {
+    public ExcludedFromValidationConfiguration() {
+      super(null);
+    }
+  }
 }

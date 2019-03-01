@@ -55,6 +55,7 @@ public class RemoveLocallyFileOrDirectoryAction extends ActionOnSelectedElement 
     this(Options.REMOVE_ACTION);
   }
 
+  @Override
   protected CvsHandler getCvsHandler(CvsContext context) {
     final Project project = context.getProject();
     final boolean showDialog = myOptions.isToBeShown(project) || OptionsDialog.shiftIsPressed(context.getModifiers());
@@ -99,7 +100,7 @@ public class RemoveLocallyFileOrDirectoryAction extends ActionOnSelectedElement 
   private static List<FilePath> filesToFilePaths(final ArrayList<File> files) {
     final List<FilePath> result = new ArrayList<>();
     for(File f: files) {
-      result.add(VcsContextFactory.SERVICE.getInstance().createFilePathOnDeleted(f, false));
+      result.add(VcsContextFactory.SERVICE.getInstance().createFilePathOn(f, false));
     }
     return result;
   }
@@ -113,6 +114,7 @@ public class RemoveLocallyFileOrDirectoryAction extends ActionOnSelectedElement 
     return result;
   }
 
+  @Override
   protected String getTitle(VcsContext context) {
     return CvsBundle.message("operation.name.mark.as.deleted");
   }

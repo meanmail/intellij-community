@@ -1,13 +1,15 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.javaFX.sceneBuilder;
 
 import com.intellij.codeHighlighting.BackgroundEditorHighlighter;
 import com.intellij.ide.structureView.StructureViewBuilder;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.fileEditor.FileEditorLocation;
@@ -30,9 +32,9 @@ import javax.swing.event.HyperlinkListener;
 import java.awt.*;
 import java.beans.PropertyChangeListener;
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * @author Alexander Lobas
@@ -107,7 +109,7 @@ public class SceneBuilderEditor extends UserDataHolderBase implements FileEditor
         }
       }
       Collections.reverse(messages);
-      description = "\n" + messages.stream().collect(Collectors.joining("\n\n"));
+      description = "\n" + String.join("\n\n", messages);
     }
     else {
       description = "Unknown error occurred";
@@ -140,7 +142,7 @@ public class SceneBuilderEditor extends UserDataHolderBase implements FileEditor
     ApplicationManager.getApplication().invokeLater(() -> {
       if (mySceneBuilder != null) {
 
-        if (!myDocument.isWritable() && ReadonlyStatusHandler.getInstance(myProject).ensureFilesWritable(myFile).hasReadonlyFiles()) {
+        if (!myDocument.isWritable() && ReadonlyStatusHandler.getInstance(myProject).ensureFilesWritable(Collections.singletonList(myFile)).hasReadonlyFiles()) {
           return;
         }
 
@@ -168,11 +170,17 @@ public class SceneBuilderEditor extends UserDataHolderBase implements FileEditor
   }
 
   private void addSceneBuilder() {
-    removeSceneBuilder();
+    ApplicationManager.getApplication().invokeLater(this::addSceneBuilderImpl, ModalityState.defaultModalityState());
+  }
 
+  private void addSceneBuilderImpl() {
     try {
-      FileDocumentManager.getInstance().saveDocument(myDocument);
+      ApplicationManager.getApplication().runWriteAction(() -> FileDocumentManager.getInstance().saveDocument(myDocument));
 
+      if (mySceneBuilder != null && mySceneBuilder.reload()) {
+        return;
+      }
+      removeSceneBuilder();
       mySceneBuilder = SceneBuilder.create(new File(myFile.getPath()).toURI().toURL(), myProject, this);
 
       myPanel.add(mySceneBuilder.getPanel(), SCENE_CARD);
@@ -269,10 +277,10 @@ public class SceneBuilderEditor extends UserDataHolderBase implements FileEditor
     return null;
   }
 
-  private class ExternalChangeListener extends DocumentAdapter {
+  private class ExternalChangeListener implements DocumentListener {
     private volatile boolean myRunState;
 
-    public ExternalChangeListener() {
+    ExternalChangeListener() {
       myDocument.addDocumentListener(this);
     }
 
@@ -297,7 +305,7 @@ public class SceneBuilderEditor extends UserDataHolderBase implements FileEditor
     }
 
     @Override
-    public void documentChanged(DocumentEvent e) {
+    public void documentChanged(@NotNull DocumentEvent e) {
       if (myRunState) {
         addSceneBuilder();
       }

@@ -18,7 +18,6 @@ package com.intellij.util.containers;
 import gnu.trove.THashMap;
 import gnu.trove.TObjectHashingStrategy;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.TestOnly;
 
 import java.lang.ref.ReferenceQueue;
 import java.util.*;
@@ -30,20 +29,20 @@ import java.util.*;
  */
 abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
   private final MyMap myMap;
-  private final ReferenceQueue<K> myReferenceQueue = new ReferenceQueue<K>();
+  private final ReferenceQueue<K> myReferenceQueue = new ReferenceQueue<>();
   private final HardKey myHardKeyInstance = new HardKey(); // "singleton"
   @NotNull
-  private final TObjectHashingStrategy<K> myStrategy;
+  private final TObjectHashingStrategy<? super K> myStrategy;
   private Set<Entry<K, V>> entrySet;
   private boolean processingQueue;
 
-  RefHashMap(int initialCapacity, float loadFactor, @NotNull final TObjectHashingStrategy<K> strategy) {
+  RefHashMap(int initialCapacity, float loadFactor, @NotNull final TObjectHashingStrategy<? super K> strategy) {
     myStrategy = strategy;
     myMap = new MyMap(initialCapacity, loadFactor);
   }
 
   RefHashMap(int initialCapacity, float loadFactor) {
-    this(initialCapacity, loadFactor, ContainerUtil.<K>canonicalStrategy());
+    this(initialCapacity, loadFactor, ContainerUtil.canonicalStrategy());
   }
 
   RefHashMap(int initialCapacity) {
@@ -54,16 +53,16 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
     this(4);
   }
 
-  RefHashMap(@NotNull Map<K, V> t) {
+  RefHashMap(@NotNull Map<? extends K, ? extends V> t) {
     this(Math.max(2 * t.size(), 11), 0.75f);
     putAll(t);
   }
 
-  RefHashMap(@NotNull final TObjectHashingStrategy<K> hashingStrategy) {
+  RefHashMap(@NotNull final TObjectHashingStrategy<? super K> hashingStrategy) {
     this(4, 0.8f, hashingStrategy);
   }
 
-  static <K> boolean keyEqual(K k1, K k2, TObjectHashingStrategy<K> strategy) {
+  static <K> boolean keyEqual(K k1, K k2, TObjectHashingStrategy<? super K> strategy) {
     return k1 == k2 || strategy.equals(k1, k2);
   }
 
@@ -132,7 +131,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
   }
 
   @NotNull
-  protected abstract <T> Key<T> createKey(@NotNull T k, @NotNull TObjectHashingStrategy<T> strategy, @NotNull ReferenceQueue<? super T> q);
+  protected abstract <T> Key<T> createKey(@NotNull T k, @NotNull TObjectHashingStrategy<? super T> strategy, @NotNull ReferenceQueue<? super T> q);
 
   private class HardKey implements Key<K> {
     private K myObject;
@@ -152,6 +151,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
       myObject = null;
     }
 
+    @Override
     public boolean equals(Object o) {
       if (this == o) return true;
       if (!(o instanceof Key)) return false;
@@ -160,6 +160,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
       return keyEqual(t, u, myStrategy);
     }
 
+    @Override
     public int hashCode() {
       return myHash;
     }
@@ -203,7 +204,8 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
 
   @Override
   public boolean isEmpty() {
-    return entrySet().isEmpty();
+    // make easier and alloc-free call to myMap first
+    return myMap.isEmpty() || entrySet().isEmpty();
   }
 
   @Override
@@ -217,8 +219,14 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
   }
 
   @Override
+  public boolean containsValue(Object value) {
+    throw RefValueHashMap.pointlessContainsValue();
+  }
+
+  @Override
   public V get(Object key) {
     if (key == null) return null;
+    //noinspection unchecked
     myHardKeyInstance.set((K)key);
     V result = myMap.get(myHardKeyInstance);
     myHardKeyInstance.clear();
@@ -236,6 +244,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
     processQueue();
 
     // optimization:
+    //noinspection unchecked
     myHardKeyInstance.set((K)key);
     V result = myMap.remove(myHardKeyInstance);
     myHardKeyInstance.clear();
@@ -252,9 +261,9 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
     private final Entry<?, V> ent;
     private final K key; // Strong reference to key, so that the GC will leave it alone as long as this Entry exists
     private final int myKeyHashCode;
-    @NotNull private final TObjectHashingStrategy<K> myStrategy;
+    @NotNull private final TObjectHashingStrategy<? super K> myStrategy;
 
-    private MyEntry(@NotNull Entry<?, V> ent, @NotNull K key, int keyHashCode, @NotNull TObjectHashingStrategy<K> strategy) {
+    private MyEntry(@NotNull Entry<?, V> ent, @NotNull K key, int keyHashCode, @NotNull TObjectHashingStrategy<? super K> strategy) {
       this.ent = ent;
       this.key = key;
       myKeyHashCode = keyHashCode;
@@ -276,16 +285,15 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
       return ent.setValue(value);
     }
 
-    private static boolean valEqual(Object o1, Object o2) {
-      return o1 == null ? o2 == null : o1.equals(o2);
-    }
-
+    @Override
     public boolean equals(Object o) {
       if (!(o instanceof Entry)) return false;
+      //noinspection unchecked
       Entry<K,V> e = (Entry)o;
-      return keyEqual(key, e.getKey(), myStrategy) && valEqual(getValue(), e.getValue());
+      return keyEqual(key, e.getKey(), myStrategy) && Objects.equals(getValue(), e.getValue());
     }
 
+    @Override
     public int hashCode() {
       V v;
       return myKeyHashCode ^ ((v = getValue()) == null ? 0 : v.hashCode());
@@ -313,7 +321,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
               // weak key has been cleared by GC, ignore
               continue;
             }
-            next = new MyEntry<K, V>(ent, k, wk.hashCode(), myStrategy);
+            next = new MyEntry<>(ent, k, wk.hashCode(), myStrategy);
             return true;
           }
           return false;
@@ -344,7 +352,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
     @Override
     public int size() {
       int j = 0;
-      for (Iterator i = iterator(); i.hasNext(); i.next()) j++;
+      for (Iterator<Entry<K, V>> i = iterator(); i.hasNext(); i.next()) j++;
       return j;
     }
 
@@ -352,6 +360,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
     public boolean remove(Object o) {
       processQueue();
       if (!(o instanceof Entry)) return false;
+      //noinspection unchecked
       Entry<K, V> e = (Entry<K, V>)o;
       V ev = e.getValue();
 
@@ -368,6 +377,7 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
       return toRemove;
     }
 
+    @Override
     public int hashCode() {
       int h = 0;
       for (Entry<Key<K>,V> entry : hashEntrySet) {
@@ -384,12 +394,8 @@ abstract class RefHashMap<K, V> extends AbstractMap<K, V> implements Map<K, V> {
   @NotNull
   @Override
   public Set<Entry<K, V>> entrySet() {
-    if (entrySet == null) entrySet = new EntrySet();
-    return entrySet;
-  }
-
-  @TestOnly
-  int underlyingMapSize() {
-    return myMap.size();
+    Set<Entry<K, V>> es = entrySet;
+    if (es == null) entrySet = es = new EntrySet();
+    return es;
   }
 }

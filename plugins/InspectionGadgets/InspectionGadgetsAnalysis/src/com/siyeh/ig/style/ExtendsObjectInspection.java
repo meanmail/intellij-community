@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package com.siyeh.ig.style;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
@@ -57,25 +56,18 @@ public class ExtendsObjectInspection extends BaseInspection {
   }
 
   private static class ExtendsObjectFix extends InspectionGadgetsFix {
-     @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "extends.object.remove.quickfix");
     }
 
     @Override
-    public void doFix(@NotNull Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(@NotNull Project project, ProblemDescriptor descriptor) {
       final PsiElement extendClassIdentifier = descriptor.getPsiElement();
-      final PsiClass element =
-        (PsiClass)extendClassIdentifier.getParent();
+      final PsiClass element = (PsiClass)extendClassIdentifier.getParent();
       if (element == null) {
         return;
       }
@@ -83,8 +75,7 @@ public class ExtendsObjectInspection extends BaseInspection {
       if (extendsList == null) {
         return;
       }
-      final PsiJavaCodeReferenceElement[] referenceElements =
-        extendsList.getReferenceElements();
+      final PsiJavaCodeReferenceElement[] referenceElements = extendsList.getReferenceElements();
       for (PsiJavaCodeReferenceElement referenceElement :
         referenceElements) {
         deleteElement(referenceElement);

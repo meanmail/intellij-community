@@ -1,25 +1,13 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInspection.ex;
 
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.codeInspection.QuickFix;
 import com.intellij.openapi.command.undo.UndoUtil;
 import com.intellij.openapi.diagnostic.Logger;
@@ -29,16 +17,17 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.TestOnly;
 
 /**
  * @author max
  */
-public class QuickFixWrapper implements IntentionAction {
+public class QuickFixWrapper implements IntentionAction, PriorityAction {
   private static final Logger LOG = Logger.getInstance("com.intellij.codeInspection.ex.QuickFixWrapper");
 
   private final ProblemDescriptor myDescriptor;
-  private final int myFixNumber;
-
+  private final LocalQuickFix myFix;
 
   @NotNull
   public static IntentionAction wrap(@NotNull ProblemDescriptor descriptor, int fixNumber) {
@@ -47,12 +36,12 @@ public class QuickFixWrapper implements IntentionAction {
     LOG.assertTrue(fixes != null && fixes.length > fixNumber);
 
     final QuickFix fix = fixes[fixNumber];
-    return fix instanceof IntentionAction ? (IntentionAction)fix : new QuickFixWrapper(descriptor, fixNumber);
+    return fix instanceof IntentionAction ? (IntentionAction)fix : new QuickFixWrapper(descriptor, (LocalQuickFix)fix);
   }
 
-  private QuickFixWrapper(@NotNull ProblemDescriptor descriptor, int fixNumber) {
+  private QuickFixWrapper(@NotNull ProblemDescriptor descriptor, @NotNull LocalQuickFix fix) {
     myDescriptor = descriptor;
-    myFixNumber = fixNumber;
+    myFix = fix;
   }
 
   @Override
@@ -64,15 +53,13 @@ public class QuickFixWrapper implements IntentionAction {
   @Override
   @NotNull
   public String getFamilyName() {
-    return myDescriptor.getFixes()[myFixNumber].getName();
+    return getFix().getName();
   }
 
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     PsiElement psiElement = myDescriptor.getPsiElement();
-    if (psiElement == null || !psiElement.isValid()) return false;
-    final LocalQuickFix fix = getFix();
-    return !(fix instanceof IntentionAction) || ((IntentionAction)fix).isAvailable(project, editor, file);
+    return psiElement != null && psiElement.isValid();
   }
 
   @Override
@@ -95,8 +82,32 @@ public class QuickFixWrapper implements IntentionAction {
     return getFix().startInWriteAction();
   }
 
+  @Nullable
+  @Override
+  public PsiElement getElementToMakeWritable(@NotNull PsiFile file) {
+    return getFix().getElementToMakeWritable(file);
+  }
+
+  @NotNull
   public LocalQuickFix getFix() {
-    return (LocalQuickFix)myDescriptor.getFixes()[myFixNumber];
+    return myFix;
+  }
+
+  @NotNull
+  @Override
+  public Priority getPriority() {
+    return myFix instanceof PriorityAction ? ((PriorityAction)myFix).getPriority() : Priority.NORMAL;
+  }
+
+  @TestOnly
+  public ProblemHighlightType getHighlightType() {
+    return myDescriptor.getHighlightType();
+  }
+  
+  @Nullable
+  public PsiFile getFile() {
+    PsiElement element = myDescriptor.getPsiElement();
+    return element != null ? element.getContainingFile() : null;
   }
 
   public String toString() {

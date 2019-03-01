@@ -18,7 +18,7 @@ package com.intellij.openapi.editor.ex.util;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Expands {@link SegmentArray} contract in providing ability to attach additional <code>'short'</code> variable to target segment,
+ * Expands {@link SegmentArray} contract in providing ability to attach additional {@code 'short'} variable to target segment,
  * i.e. holds mappings like {@code 'index <-> (data, (start; end))'}.
  * <p/>
  * Not thread-safe.
@@ -120,5 +120,13 @@ public class SegmentArrayWithData extends SegmentArray {
     return newArray;
   }
 
+  public SegmentArrayWithData copy() {
+    final SegmentArrayWithData sa = new SegmentArrayWithData();
+    sa.mySegmentCount = this.mySegmentCount;
+    sa.myStarts = this.myStarts.clone();
+    sa.myEnds = this.myEnds.clone();
+    sa.myData = this.myData.clone();
+    return sa;
+  }
 }
 

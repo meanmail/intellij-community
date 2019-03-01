@@ -1,28 +1,39 @@
 package org.jetbrains.plugins.terminal;
 
-import com.google.common.base.Predicate;
 import com.intellij.execution.ExecutionManager;
 import com.intellij.execution.Executor;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.ProcessHandler;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.execution.ui.actions.CloseAction;
+import com.intellij.ide.actions.ShowLogAction;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.ActionToolbar;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.DefaultActionGroup;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
+import com.intellij.terminal.JBTerminalWidget;
+import com.intellij.ui.AppUIUtil;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.update.UiNotifyConnector;
+import com.jediterm.terminal.RequestOrigin;
+import com.jediterm.terminal.TerminalStarter;
 import com.jediterm.terminal.TtyConnector;
 import com.jediterm.terminal.ui.TerminalSession;
-import com.jediterm.terminal.ui.TerminalWidget;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,16 +45,24 @@ import java.util.concurrent.ExecutionException;
  * @author traff
  */
 public abstract class AbstractTerminalRunner<T extends Process> {
-  private static final Logger LOG = Logger.getInstance(AbstractTerminalRunner.class.getName());
+  private static final Logger LOG = Logger.getInstance(AbstractTerminalRunner.class);
   @NotNull
   protected final Project myProject;
+  private final JBTerminalSystemSettingsProvider mySettingsProvider;
+
+  public JBTerminalSystemSettingsProvider getSettingsProvider() {
+    return mySettingsProvider;
+  }
 
   public AbstractTerminalRunner(@NotNull Project project) {
     myProject = project;
+    mySettingsProvider = new JBTerminalSystemSettingsProvider();
+    Disposer.register(project, mySettingsProvider);
   }
 
   public void run() {
-    ProgressManager.getInstance().run(new Task.Backgroundable(myProject, "Running the terminal", false) {
+    ProgressManager.getInstance().run(new Task.Backgroundable(myProject, "Running the Terminal", false) {
+      @Override
       public void run(@NotNull final ProgressIndicator indicator) {
         indicator.setText("Running the terminal...");
         try {
@@ -72,26 +91,38 @@ public abstract class AbstractTerminalRunner<T extends Process> {
 
   protected abstract T createProcess(@Nullable String directory) throws ExecutionException;
 
+  @ApiStatus.Experimental
+  protected T createProcess(@Nullable String directory, @Nullable String commandHistoryFilePath) throws ExecutionException {
+    return createProcess(directory);
+  }
+
   protected abstract ProcessHandler createProcessHandler(T process);
 
   @NotNull
-  public JBTabbedTerminalWidget createTerminalWidget(@NotNull Disposable parent) {
-    final JBTerminalSystemSettingsProvider provider = new JBTerminalSystemSettingsProvider();
-    JBTabbedTerminalWidget terminalWidget = new JBTabbedTerminalWidget(myProject, provider, new Predicate<Pair<TerminalWidget, String>>() {
-      @Override
-      public boolean apply(Pair<TerminalWidget, String> widget) {
-        openSessionInDirectory(widget.getFirst(), widget.getSecond());
-        return true;
-      }
-    }, parent);
-    openSessionInDirectory(terminalWidget, null);
+  public JBTerminalWidget createTerminalWidget(@NotNull Disposable parent, @Nullable VirtualFile currentWorkingDirectory) {
+    return createTerminalWidget(parent, currentWorkingDirectory, true);
+  }
+
+  @NotNull
+  protected JBTerminalWidget createTerminalWidget(@NotNull Disposable parent,
+                                                  @Nullable VirtualFile currentWorkingDirectory,
+                                                  boolean deferSessionUntilFirstShown) {
+
+    JBTerminalWidget terminalWidget = new JBTerminalWidget(myProject, mySettingsProvider, parent);
+    Runnable openSession = () -> openSessionForFile(terminalWidget, currentWorkingDirectory);
+    if (deferSessionUntilFirstShown) {
+      UiNotifyConnector.doWhenFirstShown(terminalWidget, openSession);
+    }
+    else {
+      openSession.run();
+    }
     return terminalWidget;
   }
 
   private void initConsoleUI(final T process) {
     final Executor defaultExecutor = DefaultRunExecutor.getRunExecutorInstance();
     final DefaultActionGroup toolbarActions = new DefaultActionGroup();
-    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, toolbarActions, false);
+    final ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("TerminalRunner", toolbarActions, false);
 
 
     final JPanel panel = new JPanel(new BorderLayout());
@@ -110,13 +141,7 @@ public abstract class AbstractTerminalRunner<T extends Process> {
     toolbarActions.add(createCloseAction(defaultExecutor, contentDescriptor));
 
     final JBTerminalSystemSettingsProvider provider = new JBTerminalSystemSettingsProvider();
-    TerminalWidget widget = new JBTabbedTerminalWidget(myProject, provider, new Predicate<Pair<TerminalWidget, String>>() {
-      @Override
-      public boolean apply(Pair<TerminalWidget, String> widget) {
-        openSessionInDirectory(widget.getFirst(), widget.getSecond());
-        return true;
-      }
-    }, contentDescriptor);
+    JBTerminalWidget widget = new JBTerminalWidget(myProject, provider, contentDescriptor);
 
     createAndStartSession(widget, createTtyConnector(process));
 
@@ -127,15 +152,12 @@ public abstract class AbstractTerminalRunner<T extends Process> {
     processHandler.startNotify();
   }
 
-  public void openSession(@NotNull TerminalWidget terminal) {
+  public void openSession(@NotNull JBTerminalWidget terminal) {
     openSessionInDirectory(terminal, null);
   }
 
-  public static void createAndStartSession(@NotNull TerminalWidget terminal, @NotNull TtyConnector ttyConnector) {
+  public static void createAndStartSession(@NotNull JBTerminalWidget terminal, @NotNull TtyConnector ttyConnector) {
     TerminalSession session = terminal.createTerminalSession(ttyConnector);
-    
-    TerminalView.recordUsage(ttyConnector);
-    
     session.start();
   }
 
@@ -152,8 +174,10 @@ public abstract class AbstractTerminalRunner<T extends Process> {
     ExecutionManager.getInstance(myProject).getContentManager().showRunContent(defaultExecutor, myDescriptor);
 
     // Request focus
-    final ToolWindow window = ToolWindowManager.getInstance(myProject).getToolWindow(defaultExecutor.getId());
-    window.activate(() -> IdeFocusManager.getInstance(myProject).requestFocus(toFocus, true));
+    ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(defaultExecutor.getId());
+    if (toolWindow != null) {
+      toolWindow.activate(() -> IdeFocusManager.getInstance(myProject).requestFocus(toFocus, true));
+    }
   }
 
   @NotNull
@@ -163,16 +187,82 @@ public abstract class AbstractTerminalRunner<T extends Process> {
 
   public abstract String runningTargetName();
 
+  public void openSessionForFile(@NotNull JBTerminalWidget terminalWidget, @Nullable VirtualFile file) {
+    openSessionInDirectory(terminalWidget, getParentDirectoryPath(file));
+  }
 
-  public void openSessionInDirectory(@NotNull TerminalWidget terminalWidget, @Nullable String directory) {
-    // Create Server process
-    try {
-      final T process = createProcess(directory);
+  @Nullable
+  private static String getParentDirectoryPath(@Nullable VirtualFile file) {
+    VirtualFile dir = file != null && !file.isDirectory() ? file.getParent() : file;
+    return dir != null ? dir.getPath() : null;
+  }
 
-      createAndStartSession(terminalWidget, createTtyConnector(process));
+  public void openSessionInDirectory(@NotNull JBTerminalWidget terminalWidget,
+                                     @Nullable String directory) {
+    ModalityState modalityState = ModalityState.stateForComponent(terminalWidget.getComponent());
+    Dimension size = terminalWidget.getTerminalPanel().getTerminalSizeFromComponent();
+
+    ApplicationManager.getApplication().executeOnPooledThread(() -> {
+      try {
+        // Create Server process
+        final T process = createProcess(directory, terminalWidget.getCommandHistoryFilePath());
+        TtyConnector connector = createTtyConnector(process);
+        if (LOG.isDebugEnabled()) {
+          LOG.debug("Initial resize to " + size);
+        }
+        if (size != null) {
+          // Resize ASAP once the process started.
+          // Even though it will be resized in invokeLater, it takes some time until invokeLater is executed.
+          // Sometimes it's enough to have cropped output, if the output is restricted by the terminal width.
+          try {
+            TerminalStarter.resizeTerminal(terminalWidget.getTerminal(), connector, size, RequestOrigin.User);
+          }
+          catch (Exception e) {
+            LOG.info("Cannot resize right after creation, process.isAlive: " + process.isAlive(), e);
+          }
+        }
+
+        ApplicationManager.getApplication().invokeLater(() -> {
+          try {
+            terminalWidget.createTerminalSession(connector);
+          }
+          catch (Exception e) {
+            printError(terminalWidget, "Cannot create terminal session for " + runningTargetName(), e);
+          }
+          try {
+            terminalWidget.start();
+            terminalWidget.getComponent().revalidate();
+            terminalWidget.notifyStarted();
+          }
+          catch (RuntimeException e) {
+            printError(terminalWidget, "Cannot open " + runningTargetName(), e);
+          }
+        }, modalityState);
+      }
+      catch (Exception e) {
+        printError(terminalWidget, "Cannot open " + runningTargetName(), e);
+      }
+    });
+  }
+
+  private void printError(@NotNull JBTerminalWidget terminalWidget, @NotNull String errorMessage, @NotNull Exception e) {
+    LOG.info(errorMessage, e);
+    if (terminalWidget.getTerminal().getCursorX() > 1) {
+      terminalWidget.getTerminal().newLine();
+      terminalWidget.getTerminal().carriageReturn();
     }
-    catch (Exception e) {
-      Messages.showErrorDialog(e.getMessage(), "Can't Open " + runningTargetName());
-    }
+    terminalWidget.getTerminal().writeCharacters(errorMessage);
+    terminalWidget.getTerminal().newLine();
+    terminalWidget.getTerminal().carriageReturn();
+    terminalWidget.getTerminal().writeCharacters(e.getMessage());
+    terminalWidget.getTerminal().newLine();
+    terminalWidget.getTerminal().newLine();
+    terminalWidget.getTerminal().carriageReturn();
+    terminalWidget.getTerminal().writeCharacters("See your idea.log (Help | " + ShowLogAction.getActionName() + ") for the details.");
+    AppUIUtil.invokeOnEdt(() -> {
+      if (!Disposer.isDisposed(terminalWidget)) {
+        terminalWidget.getTerminalPanel().setCursorVisible(false);
+      }
+    }, myProject.getDisposed());
   }
 }

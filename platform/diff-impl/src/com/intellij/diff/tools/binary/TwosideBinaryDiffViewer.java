@@ -35,12 +35,12 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Separator;
 import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.fileEditor.FileEditor;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.ui.Messages;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -54,8 +54,6 @@ import java.util.List;
 import static com.intellij.diff.util.DiffUtil.getDiffSettings;
 
 public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolder> {
-  public static final Logger LOG = Logger.getInstance(TwosideBinaryDiffViewer.class);
-
   @NotNull private final TransferableFileEditorStateSupport myTransferableStateSupport;
   @NotNull private final StatusPanel myStatusPanel;
 
@@ -126,6 +124,11 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
           return DiffNotifications.createError();
         }
 
+        if (FileUtilRt.isTooLarge(file1.getLength()) ||
+            FileUtilRt.isTooLarge(file2.getLength())) {
+          return DiffNotifications.createNotification("Files are too large to compare");
+        }
+
         try {
           // we can't use getInputStream() here because we can't restore BOM marker
           // (getBom() can return null for binary files, while getInputStream() strips BOM for all files).
@@ -194,7 +197,7 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
   private class MyAcceptSideAction extends DumbAwareAction {
     @NotNull private final Side myBaseSide;
 
-    public MyAcceptSideAction(@NotNull Side baseSide) {
+    MyAcceptSideAction(@NotNull Side baseSide) {
       myBaseSide = baseSide;
       getTemplatePresentation().setText("Copy Content to " + baseSide.select("Right", "Left"));
       getTemplatePresentation().setIcon(baseSide.select(AllIcons.Vcs.Arrow_right, AllIcons.Vcs.Arrow_left));
@@ -202,7 +205,7 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       VirtualFile baseFile = getContentFile(myBaseSide);
       VirtualFile targetFile = getContentFile(myBaseSide.other());
 
@@ -211,15 +214,13 @@ public class TwosideBinaryDiffViewer extends TwosideDiffViewer<BinaryEditorHolde
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       final VirtualFile baseFile = getContentFile(myBaseSide);
       final VirtualFile targetFile = getContentFile(myBaseSide.other());
       assert baseFile != null && targetFile != null;
 
       try {
-        WriteAction.run(() -> {
-          targetFile.setBinaryContent(baseFile.contentsToByteArray());
-        });
+        WriteAction.run(() -> targetFile.setBinaryContent(baseFile.contentsToByteArray()));
       }
       catch (IOException err) {
         LOG.warn(err);

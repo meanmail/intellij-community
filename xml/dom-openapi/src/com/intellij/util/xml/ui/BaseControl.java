@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,14 +15,13 @@
  */
 package com.intellij.util.xml.ui;
 
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.EventDispatcher;
 import com.intellij.util.xml.DomElement;
-import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
@@ -35,6 +34,7 @@ import java.lang.reflect.InvocationTargetException;
  * @author peter
  */
 public abstract class BaseControl<Bound extends JComponent, T> extends DomUIControl implements Highlightable {
+  private static final Logger LOG = Logger.getInstance(BaseControl.class);
   public static final Color ERROR_BACKGROUND = new Color(255,204,204);
   public static final Color ERROR_FOREGROUND = SimpleTextAttributes.ERROR_ATTRIBUTES.getFgColor();
   public static final Color WARNING_BACKGROUND = new Color(255,255,204);
@@ -206,12 +206,12 @@ public abstract class BaseControl<Bound extends JComponent, T> extends DomUICont
     try {
       final CommitListener multicaster = myDispatcher.getMulticaster();
       multicaster.beforeCommit(this);
-      new WriteCommandAction(getProject(), getDomWrapper().getFile()) {
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          doCommit(value);
-        }
-      }.execute();
+      try {
+        WriteCommandAction.writeCommandAction(getProject(), getDomWrapper().getFile()).run(() -> doCommit(value));
+      }
+      catch (ReflectiveOperationException e) {
+        LOG.error(e);
+      }
       multicaster.afterCommit(this);
     }
     finally {
@@ -231,10 +231,7 @@ public abstract class BaseControl<Bound extends JComponent, T> extends DomUICont
     try {
       return myDomWrapper.getValue();
     }
-    catch (IllegalAccessException e) {
-      throw new RuntimeException(e);
-    }
-    catch (InvocationTargetException e) {
+    catch (IllegalAccessException | InvocationTargetException e) {
       throw new RuntimeException(e);
     }
   }

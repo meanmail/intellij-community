@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.ui.tree;
 
 import com.intellij.codeInsight.lookup.LookupManager;
@@ -29,6 +15,8 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -79,16 +67,14 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
     }
     myInplaceEditorComponent = null;
     onHidden();
-    for (Runnable action : myRemoveActions) {
-      action.run();
-    }
+    myRemoveActions.forEach(Runnable::run);
     myRemoveActions.clear();
 
     Disposer.dispose(myDisposable);
 
     final JTree tree = getTree();
     tree.repaint();
-    tree.requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(tree, true));
   }
 
   protected void onHidden() {
@@ -97,10 +83,8 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
   protected abstract Project getProject();
 
   private static void setInplaceEditorBounds(JComponent component, int x, int y, int width, int height) {
-    int preferredHeight = component.getPreferredSize().height;
-    int h = Math.max(height, preferredHeight);
-    int delta = Math.max(0, h - height) / 2;
-    component.setBounds(x, y - delta, width, Math.max(height, preferredHeight));
+    int h = Math.max(height, component.getPreferredSize().height);
+    component.setBounds(x, y - (h - height) / 2, width, h);
   }
 
   public final void show() {
@@ -130,11 +114,21 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
 
     inplaceEditorComponent.validate();
     inplaceEditorComponent.paintImmediately(0,0,inplaceEditorComponent.getWidth(),inplaceEditorComponent.getHeight());
-    getPreferredFocusedComponent().requestFocus();
+    IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(
+      () -> IdeFocusManager.getGlobalInstance().requestFocus(getPreferredFocusedComponent(), true));
 
     final ComponentAdapter componentListener = new ComponentAdapter() {
       @Override
+      public void componentMoved(ComponentEvent e) {
+        resetBounds();
+      }
+
+      @Override
       public void componentResized(ComponentEvent e) {
+        resetBounds();
+      }
+
+      private void resetBounds() {
         final Project project = getProject();
         ApplicationManager.getApplication().invokeLater(() -> {
           if (!isShown() || project == null || project.isDisposed()) {
@@ -144,6 +138,7 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
           JLayeredPane layeredPane1 = tree1.getRootPane().getLayeredPane();
           Rectangle bounds1 = getEditorBounds();
           if (bounds1 == null) {
+            doOKAction();
             return;
           }
           Point layeredPanePoint1 = SwingUtilities.convertPoint(tree1, bounds1.x, bounds1.y, layeredPane1);
@@ -204,7 +199,7 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
     final Toolkit defaultToolkit = Toolkit.getDefaultToolkit();
     SwingUtilities.invokeLater(() -> {
       if (!isShown()) return;
-      defaultToolkit.addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK | AWTEvent.MOUSE_WHEEL_EVENT_MASK);
+      defaultToolkit.addAWTEventListener(this, AWTEvent.MOUSE_EVENT_MASK);
     });
 
     myRemoveActions.add(() -> defaultToolkit.removeAWTEventListener(this));
@@ -220,12 +215,12 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
       return;
     }
     MouseEvent mouseEvent = (MouseEvent)event;
-    if (mouseEvent.getClickCount() == 0 && !(event instanceof MouseWheelEvent)) {
+    if (mouseEvent.getClickCount() == 0) {
       return;
     }
 
     final int id = mouseEvent.getID();
-    if (id != MouseEvent.MOUSE_PRESSED && id != MouseEvent.MOUSE_RELEASED && id != MouseEvent.MOUSE_CLICKED && id != MouseEvent.MOUSE_WHEEL) {
+    if (id != MouseEvent.MOUSE_PRESSED && id != MouseEvent.MOUSE_RELEASED && id != MouseEvent.MOUSE_CLICKED) {
       return;
     }
 
@@ -234,6 +229,14 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
 
     final Editor editor = getEditor();
     if (editor == null) return;
+
+    // do not cancel editing if we click or scroll in editor popup
+    final List<JBPopup> popups = JBPopupFactory.getInstance().getChildPopups(myInplaceEditorComponent);
+    for (JBPopup popup : popups) {
+      if (SwingUtilities.isDescendingFrom(sourceComponent, UIUtil.getWindow(popup.getContent()))) {
+        return;
+      }
+    }
 
     Project project = editor.getProject();
     LookupImpl activeLookup = project != null ? (LookupImpl)LookupManager.getInstance(project).getActiveLookup() : null;
@@ -246,14 +249,6 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
       }
     }
 
-    // do not cancel editing if we click in editor popup
-    final List<JBPopup> popups = JBPopupFactory.getInstance().getChildPopups(myInplaceEditorComponent);
-    for (JBPopup popup : popups) {
-      if (SwingUtilities.isDescendingFrom(sourceComponent, popup.getContent())) {
-        return;
-      }
-    }
-
     final Point point = SwingUtilities.convertPoint(sourceComponent, originalPoint, myInplaceEditorComponent);
     if (myInplaceEditorComponent.contains(point)) {
       return;
@@ -261,21 +256,25 @@ public abstract class TreeInplaceEditor implements AWTEventListener {
     final Component componentAtPoint = SwingUtilities.getDeepestComponentAt(sourceComponent, originalPoint.x, originalPoint.y);
     for (Component comp = componentAtPoint; comp != null; comp = comp.getParent()) {
       if (comp instanceof ComboPopup) {
-        if (id != MouseEvent.MOUSE_WHEEL) {
-          doPopupOKAction();
-        }
+        doPopupOKAction();
         return;
       }
     }
-    cancelEditing();
+
+    if (UIUtil.getWindow(sourceComponent) == UIUtil.getWindow(myInplaceEditorComponent) && id == MouseEvent.MOUSE_PRESSED) {
+      doOKAction();
+    }
   }
 
   @Nullable
-  private Rectangle getEditorBounds() {
+  protected Rectangle getEditorBounds() {
     final JTree tree = getTree();
     Rectangle bounds = tree.getVisibleRect();
     Rectangle nodeBounds = tree.getPathBounds(getNodePath());
     if (bounds == null || nodeBounds == null) {
+      return null;
+    }
+    if (bounds.y > nodeBounds.y || bounds.y + bounds.height < nodeBounds.y + nodeBounds.height) {
       return null;
     }
     bounds.y = nodeBounds.y;

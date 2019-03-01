@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,21 +42,12 @@ import static com.intellij.patterns.PsiJavaPatterns.psiElement;
 public class JavaNoVariantsDelegator extends CompletionContributor {
   @Override
   public void fillCompletionVariants(@NotNull final CompletionParameters parameters, @NotNull final CompletionResultSet result) {
-    if (JavaModuleCompletion.isModuleFile(parameters.getOriginalFile())) {
-      return;
-    }
-
-    final JavaCompletionSession session = new JavaCompletionSession(result);
     ResultTracker tracker = new ResultTracker(result) {
       @Override
       public void consume(CompletionResult plainResult) {
         super.consume(plainResult);
 
         LookupElement element = plainResult.getLookupElement();
-        Object o = element.getObject();
-        if (o instanceof PsiClass) {
-          session.registerClass((PsiClass)o);
-        }
         if (element instanceof TypeArgumentCompletionProvider.TypeArgsLookupElement) {
           ((TypeArgumentCompletionProvider.TypeArgsLookupElement)element).registerSingleClass(session);
         }
@@ -65,19 +56,18 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
     result.runRemainingContributors(parameters, tracker);
     final boolean empty = tracker.containsOnlyPackages || suggestAllAnnotations(parameters);
 
-    if (!empty && parameters.getInvocationCount() == 0) {
-      result.restartCompletionWhenNothingMatches();
+    if (JavaCompletionContributor.isClassNamePossible(parameters) && !JavaCompletionContributor.mayStartClassName(result)) {
+      result.restartCompletionOnAnyPrefixChange();
     }
 
     if (empty) {
-      delegate(parameters, JavaCompletionSorting.addJavaSorting(parameters, result), session);
+      delegate(parameters, JavaCompletionSorting.addJavaSorting(parameters, result), tracker.session);
     } else if (Registry.is("ide.completion.show.better.matching.classes")) {
       if (parameters.getCompletionType() == CompletionType.BASIC &&
           parameters.getInvocationCount() <= 1 &&
           JavaCompletionContributor.mayStartClassName(result) &&
-          JavaCompletionContributor.isClassNamePossible(parameters) &&
-          !JavaSmartCompletionContributor.AFTER_NEW.accepts(parameters.getPosition())) {
-        suggestNonImportedClasses(parameters, JavaCompletionSorting.addJavaSorting(parameters, result.withPrefixMatcher(tracker.betterMatcher)), session);
+          JavaCompletionContributor.isClassNamePossible(parameters)) {
+        suggestNonImportedClasses(parameters, JavaCompletionSorting.addJavaSorting(parameters, result.withPrefixMatcher(tracker.betterMatcher)), tracker.session);
       }
     }
   }
@@ -140,11 +130,12 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
     for (LookupElement base : suggestQualifierItems(parameters, (PsiJavaCodeReferenceElement)qualifier, filter)) {
       PsiType type = JavaCompletionUtil.getLookupElementType(base);
       if (type != null && !PsiType.VOID.equals(type)) {
-        PsiReferenceExpression ref = ReferenceExpressionCompletionContributor.createMockReference(position, type, base);
+        String separator = parent instanceof PsiMethodReferenceExpression ? "::" : ".";
+        PsiReferenceExpression ref = ReferenceExpressionCompletionContributor.createMockReference(position, type, base, separator);
         if (ref != null) {
-          for (final LookupElement item : JavaSmartCompletionContributor.completeReference(position, ref, filter, true, true, parameters,
-                                                                                           result.getPrefixMatcher())) {
-            qualifiedCollector.addElement(JavaCompletionUtil.highlightIfNeeded(null, new JavaChainLookupElement(base, item), item.getObject(), position));
+          for (LookupElement item : JavaSmartCompletionContributor.completeReference(position, ref, filter, true, true, parameters,
+                                                                                     result.getPrefixMatcher())) {
+            qualifiedCollector.addElement(JavaCompletionUtil.highlightIfNeeded(null, new JavaChainLookupElement(base, item, separator), item.getObject(), position));
           }
         }
       }
@@ -188,7 +179,6 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
       JavaPsiClassReferenceElement classElement = element.as(JavaPsiClassReferenceElement.CLASS_CONDITION_KEY);
       if (classElement != null) {
         classElement.setAutoCompletionPolicy(AutoCompletionPolicy.NEVER_AUTOCOMPLETE);
-        element = JavaClassNameCompletionContributor.highlightIfNeeded(classElement, parameters);
       }
 
       result.addElement(element);
@@ -197,12 +187,14 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
 
   public static class ResultTracker implements Consumer<CompletionResult> {
     private final CompletionResultSet myResult;
+    public final JavaCompletionSession session;
     public boolean containsOnlyPackages = true;
     public BetterPrefixMatcher betterMatcher;
 
     public ResultTracker(CompletionResultSet result) {
       myResult = result;
-      betterMatcher = new BetterPrefixMatcher(result);
+      betterMatcher = new BetterPrefixMatcher.AutoRestarting(result);
+      session = new JavaCompletionSession(result);
     }
 
     @Override
@@ -213,6 +205,8 @@ public class JavaNoVariantsDelegator extends CompletionContributor {
       if (containsOnlyPackages && !(CompletionUtil.getTargetElement(element) instanceof PsiPackage)) {
         containsOnlyPackages = false;
       }
+
+      session.registerClassFrom(element);
 
       betterMatcher = betterMatcher.improve(plainResult);
     }

@@ -47,7 +47,7 @@ public class RemoveInvalidElementsDialog extends DialogWrapper {
                                       ConfigurationErrorType type,
                                       String invalidElements,
                                       final Project project,
-                                      List<ConfigurationErrorDescription> errors) {
+                                      List<? extends ConfigurationErrorDescription> errors) {
     super(project, true);
     setTitle(title);
     myDescriptionLabel.setText(ProjectBundle.message(type.canIgnore() ? "label.text.0.cannot.be.loaded.ignore" : "label.text.0.cannot.be.loaded.remove", invalidElements));
@@ -74,13 +74,13 @@ public class RemoveInvalidElementsDialog extends DialogWrapper {
   }
 
 
-  public static void showDialog(@NotNull Project project,
-                                @NotNull String title,
-                                ConfigurationErrorType type,
-                                @NotNull String invalidElements,
-                                @NotNull List<ConfigurationErrorDescription> errors) {
+  /**
+   * @return {@code true} if the problems are resolved
+   */
+  public static boolean showDialog(@NotNull Project project, @NotNull String title, ConfigurationErrorType type,
+                                   @NotNull String invalidElements, @NotNull List<? extends ConfigurationErrorDescription> errors) {
     if (errors.isEmpty()) {
-      return;
+      return true;
     }
     if (errors.size() == 1) {
       ConfigurationErrorDescription error = errors.get(0);
@@ -88,8 +88,9 @@ public class RemoveInvalidElementsDialog extends DialogWrapper {
       final int answer = Messages.showYesNoDialog(project, message, title, Messages.getErrorIcon());
       if (answer == Messages.YES) {
         error.ignoreInvalidElement();
+        return true;
       }
-      return;
+      return false;
     }
 
     RemoveInvalidElementsDialog dialog = new RemoveInvalidElementsDialog(title, type, invalidElements, project, errors);
@@ -97,7 +98,9 @@ public class RemoveInvalidElementsDialog extends DialogWrapper {
       for (ConfigurationErrorDescription errorDescription : dialog.getSelectedItems()) {
         errorDescription.ignoreInvalidElement();
       }
+      return true;
     }
+    return false;
   }
 
   private List<ConfigurationErrorDescription> getSelectedItems() {

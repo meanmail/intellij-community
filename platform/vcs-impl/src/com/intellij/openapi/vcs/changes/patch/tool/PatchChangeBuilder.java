@@ -15,8 +15,17 @@
  */
 package com.intellij.openapi.vcs.changes.patch.tool;
 
+import com.intellij.diff.comparison.ByWord;
+import com.intellij.diff.comparison.ComparisonPolicy;
+import com.intellij.diff.comparison.DiffTooBigException;
+import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.tools.fragmented.LineNumberConvertor;
+import com.intellij.diff.tools.util.text.LineOffsets;
+import com.intellij.diff.tools.util.text.LineOffsetsUtil;
+import com.intellij.diff.util.DiffUtil;
 import com.intellij.diff.util.LineRange;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.progress.DumbProgressIndicator;
 import com.intellij.openapi.vcs.changes.patch.AppliedTextPatch.AppliedSplitPatchHunk;
 import com.intellij.openapi.vcs.changes.patch.AppliedTextPatch.HunkStatus;
 import gnu.trove.TIntArrayList;
@@ -29,12 +38,13 @@ import java.util.List;
 class PatchChangeBuilder {
   @NotNull private final StringBuilder myBuilder = new StringBuilder();
   @NotNull private final List<Hunk> myHunks = new ArrayList<>();
-  @NotNull private final LineNumberConvertor.Builder myConvertor = new LineNumberConvertor.Builder();
+  @NotNull private final LineNumberConvertor.Builder myConvertor1 = new LineNumberConvertor.Builder();
+  @NotNull private final LineNumberConvertor.Builder myConvertor2 = new LineNumberConvertor.Builder();
   @NotNull private final TIntArrayList myChangedLines = new TIntArrayList();
 
   private int totalLines = 0;
 
-  public void exec(@NotNull List<AppliedSplitPatchHunk> splitHunks) {
+  public void exec(@NotNull List<? extends AppliedSplitPatchHunk> splitHunks) {
     int lastBeforeLine = -1;
     for (AppliedSplitPatchHunk hunk : splitHunks) {
       List<String> contextBefore = hunk.getContextBefore();
@@ -63,8 +73,8 @@ class PatchChangeBuilder {
       appendLines(hunk.getInsertedLines());
       int hunkEnd = totalLines;
 
-      myConvertor.put1(deletion, beforeRange.start + contextBefore.size(), insertion - deletion);
-      myConvertor.put2(insertion, afterRange.start + contextBefore.size(), hunkEnd - insertion);
+      myConvertor1.put(deletion, beforeRange.start + contextBefore.size(), insertion - deletion);
+      myConvertor2.put(insertion, afterRange.start + contextBefore.size(), hunkEnd - insertion);
 
 
       addContext(contextAfter, beforeRange.end - contextAfter.size(), afterRange.end - contextAfter.size());
@@ -79,8 +89,8 @@ class PatchChangeBuilder {
   }
 
   private void addContext(@NotNull List<String> context, int beforeLineNumber, int afterLineNumber) {
-    myConvertor.put1(totalLines, beforeLineNumber, context.size());
-    myConvertor.put2(totalLines, afterLineNumber, context.size());
+    myConvertor1.put(totalLines, beforeLineNumber, context.size());
+    myConvertor2.put(totalLines, afterLineNumber, context.size());
     appendLines(context);
   }
 
@@ -112,8 +122,13 @@ class PatchChangeBuilder {
   }
 
   @NotNull
-  public LineNumberConvertor getLineConvertor() {
-    return myConvertor.build();
+  public LineNumberConvertor getLineConvertor1() {
+    return myConvertor1.build();
+  }
+
+  @NotNull
+  public LineNumberConvertor getLineConvertor2() {
+    return myConvertor2.build();
   }
 
   @NotNull
@@ -122,7 +137,34 @@ class PatchChangeBuilder {
   }
 
 
-  static class Hunk {
+  @Nullable
+  public static List<DiffFragment> computeInnerDifferences(@NotNull Document patchContent,
+                                                           @NotNull PatchChangeBuilder.Hunk hunk) {
+    return computeInnerDifferences(patchContent.getImmutableCharSequence(), LineOffsetsUtil.create(patchContent), hunk);
+  }
+
+  @Nullable
+  public static List<DiffFragment> computeInnerDifferences(@NotNull CharSequence patchContent,
+                                                           @NotNull LineOffsets lineOffsets,
+                                                           @NotNull PatchChangeBuilder.Hunk hunk) {
+    LineRange deletionRange = hunk.getPatchDeletionRange();
+    LineRange insertionRange = hunk.getPatchInsertionRange();
+
+    if (deletionRange.isEmpty() || insertionRange.isEmpty()) return null;
+
+    try {
+      CharSequence deleted = DiffUtil.getLinesContent(patchContent, lineOffsets, deletionRange.start, deletionRange.end);
+      CharSequence inserted = DiffUtil.getLinesContent(patchContent, lineOffsets, insertionRange.start, insertionRange.end);
+
+      return ByWord.compare(deleted, inserted, ComparisonPolicy.DEFAULT, DumbProgressIndicator.INSTANCE);
+    }
+    catch (DiffTooBigException ignore) {
+      return null;
+    }
+  }
+
+
+  public static class Hunk {
     @NotNull private final List<String> myInsertedLines;
     @NotNull private final LineRange myPatchDeletionRange;
     @NotNull private final LineRange myPatchInsertionRange;

@@ -31,11 +31,8 @@ public class CompletionParameterTypeInferencePolicy extends ProcessCandidatePara
 
   @Override
   public PsiType getDefaultExpectedType(PsiCallExpression methodCall) {
-    ExpectedTypeInfo[] expectedTypes = ExpectedTypesProvider.getExpectedTypes(methodCall, true);
-    if (expectedTypes.length > 0) {
-      return expectedTypes[0].getType();
-    }
-    return PsiType.NULL;
+    ExpectedTypeInfo expectedType = ExpectedTypesProvider.getSingleExpectedTypeForCompletion(methodCall);
+    return expectedType == null ? PsiType.NULL : expectedType.getType();
   }
 
   @Override
@@ -49,8 +46,13 @@ public class CompletionParameterTypeInferencePolicy extends ProcessCandidatePara
   }
 
   @Override
+  public boolean inferRuntimeExceptionForThrownBoundWithNoConstraints() {
+    return false;
+  }
+
+  @Override
   public PsiType adjustInferredType(PsiManager manager, PsiType guess, ConstraintType constraintType) {
-    if (guess != null && !(guess instanceof PsiWildcardType)) {
+    if (guess != null && !(guess instanceof PsiWildcardType) && guess != PsiType.NULL) {
       if (constraintType == ConstraintType.SUPERTYPE) return PsiWildcardType.createExtends(manager, guess);
       else if (constraintType == ConstraintType.SUBTYPE) return PsiWildcardType.createSuper(manager, guess);
     }
@@ -59,6 +61,16 @@ public class CompletionParameterTypeInferencePolicy extends ProcessCandidatePara
 
   @Override
   public boolean isVarargsIgnored() {
+    return true;
+  }
+
+  @Override
+  public boolean inferLowerBoundForFreshVariables() {
+    return true;
+  }
+
+  @Override
+  public boolean requestForBoxingExplicitly() {
     return true;
   }
 }

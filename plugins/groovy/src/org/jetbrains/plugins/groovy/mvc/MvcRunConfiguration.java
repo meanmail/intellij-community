@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package org.jetbrains.plugins.groovy.mvc;
 
@@ -20,8 +6,6 @@ import com.intellij.execution.*;
 import com.intellij.execution.configurations.*;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
-import com.intellij.openapi.components.PathMacroManager;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.options.SettingsEditor;
@@ -32,19 +16,20 @@ import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.JDOMExternalizer;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.util.containers.HashMap;
+import com.intellij.util.JdomKt;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
  * @author peter
  */
-public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunConfigurationModule> implements
+public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunConfigurationModule, Element> implements
                                                                                                    CommonJavaRunConfigurationParameters {
   public String vmParams;
   public String cmdLine;
@@ -68,7 +53,7 @@ public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunCo
   }
 
   @Override
-  public void setVMParameters(String vmParams) {
+  public void setVMParameters(@Nullable String vmParams) {
     this.vmParams = vmParams;
   }
 
@@ -163,10 +148,8 @@ public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunCo
   }
 
   @Override
-  public void readExternal(Element element) throws InvalidDataException {
-    PathMacroManager.getInstance(getProject()).expandPaths(element);
+  public void readExternal(@NotNull Element element) throws InvalidDataException {
     super.readExternal(element);
-    readModule(element);
     vmParams = JDOMExternalizer.readString(element, "vmparams");
     cmdLine = JDOMExternalizer.readString(element, "cmdLine");
 
@@ -182,17 +165,15 @@ public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunCo
   }
 
   @Override
-  public void writeExternal(Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull Element element) throws WriteExternalException {
     super.writeExternal(element);
-    writeModule(element);
     JDOMExternalizer.write(element, "vmparams", vmParams);
     JDOMExternalizer.write(element, "cmdLine", cmdLine);
-    JDOMExternalizer.write(element, "depsClasspath", depsClasspath);
+    JdomKt.addOptionTag(element, "depsClasspath", Boolean.toString(depsClasspath), "setting");
     JDOMExternalizer.writeMap(element, envs, null, "env");
-    JDOMExternalizer.write(element, "passParentEnv", passParentEnv);
+    JdomKt.addOptionTag(element, "passParentEnv", Boolean.toString(passParentEnv), "setting");
 
     JavaRunConfigurationExtensionManager.getInstance().writeExternal(this, element);
-
   }
 
   protected abstract String getNoSdkMessage();
@@ -277,9 +258,9 @@ public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunCo
     protected void addEnvVars(final JavaParameters params) {
       Map<String, String> envVars = new HashMap<>(envs);
       envVars.putAll(params.getEnv());
-      
+
       params.setupEnvs(envVars, passParentEnv);
-      
+
       MvcFramework.addJavaHome(params, myModule);
     }
 
@@ -296,8 +277,8 @@ public abstract class MvcRunConfiguration extends ModuleBasedConfiguration<RunCo
     @Override
     protected final JavaParameters createJavaParameters() throws ExecutionException {
       JavaParameters javaParameters = createJavaParametersMVC();
-      for(RunConfigurationExtension ext: Extensions.getExtensions(RunConfigurationExtension.EP_NAME)) {
-        ext.updateJavaParameters(MvcRunConfiguration.this, javaParameters, getRunnerSettings());
+      for(RunConfigurationExtension ext: RunConfigurationExtension.EP_NAME.getExtensionList()) {
+        ext.updateJavaParameters(MvcRunConfiguration.this, javaParameters, getRunnerSettings(), getEnvironment().getExecutor());
       }
 
       return javaParameters;

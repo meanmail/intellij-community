@@ -15,6 +15,10 @@
  */
 package com.intellij.tasks.impl;
 
+import com.intellij.credentialStore.CredentialAttributes;
+import com.intellij.credentialStore.CredentialAttributesKt;
+import com.intellij.credentialStore.Credentials;
+import com.intellij.ide.passwordSafe.PasswordSafe;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.PasswordUtil;
 import com.intellij.openapi.util.text.StringUtil;
@@ -80,9 +84,10 @@ public abstract class BaseRepository extends TaskRepository {
 
   @Tag("password")
   public String getEncodedPassword() {
-    return PasswordUtil.encodePassword(getPassword());
+    return null;
   }
 
+  @SuppressWarnings("unused")
   public void setEncodedPassword(String password) {
     try {
       setPassword(PasswordUtil.decodePassword(password));
@@ -90,6 +95,31 @@ public abstract class BaseRepository extends TaskRepository {
     catch (NumberFormatException e) {
       // do nothing
     }
+  }
+
+  @Override
+  public void initializeRepository() {
+    if (StringUtil.isEmpty(getPassword())) {
+      CredentialAttributes attributes = getAttributes();
+      Credentials credentials = PasswordSafe.getInstance().get(attributes);
+      if (credentials != null) {
+        setPassword(credentials.getPasswordAsString());
+      }
+    }
+    else {
+      storeCredentials();
+    }
+  }
+
+  public void storeCredentials() {
+    CredentialAttributes attributes = getAttributes();
+    PasswordSafe.getInstance().set(attributes, new Credentials(getUsername(), getPassword()));
+  }
+
+  @NotNull
+  protected CredentialAttributes getAttributes() {
+    String serviceName = CredentialAttributesKt.generateServiceName("Tasks", getRepositoryType().getName() + " " + getUrl());
+    return new CredentialAttributes(serviceName, getUsername());
   }
 
   @NotNull
@@ -160,6 +190,7 @@ public abstract class BaseRepository extends TaskRepository {
     return myPreferredCloseTaskState;
   }
 
+  @Override
   @Nullable
   public String extractId(@NotNull String taskName) {
     Matcher matcher = PATTERN.matcher(taskName);
@@ -171,14 +202,19 @@ public abstract class BaseRepository extends TaskRepository {
     super.setUrl(addSchemeIfNoneSpecified(url));
   }
 
+  @NotNull
+  protected String getDefaultScheme() {
+    return "http";
+  }
+
   @Nullable
-  private static String addSchemeIfNoneSpecified(@Nullable String url) {
+  private String addSchemeIfNoneSpecified(@Nullable String url) {
     if (StringUtil.isNotEmpty(url)) {
       try {
         final String scheme = new URI(url).getScheme();
         // For URL like "foo.bar:8080" host name will be parsed as scheme
-        if (scheme == null || !scheme.startsWith("http")) {
-          url = "http://" + url;
+        if (scheme == null) {
+          url = getDefaultScheme() + "://" + url;
         }
       }
       catch (URISyntaxException ignored) {

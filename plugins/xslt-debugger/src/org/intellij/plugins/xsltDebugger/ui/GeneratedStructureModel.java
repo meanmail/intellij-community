@@ -39,11 +39,6 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 09.06.2007
- */
 public class GeneratedStructureModel extends DefaultTreeModel {
   @NonNls
   private static final String PENDING = "...";
@@ -275,7 +270,7 @@ public class GeneratedStructureModel extends DefaultTreeModel {
   }
 
   private static class MyRootNode extends DefaultMutableTreeNode {
-    public MyRootNode() {
+    MyRootNode() {
       super("ROOT");
     }
   }
@@ -300,16 +295,19 @@ public class GeneratedStructureModel extends DefaultTreeModel {
       return (OutputEventQueue.NodeEvent)super.getUserObject();
     }
 
+    @Override
     public void navigate(boolean requestFocus) {
       final OutputEventQueue.NodeEvent event = getUserObject();
       final Project project = (Project)DataManager.getInstance().getDataContext().getData(CommonDataKeys.PROJECT.getName());
       XsltDebuggerSession.openLocation(project, event.getURI(), event.getLineNumber() - 1);
     }
 
+    @Override
     public boolean canNavigate() {
       return getUserObject().getLineNumber() > 0;
     }
 
+    @Override
     public boolean canNavigateToSource() {
       return canNavigate();
     }

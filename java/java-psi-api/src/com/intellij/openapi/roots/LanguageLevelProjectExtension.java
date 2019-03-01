@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -25,7 +25,6 @@ import org.jetbrains.annotations.Nullable;
  * @author Dmitry Avdeev
  */
 public abstract class LanguageLevelProjectExtension {
-
   public static LanguageLevelProjectExtension getInstance(Project project) {
     return ServiceManager.getService(project, LanguageLevelProjectExtension.class);
   }
@@ -54,5 +53,6 @@ public abstract class LanguageLevelProjectExtension {
     return myDefault != null && myDefault;
   }
 
-  public abstract void languageLevelsChanged();
+  public void languageLevelsChanged() {
+  }
 }

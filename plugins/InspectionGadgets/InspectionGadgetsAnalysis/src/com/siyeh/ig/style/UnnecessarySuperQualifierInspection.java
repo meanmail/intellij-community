@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2016 Bas Leijdekkers
+ * Copyright 2008-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,19 +18,24 @@ package com.siyeh.ig.style;
 import com.intellij.codeInspection.CleanupLocalInspectionTool;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ProblemHighlightType;
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
+import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.MethodUtils;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+
 public class UnnecessarySuperQualifierInspection extends BaseInspection implements CleanupLocalInspectionTool {
+  public boolean ignoreClarification;
 
   @Override
   @Nls
@@ -48,29 +53,28 @@ public class UnnecessarySuperQualifierInspection extends BaseInspection implemen
     );
   }
 
+  @Nullable
+  @Override
+  public JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel("Ignore clarification 'super' qualifier", this, "ignoreClarification");
+  }
+
   @Override
   @Nullable
   protected InspectionGadgetsFix buildFix(Object... infos) {
     return new UnnecessarySuperQualifierFix();
   }
 
-  private static class UnnecessarySuperQualifierFix
-    extends InspectionGadgetsFix {
+  private static class UnnecessarySuperQualifierFix extends InspectionGadgetsFix {
     @Override
     @NotNull
     public String getFamilyName() {
-      return getName();
-    }
-    @Override
-    @NotNull
-    public String getName() {
       return InspectionGadgetsBundle.message(
         "unnecessary.super.qualifier.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       element.delete();
     }
@@ -78,11 +82,15 @@ public class UnnecessarySuperQualifierInspection extends BaseInspection implemen
 
   @Override
   public BaseInspectionVisitor buildVisitor() {
-    return new UnnecessarySuperQualifierVisitor();
+    return new UnnecessarySuperQualifierVisitor(ignoreClarification);
   }
 
-  private static class UnnecessarySuperQualifierVisitor
-    extends BaseInspectionVisitor {
+  private static class UnnecessarySuperQualifierVisitor extends BaseInspectionVisitor {
+    private final boolean myIgnoreClarification;
+
+    UnnecessarySuperQualifierVisitor(boolean ignoreClarification) {
+      myIgnoreClarification = ignoreClarification;
+    }
 
     @Override
     public void visitSuperExpression(PsiSuperExpression expression) {
@@ -98,15 +106,44 @@ public class UnnecessarySuperQualifierInspection extends BaseInspection implemen
       final PsiReferenceExpression referenceExpression = (PsiReferenceExpression)parent;
       final PsiElement grandParent = referenceExpression.getParent();
       if (grandParent instanceof PsiMethodCallExpression) {
-        final PsiMethodCallExpression methodCallExpression =
-          (PsiMethodCallExpression)grandParent;
+        final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)grandParent;
         if (!hasUnnecessarySuperQualifier(methodCallExpression)) {
           return;
+        }
+
+        if (myIgnoreClarification) {
+          PsiClass containingClass = ClassUtils.getContainingClass(expression);
+          if (containingClass != null) {
+            final PsiElement classParent = containingClass.getParent();
+            String referenceName = methodCallExpression.getMethodExpression().getReferenceName();
+            if (referenceName != null) {
+              PsiExpression copyCall = JavaPsiFacade.getElementFactory(expression.getProject())
+                .createExpressionFromText(referenceName + methodCallExpression.getArgumentList().getText(), classParent);
+              PsiMethod method = ((PsiMethodCallExpression)copyCall).resolveMethod();
+              if (method != null && method != referenceExpression.resolve()) {
+                return;
+              }
+            }
+          }
         }
       }
       else {
         if (!hasUnnecessarySuperQualifier(referenceExpression)) {
           return;
+        }
+        if (myIgnoreClarification) {
+          PsiClass containingClass = ClassUtils.getContainingClass(expression);
+          if (containingClass != null) {
+            final PsiElement classParent = containingClass.getParent();
+            final String referenceText = referenceExpression.getReferenceName();
+            if (referenceText != null) {
+              PsiVariable variable = PsiResolveHelper.SERVICE.getInstance(expression.getProject())
+                .resolveAccessibleReferencedVariable(referenceText, classParent);
+              if (variable != null && variable != referenceExpression.resolve()) {
+                return;
+              }
+            }
+          }
         }
       }
       registerError(expression, ProblemHighlightType.LIKE_UNUSED_SYMBOL);
@@ -137,6 +174,10 @@ public class UnnecessarySuperQualifierInspection extends BaseInspection implemen
       if (superMethod == null) {
         return false;
       }
+      final PsiClass aClass = PsiTreeUtil.getParentOfType(methodCallExpression, PsiClass.class);
+      if (aClass != null && MethodUtils.isOverriddenInHierarchy(superMethod, aClass)) {
+        return false;
+      }
       // check that super.m() and m() resolve to the same method
       final PsiMethodCallExpression copy = (PsiMethodCallExpression)methodCallExpression.copy();
       final PsiReferenceExpression methodExpression = copy.getMethodExpression();
@@ -146,7 +187,8 @@ public class UnnecessarySuperQualifierInspection extends BaseInspection implemen
       }
       qualifier.delete(); //remove super
       final JavaResolveResult resolveResult = copy.resolveMethodGenerics();
-      return resolveResult.isValidResult() && superMethod == resolveResult.getElement();
+      PsiElement element = resolveResult.getElement();
+      return resolveResult.isValidResult() && superMethod.getManager().areElementsEquivalent(superMethod, element);
     }
   }
 }

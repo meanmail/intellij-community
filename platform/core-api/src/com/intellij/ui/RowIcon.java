@@ -1,39 +1,38 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ui;
 
-import com.intellij.openapi.util.ScalableIcon;
+import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.IconLoader.DarkIconProvider;
+import com.intellij.util.ArrayUtil;
+import com.intellij.util.IconUtil;
 import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.JBUI.CachingScalableJBIcon;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
 import java.awt.*;
 import java.util.Arrays;
 import java.util.List;
 
-public class RowIcon extends AbstractSizeAdjustingIcon {
+import static com.intellij.util.ui.JBUI.ScaleType.OBJ_SCALE;
+import static java.lang.Math.ceil;
+
+public class RowIcon extends CachingScalableJBIcon<RowIcon> implements DarkIconProvider, CompositeIcon {
   private final Alignment myAlignment;
-  private float myScale = 1f;
+
+  private int myWidth;
+  private int myHeight;
 
   public enum Alignment {TOP, CENTER, BOTTOM}
 
   private final Icon[] myIcons;
   private Icon[] myScaledIcons;
+
+  {
+    getScaleContext().addUpdateListener(() -> updateSize());
+    setAutoUpdateScaleContext(false);
+  }
 
   public RowIcon(int iconCount/*, int orientation*/) {
     this(iconCount, Alignment.TOP);
@@ -48,44 +47,47 @@ public class RowIcon extends AbstractSizeAdjustingIcon {
   public RowIcon(Icon... icons) {
     this(icons.length);
     System.arraycopy(icons, 0, myIcons, 0, icons.length);
-    adjustSize();
+    updateSize();
   }
 
+  protected RowIcon(RowIcon icon) {
+    super(icon);
+    myAlignment = icon.myAlignment;
+    myWidth = icon.myWidth;
+    myHeight = icon.myHeight;
+    myIcons = ArrayUtil.copyOf(icon.myIcons);
+    myScaledIcons = null;
+  }
 
+  @NotNull
   @Override
-  public Icon scale(float scale) {
-    if (myScale != scale || (myScale != 1f && myScaledIcons == null)) {
-      myScale = scale;
-      rescale();
-    }
-    return this;
+  public RowIcon copy() {
+    return new RowIcon(this);
   }
 
-  private void rescale() {
-    if (myScale == 1f) {
-      myScaledIcons = null;
-      return;
+  @NotNull
+  private Icon[] myScaledIcons() {
+    if (myScaledIcons != null) {
+      return myScaledIcons;
     }
+    return myScaledIcons = scaleIcons(myIcons, getScale());
+  }
 
-    for (Icon icon : myIcons) {
-      if (icon != null && !(icon instanceof ScalableIcon)) {
-        return;
+  static Icon[] scaleIcons(Icon[] icons, float scale) {
+    if (scale == 1f) return icons;
+    Icon[] scaledIcons = new Icon[icons.length];
+    for (int i = 0; i < icons.length; i++) {
+      if (icons[i] != null) {
+        scaledIcons[i] = IconUtil.scale(icons[i], null, scale);
       }
     }
-
-    myScaledIcons = new Icon[myIcons.length];
-    for (int i = 0; i < myIcons.length; i++) {
-      ScalableIcon icon = (ScalableIcon)myIcons[i];
-      myScaledIcons[i] = icon == null ? null : icon.scale(myScale);
-    }
-    adjustSize();
+    return scaledIcons;
   }
 
-  @TestOnly
   @NotNull
-  Icon[] getAllIcons() {
+  public Icon[] getAllIcons() {
     List<Icon> icons = ContainerUtil.packNullables(myIcons);
-    return icons.toArray(new Icon[icons.size()]);
+    return icons.toArray(new Icon[0]);
   }
 
   public int hashCode() {
@@ -96,30 +98,28 @@ public class RowIcon extends AbstractSizeAdjustingIcon {
     return obj instanceof RowIcon && Arrays.equals(((RowIcon)obj).myIcons, myIcons);
   }
 
+  @Override
   public int getIconCount() {
     return myIcons.length;
   }
 
   public void setIcon(Icon icon, int layer) {
     myIcons[layer] = icon;
-    rescale();
-    adjustSize();
+    myScaledIcons = null;
+    updateSize();
   }
 
+  @Override
   public Icon getIcon(int index) {
     return myIcons[index];
   }
 
-  public Icon[] getIcons() {
-    Icon[] icons = myScale == 1f ? myIcons : myScaledIcons;
-    return icons == null ? myIcons : icons;
-  }
-
   @Override
   public void paintIcon(Component c, Graphics g, int x, int y) {
+    getScaleContext().update();
     int _x = x;
     int _y = y;
-    for (Icon icon : getIcons()) {
+    for (Icon icon : myScaledIcons()) {
       if (icon == null) continue;
       switch (myAlignment) {
         case TOP: _y = y;
@@ -136,10 +136,21 @@ public class RowIcon extends AbstractSizeAdjustingIcon {
   }
 
   @Override
-  protected void adjustSize() {
+  public int getIconWidth() {
+    getScaleContext().update();
+    return (int)ceil(scaleVal(myWidth, OBJ_SCALE));
+  }
+
+  @Override
+  public int getIconHeight() {
+    getScaleContext().update();
+    return (int)ceil(scaleVal(myHeight, OBJ_SCALE));
+  }
+
+  private void updateSize() {
     int width = 0;
     int height = 0;
-    for (Icon icon : getIcons()) {
+    for (Icon icon : myIcons) {
       if (icon == null) continue;
       width += icon.getIconWidth();
       //height += icon.getIconHeight();
@@ -147,6 +158,15 @@ public class RowIcon extends AbstractSizeAdjustingIcon {
     }
     myWidth = width;
     myHeight = height;
+  }
+
+  @Override
+  public Icon getDarkIcon(boolean isDark) {
+    RowIcon newIcon = copy();
+    for (int i=0; i<newIcon.myIcons.length; i++) {
+      newIcon.myIcons[i] = IconLoader.getDarkIcon(newIcon.myIcons[i], isDark);
+    }
+    return newIcon;
   }
 
   @Override

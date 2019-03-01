@@ -1,21 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.env;
 
-import com.intellij.execution.*;
+import com.intellij.execution.ExecutionException;
+import com.intellij.execution.Executor;
+import com.intellij.execution.RunManager;
+import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.ConfigurationFactory;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.impl.ConsoleViewImpl;
@@ -29,7 +18,6 @@ import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.ui.RunContentDescriptor;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.jetbrains.python.run.AbstractPythonRunConfigurationParams;
@@ -104,7 +92,7 @@ public abstract class ConfigurationBasedProcessRunner<CONF_T extends AbstractPyt
     // Engine to be run after process end to post process console
     final ProcessListener consolePostprocessor = new ProcessAdapter() {
       @Override
-      public void processTerminated(final ProcessEvent event) {
+      public void processTerminated(@NotNull final ProcessEvent event) {
         super.processTerminated(event);
         ApplicationManager.getApplication().invokeAndWait(() -> prepareConsoleAfterProcessEnd(), ModalityState.NON_MODAL);
       }
@@ -157,7 +145,7 @@ public abstract class ConfigurationBasedProcessRunner<CONF_T extends AbstractPyt
   private ExecutionEnvironment createExecutionEnvironment(@NotNull final String sdkPath, @NotNull final Project project, @NotNull final String workingDir)
     throws ExecutionException {
     final RunnerAndConfigurationSettings settings =
-      RunManager.getInstance(project).createRunConfiguration("test", myConfigurationFactory);
+      RunManager.getInstance(project).createConfiguration("test", myConfigurationFactory);
 
     final AbstractPythonRunConfigurationParams config = (AbstractPythonRunConfigurationParams)settings.getConfiguration();
 
@@ -169,16 +157,19 @@ public abstract class ConfigurationBasedProcessRunner<CONF_T extends AbstractPyt
     castedConfiguration.setSdkHome(sdkPath);
     castedConfiguration.setWorkingDirectory(workingDir);
 
-    new WriteAction() {
-      @Override
-      protected void run(@NotNull final Result result) throws Throwable {
+    try {
+      WriteAction.run(() -> {
         configurationCreatedAndWillLaunch(castedConfiguration);
 
-        RunManagerEx.getInstanceEx(project).addConfiguration(settings, false);
-        RunManagerEx.getInstanceEx(project).setSelectedConfiguration(settings);
-        Assert.assertSame(settings, RunManagerEx.getInstanceEx(project).getSelectedConfiguration());
-      }
-    }.execute();
+        RunManager runManager = RunManager.getInstance(project);
+        runManager.addConfiguration(settings);
+        runManager.setSelectedConfiguration(settings);
+        Assert.assertSame(settings, runManager.getSelectedConfiguration());
+      });
+    }
+    catch (IOException e) {
+      throw new ExecutionException(e);
+    }
 
 
     // Execute

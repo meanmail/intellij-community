@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,8 +28,8 @@ import com.intellij.pom.Navigatable;
 import com.intellij.psi.NavigatablePsiElement;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.components.JBLabel;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -52,7 +52,7 @@ public class InspectionResultsViewUtil {
       element = element.getOwner();
     }
     if (!(element instanceof RefElement)) return null;
-    PsiElement containingElement = ((RefElement)element).getElement();
+    PsiElement containingElement = ((RefElement)element).getPsiElement();
     if (!(containingElement instanceof NavigatablePsiElement) || !containingElement.isValid()) return null;
 
     final int lineNumber = node.getLineNumber();
@@ -61,10 +61,8 @@ public class InspectionResultsViewUtil {
       if (containingFile != null) {
         final VirtualFile file = containingFile.getVirtualFile();
         final Document document = FileDocumentManager.getInstance().getDocument(file);
-        if (document != null && document.getLineCount() > lineNumber - 1) {
-          return new OpenFileDescriptor(containingElement.getProject(),
-                                        file,
-                                        document.getLineStartOffset(lineNumber - 1));
+        if (document != null && document.getLineCount() > lineNumber) {
+          return new OpenFileDescriptor(containingElement.getProject(), file, lineNumber, 0);
         }
       }
     }
@@ -96,7 +94,7 @@ public class InspectionResultsViewUtil {
   static JLabel createLabelForText(String text) {
     final JLabel multipleSelectionLabel = new JBLabel(text);
     multipleSelectionLabel.setVerticalAlignment(SwingConstants.TOP);
-    multipleSelectionLabel.setBorder(IdeBorderFactory.createEmptyBorder(16, 12, 0, 0));
+    multipleSelectionLabel.setBorder(JBUI.Borders.empty(16, 12, 0, 0));
     return multipleSelectionLabel;
   }
 }

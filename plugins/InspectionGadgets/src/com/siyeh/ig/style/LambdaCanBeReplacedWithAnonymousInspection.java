@@ -1,5 +1,5 @@
 /*
- * Copyright 2011 Bas Leijdekkers
+ * Copyright 2011-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ import com.intellij.codeInsight.ChangeContextUtil;
 import com.intellij.codeInsight.generation.OverrideImplementUtil;
 import com.intellij.codeInsight.generation.PsiGenerationInfo;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.codeInspection.ProblemHighlightType;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
@@ -36,10 +37,12 @@ import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
-  private static final Logger LOG = Logger.getInstance("#" + LambdaCanBeReplacedWithAnonymousInspection.class.getName());
+  private static final Logger LOG = Logger.getInstance(LambdaCanBeReplacedWithAnonymousInspection.class);
 
   @Nls
   @NotNull
@@ -79,14 +82,14 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
     PsiCodeBlock blockFromText = psiElementFactory.createCodeBlockFromText(blockText, lambdaExpression);
     qualifyThisExpressions(lambdaExpression, psiElementFactory, blockFromText);
     blockFromText = psiElementFactory.createCodeBlockFromText(blockFromText.getText(), null);
-    
+
     PsiNewExpression newExpression = (PsiNewExpression)psiElementFactory.createExpressionFromText("new " + functionalInterfaceType.getCanonicalText() + "(){}", lambdaExpression);
     newExpression = (PsiNewExpression)JavaCodeStyleManager.getInstance(project).shortenClassReferences(lambdaExpression.replace(newExpression));
 
     final PsiAnonymousClass anonymousClass = newExpression.getAnonymousClass();
     LOG.assertTrue(anonymousClass != null);
     final List<PsiGenerationInfo<PsiMethod>> infos = OverrideImplementUtil.overrideOrImplement(anonymousClass, method);
-    if (infos != null && infos.size() == 1) {
+    if (infos.size() == 1) {
       PsiMethod member = infos.get(0).getPsiMember();
       final PsiParameter[] parameters = member.getParameterList().getParameters();
       if (parameters.length == paramListCopy.length) {
@@ -116,10 +119,9 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
                                              final PsiCodeBlock blockFromText) {
     ChangeContextUtil.encodeContextInfo(blockFromText, true);
     final PsiClass thisClass = RefactoringChangeUtil.getThisClass(lambdaExpression);
-    final String thisClassName = thisClass != null ? thisClass.getName() : null;
+    final String thisClassName = thisClass != null && !(thisClass instanceof PsiSyntheticClass) ? thisClass.getName() : null;
     if (thisClassName != null) {
-      final PsiThisExpression thisAccessExpr = thisClass instanceof PsiAnonymousClass ? null : RefactoringChangeUtil
-        .createThisExpression(lambdaExpression.getManager(), thisClass);
+      final PsiThisExpression thisAccessExpr = RefactoringChangeUtil.createThisExpression(lambdaExpression.getManager(), thisClass);
       ChangeContextUtil.decodeContextInfo(blockFromText, thisClass, thisAccessExpr);
       final Set<PsiExpression> replacements = new HashSet<>();
       blockFromText.accept(new JavaRecursiveElementWalkingVisitor() {
@@ -165,9 +167,9 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
     final PsiElement body = lambdaExpression.getBody();
     if (body instanceof PsiExpression) {
       final PsiType returnType = LambdaUtil.getFunctionalInterfaceReturnType(lambdaExpression);
-      blockText = "{";
+      blockText = "{\n";
       blockText += PsiType.VOID.equals(returnType) ? "" : "return ";
-      blockText +=  body.getText() + ";}";
+      blockText +=  body.getText() + ";\n}";
     } else if (body != null) {
       blockText = body.getText();
     } else {
@@ -182,9 +184,14 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
       super.visitLambdaExpression(lambdaExpression);
       if (isConvertibleLambdaExpression(lambdaExpression)) {
         PsiParameterList parameterList = lambdaExpression.getParameterList();
-        PsiElement nextElement = PsiTreeUtil.skipSiblingsForward(parameterList, PsiWhiteSpace.class, PsiComment.class);
-        if (nextElement instanceof PsiJavaToken && ((PsiJavaToken)nextElement).getTokenType() == JavaTokenType.ARROW) {
-          registerErrorAtRange(parameterList, nextElement);
+        PsiElement nextElement = PsiTreeUtil.skipWhitespacesAndCommentsForward(parameterList);
+        if (PsiUtil.isJavaToken(nextElement, JavaTokenType.ARROW)) {
+          if (PsiUtil.isLanguageLevel8OrHigher(nextElement)) {
+            registerErrorAtRange(parameterList, nextElement);
+          }
+          else {
+            registerError(lambdaExpression, ProblemHighlightType.ERROR);
+          }
         }
         else {
           registerError(parameterList);
@@ -215,19 +222,18 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
         }
         final PsiType functionalInterfaceType = lambdaExpression.getFunctionalInterfaceType();
         if (functionalInterfaceType != null &&
-            LambdaUtil.isLambdaFullyInferred(lambdaExpression, functionalInterfaceType) &&
             LambdaUtil.isFunctionalType(functionalInterfaceType)) {
           final PsiMethod interfaceMethod = LambdaUtil.getFunctionalInterfaceMethod(functionalInterfaceType);
           if (interfaceMethod != null) {
             final PsiSubstitutor substitutor =
               LambdaUtil.getSubstitutor(interfaceMethod, PsiUtil.resolveGenericsClassInType(functionalInterfaceType));
             for (PsiType type : interfaceMethod.getSignature(substitutor).getParameterTypes()) {
-              if (!PsiTypesUtil.isDenotableType(type)) {
+              if (!PsiTypesUtil.isDenotableType(type, parent)) {
                 return false;
               }
             }
             final PsiType returnType = LambdaUtil.getFunctionalInterfaceReturnType(functionalInterfaceType);
-            return PsiTypesUtil.isDenotableType(returnType);
+            return PsiTypesUtil.isDenotableType(returnType, parent);
           }
         }
       }
@@ -239,21 +245,14 @@ public class LambdaCanBeReplacedWithAnonymousInspection extends BaseInspection {
     @Nls
     @NotNull
     @Override
-    public String getName() {
-      return InspectionGadgetsBundle.message("lambda.can.be.replaced.with.anonymous.quickfix");
-    }
-
-    @Nls
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("lambda.can.be.replaced.with.anonymous.quickfix");
     }
 
     @Override
     protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getStartElement();
-      final PsiElement parent = element.getParent();
+      final PsiElement parent = element instanceof PsiLambdaExpression ? element : element.getParent();
       if (parent instanceof PsiLambdaExpression) {
         LambdaCanBeReplacedWithAnonymousInspection.doFix(project, (PsiLambdaExpression)parent);
       }

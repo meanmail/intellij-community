@@ -48,7 +48,7 @@ public class FinishElementInstruction extends Instruction {
 
   @Override
   public String toString() {
-    return "Finish " + myElement + "; flushing " + myVarsToFlush;
+    return "FINISH " + myElement + (myVarsToFlush.isEmpty() ? "" : "; flushing " + myVarsToFlush);
   }
 
   public Set<DfaVariableValue> getVarsToFlush() {

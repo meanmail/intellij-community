@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -52,6 +52,7 @@ import org.jetbrains.plugins.groovy.refactoring.introduce.GrIntroduceHandlerBase
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.List;
 
 /**
  * @author Max Medvedev
@@ -106,12 +107,12 @@ public class GroovyInlineLocalProcessor extends BaseRefactoringProcessor {
   @Override
   protected UsageInfo[] findUsages() {
     final Instruction[] controlFlow = mySettings.getFlow();
-    final ArrayList<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(controlFlow, myLocal);
+    final List<BitSet> writes = ControlFlowUtils.inferWriteAccessMap(controlFlow, myLocal);
     
     ArrayList<UsageInfo> toInline = new ArrayList<>();
     collectRefs(myLocal, controlFlow, writes, mySettings.getWriteInstructionNumber(), toInline);
 
-    return toInline.toArray(new UsageInfo[toInline.size()]);
+    return toInline.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
   /**
@@ -125,7 +126,7 @@ public class GroovyInlineLocalProcessor extends BaseRefactoringProcessor {
   
   private static void collectRefs(final GrVariable variable,
                                   Instruction[] flow,
-                                  final ArrayList<BitSet> writes,
+                                  final List<BitSet> writes,
                                   final int writeInstructionNumber,
                                   final ArrayList<UsageInfo> toInline) {
     for (Instruction instruction : flow) {
@@ -228,6 +229,7 @@ public class GroovyInlineLocalProcessor extends BaseRefactoringProcessor {
   }
 
 
+  @NotNull
   @Override
   protected String getCommandName() {
     return RefactoringBundle.message("inline.command", myLocal.getName());

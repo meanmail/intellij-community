@@ -22,6 +22,7 @@ import com.intellij.execution.process.ProcessOutputTypes;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vfs.CharsetToolkit;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.IOException;
@@ -39,13 +40,13 @@ class OutputTabAdapter extends ProcessAdapter {
     private final ProcessHandler myStartedProcess;
     private final HighlightingOutputConsole myConsole;
 
-  public OutputTabAdapter(ProcessHandler startedProcess, HighlightingOutputConsole console) {
+  OutputTabAdapter(ProcessHandler startedProcess, HighlightingOutputConsole console) {
         myStartedProcess = startedProcess;
         myConsole = console;
     }
 
     @Override
-    public void startNotified(ProcessEvent event) {
+    public void startNotified(@NotNull ProcessEvent event) {
         final XsltCommandLineState state = event.getProcessHandler().getUserData(XsltCommandLineState.STATE);
         if (state != null) {
           attachOutputConsole(state.getPort());
@@ -68,7 +69,7 @@ class OutputTabAdapter extends ProcessAdapter {
                         private boolean mySelectionChanged;
 
                         @Override
-                        public void notifyTextAvailable(String text, Key outputType) {
+                        public void notifyTextAvailable(@NotNull String text, @NotNull Key outputType) {
                             super.notifyTextAvailable(text, outputType);
 
                             if (mySelectionChanged) {

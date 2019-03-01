@@ -16,6 +16,7 @@
 package com.intellij.vcs.log.util;
 
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.util.Consumer;
 import com.intellij.util.ThrowableConsumer;
@@ -28,11 +29,11 @@ import org.jetbrains.annotations.NotNull;
 public class SequentialLimitedLifoExecutor<Task> implements Disposable {
 
   private final int myMaxTasks;
-  @NotNull private final ThrowableConsumer<Task, ? extends Throwable> myLoadProcess;
+  @NotNull private final ThrowableConsumer<? super Task, ? extends Throwable> myLoadProcess;
   @NotNull private final QueueProcessor<Task> myLoader;
 
   public SequentialLimitedLifoExecutor(Disposable parentDisposable, int maxTasks,
-                                       @NotNull ThrowableConsumer<Task, ? extends Throwable> loadProcess) {
+                                       @NotNull ThrowableConsumer<? super Task, ? extends Throwable> loadProcess) {
     myMaxTasks = maxTasks;
     myLoadProcess = loadProcess;
     myLoader = new QueueProcessor<>(new DetailsLoadingTask());
@@ -58,6 +59,9 @@ public class SequentialLimitedLifoExecutor<Task> implements Disposable {
       try {
         myLoader.dismissLastTasks(myMaxTasks);
         myLoadProcess.consume(task);
+      }
+      catch (ProcessCanceledException e) {
+        throw e;
       }
       catch (Throwable e) {
         throw new RuntimeException(e); // todo

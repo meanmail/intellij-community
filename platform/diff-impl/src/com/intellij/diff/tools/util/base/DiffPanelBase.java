@@ -81,18 +81,23 @@ public abstract class DiffPanelBase extends JPanel implements DataProvider {
   }
 
   protected void setCurrentCard(@NotNull String card, boolean keepFocus) {
-    boolean restoreFocus = keepFocus && myContext.isFocused();
+    Runnable task = () -> {
+      myCardLayout.show(myContentPanel, card);
+      myCurrentCard = card;
+      myContentPanel.revalidate();
+    };
 
-    myCardLayout.show(myContentPanel, card);
-    myCurrentCard = card;
-    myContentPanel.revalidate();
-
-    if (restoreFocus) myContext.requestFocus();
+    if (keepFocus) {
+      DiffUtil.runPreservingFocus(myContext, task);
+    }
+    else {
+      task.run();
+    }
   }
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     return myDataProvider.getData(dataId);
   }
 

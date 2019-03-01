@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.statements;
 
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.NullableComputable;
 import com.intellij.openapi.util.RecursionGuard;
 import com.intellij.openapi.util.RecursionManager;
 import com.intellij.psi.*;
@@ -26,11 +11,9 @@ import com.intellij.psi.impl.source.tree.LeafPsiElement;
 import com.intellij.psi.search.LocalSearchScope;
 import com.intellij.psi.search.SearchScope;
 import com.intellij.psi.stubs.IStubElementType;
-import com.intellij.psi.stubs.StubElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
-import icons.JetgroovyIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -49,19 +32,18 @@ import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GroovyPsiElementImpl;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
+import org.jetbrains.plugins.groovy.lang.psi.stubs.GrVariableStubBase;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
-
-import javax.swing.*;
 
 /**
  * @author ilyas
  */
-public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubElementBase<T> implements GrVariable {
+public abstract class GrVariableBaseImpl<T extends GrVariableStubBase> extends GrStubElementBase<T> implements GrVariable, StubBasedPsiElement<T> {
   public static final Logger LOG = Logger.getInstance("org.jetbrains.plugins.groovy.lang.psi.impl.statements.GrVariableImpl");
 
   private static final RecursionGuard ourGuard = RecursionManager.createGuard("grVariableInitializer");
 
-  public GrVariableBaseImpl(ASTNode node) {
+  protected GrVariableBaseImpl(ASTNode node) {
     super(node);
   }
 
@@ -103,12 +85,13 @@ public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubEl
     PsiElement next = PsiUtil.getNextNonSpace(this);
     ASTNode parentNode = parent.getNode();
     assert parentNode != null;
-    super.delete();
     if (prev != null && prev.getNode() != null && prev.getNode().getElementType() == GroovyTokenTypes.mCOMMA) {
-      prev.delete();
-    } else if (next instanceof LeafPsiElement && next.getNode() != null && next.getNode().getElementType() == GroovyTokenTypes.mCOMMA) {
-      next.delete();
+      parent.deleteChildRange(prev, getPrevSibling());
     }
+    else if (next instanceof LeafPsiElement && next.getNode() != null && next.getNode().getElementType() == GroovyTokenTypes.mCOMMA) {
+      parent.deleteChildRange(getNextSibling(), next);
+    }
+    super.delete();
     if (parent instanceof GrVariableDeclaration && ((GrVariableDeclaration)parent).getVariables().length == 0) {
       parent.delete();
     }
@@ -131,11 +114,17 @@ public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubEl
   @Override
   @Nullable
   public GrTypeElement getTypeElementGroovy() {
+    T stub = getStub();
+    if (stub != null) {
+      return stub.getTypeElement();
+    }
+
     PsiElement parent = getParent();
     if (parent instanceof GrVariableDeclaration) {
       return ((GrVariableDeclaration)parent).getTypeElementGroovyForVariable(this);
     }
-    return null;
+
+    return findChildByClass(GrTypeElement.class);
   }
 
   @Override
@@ -162,20 +151,12 @@ public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubEl
     }
 
     if (initializer != null) {
-      PsiType initializerType = ourGuard.doPreventingRecursion(this, true, (NullableComputable<PsiType>)() -> initializer.getType());
+      PsiType initializerType = ourGuard.doPreventingRecursion(this, true, initializer::getType);
       if (declaredType == null) return initializerType;
-
       if (initializerType instanceof PsiClassType && TypesUtil.isAssignable(declaredType, initializerType, this)) {
-        final PsiClassType.ClassResolveResult initializerResult = ((PsiClassType)initializerType).resolveGenerics();
-        final PsiClass initializerClass = initializerResult.getElement();
-        if (initializerClass != null &&
-            !com.intellij.psi.util.PsiUtil.isRawSubstitutor(initializerClass, initializerResult.getSubstitutor())) {
-          return initializerType;
-        }
+        return initializerType;
       }
-
     }
-
 
     return declaredType;
   }
@@ -266,6 +247,13 @@ public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubEl
   @Override
   @NotNull
   public String getName() {
+    T stub = getGreenStub();
+    if (stub != null) {
+      String name = stub.getName();
+      if (name != null) {
+        return name;
+      }
+    }
     return PsiImplUtil.getName(this);
   }
 
@@ -279,14 +267,8 @@ public abstract class GrVariableBaseImpl<T extends StubElement> extends GrStubEl
   @Nullable
   public GrModifierList getModifierList() {
     final GrVariableDeclaration variableDeclaration = getDeclaration();
-    if (variableDeclaration!=null) return variableDeclaration.getModifierList();
+    if (variableDeclaration != null) return variableDeclaration.getModifierList();
     return null;
-  }
-
-  @Override
-  @Nullable
-  public Icon getIcon(int flags) {
-    return JetgroovyIcons.Groovy.Variable;
   }
 
   @Nullable

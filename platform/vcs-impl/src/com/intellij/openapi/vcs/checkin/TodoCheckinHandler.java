@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.checkin;
 
-import com.intellij.CommonBundle;
 import com.intellij.ide.IdeBundle;
 import com.intellij.ide.todo.*;
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -39,6 +24,7 @@ import com.intellij.openapi.vcs.VcsBundle;
 import com.intellij.openapi.vcs.VcsConfiguration;
 import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.CommitExecutor;
+import com.intellij.openapi.vcs.changes.ui.BooleanCommitOption;
 import com.intellij.openapi.vcs.ui.RefreshableOnComponent;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
@@ -49,19 +35,19 @@ import com.intellij.ui.content.ContentManager;
 import com.intellij.util.Consumer;
 import com.intellij.util.PairConsumer;
 import com.intellij.util.text.DateFormatUtil;
-import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
 import java.util.Collection;
 
+import static com.intellij.CommonBundle.getCancelButtonText;
+import static com.intellij.openapi.ui.Messages.*;
+import static com.intellij.util.ui.UIUtil.getWarningIcon;
+
 /**
  * @author irengrig
- *         Date: 2/17/11
- *         Time: 5:54 PM
  */
 public class TodoCheckinHandler extends CheckinHandler {
   private final Project myProject;
@@ -77,12 +63,13 @@ public class TodoCheckinHandler extends CheckinHandler {
 
   @Override
   public RefreshableOnComponent getBeforeCheckinConfigurationPanel() {
-    JCheckBox checkBox = new JCheckBox(VcsBundle.message("before.checkin.new.todo.check", ""));
-    return new RefreshableOnComponent() {
+    return new BooleanCommitOption(myCheckinProjectPanel, VcsBundle.message("before.checkin.new.todo.check", ""), true,
+                                   () -> myConfiguration.CHECK_NEW_TODO, value -> myConfiguration.CHECK_NEW_TODO = value) {
+      @NotNull
       @Override
       public JComponent getComponent() {
         JPanel panel = new JPanel(new BorderLayout(4, 0));
-        panel.add(checkBox, BorderLayout.WEST);
+        panel.add(getCheckBox(), BorderLayout.WEST);
         setFilterText(myConfiguration.myTodoPanelSettings.todoFilterName);
         if (myConfiguration.myTodoPanelSettings.todoFilterName != null) {
           myTodoFilter = TodoConfiguration.getInstance().getTodoFilter(myConfiguration.myTodoPanelSettings.todoFilterName);
@@ -104,31 +91,16 @@ public class TodoCheckinHandler extends CheckinHandler {
           }
         }, null);
         panel.add(linkLabel, BorderLayout.CENTER);
-
-        CheckinHandlerUtil.disableWhenDumb(myProject, checkBox, "TODO check is impossible until indices are up-to-date");
         return panel;
       }
 
       private void setFilterText(String filterName) {
         if (filterName == null) {
-          checkBox.setText(VcsBundle.message("before.checkin.new.todo.check", IdeBundle.message("action.todo.show.all")));
-        } else {
-          checkBox.setText(VcsBundle.message("before.checkin.new.todo.check", "Filter: " + filterName));
+          getCheckBox().setText(VcsBundle.message("before.checkin.new.todo.check", IdeBundle.message("action.todo.show.all")));
         }
-      }
-
-      @Override
-      public void refresh() {
-      }
-
-      @Override
-      public void saveState() {
-        myConfiguration.CHECK_NEW_TODO = checkBox.isSelected();
-      }
-
-      @Override
-      public void restoreState() {
-        checkBox.setSelected(myConfiguration.CHECK_NEW_TODO);
+        else {
+          getCheckBox().setText(VcsBundle.message("before.checkin.new.todo.check", "Filter: " + filterName));
+        }
       }
     };
   }
@@ -149,7 +121,7 @@ public class TodoCheckinHandler extends CheckinHandler {
       return ReturnResult.COMMIT;
     }
     Collection<Change> changes = myCheckinProjectPanel.getSelectedChanges();
-    TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, myTodoFilter, true);
+    TodoCheckinHandlerWorker worker = new TodoCheckinHandlerWorker(myProject, changes, myTodoFilter);
 
     Ref<Boolean> completed = Ref.create(Boolean.FALSE);
     ProgressManager.getInstance().run(new Task.Modal(myProject, "Looking for New and Edited TODO Items...", true) {
@@ -175,24 +147,29 @@ public class TodoCheckinHandler extends CheckinHandler {
     commitButtonText = StringUtil.trimEnd(commitButtonText, "...");
 
     String text = createMessage(worker);
-    String[] buttons;
     boolean thereAreTodoFound = worker.getAddedOrEditedTodos().size() + worker.getInChangedTodos().size() > 0;
-    int commitOption;
+    String title = "TODO";
     if (thereAreTodoFound) {
-      buttons = new String[]{VcsBundle.message("todo.in.new.review.button"), commitButtonText, CommonBundle.getCancelButtonText()};
-      commitOption = 1;
+      return askReviewOrCommit(worker, commitButtonText, text, title);
     }
-    else {
-      buttons = new String[]{commitButtonText, CommonBundle.getCancelButtonText()};
-      commitOption = 0;
-    }
-    int answer = Messages.showDialog(myProject, text, "TODO", null, buttons, 0, 1, UIUtil.getWarningIcon());
-    if (thereAreTodoFound && answer == Messages.OK) {
-      showTodo(worker);
-      return ReturnResult.CLOSE_WINDOW;
-    }
-    if (answer == commitOption) {
+    else if (YES == showYesNoDialog(myProject, text, title, commitButtonText, getCancelButtonText(), getWarningIcon())) {
       return ReturnResult.COMMIT;
+    }
+    return ReturnResult.CANCEL;
+  }
+
+  @NotNull
+  private ReturnResult askReviewOrCommit(@NotNull TodoCheckinHandlerWorker worker,
+                                         @NotNull String commitButton,
+                                         @NotNull String text,
+                                         @NotNull String title) {
+    String yesButton = VcsBundle.message("todo.in.new.review.button");
+    switch (showYesNoCancelDialog(myProject, text, title, yesButton, commitButton, getCancelButtonText(), getWarningIcon())) {
+      case YES:
+        showTodo(worker);
+        return ReturnResult.CLOSE_WINDOW;
+      case NO:
+        return ReturnResult.COMMIT;
     }
     return ReturnResult.CANCEL;
   }
@@ -201,8 +178,8 @@ public class TodoCheckinHandler extends CheckinHandler {
     String title = "For commit (" + DateFormatUtil.formatDateTime(System.currentTimeMillis()) + ")";
     ServiceManager.getService(myProject, TodoView.class).addCustomTodoView(new TodoTreeBuilderFactory() {
       @Override
-      public TodoTreeBuilder createTreeBuilder(JTree tree, DefaultTreeModel treeModel, Project project) {
-        return new CustomChangelistTodosTreeBuilder(tree, treeModel, myProject, title, worker.inOneList());
+      public TodoTreeBuilder createTreeBuilder(JTree tree, Project project) {
+        return new CustomChangelistTodosTreeBuilder(tree, myProject, title, worker.inOneList());
       }
     }, title, new TodoPanelSettings(myConfiguration.myTodoPanelSettings));
 

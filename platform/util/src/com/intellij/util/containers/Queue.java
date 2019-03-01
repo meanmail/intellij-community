@@ -37,7 +37,7 @@ public class Queue<T> {
   public void addLast(T object) {
     int currentSize = size();
     if (currentSize == myArray.length) {
-      myArray = normalize(Math.max(currentSize * 2, 5));
+      myArray = normalize(Math.max(currentSize * 3/2, 10));
       myFirst = 0;
       myLast = currentSize;
       isWrapped = false;
@@ -56,9 +56,22 @@ public class Queue<T> {
       myLast = myArray.length;
     }
     myLast--;
-    @SuppressWarnings("unchecked") T result = (T)myArray[myLast];
+    T result = getRaw(myLast);
     myArray[myLast] = null;
     return result;
+  }
+
+  private T getRaw(int last) {
+    //noinspection unchecked
+    return (T)myArray[last];
+  }
+
+  public T peekLast() {
+    int last = myLast;
+    if (last == 0) {
+      last = myArray.length;
+    }
+    return getRaw(last - 1);
   }
 
 
@@ -70,12 +83,23 @@ public class Queue<T> {
     return isWrapped ? myArray.length - myFirst + myLast : myLast - myFirst;
   }
 
+  @NotNull
   public List<T> toList() {
     return Arrays.asList(normalize(size()));
   }
 
+  @NotNull
   public Object[] toArray() {
     return normalize(size());
+  }
+
+  @NotNull
+  public T[] toArray(T[] array) {
+    if (array.length < size()) {
+      array = ArrayUtil.newArray(ArrayUtil.getComponentType(array), size());
+    }
+
+    return normalize(array);
   }
 
   public T pullFirst() {
@@ -93,8 +117,7 @@ public class Queue<T> {
     if (isEmpty()) {
       throw new IndexOutOfBoundsException("queue is empty");
     }
-    @SuppressWarnings("unchecked") T t = (T)myArray[myFirst];
-    return t;
+    return getRaw(myFirst);
   }
 
   private int copyFromTo(int first, int last, Object[] result, int destinationPos) {
@@ -103,8 +126,14 @@ public class Queue<T> {
     return length;
   }
 
+  @NotNull
   private T[] normalize(int capacity) {
     @SuppressWarnings("unchecked") T[] result = (T[])new Object[capacity];
+    return normalize(result);
+  }
+
+  @NotNull
+  private T[] normalize(T[] result) {
     if (isWrapped) {
       int tailLength = copyFromTo(myFirst, myArray.length, result, 0);
       copyFromTo(0, myLast, result, tailLength);
@@ -122,38 +151,37 @@ public class Queue<T> {
   }
 
   public T set(int index, T value) {
-    int arrayIndex;
-    if (isWrapped) {
-      if (myFirst + index >= myArray.length) {
-        arrayIndex = index - myArray.length + myFirst;
-      }
-      else {
-        arrayIndex = myFirst + index;
-      }
+    int arrayIndex = myFirst + index;
+    if (isWrapped && arrayIndex >= myArray.length) {
+      arrayIndex -= myArray.length;
     }
-    else {
-      arrayIndex = myFirst + index;
-    }
-    final Object old = myArray[arrayIndex];
+    T old = getRaw(arrayIndex);
     myArray[arrayIndex] = value;
-    @SuppressWarnings("unchecked") T t = (T)old;
-    return t;
+    return old;
   }
 
-  public boolean process(@NotNull Processor<T> processor) {
+  public T get(int index) {
+    int arrayIndex = myFirst + index;
+    if (isWrapped && arrayIndex >= myArray.length) {
+      arrayIndex -= myArray.length;
+    }
+    return getRaw(arrayIndex);
+  }
+
+  public boolean process(@NotNull Processor<? super T> processor) {
     if (isWrapped) {
       for (int i = myFirst; i < myArray.length; i++) {
-        @SuppressWarnings("unchecked") T t = (T)myArray[i];
+        T t = getRaw(i);
         if (!processor.process(t)) return false;
       }
       for (int i = 0; i < myLast; i++) {
-        @SuppressWarnings("unchecked") T t = (T)myArray[i];
+        T t = getRaw(i);
         if (!processor.process(t)) return false;
       }
     }
     else {
       for (int i = myFirst; i < myLast; i++) {
-        @SuppressWarnings("unchecked") T t = (T)myArray[i];
+        T t = getRaw(i);
         if (!processor.process(t)) return false;
       }
     }
@@ -163,16 +191,13 @@ public class Queue<T> {
   @Override
   public String toString() {
     if (isEmpty()) return "<empty>";
-    List<Object> list = Arrays.asList(myArray);
-    if (isWrapped) {
-      return "[[[ " + list.subList(0, myLast) + " ||| ... " +
-             list.subList(myLast, myFirst) + " ... ||| " +
-             list.subList(myFirst, myArray.length) + " ]]]";
-    }
-    else {
-      return "[[[ ... " + list.subList(0, myFirst) + " ... ||| " +
-                 list.subList(myFirst, myLast) + " ||| ... " +
-                 list.subList(myFirst, myArray.length) + " ... ]]]";
-    }
+
+    return isWrapped ?
+           "[ " + sub(myFirst, myArray.length) + " ||| " + sub(0, myLast) + " ]" :
+           "[ " + sub(myFirst, myLast) + " ]";
+  }
+  private Object sub(int start, int end) {
+    if (start == end) return "";
+    return Arrays.asList(myArray).subList(start, end);
   }
 }

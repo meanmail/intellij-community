@@ -36,11 +36,12 @@ import org.jetbrains.jps.incremental.storage.Timestamps;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- * @since 30.10.2012
  */
 public class BuildOperations {
   private BuildOperations() { }
@@ -71,19 +72,18 @@ public class BuildOperations {
   private static void initTargetFSState(CompileContext context, BuildTarget<?> target, final boolean forceMarkDirty) throws IOException {
     final ProjectDescriptor pd = context.getProjectDescriptor();
     final Timestamps timestamps = pd.timestamps.getStorage();
-    final THashSet<File> currentFiles = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final THashSet<File> currentFiles = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
     FSOperations.markDirtyFiles(context, target, CompilationRound.CURRENT, timestamps, forceMarkDirty, currentFiles, null);
 
     // handle deleted paths
     final BuildFSState fsState = pd.fsState;
-    fsState.clearDeletedPaths(target);
     final SourceToOutputMapping sourceToOutputMap = pd.dataManager.getSourceToOutputMap(target);
     for (final Iterator<String> it = sourceToOutputMap.getSourcesIterator(); it.hasNext(); ) {
       final String path = it.next();
       // can check if the file exists
       final File file = new File(path);
       if (!currentFiles.contains(file)) {
-        fsState.registerDeleted(target, file, timestamps);
+        fsState.registerDeleted(context, target, file, timestamps);
       }
     }
     pd.fsState.markInitialScanPerformed(target);
@@ -135,14 +135,14 @@ public class BuildOperations {
   Map<T, Set<File>> cleanOutputsCorrespondingToChangedFiles(final CompileContext context, DirtyFilesHolder<R, T> dirtyFilesHolder) throws ProjectBuildException {
     final BuildDataManager dataManager = context.getProjectDescriptor().dataManager;
     try {
-      final Map<T, Set<File>> cleanedSources = new HashMap<T, Set<File>>();
+      final Map<T, Set<File>> cleanedSources = new HashMap<>();
 
-      final THashSet<File> dirsToDelete = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
-      final Collection<String> deletedPaths = new ArrayList<String>();
+      final THashSet<File> dirsToDelete = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
+      final Collection<String> deletedPaths = new ArrayList<>();
 
       dirtyFilesHolder.processDirtyFiles(new FileProcessor<R, T>() {
-        private final Map<T, SourceToOutputMapping> mappingsCache = new HashMap<T, SourceToOutputMapping>(); // cache the mapping locally
-        private final TObjectIntHashMap<T> idsCache = new TObjectIntHashMap<T>();
+        private final Map<T, SourceToOutputMapping> mappingsCache = new HashMap<>(); // cache the mapping locally
+        private final TObjectIntHashMap<T> idsCache = new TObjectIntHashMap<>();
 
         @Override
         public boolean apply(T target, File file, R sourceRoot) throws IOException {
@@ -163,7 +163,7 @@ public class BuildOperations {
           final Collection<String> outputs = srcToOut.getOutputs(srcPath);
           if (outputs != null) {
             final boolean shouldPruneOutputDirs = target instanceof ModuleBasedTarget;
-            final List<String> deletedForThisSource = new ArrayList<String>(outputs.size());
+            final List<String> deletedForThisSource = new ArrayList<>(outputs.size());
             for (String output : outputs) {
               deleteRecursively(output, deletedForThisSource, shouldPruneOutputDirs ? dirsToDelete : null);
             }
@@ -171,7 +171,7 @@ public class BuildOperations {
             dataManager.getOutputToTargetRegistry().removeMapping(deletedForThisSource, targetId);
             Set<File> cleaned = cleanedSources.get(target);
             if (cleaned == null) {
-              cleaned = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+              cleaned = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
               cleanedSources.put(target, cleaned);
             }
             cleaned.add(file);
@@ -201,7 +201,7 @@ public class BuildOperations {
     }
   }
 
-  public static boolean deleteRecursively(@NotNull String path, @NotNull Collection<String> deletedPaths, @Nullable Set<File> parentDirs) {
+  public static boolean deleteRecursively(@NotNull String path, @NotNull Collection<String> deletedPaths, @Nullable Set<? super File> parentDirs) {
     File file = new File(path);
     boolean deleted = deleteRecursively(file, deletedPaths);
     if (deleted && parentDirs != null) {
@@ -213,17 +213,41 @@ public class BuildOperations {
     return deleted;
   }
 
-  private static boolean deleteRecursively(File file, Collection<String> deletedPaths) {
-    File[] children = file.listFiles();
-    if (children != null) {
-      for (File child : children) {
-        deleteRecursively(child, deletedPaths);
-      }
+  private static boolean deleteRecursively(final File file, final Collection<String> deletedPaths) {
+    try {
+      Files.walkFileTree(file.toPath(), EnumSet.of(FileVisitOption.FOLLOW_LINKS), Integer.MAX_VALUE, new SimpleFileVisitor<Path>() {
+        @Override
+        public FileVisitResult visitFile(Path f, BasicFileAttributes attrs) throws IOException {
+          try {
+            Files.delete(f);
+          }
+          catch (AccessDeniedException e) {
+            if (!f.toFile().delete()) { // fallback
+              throw e;
+            }
+          }
+          deletedPaths.add(FileUtil.toSystemIndependentName(f.toString()));
+          return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+          try {
+            Files.delete(dir);
+          }
+          catch (AccessDeniedException e) {
+            if (!dir.toFile().delete()) { // fallback
+              throw e;
+            }
+          }
+          return FileVisitResult.CONTINUE;
+        }
+
+      });
+      return true;
     }
-    boolean deleted = file.delete();
-    if (deleted && children == null) {
-      deletedPaths.add(FileUtil.toSystemIndependentName(file.getPath()));
+    catch (IOException e) {
+      return false;
     }
-    return deleted;
   }
 }

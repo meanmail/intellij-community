@@ -28,6 +28,7 @@ import com.intellij.util.containers.MultiMap;
 import com.intellij.util.execution.ParametersListUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.groovy.compiler.rt.GroovyRtConstants;
 import org.jetbrains.jps.ModuleChunk;
 import org.jetbrains.jps.ProjectPaths;
 import org.jetbrains.jps.builders.DirtyFilesHolder;
@@ -43,8 +44,8 @@ import org.jetbrains.jps.model.java.compiler.JpsJavaCompilerConfiguration;
 import org.jetbrains.jps.model.java.compiler.ProcessorConfigProfile;
 import org.jetbrains.jps.model.module.JpsModule;
 
+import javax.tools.*;
 import java.io.File;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.lang.reflect.Constructor;
@@ -60,6 +61,7 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.jps.incremental.groovy.GreclipseBuilder");
   private static final Key<Boolean> COMPILER_VERSION_INFO = Key.create("_greclipse_compiler_info_");
   public static final String ID = "Groovy-Eclipse";
+  private static final Object ourGlobalEnvironmentLock = new String("GreclipseBuilder lock");
 
   private String myGreclipseJar;
   /**
@@ -91,7 +93,7 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
         new File(jar).toURI().toURL(),
         new File(ObjectUtils.assertNotNull(PathManager.getJarPathForClass(GreclipseMain.class))).toURI().toURL()
       };
-      ClassLoader loader = new URLClassLoader(urls, null);
+      ClassLoader loader = new URLClassLoader(urls, StandardJavaFileManager.class.getClassLoader());
       Class.forName("org.eclipse.jdt.internal.compiler.batch.Main", false, loader);
       myGreclipseJar = jar;
       myGreclipseLoader = loader;
@@ -113,11 +115,11 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
   public ExitCode build(final CompileContext context,
                         ModuleChunk chunk,
                         DirtyFilesHolder<JavaSourceRootDescriptor, ModuleBuildTarget> dirtyFilesHolder,
-                        OutputConsumer outputConsumer) throws ProjectBuildException, IOException {
+                        OutputConsumer outputConsumer) throws ProjectBuildException {
     if (!useGreclipse(context)) return ModuleLevelBuilder.ExitCode.NOTHING_DONE;
 
     try {
-      final List<File> toCompile = myHelper.collectChangedFiles(context, dirtyFilesHolder, false, true, Ref.create(false));
+      List<File> toCompile = myHelper.collectChangedFiles(context, dirtyFilesHolder, false, Ref.create(false));
       if (toCompile.isEmpty()) {
         return ExitCode.NOTHING_DONE;
       }
@@ -138,28 +140,26 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
 
       ClassLoader loader = createGreclipseLoader(greclipseSettings.greclipsePath);
       if (loader == null) {
-        context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, 
-                                                   "Invalid jar path in the compiler settings: '" + greclipseSettings.greclipsePath + "'"));
+        context.processMessage(new CompilerMessage(
+          getPresentableName(), BuildMessage.Kind.ERROR, "Invalid jar path in the compiler settings: '" + greclipseSettings.greclipsePath + "'")
+        );
         return ExitCode.ABORT;
       }
-
-      final JpsJavaExtensionService javaExt = JpsJavaExtensionService.getInstance();
-      final JpsJavaCompilerConfiguration compilerConfig = javaExt.getCompilerConfiguration(project);
-      assert compilerConfig != null;
 
       final Set<JpsModule> modules = chunk.getModules();
       ProcessorConfigProfile profile = null;
       if (modules.size() == 1) {
+        final JpsJavaCompilerConfiguration compilerConfig = JpsJavaExtensionService.getInstance().getCompilerConfiguration(project);
+        assert compilerConfig != null;
         profile = compilerConfig.getAnnotationProcessingProfile(modules.iterator().next());
       }
       else {
-        String message = JavaBuilder.validateCycle(chunk, javaExt, compilerConfig, modules);
+        final String message = JavaBuilder.validateCycle(context, chunk);
         if (message != null) {
           context.processMessage(new CompilerMessage(getPresentableName(), BuildMessage.Kind.ERROR, message));
           return ExitCode.ABORT;
         }
       }
-
 
       String mainOutputDir = outputDirs.get(chunk.representativeTarget());
       final List<String> args = createCommandLine(context, chunk, toCompile, mainOutputDir, profile, greclipseSettings);
@@ -184,7 +184,6 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
       
       List<GroovycOutputParser.OutputItem> items = ContainerUtil.newArrayList();
       for (String src : outputMap.keySet()) {
-        //noinspection ConstantConditions
         for (String classFile : outputMap.get(src)) {
           items.add(new GroovycOutputParser.OutputItem(FileUtil.toSystemIndependentName(mainOutputDir + classFile),
                                                            FileUtil.toSystemIndependentName(src)));
@@ -222,6 +221,27 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
   }
 
   private boolean performCompilation(List<String> args, StringWriter out, StringWriter err, Map<String, List<String>> outputs, CompileContext context, ModuleChunk chunk) {
+    String bytecodeTarget = JpsGroovycRunner.getBytecodeTarget(context, chunk);
+    if (bytecodeTarget != null && System.getProperty(GroovyRtConstants.GROOVY_TARGET_BYTECODE) == null) {
+      synchronized (ourGlobalEnvironmentLock) {
+        try {
+          System.setProperty(GroovyRtConstants.GROOVY_TARGET_BYTECODE, bytecodeTarget);
+          return performCompilationInner(args, out, err, outputs, context, chunk);
+        }
+        finally {
+          System.clearProperty(GroovyRtConstants.GROOVY_TARGET_BYTECODE);
+        }
+      }
+    }
+
+    return performCompilationInner(args, out, err, outputs, context, chunk);
+  }
+
+  private boolean performCompilationInner(List<String> args,
+                                          StringWriter out,
+                                          StringWriter err,
+                                          Map<String, List<String>> outputs,
+                                          CompileContext context, ModuleChunk chunk) {
     try {
       Class<?> mainClass = Class.forName(GreclipseMain.class.getName(), true, myGreclipseLoader);
       Constructor<?> constructor = mainClass.getConstructor(PrintWriter.class, PrintWriter.class, Map.class, Map.class);
@@ -239,7 +259,7 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
       return (Boolean)compileMethod.invoke(main, new Object[]{ArrayUtil.toStringArray(args)});
     }
     catch (Exception e) {
-      context.processMessage(new CompilerMessage(getPresentableName(), e));
+      context.processMessage(CompilerMessage.createInternalBuilderError(getPresentableName(), e));
       return false;
     }
   }
@@ -248,7 +268,7 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
                                                 ModuleChunk chunk,
                                                 List<File> srcFiles,
                                                 String mainOutputDir, @Nullable ProcessorConfigProfile profile, GreclipseSettings settings) {
-    final List<String> args = new ArrayList<String>();
+    final List<String> args = new ArrayList<>();
 
     args.add("-cp");
     args.add(getClasspathString(chunk));
@@ -284,7 +304,7 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
   }
 
   private static String getClasspathString(ModuleChunk chunk) {
-    final Set<String> cp = new LinkedHashSet<String>();
+    final Set<String> cp = new LinkedHashSet<>();
     for (File file : ProjectPaths.getCompilationClasspathFiles(chunk, chunk.containsTests(), false, false)) {
       if (file.exists()) {
         cp.add(FileUtil.toCanonicalPath(file.getPath()));
@@ -297,5 +317,10 @@ public class GreclipseBuilder extends ModuleLevelBuilder {
   @Override
   public String getPresentableName() {
     return ID;
+  }
+
+  @Override
+  public long getExpectedBuildTime() {
+    return 100;
   }
 }

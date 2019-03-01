@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.editorActions;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.codeInsight.CodeInsightSettings;
 import com.intellij.codeInsight.highlighting.BraceMatcher;
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil;
@@ -32,15 +19,14 @@ import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.util.PsiUtilBase;
+import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -48,7 +34,7 @@ import java.util.List;
 
 public class BackspaceHandler extends EditorWriteActionHandler {
   private static final Logger LOGGER = Logger.getInstance(BackspaceHandler.class);
-  
+
   protected final EditorActionHandler myOriginalHandler;
 
   public BackspaceHandler(EditorActionHandler originalHandler) {
@@ -73,10 +59,10 @@ public class BackspaceHandler extends EditorWriteActionHandler {
 
     if (editor.getSelectionModel().hasSelection()) return false;
 
-    int offset = editor.getCaretModel().getOffset() - 1;
+    int offset = DocumentUtil.getPreviousCodePointOffset(editor.getDocument(), editor.getCaretModel().getOffset());
     if (offset < 0) return false;
     CharSequence chars = editor.getDocument().getCharsSequence();
-    char c = chars.charAt(offset);
+    int c = Character.codePointAt(chars, offset);
 
     final Editor injectedEditor = TypedHandler.injectedEditorIfCharTypedIsSignificant(c, editor, file);
     final Editor originalEditor = editor;
@@ -85,14 +71,14 @@ public class BackspaceHandler extends EditorWriteActionHandler {
       if (isOffsetInsideInjected(injectedEditor, injectedOffset)) {
         file = PsiDocumentManager.getInstance(project).getPsiFile(injectedEditor.getDocument());
         editor = injectedEditor;
-        offset = injectedOffset - 1;
+        offset = DocumentUtil.getPreviousCodePointOffset(injectedEditor.getDocument(), injectedOffset);
       }
     }
 
-    final BackspaceHandlerDelegate[] delegates = Extensions.getExtensions(BackspaceHandlerDelegate.EP_NAME);
-    if (!toWordStart) {
+    final List<BackspaceHandlerDelegate> delegates = BackspaceHandlerDelegate.EP_NAME.getExtensionList();
+    if (!toWordStart && Character.isBmpCodePoint(c)) {
       for(BackspaceHandlerDelegate delegate: delegates) {
-        delegate.beforeCharDeleted(c, file, editor);
+        delegate.beforeCharDeleted((char)c, file, editor);
       }
     }
 
@@ -104,9 +90,9 @@ public class BackspaceHandler extends EditorWriteActionHandler {
 
     myOriginalHandler.execute(originalEditor, caret, dataContext);
 
-    if (!toWordStart) {
+    if (!toWordStart && Character.isBmpCodePoint(c)) {
       for(BackspaceHandlerDelegate delegate: delegates) {
-        if (delegate.charDeleted(c, file, editor)) {
+        if (delegate.charDeleted((char)c, file, editor)) {
           return true;
         }
       }
@@ -117,7 +103,7 @@ public class BackspaceHandler extends EditorWriteActionHandler {
     chars = editor.getDocument().getCharsSequence();
     if ((c == '(' || c == '[' || c == '{') && CodeInsightSettings.getInstance().AUTOINSERT_PAIR_BRACKET) {
       char c1 = chars.charAt(offset);
-      if (c1 != getRightChar(c)) return true;
+      if (c1 != getRightChar((char)c)) return true;
 
       HighlighterIterator iterator = ((EditorEx)editor).getHighlighter().createIterator(offset);
       BraceMatcher braceMatcher = BraceMatchingUtil.getBraceMatcher(fileType, iterator);
@@ -130,7 +116,7 @@ public class BackspaceHandler extends EditorWriteActionHandler {
       int rparenOffset = BraceMatchingUtil.findRightmostRParen(iterator, iterator.getTokenType(), chars, fileType);
       if (rparenOffset >= 0){
         iterator = ((EditorEx)editor).getHighlighter().createIterator(rparenOffset);
-        boolean matched = BraceMatchingUtil.matchBrace(chars, fileType, iterator, false);
+        boolean matched = BraceMatchingUtil.matchBrace(chars, fileType, iterator, false, true);
         if (matched) return true;
       }
 
@@ -183,14 +169,11 @@ public class BackspaceHandler extends EditorWriteActionHandler {
     }
 
     // Decrease column down to indentation * n
-    final int indent = CodeStyleSettingsManager.getSettings(file.getProject()).getIndentOptionsByFile(file).INDENT_SIZE;
-    int column = (caretPos.column - 1) / indent * indent;
-    if (column < 0) {
-      column = 0;
-    }
+    final int indent = CodeStyle.getIndentOptions(file).INDENT_SIZE;
+    int column = indent > 0 ? (caretPos.column - 1) / indent * indent : 0;
     return new LogicalPosition(caretPos.line, column);
   }
-  
+
   public static void deleteToTargetPosition(@NotNull Editor editor, @NotNull LogicalPosition pos) {
     LogicalPosition logicalPosition = editor.getCaretModel().getLogicalPosition();
     if (logicalPosition.line != pos.line) {
@@ -202,6 +185,7 @@ public class BackspaceHandler extends EditorWriteActionHandler {
       int offset = editor.getCaretModel().getOffset();
       editor.getSelectionModel().setSelection(targetOffset, offset);
       EditorModificationUtil.deleteSelectedText(editor);
+      editor.getCaretModel().moveToLogicalPosition(pos);
     }
     else if (pos.column > logicalPosition.column) {
       EditorModificationUtil.insertStringAtCaret(editor, StringUtil.repeatSymbol(' ', pos.column - logicalPosition.column));

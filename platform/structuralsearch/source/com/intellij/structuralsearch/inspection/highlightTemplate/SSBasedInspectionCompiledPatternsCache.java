@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.inspection.highlightTemplate;
 
 import com.intellij.openapi.project.Project;
@@ -5,14 +6,14 @@ import com.intellij.openapi.util.Key;
 import com.intellij.structuralsearch.Matcher;
 import com.intellij.structuralsearch.impl.matcher.MatchContext;
 import com.intellij.structuralsearch.plugin.ui.Configuration;
-import com.intellij.util.ObjectUtils;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * @author Eugene.Kudelevsky
@@ -23,31 +24,25 @@ public class SSBasedInspectionCompiledPatternsCache {
 
   @NotNull
   static Map<Configuration, MatchContext> getCompiledOptions(@NotNull List<Configuration> configurations, @NotNull Project project) {
-    final Map<Configuration, MatchContext> cache =
-      ObjectUtils.notNull(project.getUserData(COMPILED_OPTIONS_KEY), new HashMap<Configuration, MatchContext>());
-    if (!areConfigurationsInCache(configurations, cache)) {
-      final Matcher matcher = new Matcher(project);
-      matcher.precompileOptions(configurations, cache);
-      project.putUserData(COMPILED_OPTIONS_KEY, cache);
-    }
-
-    return configurations.stream().collect(Collectors.toMap(Function.identity(), cache::get));
-  }
-
-  private static boolean areConfigurationsInCache(@NotNull List<Configuration> configurations,
-                                                  @NotNull Map<Configuration, MatchContext> cache) {
-    for (Configuration configuration : configurations) {
-      if (!(cache.containsKey(configuration))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  public static void removeFromCache(Configuration configuration, @NotNull Project project) {
     final Map<Configuration, MatchContext> cache = project.getUserData(COMPILED_OPTIONS_KEY);
-    if (cache != null) {
-      cache.remove(configuration);
+    if (areConfigurationsInCache(configurations, cache)) {
+      return cache;
     }
+
+    final Map<Configuration, MatchContext> newCache = new HashMap<>();
+    if (cache != null) {
+      newCache.putAll(cache);
+      newCache.keySet().retainAll(configurations);
+    }
+    if (configurations.size() != newCache.size()) {
+      new Matcher(project).precompileOptions(configurations, newCache);
+    }
+    project.putUserData(COMPILED_OPTIONS_KEY, Collections.unmodifiableMap(newCache));
+    return newCache;
+  }
+
+  @Contract("_, null -> false")
+  private static boolean areConfigurationsInCache(List<Configuration> configurations, @Nullable Map<Configuration, MatchContext> cache) {
+    return cache != null && configurations.size() == cache.size() && configurations.stream().allMatch(key -> cache.containsKey(key));
   }
 }

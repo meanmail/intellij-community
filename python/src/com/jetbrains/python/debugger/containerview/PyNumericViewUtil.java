@@ -22,9 +22,6 @@ import java.awt.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * Created by Yuli Fiterman on 5/10/2016.
- */
 public class PyNumericViewUtil {
   private static final Pattern PY_COMPLEX_NUMBER = Pattern.compile("([+-]?[.\\d^j]*)([+-]?[e.\\d]*j)?");
 
@@ -73,7 +70,7 @@ public class PyNumericViewUtil {
     if (matcher.matches()) {
       String real = matcher.group(1);
       String imag = matcher.group(2);
-      if (real.contains("j") && imag == null) {
+      if (imag == null && real.contains("j")) {
         return new Pair<>(new Double(0.0), Double.parseDouble(real.substring(0, real.length() - 1)));
       }
       else {

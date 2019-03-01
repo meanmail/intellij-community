@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.merge;
 
 import com.intellij.diff.util.DiffUtil;
@@ -21,11 +7,10 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.command.UndoConfirmationPolicy;
 import com.intellij.openapi.command.undo.BasicUndoableAction;
 import com.intellij.openapi.command.undo.UndoManager;
-import com.intellij.openapi.command.undo.UnexpectedUndoException;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.TIntArrayList;
@@ -40,14 +25,14 @@ import java.util.ArrayList;
 import java.util.List;
 
 public abstract class MergeModelBase<S extends MergeModelBase.State> implements Disposable {
-  public static final Logger LOG = Logger.getInstance(MergeModelBase.class);
+  private static final Logger LOG = Logger.getInstance(MergeModelBase.class);
 
   @Nullable private final Project myProject;
   @NotNull private final Document myDocument;
   @Nullable private final UndoManager myUndoManager;
 
-  @NotNull private TIntArrayList myStartLines = new TIntArrayList();
-  @NotNull private TIntArrayList myEndLines = new TIntArrayList();
+  @NotNull private final TIntArrayList myStartLines = new TIntArrayList();
+  @NotNull private final TIntArrayList myEndLines = new TIntArrayList();
 
   @NotNull private final TIntHashSet myChangesToUpdate = new TIntHashSet();
   private int myBulkChangeUpdateDepth;
@@ -184,9 +169,9 @@ public abstract class MergeModelBase<S extends MergeModelBase.State> implements 
     return oldState;
   }
 
-  private class MyDocumentListener extends DocumentAdapter {
+  private class MyDocumentListener implements DocumentListener {
     @Override
-    public void beforeDocumentChange(DocumentEvent e) {
+    public void beforeDocumentChange(@NotNull DocumentEvent e) {
       if (isDisposed()) return;
       enterBulkChangeUpdateBlock();
 
@@ -212,20 +197,20 @@ public abstract class MergeModelBase<S extends MergeModelBase.State> implements 
     }
 
     @Override
-    public void documentChanged(DocumentEvent e) {
+    public void documentChanged(@NotNull DocumentEvent e) {
       if (isDisposed()) return;
       exitBulkChangeUpdateBlock();
     }
   }
 
-  public void executeMergeCommand(@Nullable String commandName,
-                                  @Nullable String commandGroupId,
-                                  @NotNull UndoConfirmationPolicy confirmationPolicy,
-                                  boolean underBulkUpdate,
-                                  @Nullable TIntArrayList affectedChanges,
-                                  @NotNull Runnable task) {
+  public boolean executeMergeCommand(@Nullable String commandName,
+                                     @Nullable String commandGroupId,
+                                     @NotNull UndoConfirmationPolicy confirmationPolicy,
+                                     boolean underBulkUpdate,
+                                     @Nullable TIntArrayList affectedChanges,
+                                     @NotNull Runnable task) {
     TIntArrayList allAffectedChanges = affectedChanges != null ? collectAffectedChanges(affectedChanges) : null;
-    DiffUtil.executeWriteCommand(myProject, myDocument, commandName, commandGroupId, confirmationPolicy, underBulkUpdate, () -> {
+    return DiffUtil.executeWriteCommand(myProject, myDocument, commandName, commandGroupId, confirmationPolicy, underBulkUpdate, () -> {
       LOG.assertTrue(!myInsideCommand);
 
       // We should restore states after changes in document (by DocumentUndoProvider) to avoid corruption by our onBeforeDocumentChange()
@@ -234,12 +219,16 @@ public abstract class MergeModelBase<S extends MergeModelBase.State> implements 
 
       myInsideCommand = true;
       enterBulkChangeUpdateBlock();
-      registerUndoRedo(true, allAffectedChanges);
       try {
-        task.run();
+        registerUndoRedo(true, allAffectedChanges);
+        try {
+          task.run();
+        }
+        finally {
+          registerUndoRedo(false, allAffectedChanges);
+        }
       }
       finally {
-        registerUndoRedo(false, allAffectedChanges);
         exitBulkChangeUpdateBlock();
         myInsideCommand = false;
       }
@@ -271,7 +260,7 @@ public abstract class MergeModelBase<S extends MergeModelBase.State> implements 
     @NotNull private final List<? extends State> myStates;
     private final boolean myUndo;
 
-    public MyUndoableAction(@NotNull MergeModelBase model, @NotNull List<? extends State> states, boolean undo) {
+    MyUndoableAction(@NotNull MergeModelBase model, @NotNull List<? extends State> states, boolean undo) {
       super(model.myDocument);
       myModelRef = new WeakReference<>(model);
 
@@ -280,13 +269,13 @@ public abstract class MergeModelBase<S extends MergeModelBase.State> implements 
     }
 
     @Override
-    public final void undo() throws UnexpectedUndoException {
+    public final void undo() {
       MergeModelBase model = myModelRef.get();
       if (model != null && myUndo) restoreStates(model);
     }
 
     @Override
-    public final void redo() throws UnexpectedUndoException {
+    public final void redo() {
       MergeModelBase model = myModelRef.get();
       if (model != null && !myUndo) restoreStates(model);
     }

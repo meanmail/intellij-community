@@ -94,10 +94,10 @@ public abstract class CollectionModelEditor<T, E extends CollectionItemEditor<T>
   }
 
   protected class ModelHelper {
-    final OrderedSet<T> originalItems = new OrderedSet<>(ContainerUtil.<T>identityStrategy());
+    final OrderedSet<T> originalItems = new OrderedSet<>(ContainerUtil.identityStrategy());
 
-    private final THashMap<T, T> modifiedToOriginal = new THashMap<>(ContainerUtil.<T>identityStrategy());
-    private final THashMap<T, T> originalToModified = new THashMap<>(ContainerUtil.<T>identityStrategy());
+    private final THashMap<T, T> modifiedToOriginal = ContainerUtil.newIdentityTroveMap();
+    private final THashMap<T, T> originalToModified = ContainerUtil.newIdentityTroveMap();
 
     public void reset(@Nullable List<T> newOriginalItems) {
       if (newOriginalItems != null) {

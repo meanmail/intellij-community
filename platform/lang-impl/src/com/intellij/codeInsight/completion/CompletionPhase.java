@@ -1,51 +1,37 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl;
-import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.Disposable;
-import com.intellij.openapi.actionSystem.ActionManager;
-import com.intellij.openapi.actionSystem.AnAction;
-import com.intellij.openapi.actionSystem.AnActionEvent;
-import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.ex.AnActionListener;
-import com.intellij.openapi.application.ApplicationAdapter;
+import com.intellij.openapi.application.ApplicationListener;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.command.CommandAdapter;
-import com.intellij.openapi.command.CommandEvent;
-import com.intellij.openapi.command.CommandProcessor;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.editor.CaretModel;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.SelectionModel;
 import com.intellij.openapi.editor.event.*;
 import com.intellij.openapi.editor.ex.EditorEx;
-import com.intellij.openapi.editor.ex.FocusChangeListener;
-import com.intellij.openapi.project.DumbService;
+import com.intellij.openapi.editor.ex.FocusChangeListenerImpl;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.Expirable;
-import com.intellij.openapi.wm.IdeFocusManager;
+import com.intellij.psi.PsiDocumentManager;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
+import com.intellij.ui.AppUIUtil;
 import com.intellij.ui.HintListener;
 import com.intellij.ui.LightweightHint;
+import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.ui.accessibility.ScreenReader;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
+import java.awt.event.FocusEvent;
 import java.util.EventObject;
+import java.util.concurrent.ExecutorService;
 
 /**
  * @author peter
@@ -70,68 +56,26 @@ public abstract class CompletionPhase implements Disposable {
 
   public abstract int newCompletionStarted(int time, boolean repeated);
 
-  public boolean fillInCommonPrefix() {
-    return false;
-  }
-
   public static class CommittingDocuments extends CompletionPhase {
+    private static final ExecutorService ourExecutor = AppExecutorUtil.createBoundedApplicationPoolExecutor("Completion Preparation", 1);
     boolean replaced;
-    private boolean actionsHappened;
-    private final Editor myEditor;
-    private final Expirable focusStamp;
-    private final Project myProject;
-    private boolean ignoreDocumentChanges;
+    private final ActionTracker myTracker;
 
-    public CommittingDocuments(@Nullable CompletionProgressIndicator prevIndicator, Editor editor) {
+    private CommittingDocuments(@Nullable CompletionProgressIndicator prevIndicator, Editor editor) {
       super(prevIndicator);
-      myEditor = editor;
-      myProject = editor.getProject();
-      focusStamp = IdeFocusManager.getInstance(myProject).getTimestamp(true);
-      ActionManager.getInstance().addAnActionListener(new AnActionListener.Adapter() {
-        @Override
-        public void beforeActionPerformed(AnAction action, DataContext dataContext, AnActionEvent event) {
-          actionsHappened = true;
-        }
-      }, this);
-      myEditor.getDocument().addDocumentListener(new DocumentAdapter() {
-        @Override
-        public void documentChanged(DocumentEvent e) {
-          if (!ignoreDocumentChanges) {
-            actionsHappened = true;
-          }
-        }
-      }, this);
+      myTracker = new ActionTracker(editor, this);
     }
 
     public void ignoreCurrentDocumentChange() {
-      ignoreDocumentChanges = true;
-      CommandProcessor.getInstance().addCommandListener(new CommandAdapter() {
-        @Override
-        public void commandFinished(CommandEvent event) {
-          CommandProcessor.getInstance().removeCommandListener(this);
-          ignoreDocumentChanges = false;
-        }
-      });
+      myTracker.ignoreCurrentDocumentChange();
     }
 
     public boolean isRestartingCompletion() {
       return indicator != null;
     }
 
-    public boolean checkExpired() {
-      if (CompletionServiceImpl.getCompletionPhase() != this) {
-        return true;
-      }
-
-      if (actionsHappened || focusStamp.isExpired() || DumbService.getInstance(myProject).isDumb() ||
-          myEditor.isDisposed() ||
-          (myEditor instanceof EditorWindow && !((EditorWindow)myEditor).isValid()) ||
-          ApplicationManager.getApplication().isWriteAccessAllowed()) {
-        CompletionServiceImpl.setCompletionPhase(NoCompletion);
-        return true;
-      }
-
-      return false;
+    private boolean isExpired() {
+      return CompletionServiceImpl.getCompletionPhase() != this || myTracker.hasAnythingHappened();
     }
 
     @Override
@@ -149,6 +93,56 @@ public abstract class CompletionPhase implements Disposable {
     @Override
     public String toString() {
       return "CommittingDocuments{hasIndicator=" + (indicator != null) + '}';
+    }
+
+    /**
+     * Don't call this method in client code, it's public for implementation reasons
+     */
+    public static void scheduleAsyncCompletion(@NotNull Editor _editor,
+                                               @NotNull CompletionType completionType,
+                                               @Nullable Condition<? super PsiFile> condition,
+                                               @NotNull Project project,
+                                               @Nullable CompletionProgressIndicator prevIndicator) {
+      Editor topLevelEditor = InjectedLanguageUtil.getTopLevelEditor(_editor);
+      int offset = topLevelEditor.getCaretModel().getOffset();
+
+      CommittingDocuments phase = new CommittingDocuments(prevIndicator, topLevelEditor);
+      CompletionServiceImpl.setCompletionPhase(phase);
+      phase.ignoreCurrentDocumentChange();
+
+      ReadAction
+        .nonBlocking(() -> {
+          // retrieve the injected file from scratch since our typing might have destroyed the old one completely
+          PsiFile topLevelFile = PsiDocumentManager.getInstance(project).getPsiFile(topLevelEditor.getDocument());
+          Editor completionEditor = InjectedLanguageUtil.getEditorForInjectedLanguageNoCommit(topLevelEditor, topLevelFile, offset);
+          if (condition != null) {
+            PsiFile file = PsiDocumentManager.getInstance(project).getPsiFile(completionEditor.getDocument());
+            if (file != null && !condition.value(file)) {
+              return null;
+            }
+          }
+          return completionEditor;
+        })
+        .withDocumentsCommitted(project)
+        .expireWith(phase)
+        .expireWhen(() -> phase.isExpired())
+        .finishOnUiThread(ModalityState.current(), completionEditor -> {
+          if (completionEditor != null) {
+            boolean autopopup = prevIndicator == null || prevIndicator.isAutopopupCompletion();
+            int time = prevIndicator == null ? 0 : prevIndicator.getInvocationCount();
+            CodeCompletionHandlerBase handler = CodeCompletionHandlerBase.createHandler(completionType, false, autopopup, false);
+            handler.invokeCompletion(project, completionEditor, time, false);
+          }
+          else if (phase == CompletionServiceImpl.getCompletionPhase()) {
+            CompletionServiceImpl.setCompletionPhase(NoCompletion);
+          }
+        })
+        .submit(ourExecutor)
+        .onError(__ -> AppUIUtil.invokeOnEdt(() -> {
+          if (phase == CompletionServiceImpl.getCompletionPhase()) {
+            CompletionServiceImpl.setCompletionPhase(NoCompletion);
+          }
+        }));
     }
   }
   public static class Synchronous extends CompletionPhase {
@@ -168,7 +162,7 @@ public abstract class CompletionPhase implements Disposable {
 
     public BgCalculation(final CompletionProgressIndicator indicator) {
       super(indicator);
-      ApplicationManager.getApplication().addApplicationListener(new ApplicationAdapter() {
+      ApplicationManager.getApplication().addApplicationListener(new ApplicationListener() {
         @Override
         public void beforeWriteActionStart(@NotNull Object action) {
           if (!indicator.getLookup().isLookupDisposed() && !indicator.isCanceled()) {
@@ -178,13 +172,20 @@ public abstract class CompletionPhase implements Disposable {
       }, this);
       if (indicator.isAutopopupCompletion()) {
         // lookup is not visible, we have to check ourselves if editor retains focus
-        ((EditorEx)indicator.getEditor()).addFocusListener(new FocusChangeListener() {
+        ((EditorEx)indicator.getEditor()).addFocusListener(new FocusChangeListenerImpl() {
           @Override
-          public void focusGained(Editor editor) {
-          }
-
-          @Override
-          public void focusLost(Editor editor) {
+          public void focusLost(@NotNull Editor editor, @NotNull FocusEvent event) {
+            // When ScreenReader is active the lookup gets focus on show and we should not close it.
+            if (ScreenReader.isActive() &&
+                indicator.getLookup() != null &&
+                event.getOppositeComponent() != null &&
+                indicator.getLookup().getComponent() != null &&
+                // Check the opposite is in the lookup ancestor
+                (SwingUtilities.getWindowAncestor(event.getOppositeComponent())) ==
+                 SwingUtilities.getWindowAncestor(indicator.getLookup().getComponent()))
+            {
+              return;
+            }
             indicator.closeAndFinish(true);
           }
         }, this);
@@ -206,17 +207,7 @@ public abstract class CompletionPhase implements Disposable {
     @Override
     public int newCompletionStarted(int time, boolean repeated) {
       indicator.closeAndFinish(false);
-      indicator.restorePrefix(() -> indicator.getLookup().restorePrefix());
       return indicator.nextInvocationCount(time, repeated);
-    }
-
-    @Override
-    public boolean fillInCommonPrefix() {
-      if (indicator.isAutopopupCompletion()) {
-        return false;
-      }
-
-      return indicator.fillInCommonPrefix(true);
     }
   }
 
@@ -227,25 +218,25 @@ public abstract class CompletionPhase implements Disposable {
       @NotNull Editor editor = indicator.getEditor();
       final HintListener hintListener = new HintListener() {
         @Override
-        public void hintHidden(final EventObject event) {
+        public void hintHidden(@NotNull final EventObject event) {
           CompletionServiceImpl.setCompletionPhase(NoCompletion);
         }
       };
-      final DocumentAdapter documentListener = new DocumentAdapter() {
+      final DocumentListener documentListener = new DocumentListener() {
         @Override
-        public void beforeDocumentChange(DocumentEvent e) {
+        public void beforeDocumentChange(@NotNull DocumentEvent e) {
           CompletionServiceImpl.setCompletionPhase(NoCompletion);
         }
       };
       final SelectionListener selectionListener = new SelectionListener() {
         @Override
-        public void selectionChanged(SelectionEvent e) {
+        public void selectionChanged(@NotNull SelectionEvent e) {
           CompletionServiceImpl.setCompletionPhase(NoCompletion);
         }
       };
-      final CaretListener caretListener = new CaretAdapter() {
+      final CaretListener caretListener = new CaretListener() {
         @Override
-        public void caretPositionChanged(CaretEvent e) {
+        public void caretPositionChanged(@NotNull CaretEvent e) {
           CompletionServiceImpl.setCompletionPhase(NoCompletion);
         }
       };
@@ -258,9 +249,9 @@ public abstract class CompletionPhase implements Disposable {
       if (hint != null) {
         hint.addHintListener(hintListener);
       }
-      document.addDocumentListener(documentListener);
-      selectionModel.addSelectionListener(selectionListener);
-      caretModel.addCaretListener(caretListener);
+      document.addDocumentListener(documentListener, this);
+      selectionModel.addSelectionListener(selectionListener, this);
+      caretModel.addCaretListener(caretListener, this);
 
       Disposer.register(this, new Disposable() {
         @Override
@@ -268,9 +259,6 @@ public abstract class CompletionPhase implements Disposable {
           if (hint != null) {
             hint.removeHintListener(hintListener);
           }
-          document.removeDocumentListener(documentListener);
-          selectionModel.removeSelectionListener(selectionListener);
-          caretModel.removeCaretListener(caretListener);
         }
       });
     }
@@ -288,7 +276,9 @@ public abstract class CompletionPhase implements Disposable {
     @Override
     public int newCompletionStarted(int time, boolean repeated) {
       CompletionServiceImpl.setCompletionPhase(NoCompletion);
-      indicator.restorePrefix(restorePrefix);
+      if (repeated) {
+        indicator.restorePrefix(restorePrefix);
+      }
       return indicator.nextInvocationCount(time, repeated);
     }
 

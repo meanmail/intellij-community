@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.appengine.facet;
 
 import com.intellij.appengine.sdk.AppEngineSdk;
@@ -30,7 +16,6 @@ import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportModel;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportModelListener;
 import com.intellij.ide.util.frameworkSupport.FrameworkSupportProvider;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.JavaModuleType;
@@ -68,7 +53,8 @@ import javax.swing.event.DocumentEvent;
 import javax.swing.text.JTextComponent;
 import java.awt.*;
 import java.io.IOException;
-import java.util.*;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -199,26 +185,24 @@ public class AppEngineSupportProvider extends FrameworkSupportInModuleProvider {
   }
 
   private static Library addProjectLibrary(final Module module, final String name, final List<String> jarDirectories, final VirtualFile[] sources) {
-    return new WriteAction<Library>() {
-      protected void run(@NotNull final Result<Library> result) {
-        final LibraryTable libraryTable = LibraryTablesRegistrar.getInstance().getLibraryTable(module.getProject());
-        Library library = libraryTable.getLibraryByName(name);
-        if (library == null) {
-          library = libraryTable.createLibrary(name);
-          final Library.ModifiableModel model = library.getModifiableModel();
-          for (String path : jarDirectories) {
-            String url = VfsUtilCore.pathToUrl(path);
-            VirtualFileManager.getInstance().refreshAndFindFileByUrl(url);
-            model.addJarDirectory(url, false);
-          }
-          for (VirtualFile sourceRoot : sources) {
-            model.addRoot(sourceRoot, OrderRootType.SOURCES);
-          }
-          model.commit();
+    return WriteAction.computeAndWait(() -> {
+      final LibraryTable libraryTable = LibraryTablesRegistrar.getInstance().getLibraryTable(module.getProject());
+      Library library = libraryTable.getLibraryByName(name);
+      if (library == null) {
+        library = libraryTable.createLibrary(name);
+        final Library.ModifiableModel model = library.getModifiableModel();
+        for (String path : jarDirectories) {
+          String url = VfsUtilCore.pathToUrl(path);
+          VirtualFileManager.getInstance().refreshAndFindFileByUrl(url);
+          model.addJarDirectory(url, false);
         }
-        result.setResult(library);
+        for (VirtualFile sourceRoot : sources) {
+          model.addRoot(sourceRoot, OrderRootType.SOURCES);
+        }
+        model.commit();
       }
-    }.execute().getResultObject();
+      return library;
+    });
   }
 
   private VirtualFile findOrCreateChildDirectory(VirtualFile parent, final String name) throws IOException {
@@ -260,7 +244,7 @@ public class AppEngineSupportProvider extends FrameworkSupportInModuleProvider {
       model.addFrameworkListener(this);
 
       myErrorLabel = new HyperlinkLabel();
-      myErrorLabel.setIcon(AllIcons.RunConfigurations.ConfigurationWarning);
+      myErrorLabel.setIcon(AllIcons.General.BalloonError);
       myErrorLabel.setVisible(false);
       myErrorLabel.setHyperlinkTarget(AppEngineSdkUtil.APP_ENGINE_DOWNLOAD_URL);
       myErrorPanel.add(BorderLayout.CENTER, myErrorLabel);
@@ -269,7 +253,7 @@ public class AppEngineSupportProvider extends FrameworkSupportInModuleProvider {
       if (component instanceof JTextComponent) {
         ((JTextComponent)component).getDocument().addDocumentListener(new DocumentAdapter() {
           @Override
-          protected void textChanged(DocumentEvent e) {
+          protected void textChanged(@NotNull DocumentEvent e) {
             checkSdk();
           }
         });
@@ -294,12 +278,14 @@ public class AppEngineSupportProvider extends FrameworkSupportInModuleProvider {
       myMainPanel.repaint();
     }
 
+    @Override
     public void frameworkSelected(@NotNull FrameworkSupportProvider provider) {
       if (provider.getId().equals(JPA_FRAMEWORK_ID)) {
         myPersistenceApiComboBox.setSelectedItem(PersistenceApi.JPA.getDisplayName());
       }
     }
 
+    @Override
     public void frameworkUnselected(@NotNull FrameworkSupportProvider provider) {
       if (provider.getId().equals(JPA_FRAMEWORK_ID)) {
         myPersistenceApiComboBox.setSelectedItem(PersistenceApiComboboxUtil.NONE_ITEM);

@@ -1,39 +1,27 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.structuralsearch.impl.matcher.filters;
 
 import com.intellij.dupLocator.util.NodeFilter;
-import com.intellij.psi.JavaElementVisitor;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiExpression;
-import com.intellij.psi.PsiReferenceExpression;
+import com.intellij.psi.PsiNameValuePair;
+import com.intellij.psi.PsiResourceExpression;
 
 /**
  * Filters expression nodes
  */
-public class ExpressionFilter extends JavaElementVisitor implements NodeFilter {
-  protected boolean result;
+public class ExpressionFilter implements NodeFilter {
 
-  @Override public void visitReferenceExpression(PsiReferenceExpression psiReferenceExpression) {
-    result = true;
-  }
-
-  @Override public void visitExpression(PsiExpression psiExpression) {
-    result = true;
-  }
-
-  private static class NodeFilterHolder {
-    private static final NodeFilter instance = new ExpressionFilter();
-  }
+  private static final NodeFilter INSTANCE = new ExpressionFilter();
 
   public static NodeFilter getInstance() {
-    return NodeFilterHolder.instance;
+    return INSTANCE;
   }
 
-  private ExpressionFilter() {
-  }
+  private ExpressionFilter() {}
 
+  @Override
   public boolean accepts(PsiElement element) {
-    result = false;
-    if (element!=null) element.accept(this);
-    return result;
+    return element instanceof PsiExpression || element instanceof PsiNameValuePair || element instanceof PsiResourceExpression;
   }
 }

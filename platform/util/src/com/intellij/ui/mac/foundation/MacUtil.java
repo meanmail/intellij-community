@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui.mac.foundation;
 
 import com.intellij.openapi.Disposable;
@@ -21,8 +7,10 @@ import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.registry.Registry;
+import com.sun.jna.Pointer;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import sun.awt.AWTAccessor;
 
 import javax.swing.*;
 import javax.swing.text.JTextComponent;
@@ -32,6 +20,7 @@ import java.awt.event.KeyEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static com.intellij.ui.mac.foundation.Foundation.*;
 
@@ -41,7 +30,7 @@ import static com.intellij.ui.mac.foundation.Foundation.*;
 public class MacUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ui.mac.foundation.MacUtil");
   public static final String MAC_NATIVE_WINDOW_SHOWING = "MAC_NATIVE_WINDOW_SHOWING";
-  
+
   private MacUtil() {
   }
 
@@ -111,7 +100,7 @@ public class MacUtil {
     catch (InterruptedException ignored) {
     }
   }
-  
+
   public static synchronized void startModal(JComponent component) {
     startModal(component, MAC_NATIVE_WINDOW_SHOWING);
   }
@@ -119,12 +108,8 @@ public class MacUtil {
   public static boolean isFullKeyboardAccessEnabled() {
     if (!SystemInfo.isMacOSSnowLeopard) return false;
     final AtomicBoolean result = new AtomicBoolean();
-    Foundation.executeOnMainThread(true, true, new Runnable() {
-      @Override
-      public void run() {
-          result.set(invoke(invoke("NSApplication", "sharedApplication"), "isFullKeyboardAccessEnabled").intValue() == 1);
-      }
-    });
+    executeOnMainThread(true, true,
+                        () -> result.set(invoke(invoke("NSApplication", "sharedApplication"), "isFullKeyboardAccessEnabled").intValue() == 1));
     return result.get();
   }
 
@@ -150,26 +135,18 @@ public class MacUtil {
     Toolkit.getDefaultToolkit().addAWTEventListener(listener, AWTEvent.KEY_EVENT_MASK);
   }
 
-  @SuppressWarnings("deprecation")
   public static ID findWindowFromJavaWindow(final Window w) {
     ID windowId = null;
-    if (SystemInfo.isJavaVersionAtLeast("1.7") && Registry.is("skip.untitled.windows.for.mac.messages")) {
+    if (Registry.is("skip.untitled.windows.for.mac.messages")) {
       try {
-        //noinspection deprecation
-        Class <?> cWindowPeerClass  = w.getPeer().getClass();
+        Class <?> cWindowPeerClass  = AWTAccessor.getComponentAccessor().getPeer(w).getClass();
         Method getPlatformWindowMethod = cWindowPeerClass.getDeclaredMethod("getPlatformWindow");
-        Object cPlatformWindow = getPlatformWindowMethod.invoke(w.getPeer());
+        Object cPlatformWindow = getPlatformWindowMethod.invoke(AWTAccessor.getComponentAccessor().getPeer(w));
         Class <?> cPlatformWindowClass = cPlatformWindow.getClass();
         Method getNSWindowPtrMethod = cPlatformWindowClass.getDeclaredMethod("getNSWindowPtr");
         windowId = new ID((Long)getNSWindowPtrMethod.invoke(cPlatformWindow));
       }
-      catch (NoSuchMethodException e) {
-        LOG.debug(e);
-      }
-      catch (InvocationTargetException e) {
-        LOG.debug(e);
-      }
-      catch (IllegalAccessException e) {
+      catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
         LOG.debug(e);
       }
     }
@@ -192,27 +169,60 @@ public class MacUtil {
     return windowTitle;
   }
 
-  public static Object wakeUpNeo(String reason) {
-    // http://lists.apple.com/archives/java-dev/2014/Feb/msg00053.html
-    // https://developer.apple.com/library/prerelease/ios/documentation/Cocoa/Reference/Foundation/Classes/NSProcessInfo_Class/index.html#//apple_ref/c/tdef/NSActivityOptions
-    if (SystemInfo.isMacOSMavericks && Registry.is("idea.mac.prevent.app.nap")) {
-      ID processInfo = invoke("NSProcessInfo", "processInfo");
-      ID activity = invoke(processInfo, "beginActivityWithOptions:reason:",
-                         (0x00FFFFFFL & ~(1L << 20))  /* NSActivityUserInitiatedAllowingIdleSystemSleep */ |
-                         0xFF00000000L /* NSActivityLatencyCritical */,
-                         nsString(reason));
-      cfRetain(activity);
-      return activity;
-    }
-    return null;
+  @SuppressWarnings("unused")
+  private static class NSActivityOptions {
+    // Used for activities that require the computer to not idle sleep. This is included in NSActivityUserInitiated.
+    private static final long idleSystemSleepDisabled = 1L << 20;
+
+    // App is performing a user-requested action.
+    private static final long userInitiated = 0x00FFFFFFL | idleSystemSleepDisabled;
+    private static final long userInitiatedAllowingIdleSystemSleep = userInitiated & ~idleSystemSleepDisabled;
+
+    // Used for activities that require the highest amount of timer and I/O precision available. Very few applications should need to use this constant.
+    private static final long latencyCritical = 0xFF00000000L;
   }
 
-  public static void matrixHasYou(Object activity) {
-    if (activity != null) {
-      ID processInfo = invoke("NSProcessInfo", "processInfo");
-      invoke(processInfo, "endActivity:", activity);
-      cfRelease((ID)activity);
+  public interface Activity {
+    /**
+     * Ends activity, allowing macOS to trigger AppNap (idempotent).
+     */
+    void matrixHasYou();
+  }
+
+  private static final class ActivityImpl extends AtomicReference<ID> implements Activity {
+    private static final ID processInfoCls = getObjcClass("NSProcessInfo");
+    private static final Pointer processInfoSel = createSelector("processInfo");
+    private static final Pointer beginActivityWithOptionsReasonSel = createSelector("beginActivityWithOptions:reason:");
+    private static final Pointer endActivitySel = createSelector("endActivity:");
+    private static final Pointer retainSel = createSelector("retain");
+    private static final Pointer releaseSel = createSelector("release");
+
+    private ActivityImpl(@NotNull Object reason) {
+      super(begin(reason));
     }
+
+    @Override
+    public void matrixHasYou() { end(getAndSet(null)); }
+
+    private static ID getProcessInfo() { return invoke(processInfoCls, processInfoSel); }
+
+    private static ID begin(@NotNull Object reason) {
+      // http://lists.apple.com/archives/java-dev/2014/Feb/msg00053.html
+      // https://developer.apple.com/library/prerelease/ios/documentation/Cocoa/Reference/Foundation/Classes/NSProcessInfo_Class/index.html#//apple_ref/c/tdef/NSActivityOptions
+      return invoke(invoke(getProcessInfo(), beginActivityWithOptionsReasonSel,
+                           NSActivityOptions.userInitiatedAllowingIdleSystemSleep, nsString(reason.toString())),
+                    retainSel);
+    }
+
+    private static void end(@Nullable ID activityToken) {
+      if (activityToken == null) return;
+      invoke(getProcessInfo(), endActivitySel, activityToken);
+      invoke(activityToken, releaseSel);
+    }
+  }
+
+  public static Activity wakeUpNeo(@NotNull Object reason) {
+    return SystemInfo.isMacOSMavericks && Registry.is("idea.mac.prevent.app.nap") ? new ActivityImpl(reason) : null;
   }
 
   @NotNull

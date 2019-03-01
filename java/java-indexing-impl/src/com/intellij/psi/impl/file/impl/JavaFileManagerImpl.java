@@ -1,24 +1,12 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.impl.file.impl;
 
 import com.intellij.ProjectTopics;
 import com.intellij.ide.highlighter.JavaClassFileType;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.impl.scopes.ModuleWithDependenciesScope;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.*;
 import com.intellij.openapi.util.Comparing;
@@ -26,10 +14,14 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.vfs.VirtualFileWithId;
 import com.intellij.psi.*;
+import com.intellij.psi.impl.PsiImplUtil;
 import com.intellij.psi.impl.PsiManagerEx;
 import com.intellij.psi.impl.file.PsiPackageImpl;
+import com.intellij.psi.impl.java.stubs.index.JavaAutoModuleNameIndex;
 import com.intellij.psi.impl.java.stubs.index.JavaFullClassNameIndex;
 import com.intellij.psi.impl.java.stubs.index.JavaModuleNameIndex;
+import com.intellij.psi.impl.light.LightJavaModule;
+import com.intellij.psi.search.DelegatingGlobalSearchScope;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.util.Query;
 import com.intellij.util.containers.ContainerUtil;
@@ -38,6 +30,9 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.model.java.JavaModuleSourceRootTypes;
 
 import java.util.*;
+import java.util.stream.Stream;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * @author dmitry lomov
@@ -53,9 +48,9 @@ public class JavaFileManagerImpl implements JavaFileManager, Disposable {
   public JavaFileManagerImpl(Project project) {
     myManager = PsiManagerEx.getInstanceEx(project);
     myPackageIndex = PackageIndex.getInstance(myManager.getProject());
-    project.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    project.getMessageBus().connect().subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(final ModuleRootEvent event) {
+      public void rootsChanged(@NotNull final ModuleRootEvent event) {
         myNontrivialPackagePrefixes = null;
       }
     });
@@ -180,6 +175,70 @@ public class JavaFileManagerImpl implements JavaFileManager, Disposable {
   @NotNull
   @Override
   public Collection<PsiJavaModule> findModules(@NotNull String moduleName, @NotNull GlobalSearchScope scope) {
-    return JavaModuleNameIndex.getInstance().get(moduleName, myManager.getProject(), scope);
+    GlobalSearchScope excludingScope = new LibSrcExcludingScope(scope);
+
+    List<PsiJavaModule> results = new ArrayList<>(JavaModuleNameIndex.getInstance().get(moduleName, myManager.getProject(), excludingScope));
+
+    Collection<VirtualFile> jars = JavaAutoModuleNameIndex.getFilesByKey(moduleName, excludingScope);
+    if (!jars.isEmpty()) {
+      jars.stream().map(f -> LightJavaModule.getModule(myManager, f)).forEach(results::add);
+    }
+
+    return upgradeModules(sortModules(results, scope), moduleName, scope);
+  }
+
+  private static class LibSrcExcludingScope extends DelegatingGlobalSearchScope {
+    private final ProjectFileIndex myIndex;
+
+    private LibSrcExcludingScope(@NotNull GlobalSearchScope baseScope) {
+      super(baseScope);
+      myIndex = ProjectFileIndex.getInstance(requireNonNull(baseScope.getProject()));
+    }
+
+    @Override
+    public boolean contains(@NotNull VirtualFile file) {
+      return super.contains(file) && (!myIndex.isInLibrarySource(file) || myIndex.isInLibraryClasses(file));
+    }
+  }
+
+  private static Collection<PsiJavaModule> sortModules(Collection<PsiJavaModule> modules, GlobalSearchScope scope) {
+    if (modules.size() > 1) {
+      List<PsiJavaModule> list = new ArrayList<>(modules);
+      list.sort((m1, m2) -> scope.compare(PsiImplUtil.getModuleVirtualFile(m2), PsiImplUtil.getModuleVirtualFile(m1)));
+      modules = list;
+    }
+    return modules;
+  }
+
+  private static Collection<PsiJavaModule> upgradeModules(Collection<PsiJavaModule> modules, String moduleName, GlobalSearchScope scope) {
+    if (modules.size() > 1 && PsiJavaModule.UPGRADEABLE.contains(moduleName) && scope instanceof ModuleWithDependenciesScope) {
+      Module module = ((ModuleWithDependenciesScope)scope).getModule();
+      boolean isModular = Stream.of(ModuleRootManager.getInstance(module).getSourceRoots(true))
+        .filter(scope::contains)
+        .anyMatch(root -> root.findChild(PsiJavaModule.MODULE_INFO_FILE) != null);
+      if (isModular) {
+        List<PsiJavaModule> list = new ArrayList<>(modules);
+
+        ModuleFileIndex index = ModuleRootManager.getInstance(module).getFileIndex();
+        for (ListIterator<PsiJavaModule> i = list.listIterator(); i.hasNext(); ) {
+          PsiJavaModule candidate = i.next();
+          if (index.getOrderEntryForFile(PsiImplUtil.getModuleVirtualFile(candidate)) instanceof JdkOrderEntry) {
+            if (i.previousIndex() > 0) {
+              i.remove();  // not at the top -> is upgraded
+            }
+            else {
+              list = Collections.singletonList(candidate);  // shadows subsequent modules
+              break;
+            }
+          }
+        }
+
+        if (list.size() != modules.size()) {
+          modules = list;
+        }
+      }
+    }
+
+    return modules;
   }
 }

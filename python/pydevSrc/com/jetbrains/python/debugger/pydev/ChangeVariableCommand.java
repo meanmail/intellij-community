@@ -1,9 +1,11 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.debugger.pydev;
 
 
 import com.jetbrains.python.debugger.IPyDebugProcess;
 import com.jetbrains.python.debugger.PyDebugValue;
 import com.jetbrains.python.debugger.PyDebuggerException;
+import org.jetbrains.annotations.NotNull;
 
 public class ChangeVariableCommand extends AbstractFrameCommand {
 
@@ -32,9 +34,11 @@ public class ChangeVariableCommand extends AbstractFrameCommand {
     return true;
   }
 
-  protected void processResponse(final ProtocolFrame response) throws PyDebuggerException {
+  @Override
+  protected void processResponse(@NotNull final ProtocolFrame response) throws PyDebuggerException {
     super.processResponse(response);
-    myNewValue = ProtocolParser.parseValue(response.getPayload(), myDebugProcess).setName(myVariableName);
+    PyDebugValue returnedValue = ProtocolParser.parseValue(response.getPayload(), myDebugProcess);
+    myNewValue = new PyDebugValue(returnedValue, myVariableName);
   }
 
   public PyDebugValue getNewValue() {

@@ -20,6 +20,7 @@ import com.intellij.openapi.Disposable;
 import com.intellij.openapi.ui.Painter;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.Activatable;
 import com.intellij.util.ui.update.UiNotifyConnector;
 
@@ -50,6 +51,7 @@ public class IdeGlassPaneUtil {
 
       IdeGlassPane myPane;
 
+      @Override
       public void showNotify() {
         IdeGlassPane pane = find(target);
         if (myPane != null && myPane != pane) {
@@ -59,6 +61,7 @@ public class IdeGlassPaneUtil {
         myPane.addPainter(target, painter, parent);
       }
 
+      @Override
       public void hideNotify() {
         if (myPane != null) {
           myPane.removePainter(painter);
@@ -69,7 +72,7 @@ public class IdeGlassPaneUtil {
   }
 
   public static boolean canBePreprocessed(MouseEvent e) {
-    Component c = SwingUtilities.getDeepestComponentAt(e.getComponent(), e.getX(), e.getY());
+    Component c = UIUtil.getDeepestComponentAt(e.getComponent(), e.getX(), e.getY());
 
     if (JBPopupFactory.getInstance().getParentBalloonFor(c) != null && e.getID() != MouseEvent.MOUSE_DRAGGED) {
       return false;

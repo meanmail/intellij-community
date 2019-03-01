@@ -45,15 +45,10 @@ public class IssueLinkRenderer {
   }
 
   public List<String> appendTextWithLinks(final String text, final SimpleTextAttributes baseStyle) {
-    return appendTextWithLinks(text, baseStyle, new Consumer<String>() {
-      @Override
-      public void consume(String s) {
-        append(s, baseStyle);
-      }
-    });
+    return appendTextWithLinks(text, baseStyle, s -> append(s, baseStyle));
   }
 
-  public List<String> appendTextWithLinks(final String text, final SimpleTextAttributes baseStyle, final Consumer<String> consumer) {
+  public List<String> appendTextWithLinks(final String text, final SimpleTextAttributes baseStyle, final Consumer<? super String> consumer) {
     final List<String> pieces = new ArrayList<>();
     final List<IssueNavigationConfiguration.LinkMatch> list = myIssueNavigationConfiguration.findIssueLinks(text);
     int pos = 0;

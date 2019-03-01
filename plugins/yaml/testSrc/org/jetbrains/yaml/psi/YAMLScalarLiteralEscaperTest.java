@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.psi;
 
 import com.intellij.openapi.application.ex.PathManagerEx;
@@ -50,6 +36,18 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
     doTest();
   }
 
+  public void testPlainScalar3Tag() {
+    doTest();
+  }
+
+  public void testPlainScalarBigFirstLineIndent1() {
+    doTest();
+  }
+
+  public void testPlainScalarBigFirstLineIndent2() {
+    doTest();
+  }
+
   public void testLiteralStyle1() {
     doTest();
   }
@@ -59,6 +57,21 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
   }
 
   public void testLiteralStyle3() {
+    doTest();
+  }
+
+  // Test presence of comment in literal style block scalar header
+  public void testLiteralStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test strip literal block scalar chomping indicator
+  public void testLiteralStyleStrip() {
+    doTest();
+  }
+
+  // Test keep literal block scalar chomping indicator
+  public void testLiteralStyleKeep() {
     doTest();
   }
 
@@ -78,7 +91,30 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
     doTest();
   }
 
+  public void testFoldedStyle4Tag() {
+    doTest();
+  }
+
+  // Test presence of comment in folded style block scalar header
+  public void testFoldedStyleCommentInHeader() {
+    doTest();
+  }
+
+  // Test strip folded block scalar chomping indicator
+  public void testFoldedStyleStrip() {
+    doTest();
+  }
+
+  // Test keep folded block scalar chomping indicator
+  public void testFoldedStyleKeep() {
+    doTest();
+  }
+
   public void testSingleQuote1() {
+    doTest();
+  }
+
+  public void testSingleQuote1Tag() {
     doTest();
   }
 
@@ -89,12 +125,16 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
   public void testDoubleQuote1() {
     doTest();
   }
-  
+
   public void testDoubleQuote2() {
     doTest();
   }
-  
+
   public void testDoubleQuote3() {
+    doTest();
+  }
+
+  public void testDoubleQuoteTag() {
     doTest();
   }
 
@@ -112,12 +152,12 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
     final StringBuilder builder = new StringBuilder();
     assertTrue(elementLiteralEscaper.decode(scalarElement.getTextRange(), builder));
     assertEquals(scalarElement.getTextValue(), builder.toString());
-    
+
     int[] offsets = new int[builder.length() + 1];
     for (int i = 0; i < builder.length() + 1; ++i) {
       offsets[i] = elementLiteralEscaper.getOffsetInHost(i, TextRange.from(0, scalarElement.getTextLength()));
     }
-    
+
     final String elementText = scalarElement.getText();
     StringBuilder description = new StringBuilder();
     for (int i = 0; i < builder.length(); ++i) {
@@ -126,8 +166,8 @@ public class YAMLScalarLiteralEscaperTest extends LightPlatformCodeInsightFixtur
         .append(elementText.subSequence(offsets[i], offsets[i + 1]))
         .append('\n');
     }
-    assertSameLinesWithFile(getTestDataPath() + getTestName(true) + ".positions.txt", 
-                            Arrays.toString(offsets) + "\n" + description, 
+    assertSameLinesWithFile(getTestDataPath() + getTestName(true) + ".positions.txt",
+                            Arrays.toString(offsets) + "\n" + description,
                             false);
   }
 }

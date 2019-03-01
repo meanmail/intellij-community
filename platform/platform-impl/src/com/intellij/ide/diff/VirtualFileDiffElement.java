@@ -16,19 +16,18 @@
 package com.intellij.ide.diff;
 
 import com.intellij.ide.presentation.VirtualFilePresentation;
-import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ModalityState;
-import com.intellij.openapi.application.Result;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.fileChooser.FileChooser;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
+import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.FileTypeManager;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.newvfs.RefreshQueue;
@@ -40,6 +39,7 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -104,18 +104,13 @@ public class VirtualFileDiffElement extends DiffElement<VirtualFile> {
         elements.add(new VirtualFileDiffElement(file));
       }
     }
-    return elements.toArray(new VirtualFileDiffElement[elements.size()]);
+    return elements.toArray(new VirtualFileDiffElement[0]);
   }
 
   @Nullable
   @Override
   public byte[] getContent() throws IOException {
-    return ApplicationManager.getApplication().runReadAction(new ThrowableComputable<byte[], IOException>() {
-      @Override
-      public byte[] compute() throws IOException {
-        return myFile.contentsToByteArray();
-      }
-    });
+    return ReadAction.compute(() -> myFile.contentsToByteArray());
   }
 
   @Override
@@ -149,6 +144,17 @@ public class VirtualFileDiffElement extends DiffElement<VirtualFile> {
   @Override
   public boolean isOperationsEnabled() {
     return myFile.getFileSystem() instanceof LocalFileSystem;
+  }
+
+  @NotNull
+  @Override
+  public Charset getCharset() {
+    return myFile.getCharset();
+  }
+
+  @Override
+  public FileType getFileType() {
+    return myFile.getFileType();
   }
 
   @Override
@@ -195,14 +201,11 @@ public class VirtualFileDiffElement extends DiffElement<VirtualFile> {
       }
 
       if (!docsToSave.isEmpty()) {
-        new WriteAction() {
-          @Override
-          protected void run(@NotNull Result result) throws Throwable {
-            for (Document document : docsToSave) {
-              manager.saveDocument(document);
-            }
+        WriteAction.runAndWait(() -> {
+          for (Document document : docsToSave) {
+            manager.saveDocument(document);
           }
-        }.execute();
+        });
       }
 
       ModalityState modalityState = ProgressManager.getInstance().getProgressIndicator().getModalityState();

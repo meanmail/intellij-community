@@ -25,7 +25,7 @@ import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 import com.intellij.util.IncorrectOperationException;
 
 import java.util.ArrayList;
@@ -54,11 +54,9 @@ public class JavaTemplateUtil {
       classes.add((PsiClass)item);
     }
     else if (item instanceof PsiClassType) {
-      PsiClass aClass = PsiUtil.resolveClassInType((PsiType)item);
-      if (aClass != null) {
-        classes.add(aClass);
-      }
-      collectClassParams((PsiType)item, classes);
+      PsiTypesUtil.TypeParameterSearcher searcher = new PsiTypesUtil.TypeParameterSearcher();
+      ((PsiClassType)item).accept(searcher);
+      classes.addAll(searcher.getTypeParameters());
     }
 
     if (!classes.isEmpty()) {
@@ -101,20 +99,6 @@ public class JavaTemplateUtil {
     }
   }
 
-  private static void collectClassParams(PsiType item, List<PsiClass> classes) {
-    PsiClass aClass = PsiUtil.resolveClassInType(item);
-    if (aClass instanceof PsiTypeParameter) {
-      classes.add(aClass);
-    }
-
-    if (item instanceof PsiClassType) {
-      PsiType[] parameters = ((PsiClassType)item).getParameters();
-      for (PsiType parameter : parameters) {
-        collectClassParams(parameter, classes);
-      }
-    }
-  }
-
   public static void addImportForClass(final Document document, final PsiClass aClass, final int start, final int end) {
     final Project project = aClass.getProject();
     PsiDocumentManager.getInstance(project).commitAllDocuments();
@@ -151,14 +135,14 @@ public class JavaTemplateUtil {
     }
   }
 
-  public static LookupElement addElementLookupItem(Set<LookupElement> items, PsiElement element) {
+  public static LookupElement addElementLookupItem(Set<? super LookupElement> items, PsiElement element) {
     final LookupElement item = LookupItemUtil.objectToLookupItem(element);
     items.add(item);
     item.putUserData(TemplateLookupSelectionHandler.KEY_IN_LOOKUP_ITEM, new JavaTemplateLookupSelectionHandler());
     return item;
   }
 
-  public static LookupElement addTypeLookupItem(Set<LookupElement> items, PsiType type) {
+  public static LookupElement addTypeLookupItem(Set<? super LookupElement> items, PsiType type) {
     final LookupElement item = PsiTypeLookupItem.createLookupItem(type, null);
     items.add(item);
     item.putUserData(TemplateLookupSelectionHandler.KEY_IN_LOOKUP_ITEM, new JavaTemplateLookupSelectionHandler());

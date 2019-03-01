@@ -33,6 +33,7 @@ import com.intellij.psi.PsiManager;
 import com.intellij.ui.UIBundle;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.util.Consumer;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -40,19 +41,16 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseEvent;
 
+import static com.intellij.openapi.util.IconLoader.getDisabledIcon;
+
 public class TogglePopupHintsPanel extends EditorBasedWidget implements StatusBarWidget.Multiframe, StatusBarWidget.IconPresentation {
   private Icon myCurrentIcon;
   private String myToolTipText;
 
   public TogglePopupHintsPanel(@NotNull final Project project) {
     super(project);
-    myCurrentIcon = AllIcons.Ide.HectorNo;
-    myConnection.subscribe(PowerSaveMode.TOPIC, new PowerSaveMode.Listener() {
-      @Override
-      public void powerSaveStateChanged() {
-        updateStatus();
-      }
-    });
+    myCurrentIcon = getDisabledIcon(AllIcons.Ide.HectorOff);
+    myConnection.subscribe(PowerSaveMode.TOPIC, this::updateStatus);
   }
 
   @Override
@@ -109,19 +107,20 @@ public class TogglePopupHintsPanel extends EditorBasedWidget implements StatusBa
   }
 
   public void clear() {
-    myCurrentIcon = AllIcons.Ide.HectorNo;
+    myCurrentIcon = getDisabledIcon(AllIcons.Ide.HectorOff);
     myToolTipText = null;
     myStatusBar.updateWidget(ID());
   }
 
   public void updateStatus() {
-    updateStatus(getCurrentFile());
+    UIUtil.invokeLaterIfNeeded(() -> updateStatus(getCurrentFile()));
   }
 
   private void updateStatus(PsiFile file) {
+    if (isDisposed()) return;
     if (isStateChangeable(file)) {
       if (PowerSaveMode.isEnabled()) {
-        myCurrentIcon = AllIcons.Ide.HectorNo;
+        myCurrentIcon = getDisabledIcon(AllIcons.Ide.HectorOff);
         myToolTipText = "Code analysis is disabled in power save mode.\n";
       }
       else if (HighlightingLevelManager.getInstance(myProject).shouldInspect(file)) {
@@ -141,7 +140,7 @@ public class TogglePopupHintsPanel extends EditorBasedWidget implements StatusBa
       myToolTipText += UIBundle.message("popup.hints.panel.click.to.configure.highlighting.tooltip.text");
     }
     else {
-      myCurrentIcon = AllIcons.Ide.HectorNo;
+      myCurrentIcon = getDisabledIcon(AllIcons.Ide.HectorOff);
       myToolTipText = null;
     }
 

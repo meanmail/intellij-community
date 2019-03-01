@@ -31,7 +31,6 @@ import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 10/15/13
  */
 public interface ProjectResolverContext extends UserDataHolderEx {
   @NotNull
@@ -59,10 +58,14 @@ public interface ProjectResolverContext extends UserDataHolderEx {
 
   boolean isResolveModulePerSourceSet();
 
+  boolean isUseQualifiedModuleNames();
+
+  default boolean isDelegatedBuild() { return true; }
+
   @NotNull
   ProjectImportAction.AllModels getModels();
 
-  public void setModels(@NotNull ProjectImportAction.AllModels models) ;
+  void setModels(@NotNull ProjectImportAction.AllModels models) ;
 
   @Nullable
   <T> T getExtraProject(Class<T> modelClazz);
@@ -76,4 +79,9 @@ public interface ProjectResolverContext extends UserDataHolderEx {
   boolean hasModulesWithModel(@NotNull Class modelClazz);
 
   void checkCancelled() throws ProcessCanceledException;
+
+  String getProjectGradleVersion();
+
+  @Nullable
+  String getBuildSrcGroup();
 }

@@ -36,8 +36,10 @@ import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.openapi.vfs.VirtualFileWithoutContent;
+import com.intellij.openapi.vfs.*;
+import com.intellij.openapi.vfs.encoding.EncodingManager;
+import com.intellij.openapi.vfs.encoding.EncodingProjectManager;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.LineSeparator;
 import com.intellij.util.PathUtil;
 import com.intellij.util.TimeoutUtil;
@@ -70,7 +72,7 @@ public class ExternalDiffToolUtil {
   }
 
   @NotNull
-  private static InputFile createFile(@NotNull DiffContent content, @NotNull FileNameInfo fileName)
+  private static InputFile createFile(@Nullable Project project, @NotNull DiffContent content, @NotNull FileNameInfo fileName)
     throws IOException {
 
     if (content instanceof EmptyContent) {
@@ -91,7 +93,7 @@ public class ExternalDiffToolUtil {
       return new TempInputFile(createTempFile(file, fileName));
     }
     else if (content instanceof DocumentContent) {
-      return new TempInputFile(createTempFile((DocumentContent)content, fileName));
+      return new TempInputFile(createTempFile(project, (DocumentContent)content, fileName));
     }
     else if (content instanceof DirectoryContent) {
       VirtualFile file = ((DirectoryContent)content).getFile();
@@ -106,23 +108,31 @@ public class ExternalDiffToolUtil {
   }
 
   @NotNull
-  private static File createTempFile(@NotNull final DocumentContent content, @NotNull FileNameInfo fileName) throws IOException {
+  private static File createTempFile(@Nullable Project project,
+                                     @NotNull DocumentContent content,
+                                     @NotNull FileNameInfo fileName) throws IOException {
     FileDocumentManager.getInstance().saveDocument(content.getDocument());
 
     LineSeparator separator = content.getLineSeparator();
     if (separator == null) separator = LineSeparator.getSystemLineSeparator();
 
-    Charset charset = content.getCharset();
-    if (charset == null) charset = Charset.defaultCharset();
+    Charset charset = getContentCharset(project, content);
 
-    String contentData = ReadAction.compute(() -> {
-      return content.getDocument().getText();
-    });
+    Boolean hasBom = content.hasBom();
+    if (hasBom == null) hasBom = CharsetToolkit.getMandatoryBom(charset) != null;
+
+    String contentData = ReadAction.compute(() -> content.getDocument().getText());
     if (separator != LineSeparator.LF) {
       contentData = StringUtil.convertLineSeparators(contentData, separator.getSeparatorString());
     }
 
     byte[] bytes = contentData.getBytes(charset);
+
+    byte[] bom = hasBom ? CharsetToolkit.getPossibleBom(charset) : null;
+    if (bom != null) {
+      bytes = ArrayUtil.mergeArrays(bom, bytes);
+    }
+
     return createFile(bytes, fileName);
   }
 
@@ -133,7 +143,17 @@ public class ExternalDiffToolUtil {
   }
 
   @NotNull
-  private static OutputFile createOutputFile(@NotNull DiffContent content, @NotNull FileNameInfo fileName) throws IOException {
+  private static Charset getContentCharset(@Nullable Project project, @NotNull DocumentContent content) {
+    Charset charset = content.getCharset();
+    if (charset != null) return charset;
+    EncodingManager e = project != null ? EncodingProjectManager.getInstance(project) : EncodingManager.getInstance();
+    return e.getDefaultCharset();
+  }
+
+  @NotNull
+  private static OutputFile createOutputFile(@Nullable Project project,
+                                             @NotNull DiffContent content,
+                                             @NotNull FileNameInfo fileName) throws IOException {
     if (content instanceof FileContent) {
       VirtualFile file = ((FileContent)content).getFile();
 
@@ -150,8 +170,10 @@ public class ExternalDiffToolUtil {
       return new NonLocalOutputFile(file, tempFile);
     }
     else if (content instanceof DocumentContent) {
-      File tempFile = createTempFile(((DocumentContent)content), fileName);
-      return new DocumentOutputFile(((DocumentContent)content).getDocument(), ((DocumentContent)content).getCharset(), tempFile);
+      DocumentContent documentContent = (DocumentContent)content;
+      File tempFile = createTempFile(project, documentContent, fileName);
+      Charset charset = getContentCharset(project, documentContent);
+      return new DocumentOutputFile(documentContent.getDocument(), charset, tempFile);
     }
     throw new IllegalArgumentException(content.toString());
   }
@@ -163,7 +185,8 @@ public class ExternalDiffToolUtil {
     return tempFile;
   }
 
-  public static void execute(@NotNull ExternalDiffSettings settings,
+  public static void execute(@Nullable Project project,
+                             @NotNull ExternalDiffSettings settings,
                              @NotNull List<? extends DiffContent> contents,
                              @NotNull List<String> titles,
                              @Nullable String windowTitle)
@@ -175,7 +198,7 @@ public class ExternalDiffToolUtil {
     for (int i = 0; i < contents.size(); i++) {
       DiffContent content = contents.get(i);
       FileNameInfo fileName = FileNameInfo.create(contents, titles, windowTitle, i);
-      files.add(createFile(content, fileName));
+      files.add(createFile(project, content, fileName));
     }
 
     Map<String, String> patterns = ContainerUtil.newHashMap();
@@ -213,10 +236,10 @@ public class ExternalDiffToolUtil {
       for (int i = 0; i < contents.size(); i++) {
         DiffContent content = contents.get(i);
         FileNameInfo fileName = FileNameInfo.create(contents, titles, windowTitle, i);
-        inputFiles.add(createFile(content, fileName));
+        inputFiles.add(createFile(project, content, fileName));
       }
 
-      outputFile = createOutputFile(outputContent, FileNameInfo.createMergeResult(outputContent, windowTitle));
+      outputFile = createOutputFile(project, outputContent, FileNameInfo.createMergeResult(outputContent, windowTitle));
 
       Map<String, String> patterns = new HashMap<>();
       patterns.put("%1", inputFiles.get(0).getPath());
@@ -332,7 +355,7 @@ public class ExternalDiffToolUtil {
   }
 
   private static class LocalOutputFile extends LocalInputFile implements OutputFile {
-    public LocalOutputFile(@NotNull VirtualFile file) {
+    LocalOutputFile(@NotNull VirtualFile file) {
       super(file);
     }
 
@@ -345,14 +368,15 @@ public class ExternalDiffToolUtil {
   private static class NonLocalOutputFile extends TempInputFile implements OutputFile {
     @NotNull private final VirtualFile myFile;
 
-    public NonLocalOutputFile(@NotNull VirtualFile file, @NotNull File localFile) {
+    NonLocalOutputFile(@NotNull VirtualFile file, @NotNull File localFile) {
       super(localFile);
       myFile = file;
     }
 
     @Override
     public void apply() throws IOException {
-      myFile.setBinaryContent(FileUtil.loadFileBytes(myLocalFile));
+      FileUtil.copy(myLocalFile, VfsUtilCore.virtualToIoFile(myFile));
+      VfsUtil.markDirty(false, false, myFile);
     }
   }
 
@@ -360,26 +384,23 @@ public class ExternalDiffToolUtil {
     @NotNull private final Document myDocument;
     @NotNull private final Charset myCharset;
 
-    public DocumentOutputFile(@NotNull Document document, @Nullable Charset charset, @NotNull File localFile) {
+    DocumentOutputFile(@NotNull Document document, @NotNull Charset charset, @NotNull File localFile) {
       super(localFile);
       myDocument = document;
-      // TODO: potentially dangerous operation - we're using default charset
-      myCharset = charset != null ? charset : Charset.defaultCharset();
+      myCharset = charset;
     }
 
     @Override
     public void apply() throws IOException {
       final String content = StringUtil.convertLineSeparators(FileUtil.loadFile(myLocalFile, myCharset));
-      ApplicationManager.getApplication().runWriteAction(() -> {
-        myDocument.setText(content);
-      });
+      ApplicationManager.getApplication().runWriteAction(() -> myDocument.setText(content));
     }
   }
 
   private static class LocalInputFile implements InputFile {
     @NotNull protected final VirtualFile myFile;
 
-    public LocalInputFile(@NotNull VirtualFile file) {
+    LocalInputFile(@NotNull VirtualFile file) {
       myFile = file;
     }
 
@@ -397,7 +418,7 @@ public class ExternalDiffToolUtil {
   private static class TempInputFile implements InputFile {
     @NotNull protected final File myLocalFile;
 
-    public TempInputFile(@NotNull File localFile) {
+    TempInputFile(@NotNull File localFile) {
       myLocalFile = localFile;
     }
 
@@ -417,7 +438,7 @@ public class ExternalDiffToolUtil {
     @NotNull public final String prefix;
     @NotNull public final String name;
 
-    public FileNameInfo(@NotNull String prefix, @NotNull String name) {
+    FileNameInfo(@NotNull String prefix, @NotNull String name) {
       this.prefix = prefix;
       this.name = name;
     }

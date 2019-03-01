@@ -32,12 +32,11 @@ import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.ui.components.JBList;
 import com.intellij.util.Consumer;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
@@ -51,7 +50,7 @@ import java.util.Iterator;
 import java.util.List;
 
 public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
-  protected static final Logger LOG = Logger.getInstance("#" + BaseGenerateTestSupportMethodAction.class.getName());
+  protected static final Logger LOG = Logger.getInstance(BaseGenerateTestSupportMethodAction.class);
 
   public BaseGenerateTestSupportMethodAction(TestIntegrationUtils.MethodKind methodKind) {
     super(new MyHandler(methodKind));
@@ -70,7 +69,7 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
       if (!frameworks.isEmpty()) {
         return new AnAction("Edit Template") {
           @Override
-          public void actionPerformed(AnActionEvent e) {
+          public void actionPerformed(@NotNull AnActionEvent e) {
             chooseAndPerform(editor, frameworks, framework -> {
               final FileTemplateDescriptor descriptor = methodKind.getFileTemplateDescriptor(framework);
               if (descriptor != null) {
@@ -133,14 +132,13 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
     return true;
   }
 
-  private static void chooseAndPerform(Editor editor, List<TestFramework> frameworks, final Consumer<TestFramework> consumer) {
+  private static void chooseAndPerform(Editor editor, List<? extends TestFramework> frameworks, final Consumer<? super TestFramework> consumer) {
     if (frameworks.size() == 1) {
       consumer.consume(frameworks.get(0));
       return;
     }
 
-    final JList list = new JBList(frameworks.toArray(new TestFramework[frameworks.size()]));
-    list.setCellRenderer(new DefaultListCellRenderer() {
+    DefaultListCellRenderer cellRenderer = new DefaultListCellRenderer() {
       @Override
       public Component getListCellRendererComponent(JList list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
         Component result = super.getListCellRendererComponent(list, "", index, isSelected, cellHasFocus);
@@ -152,15 +150,13 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
 
         return result;
       }
-    });
-
-
-    PopupChooserBuilder builder = new PopupChooserBuilder(list);
-    builder.setFilteringEnabled(o -> ((TestFramework)o).getName());
-
-    builder
+    };
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(frameworks)
+      .setRenderer(cellRenderer)
+      .setNamerForFiltering(o -> o.getName())
       .setTitle("Choose Framework")
-      .setItemChoosenCallback(() -> consumer.consume((TestFramework)list.getSelectedValue()))
+      .setItemChosenCallback((selectedValue) -> consumer.consume(selectedValue))
       .setMovable(true)
       .createPopup().showInBestPositionFor(editor);
   }
@@ -172,6 +168,7 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
       myMethodKind = methodKind;
     }
 
+    @Override
     public void invoke(@NotNull Project project, @NotNull final Editor editor, @NotNull final PsiFile file) {
       final PsiClass targetClass = findTargetClass(editor, file);
       final List<TestFramework> frameworks = new ArrayList<>(TestIntegrationUtils.findSuitableFrameworks(targetClass));
@@ -256,6 +253,7 @@ public class BaseGenerateTestSupportMethodAction extends BaseGenerateAction {
       return result;
     }
 
+    @Override
     public boolean startInWriteAction() {
       return false;
     }

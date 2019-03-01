@@ -42,11 +42,12 @@ import java.util.Set;
  * @author nik
  */
 public abstract class DependenciesHandlerBase {
+  @NotNull
   protected final Project myProject;
-  private final List<AnalysisScope> myScopes;
+  private final List<? extends AnalysisScope> myScopes;
   private final Set<PsiFile> myExcluded;
 
-  public DependenciesHandlerBase(final Project project, final List<AnalysisScope> scopes, Set<PsiFile> excluded) {
+  public DependenciesHandlerBase(@NotNull Project project, final List<? extends AnalysisScope> scopes, Set<PsiFile> excluded) {
     myScopes = scopes;
     myExcluded = excluded;
     myProject = project;
@@ -60,7 +61,8 @@ public abstract class DependenciesHandlerBase {
       task = new Task.Backgroundable(myProject, getProgressTitle(), true, new PerformAnalysisInBackgroundOption(myProject)) {
         @Override
         public void run(@NotNull final ProgressIndicator indicator) {
-          perform(builders);
+          indicator.setIndeterminate(false);
+          perform(builders, indicator);
         }
 
         @Override
@@ -72,7 +74,8 @@ public abstract class DependenciesHandlerBase {
       task = new Task.Modal(myProject, getProgressTitle(), true) {
         @Override
         public void run(@NotNull ProgressIndicator indicator) {
-          perform(builders);
+          indicator.setIndeterminate(false);
+          perform(builders, indicator);
         }
 
         @Override
@@ -88,7 +91,7 @@ public abstract class DependenciesHandlerBase {
     return true;
   }
 
-  protected boolean shouldShowDependenciesPanel(List<DependenciesBuilder> builders) {
+  protected boolean shouldShowDependenciesPanel(List<? extends DependenciesBuilder> builders) {
     return true;
   }
 
@@ -98,7 +101,7 @@ public abstract class DependenciesHandlerBase {
 
   protected abstract DependenciesBuilder createDependenciesBuilder(AnalysisScope scope);
 
-  private void perform(List<DependenciesBuilder> builders) {
+  private void perform(List<DependenciesBuilder> builders, @NotNull ProgressIndicator indicator) {
     try {
       PerformanceWatcher.Snapshot snapshot = PerformanceWatcher.takeSnapshot();
       for (AnalysisScope scope : myScopes) {
@@ -129,7 +132,7 @@ public abstract class DependenciesHandlerBase {
     });
   }
 
-  protected String getPanelDisplayName(List<DependenciesBuilder> builders) {
+  protected String getPanelDisplayName(List<? extends DependenciesBuilder> builders) {
     return getPanelDisplayName(builders.get(0).getScope());
   }
 }

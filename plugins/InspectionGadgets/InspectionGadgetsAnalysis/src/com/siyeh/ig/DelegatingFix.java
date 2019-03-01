@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2013 Bas Leijdekkers
+ * Copyright 2007-2016 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,23 +15,21 @@
  */
 package com.siyeh.ig;
 
+import com.intellij.codeInsight.intention.PriorityAction;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Iconable;
 import org.jetbrains.annotations.NotNull;
 
-public class DelegatingFix extends InspectionGadgetsFix {
+import javax.swing.*;
 
-  private final LocalQuickFix delegate;
+public class DelegatingFix extends InspectionGadgetsFix implements Iconable, PriorityAction {
+
+  protected final LocalQuickFix delegate;
 
   public DelegatingFix(LocalQuickFix delegate) {
     this.delegate = delegate;
-  }
-
-  @Override
-  @NotNull
-  public String getName() {
-    return delegate.getName();
   }
 
   @Override
@@ -45,11 +43,19 @@ public class DelegatingFix extends InspectionGadgetsFix {
     delegate.applyFix(project, descriptor);
   }
 
-  /**
-   * Delegate fix checks for read-only status separately
-   */
   @Override
-  protected boolean prepareForWriting() {
-    return false;
+  public boolean startInWriteAction() {
+    return delegate.startInWriteAction();
+  }
+
+  @Override
+  public Icon getIcon(int flags) {
+    return delegate instanceof Iconable ? ((Iconable)delegate).getIcon(flags) : null;
+  }
+
+  @NotNull
+  @Override
+  public Priority getPriority() {
+    return delegate instanceof PriorityAction ? ((PriorityAction)delegate).getPriority() : Priority.NORMAL;
   }
 }

@@ -26,7 +26,7 @@ import java.util.List;
 /**
  * @author cdr
  */
-class SliceTreeStructure extends AbstractTreeStructureBase {
+public class SliceTreeStructure extends AbstractTreeStructureBase {
   private final SliceNode myRoot;
 
   SliceTreeStructure(@NotNull Project project, @NotNull SliceNode rootNode) {
@@ -39,6 +39,7 @@ class SliceTreeStructure extends AbstractTreeStructureBase {
     return Collections.emptyList();
   }
 
+  @NotNull
   @Override
   public Object getRootElement() {
     return myRoot;
@@ -55,7 +56,7 @@ class SliceTreeStructure extends AbstractTreeStructureBase {
   }
 
   @Override
-  public boolean isToBuildChildrenInBackground(final Object element) {
+  public boolean isToBuildChildrenInBackground(@NotNull final Object element) {
     return true;//!ApplicationManager.getApplication().isUnitTestMode();
   }
 }

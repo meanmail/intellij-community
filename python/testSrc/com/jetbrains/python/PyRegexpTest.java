@@ -1,36 +1,20 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.lang.injection.InjectedLanguageManager;
 import com.intellij.lexer.Lexer;
-import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.TextRange;
-import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiLanguageInjectionHost;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.jetbrains.python.codeInsight.regexp.PythonRegexpParserDefinition;
 import com.jetbrains.python.codeInsight.regexp.PythonVerboseRegexpLanguage;
 import com.jetbrains.python.codeInsight.regexp.PythonVerboseRegexpParserDefinition;
 import com.jetbrains.python.fixtures.PyLexerTestCase;
 import com.jetbrains.python.fixtures.PyTestCase;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
@@ -38,6 +22,27 @@ import java.util.List;
  * @author yole
  */
 public class PyRegexpTest extends PyTestCase {
+
+  public void testUnicodePy3() {
+    doTestHighlighting();
+  }
+
+  public void testCommentModeWhitespace() {
+    doTestHighlighting();
+  }
+
+  public void testLookbehind() {
+    doTestHighlighting();
+  }
+
+  public void testCountedQuantifier() {
+    doTestHighlighting();
+  }
+
+  public void testNotEmptyGroup() { // PY-14381
+    doTestHighlighting();
+  }
+
   public void testNestedCharacterClasses() {  // PY-2908
     doTestHighlighting();
   }
@@ -68,7 +73,7 @@ public class PyRegexpTest extends PyTestCase {
 
   public void testVerbose() {
     Lexer lexer = new PythonVerboseRegexpParserDefinition().createLexer(myFixture.getProject());
-    PyLexerTestCase.doLexerTest("# abc", lexer, "COMMENT", "COMMENT");
+    PyLexerTestCase.doLexerTest("# abc", lexer, "COMMENT");
   }
 
   public void testRedundantEscapeSingleQuote() {  // PY-5027
@@ -87,7 +92,7 @@ public class PyRegexpTest extends PyTestCase {
     doTestHighlighting();
   }
 
-  public void _testDoubleOpenCurly() {  // PY-8252
+  public void testDoubleOpenCurly() {  // PY-8252
     doTestHighlighting();
   }
 
@@ -159,6 +164,43 @@ public class PyRegexpTest extends PyTestCase {
                        "(foomissing_valuebaz$)");
   }
 
+  // PY-21493
+  public void testFStringSingleStringRegexpFragmentFirst() {
+    doTestInjectedText("import re\n" +
+                       "\n" +
+                       "re.search(rf'{42}.<caret>*{42}', 'foo')", "missing_value.*missing_value");
+  }
+
+  // PY-21493
+  public void testFStringSingleStringRegexpFirstFragmentInMiddle() {
+    doTestInjectedText("import re\n" +
+                       "\n" +
+                       "re.search(rf'<caret>.*{42}.*{42}', 'foo')", ".*missing_value.*missing_value");
+  }
+
+  // PY-21493
+  public void testFStringMultiStringRegexp() {
+    doTestInjectedText("import re\n" +
+                       "\n" +
+                       "re.search(rf'<caret>.*{42}'\n" +
+                       "          r'.*{42}.*'\n" +
+                       "          rf'{42}.*', 'foo')", ".*missing_value.*{42}.*missing_value.*");
+  }
+
+  // PY-21493
+  public void testFStringSingleStringIncompleteFragment() {
+    doTestInjectedText("import re\n" +
+                       "\n" +
+                       "re.search(rf'<caret>.*{42.*', 'foo')", ".*missing_value");
+  }
+
+  // PY-21493
+  public void testFStringSingleStringNestedFragments() {
+    doTestInjectedText("import re\n" +
+                       "\n" +
+                       "re.search(rf'<caret>.*{42:{42}}.*{42}', 'foo')", ".*missing_value.*missing_value");
+  }
+
   // PY-18881
   public void testVerboseSyntaxWithShortFlag() {
     final PsiElement element =
@@ -168,14 +210,20 @@ public class PyRegexpTest extends PyTestCase {
                          ".* # <caret>comment\n" +
                          "\"\"\", re.I | re.M | re.X)",
                          "\n.* # comment\n");
-    assertEquals(element.getLanguage(), PythonVerboseRegexpLanguage.INSTANCE);
+    assertEquals(PythonVerboseRegexpLanguage.INSTANCE, element.getLanguage());
   }
 
   // PY-16404
-  public void testFullmatch() {
+  public void testFullmatchPy3() {
     doTestInjectedText("import re\n" +
                        "re.fullmatch(\"<caret>\\w+\", \"string\"",
                        "\\w+");
+  }
+
+  @Nullable
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return getName().endsWith("Py3") ? ourPy3Descriptor : super.getProjectDescriptor();
   }
 
   @NotNull
@@ -190,17 +238,6 @@ public class PyRegexpTest extends PyTestCase {
     final PsiElement injected = files.get(0).getFirst();
     assertEquals(expected, injected.getText());
     return injected;
-  }
-
-  @NotNull
-  private PsiElement getElementAtCaret() {
-    final Editor editor = myFixture.getEditor();
-    final Document document = editor.getDocument();
-    final PsiFile file = PsiDocumentManager.getInstance(myFixture.getProject()).getPsiFile(document);
-    assertNotNull(file);
-    final PsiElement element = file.findElementAt(myFixture.getCaretOffset());
-    assertNotNull(element);
-    return element;
   }
 
   private void doTestHighlighting() {

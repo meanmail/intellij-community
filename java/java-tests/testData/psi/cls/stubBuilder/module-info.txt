@@ -1,2 +1,0 @@
-PsiJavaFileStub []
-  PsiJavaModuleStub:M.N

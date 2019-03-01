@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.concurrency;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -68,17 +53,19 @@ class SchedulingWrapper implements ScheduledExecutorService {
   @NotNull
   List<Runnable> doShutdownNow() {
     doShutdown(); // shutdown me first to avoid further delayQueue offers
-    List<MyScheduledFutureTask> result = ContainerUtil.filter(delayQueue, new Condition<MyScheduledFutureTask>() {
-      @Override
-      public boolean value(MyScheduledFutureTask task) {
-        if (task.getBackendExecutorService() == backendExecutorService) {
-          task.cancel(false);
-          return true;
-        }
-        return false;
+    return cancelAndRemoveTasksFromQueue();
+  }
+
+  @NotNull
+  List<Runnable> cancelAndRemoveTasksFromQueue() {
+    List<MyScheduledFutureTask> result = ContainerUtil.filter(delayQueue, task -> {
+      if (task.getBackendExecutorService() == backendExecutorService) {
+        task.cancel(false);
+        return true;
       }
+      return false;
     });
-    delayQueue.removeAll(new HashSet<MyScheduledFutureTask>(result));
+    delayQueue.removeAll(new HashSet<>(result));
     if (LOG.isTraceEnabled()) {
       LOG.trace("Shutdown. Drained tasks: "+result);
     }
@@ -99,7 +86,7 @@ class SchedulingWrapper implements ScheduledExecutorService {
   @Override
   public boolean awaitTermination(long timeout, @NotNull TimeUnit unit) throws InterruptedException {
     if (!isShutdown()) throw new IllegalStateException("must await termination after shutdown() or shutdownNow() only");
-    List<MyScheduledFutureTask> tasks = new ArrayList<MyScheduledFutureTask>(delayQueue);
+    List<MyScheduledFutureTask> tasks = new ArrayList<>(delayQueue);
     for (MyScheduledFutureTask task : tasks) {
       if (task.getBackendExecutorService() != backendExecutorService) {
         continue;
@@ -139,7 +126,7 @@ class SchedulingWrapper implements ScheduledExecutorService {
     /**
      * Creates a one-shot action with given nanoTime-based trigger time.
      */
-    private MyScheduledFutureTask(@NotNull Runnable r, V result, long ns) {
+    MyScheduledFutureTask(@NotNull Runnable r, V result, long ns) {
       super(r, result);
       time = ns;
       period = 0;
@@ -245,12 +232,16 @@ class SchedulingWrapper implements ScheduledExecutorService {
     @Override
     public String toString() {
       Object info = BoundedTaskExecutor.info(this);
-      return "Delay: " + getDelay(TimeUnit.MILLISECONDS) + "ms; " + (info == this ? super.toString() : info);
+      return "Delay: " + getDelay(TimeUnit.MILLISECONDS) + "ms; " + (info == this ? super.toString() : info) + " backendExecutorService: "+backendExecutorService;
     }
 
     @NotNull
-    ExecutorService getBackendExecutorService() {
+    private ExecutorService getBackendExecutorService() {
       return backendExecutorService;
+    }
+
+    void executeMeInBackendExecutor() {
+      backendExecutorService.execute(this);
     }
   }
 
@@ -263,7 +254,7 @@ class SchedulingWrapper implements ScheduledExecutorService {
   /**
    * Returns the trigger time of a delayed action.
    */
-  private static long triggerTime(@NotNull AppDelayQueue queue, long delay, TimeUnit unit) {
+  static long triggerTime(@NotNull AppDelayQueue queue, long delay, TimeUnit unit) {
     return triggerTime(queue, unit.toNanos(delay < 0 ? 0 : delay));
   }
 
@@ -306,7 +297,7 @@ class SchedulingWrapper implements ScheduledExecutorService {
   }
 
   @NotNull
-  private <T> MyScheduledFutureTask<T> delayedExecute(@NotNull MyScheduledFutureTask<T> t) {
+  <T> MyScheduledFutureTask<T> delayedExecute(@NotNull MyScheduledFutureTask<T> t) {
     if (LOG.isTraceEnabled()) {
       LOG.trace("Submit at delay " + t.getDelay(TimeUnit.MILLISECONDS) + "ms " + BoundedTaskExecutor.info(t));
     }
@@ -314,9 +305,9 @@ class SchedulingWrapper implements ScheduledExecutorService {
       throw new RejectedExecutionException("Already shutdown");
     }
     delayQueue.add(t);
-    if (t.getDelay(TimeUnit.HOURS) > 24 && !t.isPeriodic()) {
+    if (t.getDelay(TimeUnit.DAYS) > 31 && !t.isPeriodic()) {
       // guard against inadvertent queue overflow
-      throw new IllegalArgumentException("Unsupported crazy delay " + t.getDelay(TimeUnit.MINUTES) + " minutes: " + BoundedTaskExecutor.info(t));
+      throw new IllegalArgumentException("Unsupported crazy delay " + t.getDelay(TimeUnit.DAYS) + " days: " + BoundedTaskExecutor.info(t));
     }
     return t;
   }
@@ -326,7 +317,7 @@ class SchedulingWrapper implements ScheduledExecutorService {
   public <V> ScheduledFuture<V> schedule(@NotNull Callable<V> callable,
                                          long delay,
                                          @NotNull TimeUnit unit) {
-    MyScheduledFutureTask<V> t = new MyScheduledFutureTask<V>(callable, triggerTime(delayQueue, delay, unit));
+    MyScheduledFutureTask<V> t = new MyScheduledFutureTask<>(callable, triggerTime(delayQueue, delay, unit));
     return delayedExecute(t);
   }
 
@@ -348,10 +339,10 @@ class SchedulingWrapper implements ScheduledExecutorService {
     if (delay <= 0) {
       throw new IllegalArgumentException("delay must be positive but got: "+delay);
     }
-    MyScheduledFutureTask<Void> sft = new MyScheduledFutureTask<Void>(command,
-                                                                      null,
-                                                                      triggerTime(delayQueue, initialDelay, unit),
-                                                                      unit.toNanos(-delay));
+    MyScheduledFutureTask<Void> sft = new MyScheduledFutureTask<>(command,
+                                                                  null,
+                                                                  triggerTime(delayQueue, initialDelay, unit),
+                                                                  unit.toNanos(-delay));
     return delayedExecute(sft);
   }
 

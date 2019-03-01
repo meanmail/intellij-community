@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide;
 
 import com.apple.eawt.Application;
 import com.intellij.ide.actions.AboutAction;
-import com.intellij.ide.actions.ExitAction;
 import com.intellij.ide.actions.OpenFileAction;
 import com.intellij.ide.actions.ShowSettingsAction;
 import com.intellij.ide.impl.ProjectUtil;
@@ -26,7 +11,6 @@ import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.components.ApplicationComponent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.impl.IdeKeyEventDispatcher;
 import com.intellij.openapi.project.Project;
@@ -35,9 +19,10 @@ import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.platform.PlatformProjectOpenProcessor;
+import com.intellij.platform.CommandLineProjectOpenProcessor;
 import com.intellij.ui.mac.foundation.Foundation;
 import com.intellij.ui.mac.foundation.ID;
+import com.intellij.ui.mac.touchbar.TouchBarsManager;
 import com.sun.jna.Callback;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -57,7 +42,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * @author max
  */
-public class MacOSApplicationProvider implements ApplicationComponent {
+public class MacOSApplicationProvider {
   private static final Logger LOG = Logger.getInstance(MacOSApplicationProvider.class);
   private static final AtomicBoolean ENABLED = new AtomicBoolean(true);
   private static final Callback IMPL = new Callback() {
@@ -74,7 +59,7 @@ public class MacOSApplicationProvider implements ApplicationComponent {
   private static final String GENERIC_RGB_PROFILE_PATH = "/System/Library/ColorSync/Profiles/Generic RGB Profile.icc";
 
   private final ColorSpace genericRgbColorSpace;
-  
+
   public static MacOSApplicationProvider getInstance() {
     return ApplicationManager.getApplication().getComponent(MacOSApplicationProvider.class);
   }
@@ -105,18 +90,6 @@ public class MacOSApplicationProvider implements ApplicationComponent {
     }
   }
 
-  @NotNull
-  @Override
-  public String getComponentName() {
-    return "MACOSApplicationProvider";
-  }
-
-  @Override
-  public void initComponent() { }
-
-  @Override
-  public void disposeComponent() { }
-
   @Nullable
   public ColorSpace getGenericRgbColorSpace() {
     return genericRgbColorSpace;
@@ -131,39 +104,18 @@ public class MacOSApplicationProvider implements ApplicationComponent {
         submit("Preferences", () -> ShowSettingsAction.perform(project));
       });
       application.setQuitHandler((event, response) -> {
-        submit("Quit", ExitAction::perform);
+        submit("Quit", () -> ApplicationManager.getApplication().exit());
         response.cancelQuit();
       });
       application.setOpenFileHandler(event -> {
         Project project = getProject(false);
         List<File> list = event.getFiles();
         if (list.isEmpty()) return;
-        submit("OpenFile", () -> {
-          for (File file : list) {
-            if (ProjectUtil.openOrImport(file.getAbsolutePath(), project, true) != null) {
-              LOG.debug("MacMenu: load project from ", file);
-              IdeaApplication.getInstance().setPerformProjectLoad(false);
-              return;
-            }
-          }
-          for (File file : list) {
-            if (file.exists()) {
-              LOG.debug("MacMenu: open file ", file);
-              String path = file.getAbsolutePath();
-              if (project != null) {
-                OpenFileAction.openFile(path, project);
-              } else {
-                PlatformProjectOpenProcessor processor = PlatformProjectOpenProcessor.getInstanceIfItExists();
-                if (processor != null) {
-                  VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
-                  if (virtualFile != null && virtualFile.isValid()) processor.doOpenProject(virtualFile, null, false);
-                }
-              }
-            }
-          }
-        });
+        submit("OpenFile", () -> tryOpenFileList(project, list, "MacMenu"));
       });
       installAutoUpdateMenu();
+
+      TouchBarsManager.onApplicationInitialized();
     }
 
     private static void installAutoUpdateMenu() {
@@ -232,5 +184,35 @@ public class MacOSApplicationProvider implements ApplicationComponent {
         }
       }
     }
+  }
+
+  public static boolean tryOpenFileList(Project project, List<? extends File> list, String location) {
+    for (File file : list) {
+      if (ProjectUtil.openOrImport(file.getAbsolutePath(), project, true) != null) {
+        LOG.debug(location + ": load project from ", file);
+        IdeaApplication.getInstance().disableProjectLoad();
+        return true;
+      }
+    }
+    boolean result = false;
+    for (File file : list) {
+      if (file.exists()) {
+        LOG.debug(location + ": open file ", file);
+        String path = file.getAbsolutePath();
+        if (project != null) {
+          OpenFileAction.openFile(path, project);
+          result = true;
+        } else {
+          CommandLineProjectOpenProcessor processor = CommandLineProjectOpenProcessor.getInstanceIfExists();
+          if (processor != null) {
+            VirtualFile virtualFile = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
+            if (virtualFile != null && virtualFile.isValid()) {
+              result |= processor.openProjectAndFile(virtualFile, -1, false) != null;
+            }
+          }
+        }
+      }
+    }
+    return result;
   }
 }

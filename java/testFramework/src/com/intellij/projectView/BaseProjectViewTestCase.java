@@ -15,13 +15,11 @@
  */
 package com.intellij.projectView;
 
-import com.intellij.ide.projectView.ViewSettings;
 import com.intellij.ide.projectView.impl.AbstractProjectTreeStructure;
 import com.intellij.ide.projectView.impl.ClassesTreeStructureProvider;
 import com.intellij.ide.projectView.impl.nodes.PackageElementNode;
 import com.intellij.ide.projectView.impl.nodes.PsiDirectoryNode;
 import com.intellij.ide.util.treeView.AbstractTreeStructure;
-import com.intellij.openapi.application.ex.PathManagerEx;
 import com.intellij.openapi.ui.Queryable;
 import com.intellij.psi.PsiDirectory;
 import com.intellij.testFramework.PlatformTestUtil;
@@ -65,9 +63,17 @@ public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
     return myStructure;
   }
 
-  private void assertStructureEqual(PsiDirectory root, String expected, int maxRowCount, AbstractTreeStructure structure) {
+  private void assertStructureEqual(PsiDirectory root, String expected, int maxRowCount, AbstractProjectTreeStructure structure) {
     assertNotNull(root);
-    PsiDirectoryNode rootNode = new PsiDirectoryNode(myProject, root, (ViewSettings)structure);
+    PsiDirectoryNode rootNode = new PsiDirectoryNode(myProject, root, structure);
+    assertStructureEqual(expected, maxRowCount, rootNode);
+  }
+
+  protected void assertStructureEqual(String expected) {
+    assertStructureEqual(expected, -1, myStructure.getRootElement());
+  }
+
+  private void assertStructureEqual(String expected, int maxRowCount, Object rootNode) {
     ProjectViewTestUtil.assertStructureEqual(myStructure, expected, maxRowCount, PlatformTestUtil.createComparator(myPrintInfo), rootNode, myPrintInfo);
   }
 
@@ -96,10 +102,4 @@ public abstract class BaseProjectViewTestCase extends TestSourceBasedTestCase {
   protected PsiDirectory getPackageDirectory() {
     return getPackageDirectory(getPackageRelativePath());
   }
-
-  @Override
-  protected String getTestDataPath() {
-    return PathManagerEx.getTestDataPath(getClass());
-  }
-
 }

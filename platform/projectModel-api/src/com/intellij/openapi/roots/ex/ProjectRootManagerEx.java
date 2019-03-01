@@ -26,12 +26,14 @@ public abstract class ProjectRootManagerEx extends ProjectRootManager {
     return (ProjectRootManagerEx)getInstance(project);
   }
 
-  public abstract void addProjectJdkListener(ProjectJdkListener listener);
+  public abstract void addProjectJdkListener(@NotNull ProjectJdkListener listener);
 
-  public abstract void removeProjectJdkListener(ProjectJdkListener listener);
+  public abstract void removeProjectJdkListener(@NotNull ProjectJdkListener listener);
 
   // invokes runnable surrounded by beforeRootsChange()/rootsChanged() callbacks
   public abstract void makeRootsChange(@NotNull Runnable runnable, boolean fileTypes, boolean fireEvents);
+
+  public abstract void markRootsForRefresh();
 
   public abstract void mergeRootsChangesDuring(@NotNull Runnable runnable);
 
@@ -41,6 +43,7 @@ public abstract class ProjectRootManagerEx extends ProjectRootManager {
    * @see ProjectRootManagerEx#addProjectJdkListener(ProjectJdkListener)
    * @see ProjectRootManagerEx#removeProjectJdkListener(ProjectJdkListener)
    */
+  @FunctionalInterface
   public interface ProjectJdkListener extends EventListener {
     void projectJdkChanged();
   }

@@ -26,13 +26,12 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
   private final OpenTHashSet<T> myHashSet;
 
   public OrderedSet() {
-    this(ContainerUtil.<T>canonicalStrategy());
+    this(ContainerUtil.canonicalStrategy());
   }
 
-  public OrderedSet(@NotNull Collection<T> set) {
+  public OrderedSet(@NotNull Collection<? extends T> set) {
     super(set.size());
-
-    myHashSet = new OpenTHashSet<T>(set.size());
+    myHashSet = new OpenTHashSet<>(set.size());
     addAll(set);
   }
 
@@ -42,11 +41,11 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   public OrderedSet(@NotNull TObjectHashingStrategy<T> hashingStrategy, int capacity) {
     super(capacity);
-    myHashSet = new OpenTHashSet<T>(capacity, hashingStrategy);
+    myHashSet = new OpenTHashSet<>(capacity, hashingStrategy);
   }
 
   public OrderedSet(int capacity) {
-    this(ContainerUtil.<T>canonicalStrategy(), capacity);
+    this(ContainerUtil.canonicalStrategy(), capacity);
   }
 
   @Override
@@ -92,7 +91,7 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public boolean add(T o) {
-    if (myHashSet.add(o)){
+    if (myHashSet.add(o)) {
       super.add(o);
       return true;
     }
@@ -101,7 +100,7 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
 
   @Override
   public boolean remove(Object o) {
-    if (myHashSet.remove(o)){
+    if (myHashSet.remove(o)) {
       super.remove(o);
       return true;
     }
@@ -115,40 +114,42 @@ public class OrderedSet<T> extends ArrayList<T> implements Set<T>, RandomAccess 
   }
 
   @Override
-  public boolean addAll(final int index, @NotNull final Collection<? extends T> c) {
+  public boolean addAll(int index, @NotNull Collection<? extends T> c) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public T set(final int index, @NotNull final T element) {
-    final T removed = remove(index);
+  public T set(int index, @NotNull T element) {
+    T removed = remove(index);
     add(index, element);
     return removed;
   }
 
   @Override
-  public void add(final int index, @NotNull final T element) {
-    if (myHashSet.add(element)){
+  public void add(int index, @NotNull T element) {
+    if (myHashSet.add(element)) {
       super.add(index, element);
     }
   }
 
   @Override
-  public T remove(final int index) {
-    final T t = super.remove(index);
+  public T remove(int index) {
+    T t = super.remove(index);
     myHashSet.remove(t);
     return t;
   }
 
   @Override
-  public int indexOf(final Object o) {
-    final int index = myHashSet.index((T)o);
-    return index >= 0? super.indexOf(myHashSet.get(index)) : -1;
+  public int indexOf(Object o) {
+    @SuppressWarnings("unchecked") T t = (T)o;
+    int index = myHashSet.index(t);
+    return index >= 0 ? super.indexOf(myHashSet.get(index)) : -1;
   }
 
   @Override
-  public int lastIndexOf(final Object o) {
-    final int index = myHashSet.index((T)o);
+  public int lastIndexOf(Object o) {
+    @SuppressWarnings("unchecked") T t = (T)o;
+    int index = myHashSet.index(t);
     return index >= 0 ? super.lastIndexOf(myHashSet.get(index)) : -1;
   }
 }

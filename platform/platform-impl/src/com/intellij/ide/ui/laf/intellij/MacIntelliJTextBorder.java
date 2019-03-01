@@ -1,57 +1,94 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui.laf.intellij;
 
-import com.intellij.ide.ui.laf.IntelliJLaf;
+import com.intellij.ide.ui.laf.darcula.DarculaUIUtil;
 import com.intellij.ide.ui.laf.darcula.ui.DarculaTextBorder;
-import com.intellij.ide.ui.laf.darcula.ui.TextFieldWithPopupHandlerUI;
 import com.intellij.ui.Gray;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.JBValue;
+import com.intellij.util.ui.MacUIUtil;
+import com.intellij.util.ui.UIUtil;
 
-import javax.swing.*;
+import javax.swing.text.JTextComponent;
 import java.awt.*;
+import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
+
+import static com.intellij.ide.ui.laf.darcula.DarculaUIUtil.paintOutlineBorder;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class MacIntelliJTextBorder extends DarculaTextBorder {
-  @Override
-  public Insets getBorderInsets(Component c) {
-    return JBUI.insets(3, 6).asUIResource();
+  private static final Color OUTLINE_COLOR = Gray.xBC;
+  private static final Insets PADDINGS = JBUI.emptyInsets();
+
+  static final JBValue MINIMUM_HEIGHT = new JBValue.Float(21);
+  static final JBValue BW = new JBValue.Float(3);
+  static final JBValue ARC = new JBValue.Float(6);
+  static float LW(Graphics2D g2) {
+    return JBUI.scale(UIUtil.isRetina(g2) ? 0.5f : 1.0f);
   }
 
   @Override
-  public boolean isBorderOpaque() {
-    return false;
+  protected float lw(Graphics2D g2) {
+    return LW(g2);
   }
 
   @Override
-  public void paintBorder(Component c, Graphics g2d, int x, int y, int width, int height) {
-    if (TextFieldWithPopupHandlerUI.isSearchField(c)) {
-      return;
+  protected float bw() {
+    return BW.getFloat();
+  }
+
+  @Override
+  protected Color getOutlineColor(boolean enabled, boolean focused) {
+    return OUTLINE_COLOR;
+  }
+
+  @Override
+  protected void paintSearchArea(Graphics2D g, Rectangle r, JTextComponent c, boolean fillBackground) {
+    paintMacSearchArea(g, r, c, fillBackground);
+  }
+
+  public static void paintMacSearchArea(Graphics2D g, Rectangle r, JTextComponent c, boolean fillBackground) {
+    Graphics2D g2 = (Graphics2D)g.create();
+    try {
+      g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+      g2.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, MacUIUtil.USE_QUARTZ ? RenderingHints.VALUE_STROKE_PURE : RenderingHints.VALUE_STROKE_NORMALIZE);
+      g2.translate(r.x, r.y);
+
+      float arc = ARC.getFloat();
+      float lw = LW(g2);
+      float bw = BW.getFloat();
+      Shape outerShape = new RoundRectangle2D.Float(bw, bw, r.width - bw * 2, r.height - bw * 2, arc, arc);
+      if (fillBackground) {
+        g2.setColor(c.getBackground());
+        g2.fill(outerShape);
+      }
+
+      Path2D path = new Path2D.Float(Path2D.WIND_EVEN_ODD);
+      path.append(outerShape, false);
+      path.append(new RoundRectangle2D.Float(bw + lw, bw + lw, r.width - (bw + lw)*2, r.height - (bw + lw)*2, arc - lw, arc - lw), false);
+
+      g2.setColor(OUTLINE_COLOR);
+      g2.fill(path);
+
+      if (c.hasFocus()) {
+        Object op = c.getClientProperty("JComponent.outline");
+        if (op != null) {
+          paintOutlineBorder(g2, r.width, r.height, arc, true, true, DarculaUIUtil.Outline.valueOf(op.toString()));
+        } else {
+          DarculaUIUtil.paintFocusBorder(g2, r.width, r.height, arc, true);
+        }
+      }
     }
-    Graphics2D g = (Graphics2D)g2d;
-    //todo[kb]: make a better solution
-    if (c.getParent() instanceof JComboBox) return;
-    if (c.hasFocus()) {
-      MacIntelliJBorderPainter.paintBorder(c, g, 0, 0, c.getWidth(), c.getHeight());
+    finally {
+      g2.dispose();
     }
-    if (!IntelliJLaf.isGraphite() || !c.hasFocus()) {
-      g.setColor(Gray.xB4);
-      g.drawRect(3, 3, c.getWidth() - 6, c.getHeight() - 6);
-    }
+  }
+
+  @Override
+  protected Insets paddings() {
+    return PADDINGS;
   }
 }

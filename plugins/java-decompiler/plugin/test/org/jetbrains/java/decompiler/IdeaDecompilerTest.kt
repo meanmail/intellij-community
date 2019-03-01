@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.java.decompiler
 
 import com.intellij.JavaTestUtil
@@ -23,36 +9,38 @@ import com.intellij.ide.highlighter.ArchiveFileType
 import com.intellij.ide.structureView.StructureViewBuilder
 import com.intellij.ide.structureView.impl.java.JavaAnonymousClassesNodeProvider
 import com.intellij.ide.structureView.newStructureView.StructureViewComponent
-import com.intellij.ide.util.treeView.AbstractTreeNode
-import com.intellij.openapi.application.ModalityState
 import com.intellij.openapi.application.PluginPathManager
-import com.intellij.openapi.fileEditor.FileDocumentManager
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx
+import com.intellij.openapi.fileEditor.impl.EditorHistoryManager
 import com.intellij.openapi.fileTypes.StdFileTypes
-import com.intellij.openapi.progress.ProcessCanceledException
 import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.util.io.FileUtil
 import com.intellij.openapi.util.registry.Registry
 import com.intellij.openapi.util.registry.RegistryValue
-import com.intellij.openapi.vfs.StandardFileSystems
-import com.intellij.openapi.vfs.VfsUtilCore
-import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.openapi.vfs.VirtualFileVisitor
+import com.intellij.openapi.vfs.*
 import com.intellij.pom.Navigatable
+import com.intellij.psi.PsiCompiledFile
 import com.intellij.psi.PsiManager
-import com.intellij.psi.compiled.ClassFileDecompilers
 import com.intellij.psi.impl.compiled.ClsFileImpl
 import com.intellij.testFramework.PlatformTestUtil
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase
-import com.intellij.util.Alarm
 import com.intellij.util.io.URLUtil
-import java.awt.GraphicsEnvironment
-import java.util.concurrent.atomic.AtomicInteger
 
 class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
   override fun setUp() {
     super.setUp()
     myFixture.testDataPath = "${PluginPathManager.getPluginHomePath("java-decompiler")}/plugin/testData"
+  }
+
+  override fun tearDown() {
+    try {
+      FileEditorManagerEx.getInstanceEx(project).closeAllFiles()
+      EditorHistoryManager.getInstance(project).removeAllFiles()
+    }
+    finally {
+      super.tearDown()
+    }
   }
 
   fun testSimple() {
@@ -70,6 +58,7 @@ class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
     val visitor = MyFileVisitor(psiManager)
     Registry.get("decompiler.dump.original.lines").withValue(true) {
       VfsUtilCore.visitChildrenRecursively(getTestFile("${JavaTestUtil.getJavaTestDataPath()}/psi/cls/mirror"), visitor)
+      VfsUtilCore.visitChildrenRecursively(getTestFile("${PluginPathManager.getPluginHomePath("java-decompiler")}/engine/testData/classes"), visitor)
       VfsUtilCore.visitChildrenRecursively(getTestFile("${PlatformTestUtil.getRtJarPath()}!/java/lang"), visitor)
     }
   }
@@ -130,66 +119,47 @@ class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
   fun testPerformance() {
     val decompiler = IdeaDecompiler()
     val file = getTestFile("${PlatformTestUtil.getRtJarPath()}!/javax/swing/JTable.class")
-    PlatformTestUtil.startPerformanceTest("decompiling JTable.class", 10000, { decompiler.getText(file) }).cpuBound().assertTiming()
-  }
-
-  fun testCancellation() {
-    if (GraphicsEnvironment.isHeadless()) {
-      System.err.println("** skipped in headless env.")
-      return
-    }
-
-    val file = getTestFile("${PlatformTestUtil.getRtJarPath()}!/javax/swing/JComponent.class")
-    val decompiler = ClassFileDecompilers.find(file) as IdeaDecompiler
-
-    assertNull(FileDocumentManager.getInstance().getCachedDocument(file))
-    assertNull(decompiler.getProgress(file))
-
-    val alarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, testRootDisposable)
-    val counter = AtomicInteger(0)
-    alarm.addRequest(object : Runnable {
-      override fun run() {
-        counter.incrementAndGet()
-        val progress = decompiler.getProgress(file)
-        when (progress) {
-          null -> alarm.addRequest(this, 100, ModalityState.any())
-          else -> progress.cancel()
-        }
-      }
-    }, 500, ModalityState.any())
-
-    try {
-      FileDocumentManager.getInstance().getDocument(file)
-      alarm.cancelAllRequests()
-      fail("should have been cancelled; alarm fired ${counter.get()} time(s)")
-    }
-    catch (ignored: ProcessCanceledException) { }
+    PlatformTestUtil.startPerformanceTest("decompiling JTable.class", 10000) { decompiler.getText(file) }.assertTiming()
   }
 
   fun testStructureView() {
     val file = getTestFile("StructureView.class")
     file.parent.children ; file.parent.refresh(false, true)  // inner classes
-
-    val editor = FileEditorManager.getInstance(project).openFile(file, false)[0]
-    val builder = StructureViewBuilder.PROVIDER.getStructureViewBuilder(StdFileTypes.CLASS, file, project)!!
-    val viewComponent = builder.createStructureView(editor, project) as StructureViewComponent
-    Disposer.register(testRootDisposable, viewComponent)
-    viewComponent.setActionActive(JavaAnonymousClassesNodeProvider.ID, true)
-
-    val treeStructure = viewComponent.treeStructure
-    PlatformTestUtil.updateRecursively(treeStructure.rootElement as AbstractTreeNode<*>)
-    PlatformTestUtil.assertTreeStructureEquals(treeStructure, """
-      StructureView.java
-       StructureView
-        B
+    checkStructure(file, """
+      -StructureView.class
+       -StructureView
+        -B
          B()
          build(int): StructureView
-          $1
+        StructureView()
+        getData(): int
+        setData(int): void
+        data: int""")
+
+    (PsiManager.getInstance(project).findFile(file) as? PsiCompiledFile)?.decompiledPsiFile
+
+    checkStructure(file, """
+      -StructureView.java
+       -StructureView
+        -B
+         B()
+         -build(int): StructureView
+          -${'$'}1
            class initializer
         StructureView()
         getData(): int
         setData(int): void
-        data: int""".trimIndent())
+        data: int""")
+  }
+
+  private fun checkStructure(file: VirtualFile, s: String) {
+    val editor = FileEditorManager.getInstance(project).openFile(file, false)[0]
+    val builder = StructureViewBuilder.PROVIDER.getStructureViewBuilder(StdFileTypes.CLASS, file, project)!!
+    val svc = builder.createStructureView(editor, project) as StructureViewComponent
+    Disposer.register(myFixture.testRootDisposable, svc)
+    svc.setActionActive(JavaAnonymousClassesNodeProvider.ID, true)
+    PlatformTestUtil.expandAll(svc.tree)
+    PlatformTestUtil.assertTreeEqual(svc.tree, s.trimIndent())
   }
 
 
@@ -199,7 +169,7 @@ class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
     return fs.refreshAndFindFileByPath(path)!!
   }
 
-  private fun RegistryValue.withValue(testValue: Boolean, block: () -> Unit): Unit {
+  private fun RegistryValue.withValue(testValue: Boolean, block: () -> Unit) {
     val currentValue = asBoolean()
     try {
       setValue(testValue)
@@ -216,14 +186,12 @@ class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
         println(file.path)
       }
       else if (file.fileType === StdFileTypes.CLASS && !file.name.contains('$')) {
-        val clsFile = psiManager.findFile(file)!!
-        val mirror = (clsFile as ClsFileImpl).mirror
-        val decompiled = mirror.text
-        assertTrue(file.path, decompiled.startsWith("${IdeaDecompiler.BANNER}") || file.name == "package-info.class")
+        val decompiled = (psiManager.findFile(file)!! as ClsFileImpl).mirror.text
+        assertTrue(file.path, decompiled.startsWith(IdeaDecompiler.BANNER) || file.name.endsWith("-info.class"))
 
         // check that no mapped line number is on an empty line
         val prefix = "// "
-        decompiled.split("\n").dropLastWhile { it.isEmpty() }.toTypedArray().forEach { s ->
+        decompiled.split("\n").dropLastWhile(String::isEmpty).toTypedArray().forEach { s ->
           val pos = s.indexOf(prefix)
           if (pos == 0 && prefix.length < s.length && Character.isDigit(s[prefix.length])) {
             fail("Incorrect line mapping in file " + file.path + " line: " + s)
@@ -231,9 +199,9 @@ class IdeaDecompilerTest : LightCodeInsightFixtureTestCase() {
         }
       }
       else if (ArchiveFileType.INSTANCE == file.fileType) {
-        val jarFile = StandardFileSystems.getJarRootForLocalFile(file)
-        if (jarFile != null) {
-          VfsUtilCore.visitChildrenRecursively(jarFile, this)
+        val jarRoot = JarFileSystem.getInstance().getRootByLocal(file)
+        if (jarRoot != null) {
+          VfsUtilCore.visitChildrenRecursively(jarRoot, this)
         }
       }
 

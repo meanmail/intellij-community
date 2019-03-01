@@ -1,21 +1,6 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.refactoring.introduce.parameter;
 
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
@@ -25,8 +10,9 @@ import com.intellij.openapi.ui.VerticalFlowLayout;
 import com.intellij.openapi.util.Ref;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiField;
+import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiType;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.BaseRefactoringProcessor;
 import com.intellij.refactoring.IntroduceParameterRefactoring;
@@ -47,7 +33,7 @@ import org.intellij.lang.annotations.MagicConstant;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.GroovyFileType;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParametersOwner;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParameterListOwner;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
@@ -94,12 +80,14 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
   private JPanel mySignaturePanel;
   private JCheckBox myForceReturnCheckBox;
   private final Project myProject;
+  private final PsiFile myFile;
 
   private final boolean myCanIntroduceSimpleParameter;
 
   public GrIntroduceParameterDialog(IntroduceParameterInfo info) {
     super(info.getProject(), true);
     myInfo = info;
+    myFile = info.getContext().getContainingFile();
     myProject = info.getProject();
     myCanIntroduceSimpleParameter = GroovyIntroduceParameterUtil.findExpr(myInfo) != null ||
                                     GroovyIntroduceParameterUtil.findVar(myInfo) != null ||
@@ -340,15 +328,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
     final ExtractClosureHelperImpl mockHelper =
       new ExtractClosureHelperImpl(myInfo, "__test___n_", false, new TIntArrayList(), false,
                                    IntroduceParameterRefactoring.REPLACE_FIELDS_WITH_GETTERS_NONE, false, false, false);
-    final PsiType returnType;
-    final AccessToken token = WriteAction.start();
-    try {
-      returnType = ExtractClosureProcessorBase.generateClosure(mockHelper).getReturnType();
-    }
-    finally {
-      token.finish();
-    }
-    return returnType;
+    return WriteAction.compute(() -> ExtractClosureProcessorBase.generateClosure(mockHelper).getReturnType());
   }
 
   private NameSuggestionsField createNameField(GrVariable var) {
@@ -434,7 +414,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
   @Nullable
   private PsiClass getContainingClass() {
-    final GrParametersOwner toReplaceIn = myInfo.getToReplaceIn();
+    final GrParameterListOwner toReplaceIn = myInfo.getToReplaceIn();
     if (toReplaceIn instanceof GrMethod) {
       return ((GrMethod)toReplaceIn).getContainingClass();
     }
@@ -445,7 +425,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
   private boolean hasFinalModifier() {
     final Boolean createFinals = JavaRefactoringSettings.getInstance().INTRODUCE_PARAMETER_CREATE_FINALS;
-    return createFinals == null ? CodeStyleSettingsManager.getSettings(myProject).GENERATE_FINAL_PARAMETERS : createFinals.booleanValue();
+    return createFinals == null ? JavaCodeStyleSettings.getInstance(myFile).GENERATE_FINAL_PARAMETERS : createFinals.booleanValue();
   }
 
   @Override
@@ -454,7 +434,7 @@ public class GrIntroduceParameterDialog extends DialogWrapper {
 
     super.doOKAction();
 
-    final GrParametersOwner toReplaceIn = myInfo.getToReplaceIn();
+    final GrParameterListOwner toReplaceIn = myInfo.getToReplaceIn();
 
     final GrExpression expr = GroovyIntroduceParameterUtil.findExpr(myInfo);
     final GrVariable var = GroovyIntroduceParameterUtil.findVar(myInfo);

@@ -20,7 +20,9 @@ import com.intellij.codeInspection.capitalization.AnnotateCapitalizationIntentio
 import com.intellij.codeInspection.capitalization.TitleCapitalizationInspection;
 import com.intellij.openapi.application.PluginPathManager;
 import com.intellij.openapi.command.WriteCommandAction;
+import com.intellij.testFramework.LightProjectDescriptor;
 import com.intellij.testFramework.fixtures.LightCodeInsightFixtureTestCase;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
@@ -33,6 +35,10 @@ public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCas
 
   public void testSentenceCapitalization() {
     doTest(true);
+  }
+
+  public void testTernaryAndParentheses() {
+    myFixture.testHighlighting(getTestName(false) + ".java");
   }
 
   public void testMultipleReturns() {
@@ -74,12 +80,7 @@ public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCas
     if (!fix) return;
 
     final IntentionAction action = myFixture.filterAvailableIntentions("Properly capitalize").get(0);
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        action.invoke(getProject(), myFixture.getEditor(), getFile());
-      }
-    }.execute();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> action.invoke(getProject(), myFixture.getEditor(), getFile()));
     myFixture.checkResultByFile(getTestName(false) + "_after.java");
   }
 
@@ -91,9 +92,14 @@ public class CapitalizationInspectionTest extends LightCodeInsightFixtureTestCas
     myFixture.enableInspections(TitleCapitalizationInspection.class);
   }
 
+  @NotNull
+  @Override
+  protected LightProjectDescriptor getProjectDescriptor() {
+    return JAVA_8;
+  }
 
   @Override
   protected String getBasePath() {
-    return PluginPathManager.getPluginHomePathRelative("devkit") + "/testData/inspections/capitalization";
+    return PluginPathManager.getPluginHomePathRelative("java-i18n") + "/testData/inspections/capitalization";
   }
 }

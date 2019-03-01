@@ -21,6 +21,7 @@ import com.intellij.psi.xml.XmlElement;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.xml.impl.*;
+import com.intellij.xml.util.IncludedXmlTag;
 import com.intellij.xml.util.XmlUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -29,7 +30,6 @@ import java.util.List;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 8/9/12
  */
 public class StubParentStrategy implements DomParentStrategy {
 
@@ -95,7 +95,7 @@ public class StubParentStrategy implements DomParentStrategy {
     int i = 0;
     String nameToFind = myStub.getName();
     for (XmlTag xmlTag : tags) {
-      if (nameToFind.equals(xmlTag.getName()) && myStub.getIndex() == i++) {
+      if (nameToFind.equals(xmlTag.getName()) && !(xmlTag instanceof IncludedXmlTag) && myStub.getIndex() == i++) {
         return xmlTag;
       }
     }
@@ -137,7 +137,6 @@ public class StubParentStrategy implements DomParentStrategy {
     return true;
   }
 
-  @SuppressWarnings("EqualsWhichDoesntCheckParameterClass")
   @Override
   public boolean equals(Object obj) {
     if (!(obj instanceof StubParentStrategy)) {

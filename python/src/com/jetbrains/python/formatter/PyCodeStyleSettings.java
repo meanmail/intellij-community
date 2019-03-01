@@ -17,8 +17,10 @@ package com.jetbrains.python.formatter;
 
 import com.intellij.formatting.WrapType;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.CommonCodeStyleSettings;
 import com.intellij.psi.codeStyle.CustomCodeStyleSettings;
 import com.jetbrains.python.PyBundle;
+import org.intellij.lang.annotations.MagicConstant;
 
 /**
  * @author yole
@@ -61,7 +63,7 @@ public class PyCodeStyleSettings extends CustomCodeStyleSettings {
   public boolean SPACE_BEFORE_BACKSLASH = true;
 
   public int BLANK_LINES_AROUND_TOP_LEVEL_CLASSES_FUNCTIONS = 2;
-  // TODO make boolean (it needs special editor in BlankLinesPanel)
+  public int BLANK_LINES_BEFORE_FIRST_METHOD = 0;
   public boolean BLANK_LINE_AT_FILE_END = true;
 
   public boolean ALIGN_COLLECTIONS_AND_COMPREHENSIONS = true;
@@ -74,6 +76,12 @@ public class PyCodeStyleSettings extends CustomCodeStyleSettings {
   public boolean SPACE_BEFORE_NUMBER_SIGN = true;
 
   public int DICT_ALIGNMENT = DICT_ALIGNMENT_NONE;
+  @MagicConstant(intValues = {
+    CommonCodeStyleSettings.DO_NOT_WRAP,
+    CommonCodeStyleSettings.WRAP_AS_NEEDED,
+    CommonCodeStyleSettings.WRAP_ALWAYS,
+    CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM
+  })
   public int DICT_WRAPPING = WrapType.NORMAL.getLegacyRepresentation();
   public boolean DICT_NEW_LINE_AFTER_LEFT_BRACE = false;
   public boolean DICT_NEW_LINE_BEFORE_RIGHT_BRACE = false;
@@ -87,11 +95,42 @@ public class PyCodeStyleSettings extends CustomCodeStyleSettings {
    * the same indentation level for arguments as for parameters.
    */
   public boolean USE_CONTINUATION_INDENT_FOR_ARGUMENTS = false;
+  public boolean USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = false;
 
   public boolean OPTIMIZE_IMPORTS_SORT_IMPORTS = true;
   public boolean OPTIMIZE_IMPORTS_SORT_NAMES_IN_FROM_IMPORTS = false;
   public boolean OPTIMIZE_IMPORTS_SORT_BY_TYPE_FIRST = true;
   public boolean OPTIMIZE_IMPORTS_JOIN_FROM_IMPORTS_WITH_SAME_SOURCE = false;
+  public boolean OPTIMIZE_IMPORTS_ALWAYS_SPLIT_FROM_IMPORTS = false;
+  public boolean OPTIMIZE_IMPORTS_CASE_INSENSITIVE_ORDER = false;
+
+  /**
+   * Affects wrapping of multiple imported names in a single "from" import.
+   */
+  @MagicConstant(intValues = {
+    CommonCodeStyleSettings.DO_NOT_WRAP,
+    CommonCodeStyleSettings.WRAP_AS_NEEDED,
+    CommonCodeStyleSettings.WRAP_ALWAYS,
+    CommonCodeStyleSettings.WRAP_ON_EVERY_ITEM
+  })
+  public int FROM_IMPORT_WRAPPING = WrapType.NORMAL.getLegacyRepresentation();
+  public boolean FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS = false;
+  public boolean FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS = false;
+  
+  @MagicConstant(intValues = {
+    CommonCodeStyleSettings.DO_NOT_FORCE,
+    CommonCodeStyleSettings.FORCE_BRACES_IF_MULTILINE,
+    CommonCodeStyleSettings.FORCE_BRACES_ALWAYS}
+  )
+  public boolean FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = false;
+  public boolean FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE = false;
+
+  /**
+   * Corresponds to the option of pycodestyle.py "--hang-closing". Basically, it means that the closing brace of a collection literal, 
+   * a comprehension, an argument list, a parameter list or parentheses in "from" import statement should have the same indent as the items 
+   * inside even if there is so called hanging indent (nothing follows the opening bracket on its line).
+   */
+  public boolean HANG_CLOSING_BRACKETS = false;
 
   public PyCodeStyleSettings(CodeStyleSettings container) {
     super("Python", container);

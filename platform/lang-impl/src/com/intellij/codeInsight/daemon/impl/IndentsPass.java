@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
@@ -20,6 +6,7 @@
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.TextEditorHighlightingPass;
+import com.intellij.codeInsight.highlighting.BraceMatcher;
 import com.intellij.codeInsight.highlighting.BraceMatchingUtil;
 import com.intellij.lang.Language;
 import com.intellij.lang.LanguageParserDefinitions;
@@ -27,6 +14,7 @@ import com.intellij.lang.ParserDefinition;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
+import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.util.EditorUtil;
 import com.intellij.openapi.editor.highlighter.HighlighterIterator;
@@ -40,10 +28,14 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Segment;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.tree.TokenSet;
+import com.intellij.psi.util.PsiUtilBase;
+import com.intellij.psi.util.PsiUtilCore;
+import com.intellij.ui.paint.LinePainter2D;
 import com.intellij.util.DocumentUtil;
 import com.intellij.util.containers.ContainerUtilRt;
 import com.intellij.util.containers.IntStack;
@@ -56,17 +48,13 @@ import java.util.List;
 
 public class IndentsPass extends TextEditorHighlightingPass implements DumbAware {
   private static final Key<List<RangeHighlighter>> INDENT_HIGHLIGHTERS_IN_EDITOR_KEY = Key.create("INDENT_HIGHLIGHTERS_IN_EDITOR_KEY");
-  private static final Key<Long>                   LAST_TIME_INDENTS_BUILT           = Key.create("LAST_TIME_INDENTS_BUILT");
+  private static final Key<Long> LAST_TIME_INDENTS_BUILT = Key.create("LAST_TIME_INDENTS_BUILT");
 
   private final EditorEx myEditor;
   private final PsiFile  myFile;
-  public static final Comparator<TextRange> RANGE_COMPARATOR = (o1, o2) -> {
-    if (o1.getStartOffset() == o2.getStartOffset()) {
-      return o1.getEndOffset() - o2.getEndOffset();
-    }
 
-    return o1.getStartOffset() - o2.getStartOffset();
-  };
+  private volatile List<TextRange> myRanges = Collections.emptyList();
+  private volatile List<IndentGuideDescriptor> myDescriptors = Collections.emptyList();
 
   private static final CustomHighlighterRenderer RENDERER = (editor, highlighter, g) -> {
     int startOffset = highlighter.getStartOffset();
@@ -92,7 +80,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
     final VisualPosition startPosition = editor.offsetToVisualPosition(off);
     int indentColumn = startPosition.column;
 
-    // It's considered that indent guide can cross not only white space but comments, javadocs etc. Hence, there is a possible
+    // It's considered that indent guide can cross not only white space but comments, javadoc etc. Hence, there is a possible
     // case that the first indent guide line is, say, single-line comment where comment symbols ('//') are located at the first
     // visual column. We need to calculate correct indent guide column then.
     int lineShift = 1;
@@ -139,7 +127,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
     }
 
     final EditorColorsScheme scheme = editor.getColorsScheme();
-    g.setColor(selected ? scheme.getColor(EditorColors.SELECTED_INDENT_GUIDE_COLOR) : scheme.getColor(EditorColors.INDENT_GUIDE_COLOR));
+    g.setColor(scheme.getColor(selected ? EditorColors.SELECTED_INDENT_GUIDE_COLOR : EditorColors.INDENT_GUIDE_COLOR));
 
     // There is a possible case that indent line intersects soft wrap-introduced text. Example:
     //     this is a long line <soft-wrap>
@@ -156,7 +144,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
     //     1. Show only active indent if it crosses soft wrap-introduced text;
     //     2. Show indent as is if it doesn't intersect with soft wrap-introduced text;
     if (selected) {
-      g.drawLine(start.x + 2, start.y, start.x + 2, maxY - 1);
+      LinePainter2D.paint((Graphics2D)g, start.x + 2, start.y, start.x + 2, maxY - 1);
     }
     else {
       int y = start.y;
@@ -171,7 +159,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
         }
         if (!softWraps.isEmpty() && softWraps.get(0).getIndentInColumns() < indentColumn) {
           if (y < newY || i > startLine + lineShift) { // There is a possible case that soft wrap is located on indent start line.
-            g.drawLine(start.x + 2, y, start.x + 2, newY + lineHeight - 1);
+            LinePainter2D.paint((Graphics2D)g, start.x + 2, y, start.x + 2, newY + lineHeight - 1);
           }
           newY += logicalLineHeight;
           y = newY;
@@ -187,14 +175,12 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
       }
 
       if (y < maxY) {
-        g.drawLine(start.x + 2, y, start.x + 2, maxY - 1);
+        LinePainter2D.paint((Graphics2D)g, start.x + 2, y, start.x + 2, maxY - 1);
       }
     }
   };
-  private volatile List<TextRange>             myRanges;
-  private volatile List<IndentGuideDescriptor> myDescriptors;
 
-  public IndentsPass(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
+  IndentsPass(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file) {
     super(project, editor.getDocument(), false);
     myEditor = (EditorEx)editor;
     myFile = file;
@@ -216,7 +202,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
       ranges.add(new TextRange(myDocument.getLineStartOffset(descriptor.startLine), endOffset));
     }
 
-    Collections.sort(ranges, RANGE_COMPARATOR);
+    Collections.sort(ranges, Segment.BY_START_OFFSET_THEN_END_OFFSET);
     myRanges = ranges;
   }
 
@@ -238,10 +224,14 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
     int curRange = 0;
 
     if (oldHighlighters != null) {
+      // after document change some range highlighters could have become invalid, or the order could have been broken
+      oldHighlighters.sort(Comparator.comparing((RangeHighlighter h) -> !h.isValid())
+                                     .thenComparing(Segment.BY_START_OFFSET_THEN_END_OFFSET));
       int curHighlight = 0;
       while (curRange < myRanges.size() && curHighlight < oldHighlighters.size()) {
         TextRange range = myRanges.get(curRange);
         RangeHighlighter highlighter = oldHighlighters.get(curHighlight);
+        if (!highlighter.isValid()) break;
 
         int cmp = compare(range, highlighter);
         if (cmp < 0) {
@@ -261,6 +251,7 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
 
       for (; curHighlight < oldHighlighters.size(); curHighlight++) {
         RangeHighlighter highlighter = oldHighlighters.get(curHighlight);
+        if (!highlighter.isValid()) break;
         highlighter.dispose();
       }
     }
@@ -331,9 +322,28 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
     return descriptors;
   }
 
-  private static IndentGuideDescriptor createDescriptor(int level, int startLine, int endLine, int[] lineIndents) {
+  private IndentGuideDescriptor createDescriptor(int level, int startLine, int endLine, int[] lineIndents) {
     while (startLine > 0 && lineIndents[startLine] < 0) startLine--;
-    return new IndentGuideDescriptor(level, startLine, endLine);
+    int codeConstructStartLine = findCodeConstructStartLine(startLine);
+    return new IndentGuideDescriptor(level, codeConstructStartLine, startLine, endLine);
+  }
+
+  private int findCodeConstructStartLine(int startLine) {
+    DocumentEx document = myEditor.getDocument();
+    CharSequence text = document.getImmutableCharSequence();
+    int lineStartOffset = document.getLineStartOffset(startLine);
+    int firstNonWsOffset = CharArrayUtil.shiftForward(text, lineStartOffset, " \t");
+    FileType type = PsiUtilBase.getPsiFileAtOffset(myFile, firstNonWsOffset).getFileType();
+    Language language = PsiUtilCore.getLanguageAtOffset(myFile, firstNonWsOffset);
+    BraceMatcher braceMatcher = BraceMatchingUtil.getBraceMatcher(type, language);
+    HighlighterIterator iterator = myEditor.getHighlighter().createIterator(firstNonWsOffset);
+    if (braceMatcher.isLBraceToken(iterator, text, type)) {
+      int codeConstructStart = braceMatcher.getCodeConstructStart(myFile, firstNonWsOffset);
+      return document.getLineNumber(codeConstructStart);
+    }
+    else {
+      return startLine;
+    }
   }
 
   @NotNull
@@ -350,11 +360,9 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
   }
 
   private class IndentsCalculator {
-
-    @NotNull public final Map<Language, TokenSet> myComments = ContainerUtilRt.newHashMap();
-
-    @NotNull final int[]        lineIndents; // negative value means the line is empty (or contains a comment) and indent
-                                                    // (denoted by absolute value) was deduced from enclosing non-empty lines
+    @NotNull final Map<Language, TokenSet> myComments = ContainerUtilRt.newHashMap();
+    @NotNull final int[] lineIndents; // negative value means the line is empty (or contains a comment) and indent
+    // (denoted by absolute value) was deduced from enclosing non-empty lines
     @NotNull final CharSequence myChars;
 
     IndentsCalculator() {
@@ -391,12 +399,9 @@ public class IndentsPass extends TextEditorHighlightingPass implements DumbAware
           }
           offset++;
         }
-        if (offset == lineEnd || isComment(offset)) { // treating commented lines in the same way as empty lines
-          lineIndents[line] = -1; // Blank line marker
-        }
-        else {
-          lineIndents[line] = column;
-        }
+        // treating commented lines in the same way as empty lines
+        // Blank line marker
+        lineIndents[line] = offset == lineEnd || isComment(offset) ? -1 : column;
       }
 
       int topIndent = 0;

@@ -40,49 +40,53 @@ public class ModuleRootModificationUtil {
     updateModel(module, model -> model.addContentEntry(VfsUtilCore.pathToUrl(path)));
   }
 
-  public static void addModuleLibrary(@NotNull Module module,
-                                      @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, DependencyScope.COMPILE);
+  public static void addContentRoot(@NotNull Module module, @NotNull VirtualFile path) {
+    updateModel(module, model -> model.addContentEntry(path));
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls) {
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, DependencyScope.COMPILE);
+  }
+
+  public static void addModuleLibrary(@NotNull Module module,
+                                      @Nullable String libName,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
                                       @NotNull DependencyScope scope) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, Collections.emptyList(), scope);
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, Collections.emptyList(), scope);
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
-                                      @NotNull List<String> excludedRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
+                                      @NotNull List<String> excludedRootUrls,
                                       @NotNull DependencyScope scope) {
-    addModuleLibrary(module, libName, classesRoots, sourceRoots, excludedRoots, scope, false);
+    addModuleLibrary(module, libName, classesRootUrls, sourceRootUrls, excludedRootUrls, scope, false);
   }
 
   public static void addModuleLibrary(@NotNull Module module,
                                       @Nullable String libName,
-                                      @NotNull List<String> classesRoots,
-                                      @NotNull List<String> sourceRoots,
-                                      @NotNull List<String> excludedRoots,
+                                      @NotNull List<String> classesRootUrls,
+                                      @NotNull List<String> sourceRootUrls,
+                                      @NotNull List<String> excludedRootUrls,
                                       @NotNull DependencyScope scope,
                                       boolean exported) {
     updateModel(module, model -> {
       LibraryEx library = (LibraryEx)model.getModuleLibraryTable().createLibrary(libName);
       LibraryEx.ModifiableModelEx libraryModel = library.getModifiableModel();
 
-      for (String root : classesRoots) {
-        libraryModel.addRoot(root, OrderRootType.CLASSES);
+      for (String rootUrl : classesRootUrls) {
+        libraryModel.addRoot(rootUrl, OrderRootType.CLASSES);
       }
-      for (String root : sourceRoots) {
-        libraryModel.addRoot(root, OrderRootType.SOURCES);
+      for (String rootUrl : sourceRootUrls) {
+        libraryModel.addRoot(rootUrl, OrderRootType.SOURCES);
       }
-      for (String excluded : excludedRoots) {
-        libraryModel.addExcludedRoot(excluded);
+      for (String excludedUrl : excludedRootUrls) {
+        libraryModel.addExcludedRoot(excludedUrl);
       }
 
       LibraryOrderEntry entry = model.findLibraryOrderEntry(library);
@@ -95,6 +99,9 @@ public class ModuleRootModificationUtil {
   }
 
   public static void addModuleLibrary(@NotNull Module module, @NotNull String classesRootUrl) {
+    if (ApplicationManager.getApplication().isUnitTestMode() && classesRootUrl.endsWith(".jar")) {
+      assert false : "jar file is expected, local file is used";
+    }
     addModuleLibrary(module, null, Collections.singletonList(classesRootUrl), Collections.emptyList());
   }
 
@@ -130,15 +137,20 @@ public class ModuleRootModificationUtil {
     });
   }
 
-  public static void updateModel(@NotNull Module module, @NotNull Consumer<ModifiableRootModel> task) {
+  public static void updateModel(@NotNull Module module, @NotNull Consumer<? super ModifiableRootModel> task) {
     ModifiableRootModel model = ReadAction.compute(() -> ModuleRootManager.getInstance(module).getModifiableModel());
     try {
       task.consume(model);
-      ApplicationManager.getApplication().invokeAndWait(() -> WriteAction.run(model::commit));
+
+      ApplicationManager.getApplication().invokeAndWait(() -> {
+        if (module.isDisposed()) return;
+        WriteAction.run(model::commit);
+      });
     }
-    catch (RuntimeException | Error e) {
-      model.dispose();
-      throw e;
+    finally {
+      if (!model.isDisposed()) {
+        model.dispose();
+      }
     }
   }
 

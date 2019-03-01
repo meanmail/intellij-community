@@ -34,3 +34,25 @@ class D extends C {
 
   }
 }
+class E extends C {
+  @Override
+  public void setUp() {
+    Runnable r = super::setUp;
+    r.run();
+  }
+}
+class Deny extends ArrayList {
+  @Override
+  public int size() {
+    throw new UnsupportedOperationException();
+  }
+}
+interface Black {
+  void in();
+}
+class Back implements Black {
+  @Override
+  public void in() {
+    System.out.println("tumulteous");
+  }
+}

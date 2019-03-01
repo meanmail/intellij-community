@@ -46,7 +46,7 @@ import java.util.Map;
 public class LibraryDownloadSettings {
   private final FrameworkLibraryVersion myVersion;
   private final DownloadableLibraryType myLibraryType;
-  private String myLibrariesPath;
+  private final String myLibrariesPath;
   private final String myLibraryName;
   private final boolean myDownloadSources;
   private final boolean myDownloadJavaDocs;
@@ -76,12 +76,7 @@ public class LibraryDownloadSettings {
   }
 
   private static List<? extends DownloadableLibraryFileDescription> getRequiredFiles(List<? extends DownloadableLibraryFileDescription> files) {
-    return ContainerUtil.filter(files, new Condition<DownloadableLibraryFileDescription>() {
-      @Override
-      public boolean value(DownloadableLibraryFileDescription description) {
-        return !description.isOptional();
-      }
-    });
+    return ContainerUtil.filter(files, (Condition<DownloadableLibraryFileDescription>)description -> !description.isOptional());
   }
 
   @NotNull
@@ -153,7 +148,7 @@ public class LibraryDownloadSettings {
     }
     libraryEditor.setName(myLibraryName);
     for (Pair<VirtualFile, DownloadableFileDescription> pair : downloaded) {
-      final OrderRootType rootType = rootTypes.containsKey(pair.getSecond()) ? rootTypes.get(pair.getSecond()) : OrderRootType.CLASSES;
+      final OrderRootType rootType = rootTypes.getOrDefault(pair.getSecond(), OrderRootType.CLASSES);
       libraryEditor.addRoot(pair.getFirst(), rootType);
     }
     return libraryEditor;

@@ -18,7 +18,8 @@ package com.intellij.openapi.util;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.registry.Registry;
-import com.intellij.util.concurrency.AppExecutorUtil;
+import com.intellij.util.Consumer;
+import com.intellij.util.concurrency.SequentialTaskExecutor;
 import org.jetbrains.annotations.NotNull;
 
 import javax.management.ListenerNotFoundException;
@@ -29,6 +30,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryNotificationInfo;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryType;
+import java.util.MissingResourceException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,26 +40,29 @@ public class LowMemoryWatcherManager implements Disposable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.LowMemoryWatcherManager");
 
   private static final long MEM_THRESHOLD = 5 /*MB*/ * 1024 * 1024;
+  @NotNull private final ExecutorService myExecutorService;
 
   private Future<?> mySubmitted; // guarded by ourJanitor
   private final AtomicBoolean myProcessing = new AtomicBoolean();
-  private final Runnable myJanitor = new Runnable() {
+  private final Consumer<Boolean> myJanitor = new Consumer<Boolean>() {
     @Override
-    public void run() {
+    public void consume(@NotNull Boolean afterGc) {
       // null mySubmitted before all listeners called to avoid data race when listener added in the middle of the execution and is lost
       // this may however cause listeners to execute more than once (potentially even in parallel)
       synchronized (myJanitor) {
         mySubmitted = null;
       }
-      LowMemoryWatcher.onLowMemorySignalReceived();
+      LowMemoryWatcher.onLowMemorySignalReceived(afterGc);
     }
   };
 
-  public LowMemoryWatcherManager() {
+  public LowMemoryWatcherManager(@NotNull Executor executorService) {
+    myExecutorService = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("LowMemoryWatcherManager", executorService);
     try {
       for (MemoryPoolMXBean bean : ManagementFactory.getMemoryPoolMXBeans()) {
-        if (bean.getType() == MemoryType.HEAP && bean.isUsageThresholdSupported()) {
-          long threshold = bean.getUsage().getMax() - MEM_THRESHOLD;
+        if (bean.getType() == MemoryType.HEAP && bean.isCollectionUsageThresholdSupported() && bean.isUsageThresholdSupported()) {
+          long max = bean.getUsage().getMax();
+          long threshold = Math.min((long) (max * getOccupiedMemoryThreshold()), max - MEM_THRESHOLD);
           if (threshold > 0) {
             bean.setUsageThreshold(threshold);
             bean.setCollectionUsageThreshold(threshold);
@@ -74,40 +80,45 @@ public class LowMemoryWatcherManager implements Disposable {
   private final NotificationListener myLowMemoryListener = new NotificationListener() {
     @Override
     public void handleNotification(Notification notification, Object __) {
-      if (MemoryNotificationInfo.MEMORY_THRESHOLD_EXCEEDED.equals(notification.getType()) ||
-          MemoryNotificationInfo.MEMORY_COLLECTION_THRESHOLD_EXCEEDED.equals(notification.getType())) {
+      boolean memoryThreshold = MemoryNotificationInfo.MEMORY_THRESHOLD_EXCEEDED.equals(notification.getType());
+      boolean memoryCollectionThreshold = MemoryNotificationInfo.MEMORY_COLLECTION_THRESHOLD_EXCEEDED.equals(notification.getType());
+
+      if (memoryThreshold || memoryCollectionThreshold) {
+        final boolean afterGc = memoryCollectionThreshold;
+
         if (Registry.is("low.memory.watcher.sync", true)) {
-          handleEventImmediately();
+          handleEventImmediately(afterGc);
           return;
         }
 
         synchronized (myJanitor) {
           if (mySubmitted == null) {
-            mySubmitted = myExecutor.getValue().submit(myJanitor);
+            mySubmitted = myExecutorService.submit(() -> myJanitor.consume(afterGc));
           }
         }
       }
     }
   };
 
-  private void handleEventImmediately() {
+  private static double getOccupiedMemoryThreshold() {
+    try {
+      return Registry.doubleValue("low.memory.watcher.notification.threshold");
+    }
+    catch (MissingResourceException e) {
+      return 0.95;
+    }
+  }
+
+  private void handleEventImmediately(boolean afterGc) {
     if (myProcessing.compareAndSet(false, true)) {
       try {
-        myJanitor.run();
+        myJanitor.consume(afterGc);
       }
       finally {
         myProcessing.set(false);
       }
     }
   }
-
-  private final NotNullLazyValue<ExecutorService> myExecutor = new NotNullLazyValue<ExecutorService>() {
-    @NotNull
-    @Override
-    protected ExecutorService compute() {
-      return AppExecutorUtil.createBoundedApplicationPoolExecutor("lowMemoryWatcher", 1);
-    }
-  };
 
   @Override
   public void dispose() {

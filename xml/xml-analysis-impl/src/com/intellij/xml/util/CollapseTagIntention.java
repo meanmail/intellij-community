@@ -21,7 +21,6 @@ import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.lang.ASTNode;
 import com.intellij.lang.Language;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
@@ -48,7 +47,7 @@ public class CollapseTagIntention implements LocalQuickFix, IntentionAction {
 
   @Override
   @NotNull
-  public String getName() {
+  public String getFamilyName() {
     return XmlBundle.message("xml.inspections.replace.tag.empty.body.with.empty.end");
   }
 
@@ -60,12 +59,6 @@ public class CollapseTagIntention implements LocalQuickFix, IntentionAction {
   }
 
   @Override
-  @NotNull
-  public String getFamilyName() {
-    return getName();
-  }
-
-  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     applyFix(project, descriptor.getPsiElement());
   }
@@ -73,13 +66,17 @@ public class CollapseTagIntention implements LocalQuickFix, IntentionAction {
   @Override
   public boolean isAvailable(@NotNull Project project, Editor editor, PsiFile file) {
     XmlTag tag = getTag(editor, file);
-    return tag != null && !tag.isEmpty() && tag.getSubTags().length == 0 && tag.getValue().getTrimmedText().isEmpty() &&
+    return tag != null && !tag.isEmpty() &&
+           tag.getValue().getChildren().length == tag.getValue().getTextElements().length && tag.getValue().getTrimmedText().isEmpty() &&
            CheckTagEmptyBodyInspection.isCollapsibleTag(tag);
   }
 
   @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file) throws IncorrectOperationException {
-    applyFix(project, getTag(editor, file));
+    XmlTag tag = getTag(editor, file);
+    if (tag != null) {
+      applyFix(project, tag);
+    }
   }
 
   private static XmlTag getTag(Editor editor, PsiFile file) {
@@ -101,7 +98,7 @@ public class CollapseTagIntention implements LocalQuickFix, IntentionAction {
     return false;
   }
 
-  private static void applyFix(@NotNull final Project project, @NotNull final PsiElement tag) {
+  protected static void applyFix(@NotNull final Project project, @NotNull final PsiElement tag) {
     if (!FileModificationService.getInstance().prepareFileForWrite(tag.getContainingFile())) {
       return;
     }
@@ -114,15 +111,11 @@ public class CollapseTagIntention implements LocalQuickFix, IntentionAction {
     VirtualFile file = tag.getContainingFile().getVirtualFile();
     final Document document = FileDocumentManager.getInstance().getDocument(file);
 
-    new WriteCommandAction(project) {
-      @Override
-      protected void run(@NotNull final Result result) throws Throwable {
-        assert document != null;
-        document.replaceString(offset, tag.getTextRange().getEndOffset(), "/>");
-        PsiDocumentManager.getInstance(project).commitDocument(document);
-        CodeStyleManager.getInstance(project).reformat(tag);
-      }
-    }.execute();
-
+    WriteCommandAction.runWriteCommandAction(project, () -> {
+      assert document != null;
+      document.replaceString(offset, tag.getTextRange().getEndOffset(), "/>");
+      PsiDocumentManager.getInstance(project).commitDocument(document);
+      CodeStyleManager.getInstance(project).reformat(tag);
+    });
   }
 }

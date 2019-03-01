@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.lookup.impl;
 
 import com.intellij.codeInsight.CodeInsightBundle;
@@ -24,6 +10,7 @@ import com.intellij.codeInsight.lookup.LookupElementAction;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.DataManager;
+import com.intellij.ide.IdeEventQueue;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.injected.editor.EditorWindow;
 import com.intellij.openapi.actionSystem.*;
@@ -37,24 +24,25 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.util.ActionCallback;
 import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.ClickListener;
-import com.intellij.ui.JBColor;
-import com.intellij.ui.ScreenUtil;
-import com.intellij.ui.ScrollPaneFactory;
+import com.intellij.ui.*;
+import com.intellij.ui.border.CustomLineBorder;
 import com.intellij.ui.components.JBLayeredPane;
 import com.intellij.ui.components.JBList;
 import com.intellij.util.Alarm;
 import com.intellij.util.PlatformIcons;
-import com.intellij.util.ui.*;
+import com.intellij.util.ui.AbstractLayoutManager;
+import com.intellij.util.ui.AsyncProcessIcon;
+import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.AbstractBorder;
 import javax.swing.border.Border;
-import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
+import javax.swing.border.CompoundBorder;
 import javax.swing.event.ListSelectionEvent;
 import javax.swing.event.ListSelectionListener;
 import java.awt.*;
@@ -90,11 +78,10 @@ class LookupUi {
     myProject = project;
 
     myIconPanel.setVisible(false);
-    myIconPanel.setBackground(Color.LIGHT_GRAY);
+    myIconPanel.setOpaque(false);
     myIconPanel.add(myProcessIcon);
 
     JComponent adComponent = advertiser.getAdComponent();
-    adComponent.setBorder(new EmptyBorder(0, 1, 1, 2 + AllIcons.Ide.LookupRelevance.getIconWidth()));
     myLayeredPane.mainPanel.add(adComponent, BorderLayout.SOUTH);
 
     myScrollPane = ScrollPaneFactory.createScrollPane(lookup.getList(), true);
@@ -106,7 +93,7 @@ class LookupUi {
 
     myLayeredPane.mainPanel.add(myScrollPane, BorderLayout.CENTER);
 
-    mySortingLabel.setBorder(new LineBorder(new JBColor(Color.LIGHT_GRAY, JBColor.background())));
+    mySortingLabel.setBorder(new CustomLineBorder(new JBColor(Gray._192, JBColor.background()), JBUI.insets(1)));
     mySortingLabel.setOpaque(true);
     new ChangeLookupSorting().installOn(mySortingLabel);
     updateSorting();
@@ -125,7 +112,7 @@ class LookupUi {
       @Override
       public void valueChanged(ListSelectionEvent e) {
         if (myLookup.isLookupDisposed()) return;
-        
+
         myHintAlarm.cancelAllRequests();
 
         final LookupElement item = myLookup.getCurrentItem();
@@ -213,7 +200,7 @@ class LookupUi {
   }
 
   private void updateSorting() {
-    final boolean lexi = UISettings.getInstance().SORT_LOOKUP_ELEMENTS_LEXICOGRAPHICALLY;
+    final boolean lexi = UISettings.getInstance().getSortLookupElementsLexicographically();
     mySortingLabel.setIcon(lexi ? AllIcons.Ide.LookupAlphanumeric : AllIcons.Ide.LookupRelevance);
     mySortingLabel.setToolTipText(lexi ? "Click to sort variants by relevance" : "Click to sort variants alphabetically");
 
@@ -272,10 +259,10 @@ class LookupUi {
     }
 
     SwingUtilities.convertPointToScreen(location, editor.getContentComponent());
-    final Rectangle screenRectangle = ScreenUtil.getScreenRectangle(location);
+    final Rectangle screenRectangle = ScreenUtil.getScreenRectangle(editor.getContentComponent());
 
     if (!isPositionedAboveCaret()) {
-      int shiftLow = screenRectangle.height - (location.y + dim.height);
+      int shiftLow = screenRectangle.y + screenRectangle.height - (location.y + dim.height);
       myPositionedAbove = shiftLow < 0 && shiftLow < location.y - dim.height && location.y >= dim.height;
     }
     if (isPositionedAboveCaret()) {
@@ -315,15 +302,16 @@ class LookupUi {
         public Dimension preferredLayoutSize(@Nullable Container parent) {
           int maxCellWidth = myLookup.myLookupTextWidth + myLookup.myCellRenderer.getTextIndent();
           int scrollBarWidth = myScrollPane.getPreferredSize().width - myScrollPane.getViewport().getPreferredSize().width;
-          int listWidth = Math.min(scrollBarWidth + maxCellWidth, UISettings.getInstance().MAX_LOOKUP_WIDTH2);
+          int listWidth = Math.min(scrollBarWidth + maxCellWidth, UISettings.getInstance().getMaxLookupWidth());
 
           Dimension adSize = myAdvertiser.getAdComponent().getPreferredSize();
 
-          int panelHeight = myList.getPreferredScrollableViewportSize().height + adSize.height;
-          if (myList.getModel().getSize() > myList.getVisibleRowCount() && myList.getVisibleRowCount() >= 5) {
-            panelHeight -= myList.getFixedCellHeight() / 2;
-          }
-          return new Dimension(Math.max(listWidth, adSize.width), Math.min(panelHeight, myMaximumHeight));
+          int panelHeight = myScrollPane.getPreferredSize().height + adSize.height;
+          int width = Math.max(listWidth, adSize.width);
+          width = Math.min(width, Registry.intValue("ide.completion.max.width"));
+          int height = Math.min(panelHeight, myMaximumHeight);
+
+          return new Dimension(width, height);
         }
 
         @Override
@@ -332,15 +320,15 @@ class LookupUi {
           mainPanel.setSize(size);
           mainPanel.validate();
 
-          if (!myLookup.myResizePending) {
+          if (IdeEventQueue.getInstance().getTrueCurrentEvent().getID() == MouseEvent.MOUSE_DRAGGED) {
             Dimension preferredSize = preferredLayoutSize(null);
             if (preferredSize.width != size.width) {
-              UISettings.getInstance().MAX_LOOKUP_WIDTH2 = Math.max(500, size.width);
+              UISettings.getInstance().setMaxLookupWidth(Math.max(500, size.width));
             }
 
             int listHeight = myList.getLastVisibleIndex() - myList.getFirstVisibleIndex() + 1;
             if (listHeight != myList.getModel().getSize() && listHeight != myList.getVisibleRowCount() && preferredSize.height != size.height) {
-              UISettings.getInstance().MAX_LOOKUP_LIST_HEIGHT = Math.max(5, listHeight);
+              UISettings.getInstance().setMaxLookupListHeight(Math.max(5, listHeight));
             }
           }
 
@@ -381,8 +369,8 @@ class LookupUi {
   }
 
   private class LookupHint extends JLabel {
-    private final Border INACTIVE_BORDER = BorderFactory.createEmptyBorder(2, 2, 2, 2);
-    private final Border ACTIVE_BORDER = BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(Color.BLACK, 1), BorderFactory.createEmptyBorder(1, 1, 1, 1));
+    private final Border INACTIVE_BORDER = JBUI.Borders.empty(2);
+    private final Border ACTIVE_BORDER = new CompoundBorder(new CustomLineBorder(JBColor.BLACK, JBUI.insets(1)), JBUI.Borders.empty(1));
     private LookupHint() {
       setOpaque(false);
       setBorder(INACTIVE_BORDER);
@@ -421,22 +409,27 @@ class LookupUi {
       DefaultActionGroup group = new DefaultActionGroup();
       group.add(createSortingAction(true));
       group.add(createSortingAction(false));
-      JBPopupFactory.getInstance().createActionGroupPopup("Change sorting", group, context, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false).showInBestPositionFor(
+      JBPopupFactory.getInstance().createActionGroupPopup("Change Sorting", group, context, JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, false).showInBestPositionFor(
         context);
       return true;
     }
 
     private AnAction createSortingAction(boolean checked) {
-      boolean currentSetting = UISettings.getInstance().SORT_LOOKUP_ELEMENTS_LEXICOGRAPHICALLY;
-      final boolean newSetting = checked ? currentSetting : !currentSetting;
-      return new DumbAwareAction(newSetting ? "Sort lexicographically" : "Sort by relevance", null, checked ? PlatformIcons.CHECK_ICON : null) {
+      boolean isAlpha = UISettings.getInstance().getSortLookupElementsLexicographically();
+      boolean makeAlpha = checked == isAlpha;
+      class ChangeSortingAction extends DumbAwareAction implements HintManagerImpl.ActionToIgnore {
+        ChangeSortingAction() {
+          super(makeAlpha ? "Sort alphabetically" : "Sort by relevance", null, checked ? PlatformIcons.CHECK_ICON : null);
+        }
+
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           FeatureUsageTracker.getInstance().triggerFeatureUsed(CodeCompletionFeatures.EDITING_COMPLETION_CHANGE_SORTING);
-          UISettings.getInstance().SORT_LOOKUP_ELEMENTS_LEXICOGRAPHICALLY = newSetting;
+          UISettings.getInstance().setSortLookupElementsLexicographically(makeAlpha);
           updateSorting();
         }
-      };
+      }
+      return new ChangeSortingAction();
     }
   }
 

@@ -14,10 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 07-May-2008
- */
 package com.intellij.refactoring.replaceConstructorWithBuilder;
 
 import com.intellij.psi.PsiElement;
@@ -26,11 +22,13 @@ import org.jetbrains.annotations.NotNull;
 
 public class ReplaceConstructorWithBuilderViewDescriptor extends UsageViewDescriptorAdapter{
 
+  @Override
   @NotNull
   public PsiElement[] getElements() {
     return PsiElement.EMPTY_ARRAY;
   }
 
+  @Override
   public String getProcessedElementsHeader() {
     return "";
   }

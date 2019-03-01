@@ -1,15 +1,21 @@
-<idea-plugin version="2">
+<idea-plugin>
   <depends optional="true" config-file="terminal-for-remote-servers.xml">com.intellij.modules.remoteServers</depends>
 
   <extensions defaultExtensionNs="com.intellij">
     <toolWindow id="Terminal" anchor="bottom" icon="TerminalIcons.OpenTerminal_13x13"
-                factoryClass="org.jetbrains.plugins.terminal.TerminalToolWindowFactory" secondary="false"/>
+                factoryClass="org.jetbrains.plugins.terminal.TerminalToolWindowFactory"
+                secondary="false"
+                canCloseContents="true"/>
 
     <projectConfigurable groupId="tools" groupWeight="130" displayName="Terminal" id="terminal" instance="org.jetbrains.plugins.terminal.TerminalOptionsConfigurable"/>
 
     <fileEditorProvider implementation="org.jetbrains.plugins.terminal.vfs.TerminalSessionEditorProvider"/>
 
     <applicationService serviceImplementation="org.jetbrains.plugins.terminal.TerminalOptionsProvider"/>
+    <projectService serviceImplementation="org.jetbrains.plugins.terminal.TerminalProjectOptionsProvider"/>
+
+    <projectService serviceImplementation="org.jetbrains.plugins.terminal.arrangement.TerminalArrangementManager"/>
+    <statistics.counterUsagesCollector groupId="terminalShell" version="1"/>
   </extensions>
 
   <project-components>

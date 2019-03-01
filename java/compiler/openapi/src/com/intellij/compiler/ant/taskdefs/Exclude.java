@@ -22,12 +22,10 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class Exclude extends Tag {
 
   public Exclude(@NonNls final String name) {
-    //noinspection HardCodedStringLiteral
     super("exclude", Couple.of("name", name));
   }
 

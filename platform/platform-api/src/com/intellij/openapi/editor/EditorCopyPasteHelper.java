@@ -26,6 +26,11 @@ import java.awt.datatransfer.Transferable;
  * Support for data transfer between editor and clipboard.
  */
 public abstract class EditorCopyPasteHelper {
+  /**
+   *  Setup JTextComponent.getDocument().putProperty(TRIM_TEXT_ON_PASTE_KEY, Boolean.TRUE) to trim text that is being pasted
+   */
+  public static final String TRIM_TEXT_ON_PASTE_KEY = "trimTextOnPaste";
+
   public static EditorCopyPasteHelper getInstance() {
     return ServiceManager.getService(EditorCopyPasteHelper.class);
   }
@@ -38,16 +43,32 @@ public abstract class EditorCopyPasteHelper {
   /**
    * Pastes from clipboard into editor at caret(s) position.
    *
-   * @return ranges of text in the document, corresponding to pasted fragments, if paste succeeds, or <code>null</code> otherwise
+   * @return ranges of text in the document, corresponding to pasted fragments, if paste succeeds, or {@code null} otherwise
+   *
+   * @throws TooLargeContentException if content is too large to be pasted in editor
    */
   @Nullable
-  public abstract TextRange[] pasteFromClipboard(@NotNull Editor editor);
+  public abstract TextRange[] pasteFromClipboard(@NotNull Editor editor) throws TooLargeContentException;
 
   /**
    * Pastes given Transferable instance into editor at caret(s) position.
    *
-   * @return ranges of text in the document, corresponding to pasted fragments, if paste succeeds, or <code>null</code> otherwise
+   * @return ranges of text in the document, corresponding to pasted fragments, if paste succeeds, or {@code null} otherwise
+   *
+   * @throws TooLargeContentException if content is too large to be pasted in editor
    */
   @Nullable
-  public abstract TextRange[] pasteTransferable(@NotNull Editor editor, @NotNull Transferable content);
+  public abstract TextRange[] pasteTransferable(@NotNull Editor editor, @NotNull Transferable content) throws TooLargeContentException;
+
+  public static class TooLargeContentException extends RuntimeException {
+    private final int contentLength;
+
+    public TooLargeContentException(int contentLength) {
+      this.contentLength = contentLength;
+    }
+
+    public int getContentLength() {
+      return contentLength;
+    }
+  }
 }

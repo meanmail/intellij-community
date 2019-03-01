@@ -27,11 +27,10 @@ import java.util.List;
 
 /**
  * @author Vladislav.Soroka
- * @since 9/11/2015
  */
 public interface ArtifactExternalDependenciesImporter {
   @Nullable
-  public ManifestFileConfiguration getManifestFile(@NotNull Artifact artifact, @NotNull PackagingElementResolvingContext context);
+  ManifestFileConfiguration getManifestFile(@NotNull Artifact artifact, @NotNull PackagingElementResolvingContext context);
 
   List<PackagingElement<?>> getExternalDependenciesList(@NotNull Artifact artifact);
 

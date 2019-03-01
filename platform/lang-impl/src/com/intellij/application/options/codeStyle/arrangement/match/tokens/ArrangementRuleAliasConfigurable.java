@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,8 +31,8 @@ import java.util.List;
  * @author Svetlana.Zemlyanskaya
  */
 public class ArrangementRuleAliasConfigurable implements UnnamedConfigurable {
-  private StdArrangementRuleAliasToken myToken;
-  private ArrangementRuleAliasesPanel myTokenRulesPanel;
+  private final StdArrangementRuleAliasToken myToken;
+  private final ArrangementRuleAliasesPanel myTokenRulesPanel;
 
   public ArrangementRuleAliasConfigurable(@NotNull ArrangementStandardSettingsManager settingsManager,
                                           @NotNull ArrangementColorsProvider colorsProvider,
@@ -62,9 +62,5 @@ public class ArrangementRuleAliasConfigurable implements UnnamedConfigurable {
   @Override
   public void reset() {
     myTokenRulesPanel.setRuleSequences(myToken.getDefinitionRules());
-  }
-
-  @Override
-  public void disposeUIResources() {
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,6 +15,8 @@
  */
 package com.intellij.psi.impl.file.impl;
 
+import com.intellij.openapi.components.ServiceManager;
+import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiJavaModule;
 import com.intellij.psi.PsiPackage;
@@ -28,6 +30,11 @@ import java.util.Collection;
  * @author max
  */
 public interface JavaFileManager {
+
+  static JavaFileManager getInstance(@NotNull Project project) {
+    return ServiceManager.getService(project, JavaFileManager.class);
+  }
+
   @Nullable
   PsiPackage findPackage(@NotNull String packageName);
 

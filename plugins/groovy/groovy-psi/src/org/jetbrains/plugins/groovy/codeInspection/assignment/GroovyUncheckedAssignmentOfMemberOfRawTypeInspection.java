@@ -1,42 +1,22 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.codeInspection.assignment;
 
 import com.intellij.psi.*;
-import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.TypeConversionUtil;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.GroovyBundle;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElement;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParametersOwner;
+import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrParameterListOwner;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrVariable;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentLabel;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrNamedArgument;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.blocks.GrClosableBlock;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.branch.GrReturnStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrAssignmentExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.members.GrMethod;
 import org.jetbrains.plugins.groovy.lang.psi.impl.PsiImplUtil;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
@@ -45,12 +25,6 @@ import org.jetbrains.plugins.groovy.lang.psi.util.PsiUtil;
  * @author Maxim.Medvedev
  */
 public class GroovyUncheckedAssignmentOfMemberOfRawTypeInspection extends BaseInspection {
-  @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ASSIGNMENT_ISSUES;
-  }
 
   @Override
   protected String buildErrorString(Object... args) {
@@ -60,21 +34,9 @@ public class GroovyUncheckedAssignmentOfMemberOfRawTypeInspection extends BaseIn
   }
 
   @Override
-  public boolean isEnabledByDefault() {
-    return true;
-  }
-
-  @Override
   @NotNull
   protected BaseInspectionVisitor buildVisitor() {
     return new Visitor();
-  }
-
-  @Override
-  @Nls
-  @NotNull
-  public String getDisplayName() {
-    return "Unchecked assignment from members of raw type";
   }
 
   private static class Visitor extends BaseInspectionVisitor {
@@ -84,7 +46,7 @@ public class GroovyUncheckedAssignmentOfMemberOfRawTypeInspection extends BaseIn
       if (value != null) {
         final PsiType type = value.getType();
         if (type != null) {
-          final GrParametersOwner owner = PsiTreeUtil.getParentOfType(returnStatement, GrMethod.class, GrClosableBlock.class);
+          final GrParameterListOwner owner = PsiTreeUtil.getParentOfType(returnStatement, GrParameterListOwner.class);
           if (owner instanceof PsiMethod) {
             final PsiMethod method = (PsiMethod)owner;
             if (!method.isConstructor()) {
@@ -142,11 +104,10 @@ public class GroovyUncheckedAssignmentOfMemberOfRawTypeInspection extends BaseIn
     public void visitAssignmentExpression(@NotNull GrAssignmentExpression assignment) {
       super.visitAssignmentExpression(assignment);
 
+      if (assignment.isOperatorAssignment()) return;
+
       GrExpression lValue = assignment.getLValue();
       if (!PsiUtil.mightBeLValue(lValue)) return;
-
-      IElementType opToken = assignment.getOperationTokenType();
-      if (opToken != GroovyTokenTypes.mASSIGN) return;
 
       GrExpression rValue = assignment.getRValue();
       if (rValue == null) return;
@@ -155,7 +116,7 @@ public class GroovyUncheckedAssignmentOfMemberOfRawTypeInspection extends BaseIn
       PsiType rType = rValue.getType();
 
       // For assignments with spread dot
-      if (PsiImplUtil.isSpreadAssignment(lValue) && lType != null && lType instanceof PsiClassType) {
+      if (PsiImplUtil.isSpreadAssignment(lValue) && lType instanceof PsiClassType) {
         final PsiClassType pct = (PsiClassType)lType;
         final PsiClass clazz = pct.resolve();
         if (clazz != null && CommonClassNames.JAVA_UTIL_LIST.equals(clazz.getQualifiedName())) {

@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection;
 
 import com.intellij.AbstractBundle;
 import com.intellij.CommonBundle;
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
+import com.intellij.diagnostic.PluginException;
 import com.intellij.ide.plugins.IdeaPluginDescriptor;
 import com.intellij.lang.LanguageExtensionPoint;
 import com.intellij.openapi.application.ApplicationManager;
@@ -27,7 +14,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.xmlb.annotations.Attribute;
 import org.jetbrains.annotations.Nls;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -35,7 +21,6 @@ import java.util.ResourceBundle;
 
 /**
  * @author Dmitry Avdeev
- * @since 27.09.2011
  * @see LocalInspectionEP
  */
 public class InspectionEP extends LanguageExtensionPoint implements InspectionProfileEntry.DefaultNameProvider {
@@ -56,7 +41,7 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
     if (implementationClass == null) {
       throw new IllegalArgumentException(toString());
     }
-    return shortName == null ? InspectionProfileEntry.getShortName(StringUtil.getShortName(implementationClass)) : shortName;
+    return shortName == null ? shortName = InspectionProfileEntry.getShortName(StringUtil.getShortName(implementationClass)) : shortName;
   }
 
   @Nullable
@@ -104,7 +89,7 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
   }
 
   @Attribute("enabledByDefault")
-  public boolean enabledByDefault = false;
+  public boolean enabledByDefault;
 
   @Attribute("applyToDialects")
   public boolean applyToDialects = true;
@@ -113,7 +98,7 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
    * If true, the inspection can run as part of the code cleanup action.
    */
   @Attribute("cleanupTool")
-  public boolean cleanupTool = false;
+  public boolean cleanupTool;
 
   /**
    * Highlighting level for this inspection tool that is used in default settings.
@@ -126,7 +111,7 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
     if (level == null) return HighlightDisplayLevel.WARNING;
     HighlightDisplayLevel displayLevel = HighlightDisplayLevel.find(level);
     if (displayLevel == null) {
-      LOG.error("Can't find highlight display level: " + level);
+      LOG.error(new PluginException("Can't find highlight display level: " + level + "; registered for: " + implementationClass + "; and short name: " + shortName, getPluginId()));
       return HighlightDisplayLevel.WARNING;
     }
     return displayLevel;
@@ -136,7 +121,7 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
   public boolean hasStaticDescription;
 
   @Nullable
-  private String getLocalizedString(String bundleName, String key) {
+  private String getLocalizedString(@Nullable String bundleName, String key) {
     final String baseName = bundleName != null ? bundleName : bundle == null ? ((IdeaPluginDescriptor)myPluginDescriptor).getResourceBundleBaseName() : bundle;
     if (baseName == null || key == null) {
       if (bundleName != null) {
@@ -183,8 +168,8 @@ public class InspectionEP extends LanguageExtensionPoint implements InspectionPr
   /**
    * Do not show internal inspections if internal mode is off
    */
-  @Attribute("isInternal") 
-  public boolean isInternal = false;
+  @Attribute("isInternal")
+  public boolean isInternal;
 
   @Override
   public String toString() {

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.formatting.WrapType;
@@ -26,7 +12,6 @@ import com.jetbrains.python.formatter.PyCodeStyleSettings;
 import com.jetbrains.python.psi.LanguageLevel;
 import com.jetbrains.python.psi.PyElementGenerator;
 import com.jetbrains.python.psi.PyStatement;
-import com.jetbrains.python.psi.impl.PythonLanguageLevelPusher;
 
 /**
  * @author yole
@@ -91,13 +76,7 @@ public class PyFormatterTest extends PyTestCase {
   }
 
   private void doTestPy3() {
-    PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), LanguageLevel.PYTHON30);
-    try {
-      doTest();
-    }
-    finally {
-      PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), null);
-    }
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
   }
 
   public void testWrapTuple() {  // PY-1792
@@ -267,7 +246,7 @@ public class PyFormatterTest extends PyTestCase {
       "   desired_impulse_response = {'dirac, 'gaussian', logistic_derivative'}\n" +
       "return desired,                o";
 
-    final PsiFile file = PyElementGenerator.getInstance(myFixture.getProject()).createDummyFile(LanguageLevel.PYTHON30, initial);
+    final PsiFile file = PyElementGenerator.getInstance(myFixture.getProject()).createDummyFile(LanguageLevel.PYTHON34, initial);
     final PsiElement reformatted = CodeStyleManager.getInstance(myFixture.getProject()).reformat(file);
 
     String expected =
@@ -350,13 +329,7 @@ public class PyFormatterTest extends PyTestCase {
   }
 
   public void testLongWith() {  // PY-8743
-    PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), LanguageLevel.PYTHON27);
-    try {
-      doTest();
-    }
-    finally {
-      PythonLanguageLevelPusher.setForcedLanguageLevel(myFixture.getProject(), null);
-    }
+    runWithLanguageLevel(LanguageLevel.PYTHON27, this::doTest);
   }
 
   // PY-8961, PY-16050
@@ -376,6 +349,27 @@ public class PyFormatterTest extends PyTestCase {
 
   public void testSpaceWithinDeclarationParentheses() {  // PY-8818
     getCommonCodeStyleSettings().SPACE_WITHIN_METHOD_PARENTHESES = true;
+    getCommonCodeStyleSettings().SPACE_WITHIN_EMPTY_METHOD_PARENTHESES = false;
+    doTest();
+  }
+
+  // PY-21598
+  public void testSpaceBetweenParenthesesInEmptyParameterList() {
+    getCommonCodeStyleSettings().SPACE_WITHIN_METHOD_PARENTHESES = false;
+    getCommonCodeStyleSettings().SPACE_WITHIN_EMPTY_METHOD_PARENTHESES = true;
+    doTest();
+  }
+
+  public void testSpaceWithingCallParentheses() {
+    getCommonCodeStyleSettings().SPACE_WITHIN_METHOD_CALL_PARENTHESES = true;
+    getCommonCodeStyleSettings().SPACE_WITHIN_EMPTY_METHOD_CALL_PARENTHESES = false;
+    doTest();
+  }
+
+  // PY-21598
+  public void testSpaceBetweenParenthesesInEmptyArgumentList() {
+    getCommonCodeStyleSettings().SPACE_WITHIN_METHOD_CALL_PARENTHESES = false;
+    getCommonCodeStyleSettings().SPACE_WITHIN_EMPTY_METHOD_CALL_PARENTHESES = true;
     doTest();
   }
 
@@ -455,12 +449,17 @@ public class PyFormatterTest extends PyTestCase {
     getCommonCodeStyleSettings().ALIGN_MULTILINE_PARAMETERS_IN_CALLS = true;
     final String testName = "formatter/" + getTestName(true);
     myFixture.configureByFile(testName + ".py");
-    WriteCommandAction.runWriteCommandAction(null, () -> myFixture.type("\n("));
+    myFixture.type("\n(");
     myFixture.checkResultByFile(testName + "_after.py");
   }
 
   // PY-12145
   public void testAlignmentOfClosingBraceInDictLiteralWhenNoHangingIndent() {
+    doTest();
+  }
+  
+  public void testNoAlignmentClosingBraceInDictLiteralWhenOpeningBraceIsForcedOnNewLine() {
+    getPythonCodeStyleSettings().DICT_NEW_LINE_AFTER_LEFT_BRACE = true;
     doTest();
   }
 
@@ -577,6 +576,12 @@ public class PyFormatterTest extends PyTestCase {
     doTest();
   }
 
+  // PY-22272
+  public void testAlightDictLiteralOnValueSubscriptionsAndSlices() {
+    getPythonCodeStyleSettings().DICT_ALIGNMENT = PyCodeStyleSettings.DICT_ALIGNMENT_ON_VALUE;
+    doTest();
+  }
+
   // PY-14962
   public void testAlignDictLiteralOnColon() {
     getPythonCodeStyleSettings().DICT_ALIGNMENT = PyCodeStyleSettings.DICT_ALIGNMENT_ON_COLON;
@@ -635,7 +640,7 @@ public class PyFormatterTest extends PyTestCase {
     doTest();
   }
 
-  public void testDoNotDestroyAlignment_OnPostponedFormatting() throws Exception {
+  public void testDoNotDestroyAlignment_OnPostponedFormatting() {
     getPythonCodeStyleSettings().DICT_ALIGNMENT = PyCodeStyleSettings.DICT_ALIGNMENT_ON_COLON;
     doTest();
   }
@@ -652,6 +657,19 @@ public class PyFormatterTest extends PyTestCase {
   // PY-17979, PY-13304
   public void testContinuationIndentBeforeFunctionArguments() {
     getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_ARGUMENTS = true;
+    doTest();
+  }
+
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensions() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    doTest();
+  }
+
+  // PY-20909
+  public void testContinuationIndentForCollectionsAndComprehensionsHangingIndentOfClosingBrace() {
+    getPythonCodeStyleSettings().USE_CONTINUATION_INDENT_FOR_COLLECTION_AND_COMPREHENSIONS = true;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
     doTest();
   }
 
@@ -674,7 +692,247 @@ public class PyFormatterTest extends PyTestCase {
     doTest();
   }
 
+  // PY-10182
+  public void testHangClosingParenthesisInFromImport() {
+    // Shouldn't affect the result
+    getPythonCodeStyleSettings().ALIGN_MULTILINE_IMPORTS = false;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-10182
+  public void testHangClosingParenthesisInFunctionCall() {
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-10182  
+  public void testHangClosingParenthesisInFunctionDefinition() {
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-10182
+  public void testHangClosingBracketsInCollectionLiterals() {
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-15874
+  public void testHangClosingOffComprehensionsAndGeneratorExpressions() {
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = false;
+    doTest();
+  }
+  
+  // PY-15874
+  public void testHangClosingOnComprehensionsAndGeneratorExpressions() {
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-20633
+  public void testFromImportWrappingChopDownIfLong() {
+    getPythonCodeStyleSettings().FROM_IMPORT_WRAPPING = WrapType.CHOP_DOWN_IF_LONG.getLegacyRepresentation();
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 30);
+    doTest();
+  }
+
+  // PY-20633
+  public void testFromImportParenthesesPlacement() {
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS = true;
+    getCommonCodeStyleSettings().SPACE_AFTER_COLON = true;
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 35);
+    doTest();
+  }
+  
+  // PY-20633
+  public void testFromImportParenthesesPlacementHangClosingParenthesis() {
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    getCommonCodeStyleSettings().SPACE_AFTER_COLON = true;
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 35);
+    doTest();
+  }
+
+  // PY-20633
+  public void testFromImportForceParenthesesIfMultiline() {
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 30);
+    getPythonCodeStyleSettings().FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = true;
+    doTest();
+  }
+
+  // PY-20633
+  // See http://docs.pylonsproject.org/en/latest/community/codestyle.html
+  public void testPyramidFromImportFormatting() {
+    getPythonCodeStyleSettings().FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_AFTER_LEFT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_NEW_LINE_BEFORE_RIGHT_PARENTHESIS = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_WRAPPING = WrapType.ALWAYS.getLegacyRepresentation();
+    getPythonCodeStyleSettings().FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE = true;
+    getPythonCodeStyleSettings().HANG_CLOSING_BRACKETS = true;
+    doTest();
+  }
+
+  // PY-9764
+  public void testFromImportTrailingCommaWithParentheses() {
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 30);
+    getPythonCodeStyleSettings().FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = true;
+    getPythonCodeStyleSettings().FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE = true;
+    doTest();
+  }
+
+  // PY-9764
+  public void testFromImportTrailingCommaWithoutParentheses() {
+    getCodeStyleSettings().setRightMargin(PythonLanguage.INSTANCE, 30);
+    getPythonCodeStyleSettings().FROM_IMPORT_PARENTHESES_FORCE_IF_MULTILINE = false;
+    getPythonCodeStyleSettings().FROM_IMPORT_TRAILING_COMMA_IF_MULTILINE = true;
+    doTest();
+  }
+
+  // PY-21931
+  public void testSpacesAroundElseInConditionalExpression() {
+    doTest();
+  }
+
+  // PY-20970
+  public void testSpacesAfterNonlocal() {
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  }
+
+  // PY-21515
+  public void testSpacesBeforeFromImportSource() {
+    doTest();
+  }
+
+  public void testSpacesAfterFromInYieldFrom() {
+    runWithLanguageLevel(LanguageLevel.PYTHON34, this::doTest);
+  }
+
+  // PY-24220
+  public void testBlankLinesAfterTopLevelImportsBeforeClass() {
+    getCommonCodeStyleSettings().BLANK_LINES_AFTER_IMPORTS = 5;
+    doTest();
+  }
+
+  // PY-24220
+  public void testBlankLinesAfterTopLevelImportsBeforeClassWithPrecedingComments() {
+    getCommonCodeStyleSettings().BLANK_LINES_AFTER_IMPORTS = 5;
+    doTest();
+  }
+
+  // PY-25356
+  public void testCommentsSpacing() {
+    doTest();
+  }
+
+  // PY-19705
+  public void testBlankLinesAroundFirstMethod() {
+    getPythonCodeStyleSettings().BLANK_LINES_BEFORE_FIRST_METHOD = 1;
+    doTest();
+  }
+
+  // PY-21823
+  public void testSliceAlignment() {
+    doTest();
+  }
+
+  // PY-15051
+  public void testTrailingBlockCommentsIndentationPreserved() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionKeywordAtEnd() {
+    doTest();
+  }
+
+  // PY-21328
+  public void testMultilineIfConditionLessComparisonsKeywordAtEnd() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionKeywordAtStart() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionInParenthesesKeywordAtEnd() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionInParenthesesNegatedKeywordAtEnd() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionInParenthesesKeywordAtEndSecondOperandIsReference() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionInParenthesesKeywordAtStart() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionNestedExpressions() {
+    doTest();
+  }
+
+  public void testMultilineIfConditionInParenthesesNestedExpressions() {
+    doTest();
+  }
+
+  public void testMultilineElifCondition() {
+    doTest();
+  }
+
+  public void testMultilineElifConditionInParentheses() {
+    doTest();
+  }
+
+  // PY-22035
+  public void testMultilineIfConditionComplex() {
+    doTest();
+  }
+
+  // PY-24160
+  public void testMultilineIfConditionInParenthesesHangingIndent() {
+    doTest();
+  }
+
+  public void testMultilineBinaryExpressionInsideGenerator() {
+    doTest();
+  }
+
+  public void testNotParenthesisedBinaryExpressions() {
+    doTest();
+  }
+
+  public void testGluedStringLiteralInParentheses() {
+    getPythonCodeStyleSettings().ALIGN_COLLECTIONS_AND_COMPREHENSIONS = false;
+    doTest();
+    getPythonCodeStyleSettings().ALIGN_COLLECTIONS_AND_COMPREHENSIONS = true;
+    doTest();
+  }
+
   public void testVariableAnnotations() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-27266
+  public void testChainedMethodCallsInParentheses() {
+    doTest();
+  }
+
+  // PY-27266
+  public void testChainedAttributeAccessInParentheses() {
+    doTest();
+  }
+
+  public void testMultilineFStringExpressions() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
+  }
+
+  // PY-31991
+  public void testSpacesAroundFStringFragmentExpressionStripped() {
     runWithLanguageLevel(LanguageLevel.PYTHON36, this::doTest);
   }
 }

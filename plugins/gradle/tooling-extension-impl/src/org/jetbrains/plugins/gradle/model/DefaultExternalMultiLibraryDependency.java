@@ -15,7 +15,7 @@
  */
 package org.jetbrains.plugins.gradle.model;
 
-import com.google.common.base.Objects;
+import org.gradle.internal.impldep.com.google.common.base.Objects;
 import org.jetbrains.annotations.NotNull;
 
 import java.io.File;
@@ -24,7 +24,6 @@ import java.util.LinkedHashSet;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/24/2014
  */
 public class DefaultExternalMultiLibraryDependency extends AbstractExternalDependency implements ExternalMultiLibraryDependency {
 

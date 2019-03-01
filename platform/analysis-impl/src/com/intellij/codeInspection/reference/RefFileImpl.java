@@ -27,24 +27,13 @@ import org.jetbrains.annotations.Nullable;
 
 
 public class RefFileImpl extends RefElementImpl implements RefFile {
-  RefFileImpl(PsiFile elem, RefManager manager) {
+  public RefFileImpl(PsiFile elem, RefManager manager) {
     super(elem, manager);
-    final VirtualFile vFile = elem.getVirtualFile();
-    if (vFile == null) return;
-    final VirtualFile parentDirectory = vFile.getParent();
-    if (parentDirectory == null) return;
-    final PsiDirectory psiDirectory = elem.getManager().findDirectory(parentDirectory);
-    if (psiDirectory != null) {
-      final RefElement element = getRefManager().getReference(psiDirectory);
-      if (element != null) {
-        ((RefElementImpl)element).add(this);
-      }
-    }
   }
 
   @Override
-  public PsiFile getElement() {
-    return (PsiFile)super.getElement();
+  public PsiFile getPsiElement() {
+    return (PsiFile)super.getPsiElement();
   }
 
   @Override
@@ -54,17 +43,28 @@ public class RefFileImpl extends RefElementImpl implements RefFile {
 
   @Override
   public String getExternalName() {
-    final PsiFile psiFile = getElement();
+    final PsiFile psiFile = getPsiElement();
     final VirtualFile virtualFile = psiFile != null ? psiFile.getVirtualFile() : null;
     return virtualFile != null ? virtualFile.getUrl() : getName();
   }
 
   @Override
   protected void initialize() {
+    final VirtualFile vFile = getVirtualFile();
+    if (vFile == null) return;
+    final VirtualFile parentDirectory = vFile.getParent();
+    if (parentDirectory == null) return;
+    final PsiDirectory psiDirectory = getRefManager().getPsiManager().findDirectory(parentDirectory);
+    if (psiDirectory != null) {
+      final RefElement element = getRefManager().getReference(psiDirectory);
+      if (element != null) {
+        ((RefElementImpl)element).add(this);
+      }
+    }
   }
 
   @Nullable
-  public static RefElement fileFromExternalName(final RefManager manager, final String fqName) {
+  static RefElement fileFromExternalName(final RefManager manager, final String fqName) {
     final VirtualFile virtualFile = VirtualFileManager.getInstance().findFileByUrl(PathMacroManager.getInstance(manager.getProject()).expandPath(fqName));
     if (virtualFile != null) {
       final PsiFile psiFile = PsiManager.getInstance(manager.getProject()).findFile(virtualFile);

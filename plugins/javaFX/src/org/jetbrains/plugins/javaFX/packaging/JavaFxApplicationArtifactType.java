@@ -32,10 +32,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * User: anna
- * Date: 3/12/13
- */
 public class JavaFxApplicationArtifactType extends ArtifactType {
   public static JavaFxApplicationArtifactType getInstance() {
     return EP_NAME.findExtension(JavaFxApplicationArtifactType.class);
@@ -81,7 +77,7 @@ public class JavaFxApplicationArtifactType extends ArtifactType {
   private class JavaFxArtifactTemplate extends ArtifactTemplate {
     private final List<Module> myModules;
 
-    public JavaFxArtifactTemplate(List<Module> modules) {
+    JavaFxArtifactTemplate(List<Module> modules) {
       myModules = modules;
     }
 

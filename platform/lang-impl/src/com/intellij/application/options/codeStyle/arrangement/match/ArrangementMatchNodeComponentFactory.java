@@ -38,11 +38,10 @@ import java.util.Set;
 
 /**
  * @author Denis Zhdanov
- * @since 8/10/12 2:53 PM
  */
 public class ArrangementMatchNodeComponentFactory {
 
-  private static final Logger LOG = Logger.getInstance("#" + ArrangementMatchNodeComponentFactory.class.getName());
+  private static final Logger LOG = Logger.getInstance(ArrangementMatchNodeComponentFactory.class);
 
   @NotNull private final ArrangementStandardSettingsManager mySettingsManager;
   @NotNull private final ArrangementColorsProvider          myColorsProvider;

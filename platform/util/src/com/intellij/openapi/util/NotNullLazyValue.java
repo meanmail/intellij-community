@@ -44,6 +44,10 @@ public abstract class NotNullLazyValue<T> {
     return result;
   }
 
+  public boolean isComputed() {
+    return myValue != null;
+  }
+
   @NotNull
   public static <T> NotNullLazyValue<T> createConstantValue(@NotNull final T value) {
     return new NotNullLazyValue<T>() {
@@ -56,7 +60,7 @@ public abstract class NotNullLazyValue<T> {
   }
 
   @NotNull
-  public static <T> NotNullLazyValue<T> createValue(@NotNull final NotNullFactory<T> value) {
+  public static <T> NotNullLazyValue<T> createValue(@NotNull final NotNullFactory<? extends T> value) {
     return new NotNullLazyValue<T>() {
       @NotNull
       @Override

@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.ui;
 
 import com.intellij.ide.ui.search.BooleanOptionDescription;
+import com.intellij.ide.ui.search.OptionDescription;
+import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
@@ -38,7 +26,7 @@ public abstract class ConfigurableOptionsTopHitProvider extends OptionsTopHitPro
   private static final Logger LOG = Logger.getInstance(ConfigurableOptionsTopHitProvider.class);
   private final Deque<String> myPrefix = new ArrayDeque<>();
 
-  protected abstract Configurable getConfigurable(Project project);
+  protected abstract Configurable getConfigurable(@Nullable Project project);
 
   /**
    * Returns a name that will be added to all option names.
@@ -120,7 +108,7 @@ public abstract class ConfigurableOptionsTopHitProvider extends OptionsTopHitPro
 
   @NotNull
   @Override
-  public Collection<BooleanOptionDescription> getOptions(@Nullable Project project) {
+  public Collection<OptionDescription> getOptions(@Nullable Project project) {
     try {
       Configurable configurable = getConfigurable(project);
       Component component = configurable.createComponent();
@@ -140,7 +128,7 @@ public abstract class ConfigurableOptionsTopHitProvider extends OptionsTopHitPro
     return Collections.emptyList();
   }
 
-  private static final class Option extends BooleanOptionDescription {
+  private static final class Option extends BooleanOptionDescription implements Disposable {
     private final Configurable myConfigurable;
     private final JCheckBox myCheckBox;
 
@@ -148,6 +136,11 @@ public abstract class ConfigurableOptionsTopHitProvider extends OptionsTopHitPro
       super(option, ConfigurableVisitor.ByID.getID(configurable));
       myConfigurable = configurable;
       myCheckBox = checkbox;
+    }
+
+    @Override
+    public void dispose() {
+      myConfigurable.disposeUIResources();
     }
 
     @Override

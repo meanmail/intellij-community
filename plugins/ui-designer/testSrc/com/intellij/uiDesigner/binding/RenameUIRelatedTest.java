@@ -36,6 +36,7 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     return "/renameUIRelated/";
   }
 
+  @NotNull
   @Override
   protected String getTestDataPath() {
     return PluginPathManager.getPluginHomePath("ui-designer") + "/testData";
@@ -47,10 +48,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     super.prepareProject(rootDir);
   }
 
-  public void testRenameClass() throws Exception {
+  public void testRenameClass() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiClass aClass = myJavaFacade.findClass("UIClass", ProjectScope.getAllScope(myProject));
         Assert.assertNotNull(aClass);
 
@@ -59,10 +60,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenameBoundField() throws Exception {
+  public void testRenameBoundField() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiClass aClass = myJavaFacade.findClass("UIClass", ProjectScope.getAllScope(myProject));
         Assert.assertNotNull(aClass);
         final PsiField field = aClass.findFieldByName("UIField", false);
@@ -73,10 +74,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenamePackage() throws Exception {
+  public void testRenamePackage() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiPackage aPackage = JavaPsiFacade.getInstance(myPsiManager.getProject()).findPackage("gov");
         Assert.assertNotNull(aPackage);
 
@@ -86,10 +87,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenamePackageNested() throws Exception {                     // IDEADEV-28864
+  public void testRenamePackageNested() {                     // IDEADEV-28864
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiPackage aPackage = JavaPsiFacade.getInstance(myPsiManager.getProject()).findPackage("org.withoutForms");
         Assert.assertNotNull(aPackage);
 
@@ -98,10 +99,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenamePackageWithComponentClass() throws Exception {         // IDEADEV-5615
+  public void testRenamePackageWithComponentClass() {         // IDEADEV-5615
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiPackage aPackage = JavaPsiFacade.getInstance(myPsiManager.getProject()).findPackage("org.withoutForms");
         Assert.assertNotNull(aPackage);
 
@@ -110,10 +111,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenameEnumConstant() throws Exception {
+  public void testRenameEnumConstant() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiClass aClass = myJavaFacade.findClass("PropEnum", ProjectScope.getAllScope(myProject));
         Assert.assertNotNull(aClass);
         PsiField enumConstant = aClass.findFieldByName("valueB", false);
@@ -124,10 +125,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenameResourceBundle() throws Exception {
+  public void testRenameResourceBundle() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiFile file = myPsiManager.findFile(rootDir.findChild("F1.properties"));
         Assert.assertNotNull(file);
 
@@ -137,10 +138,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenameNestedForm() throws Exception {
+  public void testRenameNestedForm() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiFile file = myPsiManager.findFile(rootDir.findChild("p1").findChild("Form1.form"));
         Assert.assertNotNull(file);
 
@@ -150,10 +151,10 @@ public class RenameUIRelatedTest extends MultiFileTestCase {
     });
   }
 
-  public void testRenameImage() throws Exception {
+  public void testRenameImage() {
     doTest(new PerformAction() {
       @Override
-      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) throws Exception {
+      public void performAction(VirtualFile rootDir, VirtualFile rootAfter) {
         PsiFile file = myPsiManager.findFile(rootDir.findFileByRelativePath("org/withoutForms/child/abstractClass.png"));
         Assert.assertNotNull(file);
 

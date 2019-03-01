@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.tasks.generic;
 
 import com.intellij.icons.AllIcons;
@@ -9,8 +10,8 @@ import com.intellij.tasks.config.TaskRepositoryEditor;
 import com.intellij.tasks.impl.BaseRepositoryType;
 import com.intellij.util.Consumer;
 import com.intellij.util.xmlb.XmlSerializer;
-import icons.TasksIcons;
-import org.jdom.Document;
+import icons.TasksCoreIcons;
+import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -18,10 +19,6 @@ import java.net.URL;
 import java.util.Arrays;
 import java.util.List;
 
-/**
- * User: Evgeny.Zakrevsky
- * Date: 10/4/12
- */
 public class GenericRepositoryType extends BaseRepositoryType<GenericRepository> {
 
   @NotNull
@@ -86,7 +83,7 @@ public class GenericRepositoryType extends BaseRepositoryType<GenericRepository>
 
     @Override
     public TaskRepository createRepository() {
-      Document document;
+      Element element;
       try {
         String configFileName = myName.toLowerCase() + ".xml";
         //URL resourceUrl = ResourceUtil.getResource(GenericRepositoryType.class, "connectors", configFileName);
@@ -94,16 +91,14 @@ public class GenericRepositoryType extends BaseRepositoryType<GenericRepository>
         if (resourceUrl == null) {
           throw new AssertionError("Repository configuration file '" + configFileName + "' not found");
         }
-        document = JDOMUtil.loadResourceDocument(resourceUrl);
+        element = JDOMUtil.loadResource(resourceUrl);
       }
       catch (Exception e) {
         throw new AssertionError(e);
       }
-      GenericRepository repository = XmlSerializer.deserialize(document.getRootElement(), GenericRepository.class);
-      if (repository != null) {
-        repository.setRepositoryType(GenericRepositoryType.this);
-        repository.setSubtypeName(getName());
-      }
+      GenericRepository repository = XmlSerializer.deserialize(element, GenericRepository.class);
+      repository.setRepositoryType(GenericRepositoryType.this);
+      repository.setSubtypeName(getName());
       return repository;
     }
   }
@@ -111,19 +106,19 @@ public class GenericRepositoryType extends BaseRepositoryType<GenericRepository>
   // Subtypes:
   public final class AsanaRepository extends GenericSubtype {
     public AsanaRepository() {
-      super("Asana", TasksIcons.Asana);
+      super("Asana", TasksCoreIcons.Asana);
     }
   }
 
   public final class AssemblaRepository extends GenericSubtype {
     public AssemblaRepository() {
-      super("Assembla", TasksIcons.Assembla);
+      super("Assembla", TasksCoreIcons.Assembla);
     }
   }
 
   public final class SprintlyRepository extends GenericSubtype {
     public SprintlyRepository() {
-      super("Sprintly", TasksIcons.Sprintly);
+      super("Sprintly", TasksCoreIcons.Sprintly);
     }
   }
 }

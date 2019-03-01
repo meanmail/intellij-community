@@ -15,7 +15,6 @@
  */
 package com.jetbrains.python.testing.pytest;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.io.StreamUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.jetbrains.python.traceBackParsers.LinkInTrace;
@@ -42,7 +41,7 @@ public final class PyTestTracebackParserTest {
   private String myBase64Junk;
 
   @Before
-  public void setUp() throws Exception {
+  public void setUp() {
     // Generate junk to text regexp speed
     final int junkSize = 50000;
     final byte[] junk = new byte[junkSize];
@@ -62,7 +61,7 @@ public final class PyTestTracebackParserTest {
    * Ensures we find link in stack trace
    */
   @Test
-  public void testLineWithLink() throws Exception {
+  public void testLineWithLink() {
     final LinkInTrace linkInTrace = new PyTestTracebackParser().findLinkInTrace("foo/bar.py:42 file ");
     Assert.assertNotNull("Failed to parse line", linkInTrace);
     Assert.assertEquals("Bad file name", "foo/bar.py", linkInTrace.getFileName());
@@ -75,7 +74,7 @@ public final class PyTestTracebackParserTest {
    * lines with out of file references should not have links
    */
   @Test
-  public void testLineNoLink() throws Exception {
+  public void testLineNoLink() {
     Assert.assertNull("File with no lines should not work", new PyTestTracebackParser().findLinkInTrace("foo/bar.py file "));
     Assert.assertNull("No file name provided, but link found", new PyTestTracebackParser().findLinkInTrace(":12 file "));
   }
@@ -89,7 +88,6 @@ public final class PyTestTracebackParserTest {
     requiredStrings.add("file:///c:/windows/system32/file.txt - 42");
     requiredStrings.add("file:///c:/windows/system32/file_spam.txt - 42");
     requiredStrings.add("c:\\documents and settings\\foo.txt - 43");
-    requiredStrings.add("file:///c:/windows/system32/file.txt - 42");
     requiredStrings.add("/file.py - 42");
     requiredStrings.add("c:\\folder55\\file.py - 12");
     requiredStrings.add("C:\\temp\\untitled55\\test_sample.py - 5");
@@ -100,13 +98,9 @@ public final class PyTestTracebackParserTest {
     requiredStrings.add("../../../files/files.py - 100");
     requiredStrings.add("/Users/Mac Hipster/Applications/PyCharm 4.0 .app/helpers/lala.py - 12");
     requiredStrings.add("C:\\Users\\ilya.kazakevich\\virtenvs\\spammy\\lib\\site-packages\\django_cron\\models.py - 4");
-    final Logger logger = Logger.getInstance(PyTestTracebackParserTest.class);
     final String[] strings = StringUtil.splitByLines(s);
-    logger.warn(String.format("Got lines %s", strings));
     for (final String line : strings) {
-      logger.warn(String.format("Starting with string %s", line));
       final LinkInTrace trace = new PyTestTracebackParser().findLinkInTrace(line);
-      logger.warn(String.format("Got %s", trace));
       if (trace != null) {
         final boolean removeResult = requiredStrings.remove(trace.getFileName() + " - " + trace.getLineNumber());
         Assert.assertTrue(String.format("Unexpected file found %s line %s", trace.getFileName(), trace.getLineNumber()),
@@ -121,7 +115,7 @@ public final class PyTestTracebackParserTest {
      * Regexp worst cases are limited to prevent freezing on very long lines
      */
     @Test(timeout = 5000)
-    public void testLongLines ()throws Exception {
+    public void testLongLines () {
       Assert
         .assertNull("No link should be found in numbers list", new PyTestTracebackParser().findLinkInTrace(myStringJunk));
       Assert.assertNull("No link should be found in base64 list", new PyTestTracebackParser().findLinkInTrace(myBase64Junk));

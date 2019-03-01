@@ -1,36 +1,22 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.versionBrowser;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.*;
+import com.intellij.openapi.util.Comparing;
 import com.intellij.util.text.SyncDateFormat;
 import com.intellij.util.xmlb.annotations.Transient;
-import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.text.DateFormat;
-import java.util.ArrayList;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.List;
 
-public class ChangeBrowserSettings implements JDOMExternalizable {
+import static com.intellij.openapi.util.text.StringUtil.isEmpty;
+import static com.intellij.util.containers.ContainerUtil.packNullables;
+import static com.intellij.util.containers.ContainerUtil.retainAll;
 
+public class ChangeBrowserSettings {
   public interface Filter {
     boolean accepts(CommittedChangeList change);
   }
@@ -57,19 +43,10 @@ public class ChangeBrowserSettings implements JDOMExternalizable {
 
   @Transient public boolean STRICTLY_AFTER = false;
 
-  public void readExternal(Element element) throws InvalidDataException {
-    DefaultJDOMExternalizer.readExternal(this, element);
-  }
-
-  public void writeExternal(Element element) throws WriteExternalException {
-    DefaultJDOMExternalizer.writeExternal(this, element);
-  }
-
   @Nullable
-  private static Date parseDate(@Nullable String dateStr) {
-    if (dateStr == null || dateStr.isEmpty()) return null;
+  private static Date parseDate(@Nullable String dateValue) {
     try {
-      return DATE_FORMAT.parse(dateStr);
+      return !isEmpty(dateValue) ? DATE_FORMAT.parse(dateValue) : null;
     }
     catch (Exception e) {
       LOG.warn(e);
@@ -77,27 +54,40 @@ public class ChangeBrowserSettings implements JDOMExternalizable {
     }
   }
 
+  @Nullable
+  private static Long parseLong(@Nullable String longValue) {
+    try {
+      return !isEmpty(longValue) ? Long.parseLong(longValue) : null;
+    }
+    catch (NumberFormatException e) {
+      LOG.warn(e);
+      return null;
+    }
+  }
+
+  @Nullable
+  @Transient
+  public Date getDateBefore() {
+    return parseDate(DATE_BEFORE);
+  }
+
   public void setDateBefore(@Nullable Date value) {
     DATE_BEFORE = value == null ? null : DATE_FORMAT.format(value);
   }
 
   @Nullable
-  public Date getDateBefore() {
-    return parseDate(DATE_BEFORE);
-  }
-
-  @Nullable
+  @Transient
   public Date getDateAfter() {
     return parseDate(DATE_AFTER);
   }
 
+  public void setDateAfter(@Nullable Date value) {
+    DATE_AFTER = value == null ? null : DATE_FORMAT.format(value);
+  }
+
   @Nullable
   public Long getChangeBeforeFilter() {
-    if (USE_CHANGE_BEFORE_FILTER && CHANGE_BEFORE.length() > 0) {
-      if (HEAD.equals(CHANGE_BEFORE)) return null;
-      return Long.parseLong(CHANGE_BEFORE);      
-    }
-    return null;
+    return USE_CHANGE_BEFORE_FILTER && !HEAD.equals(CHANGE_BEFORE) ? parseLong(CHANGE_BEFORE) : null;
   }
 
   @Nullable
@@ -107,10 +97,7 @@ public class ChangeBrowserSettings implements JDOMExternalizable {
 
   @Nullable
   public Long getChangeAfterFilter() {
-    if (USE_CHANGE_AFTER_FILTER && CHANGE_AFTER.length() > 0) {
-      return Long.parseLong(CHANGE_AFTER);
-    }
-    return null;
+    return USE_CHANGE_AFTER_FILTER ? parseLong(CHANGE_AFTER) : null;
   }
 
   @Nullable
@@ -118,104 +105,58 @@ public class ChangeBrowserSettings implements JDOMExternalizable {
     return USE_DATE_AFTER_FILTER ? parseDate(DATE_AFTER) : null;
   }
 
-  public void setDateAfter(@Nullable Date value) {
-    DATE_AFTER = value == null ? null : DATE_FORMAT.format(value);
-  }
-
   @NotNull
   protected List<Filter> createFilters() {
-    final ArrayList<Filter> result = new ArrayList<>();
-    addDateFilter(USE_DATE_BEFORE_FILTER, getDateBefore(), result, true);
-    addDateFilter(USE_DATE_AFTER_FILTER, getDateAfter(), result, false);
-
-    if (USE_CHANGE_BEFORE_FILTER) {
-      try {
-        final long numBefore = Long.parseLong(CHANGE_BEFORE);
-        result.add(new Filter() {
-          public boolean accepts(CommittedChangeList change) {
-            return change.getNumber() <= numBefore;
-          }
-        });
-      }
-      catch (NumberFormatException e) {
-        //ignore
-        LOG.info(e);
-      }
-    }
-
-    if (USE_CHANGE_AFTER_FILTER) {
-      try {
-        final long numAfter = Long.parseLong(CHANGE_AFTER);
-        result.add(new Filter() {
-          public boolean accepts(CommittedChangeList change) {
-            return change.getNumber() >= numAfter;
-          }
-        });
-      }
-      catch (NumberFormatException e) {
-        //ignore
-        LOG.info(e);
-      }
-    }
-
-    if (USE_USER_FILTER) {
-      result.add(new Filter() {
-        public boolean accepts(CommittedChangeList change) {
-          return Comparing.equal(change.getCommitterName(), USER, false);
-        }
-      });
-    }
-
-    return result;
+    return packNullables(
+      createDateFilter(getDateBeforeFilter(), true),
+      createDateFilter(getDateAfterFilter(), false),
+      createChangeFilter(getChangeBeforeFilter(), true),
+      createChangeFilter(getChangeAfterFilter(), false),
+      USE_USER_FILTER ? (Filter)changeList -> Comparing.equal(changeList.getCommitterName(), USER, false) : null
+    );
   }
 
-  private static void addDateFilter(final boolean useFilter, final Date date, final ArrayList<Filter> result, final boolean before) {
-    if (useFilter) {
-      assert date != null;
-      result.add(new Filter() {
-        public boolean accepts(CommittedChangeList change) {
-          final Date changeDate = change.getCommitDate();
-          if (changeDate == null) return false;
+  @Nullable
+  private static Filter createDateFilter(@Nullable Date date, boolean before) {
+    return date == null ? null : changeList -> {
+      Date commitDate = changeList.getCommitDate();
 
-          return before ? changeDate.before(date) : changeDate.after(date);
-        }
-      });
-    }
+      return commitDate != null && (before ? commitDate.before(date) : commitDate.after(date));
+    };
+  }
+
+  @Nullable
+  private static Filter createChangeFilter(@Nullable Long number, boolean before) {
+    return number == null ? null : changeList ->
+      before ? changeList.getNumber() <= number : changeList.getNumber() >= number;
   }
 
   @NotNull
   public Filter createFilter() {
-    final List<Filter> filters = createFilters();
-    return new Filter() {
-      public boolean accepts(CommittedChangeList change) {
-        for (Filter filter : filters) {
-          if (!filter.accepts(change)) return false;
-        }
-        return true;
-      }
-    };
+    List<Filter> filters = createFilters();
+    return changeList -> filters.stream().allMatch(filter -> filter.accepts(changeList));
   }
 
-  public void filterChanges(@NotNull List<? extends CommittedChangeList> changeListInfos) {
+  public void filterChanges(@NotNull List<? extends CommittedChangeList> changeLists) {
     Filter filter = createFilter();
-    for (Iterator<? extends CommittedChangeList> iterator = changeListInfos.iterator(); iterator.hasNext();) {
-      CommittedChangeList changeListInfo = iterator.next();
-      if (!filter.accepts(changeListInfo)) {
-        iterator.remove();
-      }
-    }
+    retainAll(changeLists, filter::accepts);
   }
 
   @Nullable
+  @Transient
   public String getUserFilter() {
     return USE_USER_FILTER ? USER : null;
   }
 
   public boolean isAnyFilterSpecified() {
-    return USE_CHANGE_AFTER_FILTER || USE_CHANGE_BEFORE_FILTER || USE_DATE_AFTER_FILTER || USE_DATE_BEFORE_FILTER ||
+    return USE_CHANGE_AFTER_FILTER ||
+           USE_CHANGE_BEFORE_FILTER ||
+           USE_DATE_AFTER_FILTER ||
+           USE_DATE_BEFORE_FILTER ||
            isNonDateFilterSpecified();
   }
 
+  @Transient
   public boolean isNonDateFilterSpecified() {
     return USE_USER_FILTER;
   }

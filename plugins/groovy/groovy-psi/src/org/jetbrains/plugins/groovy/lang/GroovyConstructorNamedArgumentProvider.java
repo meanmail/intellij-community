@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang;
 
 import com.intellij.openapi.util.Key;
@@ -32,7 +18,6 @@ import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.arguments.GrArgumentList;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrCall;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrExpression;
-import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrNewExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.GrReferenceExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.params.GrParameter;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyPropertyUtils;
@@ -42,52 +27,41 @@ import org.jetbrains.plugins.groovy.lang.resolve.processors.ClassHint;
 
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * @author Sergey Evdokimov
  */
-public class GroovyConstructorNamedArgumentProvider extends GroovyNamedArgumentProvider {
+public abstract class GroovyConstructorNamedArgumentProvider extends GroovyNamedArgumentProvider {
 
   private static final String METACLASS = "metaClass";
 
+  @NotNull
+  public abstract List<PsiClass> getCorrespondingClasses(@NotNull GrCall call, @NotNull GroovyResolveResult resolveResult);
+
   @Override
   public void getNamedArguments(@NotNull GrCall call,
-                                @Nullable PsiElement resolve,
+                                @NotNull GroovyResolveResult resolveResult,
                                 @Nullable String argumentName,
                                 boolean forCompletion,
-                                Map<String, NamedArgumentDescriptor> result) {
-    if (!(call instanceof GrNewExpression)) return;
-
-    if (resolve != null) {
-      if (!(resolve instanceof PsiMethod)) return;
-      PsiMethod method = (PsiMethod)resolve;
-      if (!method.isConstructor()) return;
-    }
-
-    GrNewExpression newCall = (GrNewExpression)call;
-
-    GrArgumentList argumentList = newCall.getArgumentList();
+                                @NotNull Map<String, NamedArgumentDescriptor> result) {
+    GrArgumentList argumentList = call.getArgumentList();
     if (argumentList == null) return;
-
     GrExpression[] expressionArguments = argumentList.getExpressionArguments();
     if (expressionArguments.length > 1 || (expressionArguments.length == 1 && !(expressionArguments[0] instanceof GrReferenceExpression))) {
       return;
     }
 
-    for (GroovyResolveResult resolveResult : newCall.multiResolveClass()) {
-      PsiElement element = resolveResult.getElement();
-      if (!(element instanceof PsiClass)) continue;
+    for (PsiClass psiClass : getCorrespondingClasses(call, resolveResult)) {
+      if (!isClassHasConstructorWithMap(psiClass)) continue;
 
-      PsiClass aClass = (PsiClass)element;
-
-      if (!isClassHasConstructorWithMap(aClass)) continue;
-
-      PsiClassType classType = JavaPsiFacade.getElementFactory(aClass.getProject()).createType(aClass);
+      PsiClassType classType = JavaPsiFacade.getElementFactory(psiClass.getProject()).createType(psiClass);
 
       processClass(call, classType, argumentName, result);
     }
   }
+
 
   public static void processClass(@NotNull GrCall call,
                                   PsiClassType type,
@@ -146,7 +120,7 @@ public class GroovyConstructorNamedArgumentProvider extends GroovyNamedArgumentP
     }
   }
 
-  private static boolean isClassHasConstructorWithMap(PsiClass aClass) {
+  public static boolean isClassHasConstructorWithMap(PsiClass aClass) {
     PsiMethod[] constructors = aClass.getConstructors();
 
     if (constructors.length == 0) return true;
@@ -196,7 +170,7 @@ public class GroovyConstructorNamedArgumentProvider extends GroovyNamedArgumentP
           propertyName = ((PsiField)element).getName();
         }
 
-        if (propertyName.equals(METACLASS)) return true;
+        if (METACLASS.equals(propertyName)) return true;
 
         if (((PsiModifierListOwner)element).hasModifierProperty(PsiModifier.STATIC)) return true;
 
@@ -224,12 +198,7 @@ public class GroovyConstructorNamedArgumentProvider extends GroovyNamedArgumentP
     }
 
     @Override
-    public void handleEvent(@NotNull Event event, Object associated) {
-
-    }
-
-    @Override
-    public boolean shouldProcess(DeclarationKind kind) {
+    public boolean shouldProcess(@NotNull DeclarationKind kind) {
       return myResolveTargetKinds.contains(kind);
     }
 

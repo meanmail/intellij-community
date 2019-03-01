@@ -18,10 +18,8 @@ package org.intellij.lang.xpath.xslt.associations.impl;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.ide.util.treeView.TreeState;
 import com.intellij.openapi.application.ReadAction;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.components.*;
 import com.intellij.openapi.options.Configurable;
-import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.openapi.project.Project;
@@ -53,22 +51,17 @@ public class FileAssociationsConfigurable implements SearchableConfigurable, Con
 
     @Override
     public JComponent createComponent() {
-        myEditor = new ReadAction<AssociationsEditor>() {
-            @Override
-            protected void run(@NotNull Result<AssociationsEditor> result) throws Throwable {
-                result.setResult(new AssociationsEditor(myProject, myState.state));
-            }
-        }.execute().getResultObject();
-        return myEditor.getComponent();
+      myEditor = ReadAction.compute(() -> new AssociationsEditor(myProject, myState.state));
+      return myEditor.getComponent();
     }
 
     @Override
-    public synchronized boolean isModified() {
+    public boolean isModified() {
         return myEditor != null && myEditor.isModified();
     }
 
     @Override
-    public void apply() throws ConfigurationException {
+    public void apply() {
         myEditor.apply();
         DaemonCodeAnalyzer.getInstance(myProject).restart();
     }
@@ -79,7 +72,7 @@ public class FileAssociationsConfigurable implements SearchableConfigurable, Con
     }
 
     @Override
-    public synchronized void disposeUIResources() {
+    public void disposeUIResources() {
         if (myEditor != null) {
             myState.state = myEditor.getState();
             myEditor.dispose();
@@ -110,11 +103,11 @@ public class FileAssociationsConfigurable implements SearchableConfigurable, Con
 
         @Override
         public TreeState getState() {
-            return state != null ? state : new TreeState();
+            return state != null ? state : TreeState.createFrom(null);
         }
 
         @Override
-        public void loadState(TreeState state) {
+        public void loadState(@NotNull TreeState state) {
             this.state = state;
         }
     }

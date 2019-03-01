@@ -1,29 +1,14 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.lookup;
 
+import com.intellij.codeInsight.completion.LookupElementListPresenter;
 import com.intellij.codeInsight.completion.PrefixMatcher;
 import com.intellij.codeInsight.completion.impl.CompletionServiceImpl;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
-import com.intellij.openapi.util.Comparing;
+import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.hash.EqualityPolicy;
-import com.intellij.util.containers.hash.LinkedHashMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -37,12 +22,19 @@ public abstract class LookupArranger implements WeighingContext {
   private final List<LookupElement> myMatchingItems = new ArrayList<>();
   private final List<LookupElement> myExactPrefixItems = new ArrayList<>();
   private final List<LookupElement> myInexactPrefixItems = new ArrayList<>();
-  private final Map<LookupElement, PrefixMatcher> myMatchers = ContainerUtil.createConcurrentWeakMap(ContainerUtil.identityStrategy());
+  private final Key<PrefixMatcher> myMatcherKey = Key.create("LookupArrangerMatcher");
   private String myAdditionalPrefix = "";
 
   public void addElement(LookupElement item, LookupElementPresentation presentation) {
     myItems.add(item);
     updateCache(item);
+  }
+
+  public void clear() {
+    myItems.clear();
+    myMatchingItems.clear();
+    myExactPrefixItems.clear();
+    myInexactPrefixItems.clear();
   }
 
   private void updateCache(LookupElement item) {
@@ -59,9 +51,10 @@ public abstract class LookupArranger implements WeighingContext {
   }
 
   public void registerMatcher(@NotNull LookupElement item, @NotNull PrefixMatcher matcher) {
-    myMatchers.put(item, matcher);
+    item.putUserData(myMatcherKey, matcher);
   }
 
+  @Override
   @NotNull
   public String itemPattern(@NotNull LookupElement element) {
     String prefix = itemMatcher(element).getPrefix();
@@ -69,9 +62,10 @@ public abstract class LookupArranger implements WeighingContext {
     return additionalPrefix.isEmpty() ? prefix : prefix + additionalPrefix;
   }
 
+  @Override
   @NotNull
   public PrefixMatcher itemMatcher(@NotNull LookupElement item) {
-    PrefixMatcher matcher = myMatchers.get(item);
+    PrefixMatcher matcher = item.getUserData(myMatcherKey);
     if (matcher == null) {
       throw new AssertionError("Item not in lookup: item=" + item + "; lookup items=" + myItems);
     }
@@ -90,26 +84,23 @@ public abstract class LookupArranger implements WeighingContext {
   }
 
   public final void prefixReplaced(Lookup lookup, String newPrefix) {
-    //noinspection unchecked
-    Map<LookupElement, PrefixMatcher> newMatchers = new LinkedHashMap(EqualityPolicy.IDENTITY);
-    for (LookupElement item : myItems) {
+    ArrayList<LookupElement> itemCopy = ContainerUtil.newArrayList(myItems);
+    myItems.clear();
+    for (LookupElement item : itemCopy) {
       if (item.isValid()) {
         PrefixMatcher matcher = itemMatcher(item).cloneWithPrefix(newPrefix);
         if (matcher.prefixMatches(item)) {
-          newMatchers.put(item, matcher);
+          item.putUserData(myMatcherKey, matcher);
+          myItems.add(item);
         }
       }
     }
-    myMatchers.clear();
-    myMatchers.putAll(newMatchers);
-    myItems.clear();
-    myItems.addAll(newMatchers.keySet());
 
     prefixChanged(lookup);
   }
 
   public void prefixChanged(Lookup lookup) {
-    myAdditionalPrefix = ((LookupImpl)lookup).getAdditionalPrefix();
+    myAdditionalPrefix = ((LookupElementListPresenter)lookup).getAdditionalPrefix();
     rebuildItemCache();
   }
 
@@ -146,21 +137,17 @@ public abstract class LookupArranger implements WeighingContext {
 
   protected boolean isPrefixItem(LookupElement item, final boolean exactly) {
     final String pattern = itemPattern(item);
-    if (Comparing.strEqual(pattern, item.getLookupString(), item.isCaseSensitive())) {
-      return true;
-    }
+    for (String s : item.getAllLookupStrings()) {
+      if (!s.equalsIgnoreCase(pattern)) continue;
 
-    if (!exactly) {
-      for (String s : item.getAllLookupStrings()) {
-        if (s.equalsIgnoreCase(pattern)) {
-          return true;
-        }
+      if (!item.isCaseSensitive() || !exactly || s.equals(pattern)) {
+        return true;
       }
     }
     return false;
   }
 
-  protected List<LookupElement> getMatchingItems() {
+  public List<LookupElement> getMatchingItems() {
     return myMatchingItems;
   }
 
@@ -174,6 +161,17 @@ public abstract class LookupArranger implements WeighingContext {
   public Map<LookupElement, List<Pair<String, Object>>> getRelevanceObjects(@NotNull Iterable<LookupElement> items,
                                                                                boolean hideSingleValued) {
     return Collections.emptyMap();
+  }
+
+  /**
+   * Called when the prefix has been truncated farther than the additional prefix typed while the lookup was visible.
+   */
+  public void prefixTruncated(@NotNull LookupImpl lookup, int hideOffset) {
+    lookup.hideLookup(false);
+  }
+
+  public boolean isCompletion() {
+    return false;
   }
 
   public static class DefaultArranger extends LookupArranger {

@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.util.xmlb;
 
+import com.intellij.util.ExceptionUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -25,7 +12,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 
-class PropertyAccessor implements MutableAccessor {
+import static com.intellij.util.xmlb.Binding.LOG;
+
+public class PropertyAccessor implements MutableAccessor {
   private final String myName;
   private final Class<?> myType;
   private final Method myReadMethod;
@@ -36,7 +25,7 @@ class PropertyAccessor implements MutableAccessor {
     this(descriptor.getName(), descriptor.getPropertyType(), descriptor.getReadMethod(), descriptor.getWriteMethod());
   }
 
-  public PropertyAccessor(String name, Class<?> type, @NotNull Method readMethod, @NotNull Method writeMethod) {
+  public PropertyAccessor(String name, Class<?> type, @NotNull Method readMethod, @Nullable Method writeMethod) {
     myName = name;
     myType = type;
     myReadMethod = readMethod;
@@ -45,9 +34,16 @@ class PropertyAccessor implements MutableAccessor {
 
     try {
       myReadMethod.setAccessible(true);
-      myWriteMethod.setAccessible(true);
+      if (myWriteMethod != null) {
+        myWriteMethod.setAccessible(true);
+      }
     }
     catch (SecurityException ignored) { }
+  }
+
+  @NotNull
+  public String getGetterName() {
+    return myReadMethod.getName();
   }
 
   @Override
@@ -59,6 +55,8 @@ class PropertyAccessor implements MutableAccessor {
       throw new XmlSerializationException(e);
     }
     catch (InvocationTargetException e) {
+      Throwable exception = e.getTargetException();
+      ExceptionUtil.rethrowUnchecked(exception);
       throw new XmlSerializationException(e);
     }
   }
@@ -72,7 +70,26 @@ class PropertyAccessor implements MutableAccessor {
       throw new XmlSerializationException(e);
     }
     catch (InvocationTargetException e) {
-      throw new XmlSerializationException(e);
+      Throwable cause = e.getCause();
+      // see KotlinXmlSerializerTest.nullInMap
+      if (cause instanceof IllegalArgumentException && myGenericType instanceof Class && ((Class)myGenericType).isEnum() && cause.getMessage().contains("Parameter specified as non-null is null:")) {
+        Object[] constants = ((Class)myGenericType).getEnumConstants();
+        if (constants.length > 0) {
+          try {
+            LOG.warn("Cannot set enum value, will be set to first enum value", e);
+            myWriteMethod.invoke(host, constants[0]);
+            return;
+          }
+          catch (IllegalAccessException e1) {
+            throw new XmlSerializationException(e);
+          }
+          catch (InvocationTargetException e1) {
+            throw new XmlSerializationException(cause);
+          }
+        }
+      }
+
+      throw new XmlSerializationException(cause);
     }
   }
 
@@ -109,7 +126,9 @@ class PropertyAccessor implements MutableAccessor {
   @Override
   public <T extends Annotation> T getAnnotation(@NotNull Class<T> annotationClass) {
     T annotation = myReadMethod.getAnnotation(annotationClass);
-    if (annotation == null) annotation = myWriteMethod.getAnnotation(annotationClass);
+    if (annotation == null && myWriteMethod != null) {
+      annotation = myWriteMethod.getAnnotation(annotationClass);
+    }
     return annotation;
   }
 
@@ -130,16 +149,11 @@ class PropertyAccessor implements MutableAccessor {
 
   @Override
   public boolean isFinal() {
-    return false;
+    return myWriteMethod == null;
   }
 
   @NonNls
   public String toString() {
     return "PropertyAccessor[" + myReadMethod.getDeclaringClass().getName() + "." + getName() +"]";
-  }
-
-  @Override
-  public void write(Object o, Object value) {
-    set(o, value);
   }
 }

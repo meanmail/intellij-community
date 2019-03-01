@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.ui.popup.util;
 
@@ -21,8 +9,6 @@ import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.highlighter.EditorHighlighter;
 import com.intellij.openapi.editor.highlighter.EditorHighlighterFactory;
-import com.intellij.openapi.editor.impl.SettingsImpl;
-import com.intellij.openapi.editor.impl.softwrap.SoftWrapAppliancePlaces;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
@@ -32,9 +18,7 @@ import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.UserDataHolder;
 import com.intellij.openapi.util.UserDataHolderBase;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.ScreenUtil;
-import com.intellij.ui.SideBorder;
 import com.intellij.ui.UIBundle;
 import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
@@ -45,7 +29,6 @@ import java.awt.*;
 
 /**
 * @author zajac
-* @since 6.05.2012
 */
 public class DetailViewImpl extends JPanel implements DetailView, UserDataHolder {
   private final Project myProject;
@@ -122,32 +105,13 @@ public class DetailViewImpl extends JPanel implements DetailView, UserDataHolder
     final LogicalPosition positionToNavigate = editorState.getNavigate();
     final TextAttributes lineAttributes = editorState.getAttributes();
     Document document = FileDocumentManager.getInstance().getDocument(file);
-    Project project = myProject;
 
     clearEditor();
     myEditorState = editorState;
     remove(myLabel);
     if (document != null) {
       if (getEditor() == null || getEditor().getDocument() != document) {
-        setEditor(EditorFactory.getInstance().createViewer(document, project));
-
-        final EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-
-        EditorHighlighter highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(file, scheme, project);
-
-        ((EditorEx)getEditor()).setFile(file);
-        ((EditorEx)getEditor()).setHighlighter(highlighter);
-
-        EditorSettings settings = getEditor().getSettings();
-        settings.setAnimatedScrolling(false);
-        settings.setRefrainFromScrolling(false);
-        settings.setLineNumbersShown(true);
-        settings.setFoldingOutlineShown(false);
-        if (settings instanceof SettingsImpl) {
-          ((SettingsImpl)settings).setSoftWrapAppliancePlace(SoftWrapAppliancePlaces.PREVIEW);
-        }
-        ((EditorEx)getEditor()).getFoldingModel().setFoldingEnabled(false);
-
+        setEditor(createEditor(myProject, document, file));
         add(getEditor().getComponent(), BorderLayout.CENTER);
       }
 
@@ -160,8 +124,6 @@ public class DetailViewImpl extends JPanel implements DetailView, UserDataHolder
         repaint();
       }
 
-      getEditor().setBorder(IdeBorderFactory.createBorder(SideBorder.TOP));
-
       clearHighlighting();
       if (lineAttributes != null && positionToNavigate != null && positionToNavigate.line < getEditor().getDocument().getLineCount()) {
         myHighlighter = getEditor().getMarkupModel().addLineHighlighter(positionToNavigate.line, HighlighterLayer.SELECTION - 1,
@@ -173,6 +135,26 @@ public class DetailViewImpl extends JPanel implements DetailView, UserDataHolder
       add(myLabel, BorderLayout.CENTER);
       validate();
     }
+  }
+
+  @NotNull
+  protected Editor createEditor(@Nullable Project project, Document document, VirtualFile file) {
+    EditorEx editor = (EditorEx)EditorFactory.getInstance().createViewer(document, project, EditorKind.PREVIEW);
+
+    final EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
+    EditorHighlighter highlighter = EditorHighlighterFactory.getInstance().createEditorHighlighter(file, scheme, project);
+
+    editor.setFile(file);
+    editor.setHighlighter(highlighter);
+
+    EditorSettings settings = editor.getSettings();
+    settings.setAnimatedScrolling(false);
+    settings.setRefrainFromScrolling(false);
+    settings.setLineNumbersShown(true);
+    settings.setFoldingOutlineShown(false);
+    editor.getFoldingModel().setFoldingEnabled(false);
+
+    return editor;
   }
 
   private void clearHighlighting() {
@@ -200,7 +182,7 @@ public class DetailViewImpl extends JPanel implements DetailView, UserDataHolder
       remove(myLabel);
       if (myDetailPanelWrapper == null) {
         myDetailPanelWrapper = new JPanel(new GridLayout(1, 1));
-        myDetailPanelWrapper.setBorder(IdeBorderFactory.createEmptyBorder(5, 5, 5, 5));
+        myDetailPanelWrapper.setBorder(JBUI.Borders.empty(5));
         myDetailPanelWrapper.add(panel);
 
         add(myDetailPanelWrapper, BorderLayout.NORTH);

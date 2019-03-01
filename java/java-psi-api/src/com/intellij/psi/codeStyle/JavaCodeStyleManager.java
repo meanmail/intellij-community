@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.psi.codeStyle;
 
 import com.intellij.openapi.components.ServiceManager;
@@ -25,6 +11,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Collection;
+import java.util.function.Predicate;
 
 /**
  * @author max
@@ -36,9 +23,6 @@ public abstract class JavaCodeStyleManager {
 
   public static final int DO_NOT_ADD_IMPORTS = 0x1000;
   public static final int INCOMPLETE_CODE = 0x2000;
-
-  /** @deprecated use {@link #INCOMPLETE_CODE} (to be removed in IDEA 17) */
-  @SuppressWarnings({"unused", "SpellCheckingInspection"}) public static final int UNCOMPLETE_CODE = INCOMPLETE_CODE;
 
   public abstract boolean addImport(@NotNull PsiJavaFile file, @NotNull PsiClass refClass);
   @NotNull
@@ -90,6 +74,19 @@ public abstract class JavaCodeStyleManager {
    * @return the calculated import list, or {@code null} when the file has no import list.
    */
   public abstract PsiImportList prepareOptimizeImportsResult(@NotNull PsiJavaFile file);
+
+  /**
+   * Single-static-import {@code import static classFQN.referenceName;} shadows on-demand static imports, like described
+   * JLS 6.4.1
+   * A single-static-import declaration d in a compilation unit c of package p that imports a {member} named n
+   * shadows the declaration of any static {member} named n imported by a static-import-on-demand declaration in c, throughout c.
+   *
+   * @return true if file contains import which would be shadowed
+   *         false otherwise
+   */
+  public boolean hasConflictingOnDemandImport(@NotNull PsiJavaFile file, @NotNull PsiClass psiClass, @NotNull String referenceName) {
+    return false;
+  }
 
   /**
    * Returns the kind of the specified variable (local, parameter, field, static field or static final field).
@@ -165,7 +162,8 @@ public abstract class JavaCodeStyleManager {
   public abstract String propertyNameToVariableName(@NonNls @NotNull String propertyName, @NotNull VariableKind variableKind);
 
   /**
-   * Suggests a unique name for the variable used at the specified location.
+   * Suggests a unique name for the variable used at the specified location. The returned name is guaranteed to not shadow
+   * the existing name.
    *
    * @param baseName    the base name for the variable.
    * @param place       the location where the variable will be used.
@@ -176,12 +174,13 @@ public abstract class JavaCodeStyleManager {
   public abstract String suggestUniqueVariableName(@NonNls @NotNull String baseName, PsiElement place, boolean lookForward);
 
   /**
-   * Suggests a unique name for the variable used at the specified location.
+   * Suggests a unique names for the variable used at the specified location. The resulting name info may contain names which
+   * shadow existing names.
    *
    * @param baseNameInfo the base name info for the variable.
    * @param place        the location where the variable will be used.
    * @param lookForward  if true, the existing variables are searched in both directions; if false - only backward
-   * @return the generated unique name
+   * @return the generated unique name info.
    */
   @NotNull
   public SuggestedNameInfo suggestUniqueVariableName(@NotNull SuggestedNameInfo baseNameInfo,
@@ -189,6 +188,18 @@ public abstract class JavaCodeStyleManager {
                                                      boolean lookForward) {
     return suggestUniqueVariableName(baseNameInfo, place, false, lookForward);
   }
+
+  /**
+   * Suggests a unique name for the variable used at the specified location looking forward with possible filtering.
+   *
+   * @param baseName    the base name info for the variable.
+   * @param place       the location where the variable will be used.
+   * @param canBeReused a predicate which returns true for variables which names still could be reused (e.g. a variable will be deleted
+   *                    during the ongoing refactoring)
+   * @return the generated unique name
+   */
+  @NotNull
+  public abstract String suggestUniqueVariableName(@NotNull String baseName, PsiElement place, Predicate<? super PsiVariable> canBeReused);
 
   /**
    * Suggests a unique name for the variable used at the specified location.
@@ -227,4 +238,19 @@ public abstract class JavaCodeStyleManager {
 
   @Nullable
   public abstract Collection<PsiImportStatementBase> findRedundantImports(@NotNull PsiJavaFile file);
+
+  /**
+   * This method is not actually tied to Java Code Style.
+   * This method doesn't add prefixes or suffixes, and doesn't apply keyword correction.
+   * Returned names already have proper pluralization.
+   * <p>
+   * Should be used with {@link #suggestNames(Collection, VariableKind, PsiType)}.
+   */
+  @NotNull
+  public abstract Collection<String> suggestSemanticNames(@NotNull PsiExpression expression);
+
+  @NotNull
+  public abstract SuggestedNameInfo suggestNames(@NotNull Collection<String> semanticNames,
+                                                 @NotNull VariableKind kind,
+                                                 @Nullable PsiType type);
 }

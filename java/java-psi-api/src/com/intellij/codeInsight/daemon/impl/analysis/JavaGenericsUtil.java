@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2013 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.daemon.impl.analysis;
 
 import com.intellij.codeInsight.AnnotationUtil;
@@ -27,6 +13,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Iterator;
+
+import static com.intellij.codeInsight.AnnotationUtil.CHECK_EXTERNAL;
 
 public class JavaGenericsUtil {
   public static boolean isReifiableType(PsiType type) {
@@ -59,15 +47,25 @@ public class JavaGenericsUtil {
       }
 
       assert parameters.length == 0;
-      final PsiClassType.ClassResolveResult resolved = ((PsiClassType)PsiUtil.convertAnonymousToBaseType(classType)).resolveGenerics();
+      final PsiClassType.ClassResolveResult resolved = classType.resolveGenerics();
       final PsiClass aClass = resolved.getElement();
       if (aClass instanceof PsiTypeParameter) {
         return false;
       }
 
       if (aClass != null && !aClass.hasModifierProperty(PsiModifier.STATIC)) {
+        //local class (inner inside inside anonymous) should skip anonymous as it can't be static itself
+        final PsiClass stopClassLevel = PsiUtil.isLocalClass(aClass) ? null : aClass.getContainingClass();
+        PsiModifierListOwner enclosingStaticElement = PsiUtil.getEnclosingStaticElement(aClass, stopClassLevel);
         PsiClass containingClass = PsiTreeUtil.getParentOfType(aClass, PsiClass.class, true);
-        if (containingClass != null) {
+        if (containingClass != null && (enclosingStaticElement == null || PsiTreeUtil.isAncestor(enclosingStaticElement, containingClass, false))) {
+          //anonymous classes are not generic
+          while (containingClass instanceof PsiAnonymousClass) {
+            containingClass = PsiTreeUtil.getParentOfType(containingClass, PsiClass.class, true);
+          }
+          if (containingClass == null || enclosingStaticElement != null && !PsiTreeUtil.isAncestor(enclosingStaticElement, containingClass, false)) {
+            return true;
+          }
           return isReifiableType(JavaPsiFacade.getElementFactory(aClass.getProject()).createType(containingClass, resolved.getSubstitutor()));
         }
       }
@@ -85,40 +83,50 @@ public class JavaGenericsUtil {
                                            @NotNull JavaResolveResult resolveResult,
                                            @NotNull LanguageLevel languageLevel) {
     final PsiElement resolve = resolveResult.getElement();
-    if (resolve instanceof PsiMethod) {
-      final PsiMethod psiMethod = (PsiMethod)resolve;
+    if (!(resolve instanceof PsiMethod)) {
+      return false;
+    }
+    PsiMethod psiMethod = (PsiMethod)resolve;
 
-      if (psiMethod.isVarArgs()) {
-        if (!languageLevel.isAtLeast(LanguageLevel.JDK_1_7) || !AnnotationUtil.isAnnotated(psiMethod, "java.lang.SafeVarargs", false)) {
-          final int parametersCount = psiMethod.getParameterList().getParametersCount();
-          final PsiParameter varargParameter =
-            psiMethod.getParameterList().getParameters()[parametersCount - 1];
-          final PsiType componentType = ((PsiEllipsisType)varargParameter.getType()).getComponentType();
-          if (!isReifiableType(resolveResult.getSubstitutor().substitute(componentType))) {
+    PsiParameter[] parameters = psiMethod.getParameterList().getParameters();
 
-            if (expression instanceof PsiMethodReferenceExpression) return true;
+    int parametersCount = parameters.length;
+    if (parametersCount == 0) {
+      return false;
+    }
+    PsiParameter varargParameter = parameters[parametersCount - 1];
+    if (!varargParameter.isVarArgs()) {
+      return false;
+    }
 
-            final PsiElement parent = expression.getParent();
-            if (parent instanceof PsiCall) {
-              final PsiExpressionList argumentList = ((PsiCall)parent).getArgumentList();
-              if (argumentList != null) {
-                final PsiExpression[] args = argumentList.getExpressions();
-                if (args.length == parametersCount) {
-                  final PsiExpression lastArg = args[args.length - 1];
-                  if (lastArg.getType() instanceof PsiArrayType) {
-                    return false;
-                  }
-                }
-                for (int i = parametersCount - 1; i < args.length; i++) {
-                  if (!isReifiableType(resolveResult.getSubstitutor().substitute(args[i].getType()))) {
-                    return true;
-                  }
-                }
-                return args.length < parametersCount;
-              }
-            }
+    if (AnnotationUtil.isAnnotated(psiMethod, CommonClassNames.JAVA_LANG_SAFE_VARARGS, CHECK_EXTERNAL)) {
+      return false;
+    }
+
+    PsiType componentType = ((PsiEllipsisType)varargParameter.getType()).getComponentType();
+    if (isReifiableType(resolveResult.getSubstitutor().substitute(componentType))) {
+      return false;
+    }
+
+    if (expression instanceof PsiMethodReferenceExpression) return true;
+
+    final PsiElement parent = expression.getParent();
+    if (parent instanceof PsiCall) {
+      final PsiExpressionList argumentList = ((PsiCall)parent).getArgumentList();
+      if (argumentList != null) {
+        final PsiExpression[] args = argumentList.getExpressions();
+        if (args.length == parametersCount) {
+          final PsiExpression lastArg = args[args.length - 1];
+          if (lastArg.getType() instanceof PsiArrayType) {
+            return false;
           }
         }
+        for (int i = parametersCount - 1; i < args.length; i++) {
+          if (!isReifiableType(resolveResult.getSubstitutor().substitute(args[i].getType()))) {
+            return true;
+          }
+        }
+        return args.length < parametersCount;
       }
     }
     return false;
@@ -149,7 +157,7 @@ public class JavaGenericsUtil {
         if (operandClassType.isRaw()) return true;
         if (castClass.isInheritor(operandClass, true)) {
           PsiSubstitutor castSubstitutor = castResult.getSubstitutor();
-          PsiElementFactory factory = JavaPsiFacade.getInstance(castClass.getProject()).getElementFactory();
+          PsiElementFactory factory = JavaPsiFacade.getElementFactory(castClass.getProject());
           for (PsiTypeParameter typeParameter : PsiUtil.typeParametersIterable(castClass)) {
             PsiSubstitutor modifiedSubstitutor = castSubstitutor.put(typeParameter, null);
             PsiClassType otherType = factory.createType(castClass, modifiedSubstitutor);
@@ -187,6 +195,10 @@ public class JavaGenericsUtil {
         if (isRawToGeneric(type, rType)) return true;
       }
       return false;
+    }
+
+    if (rType instanceof PsiCapturedWildcardType) {
+      return isRawToGeneric(lType, ((PsiCapturedWildcardType)rType).getUpperBound());
     }
 
     if (!(lType instanceof PsiClassType) || !(rType instanceof PsiClassType)) return false;
@@ -246,13 +258,11 @@ public class JavaGenericsUtil {
 
   @Nullable
   public static PsiType getCollectionItemType(@NotNull PsiExpression expression) {
-    final PsiType type = expression.getType();
-    if (type == null) return null;
-    return getCollectionItemType(type, expression.getResolveScope());
+    return getCollectionItemType(expression.getType(), expression.getResolveScope());
   }
 
   @Nullable
-  public static PsiType getCollectionItemType(final PsiType type, final GlobalSearchScope scope) {
+  public static PsiType getCollectionItemType(@Nullable PsiType type, @NotNull GlobalSearchScope scope) {
     if (type instanceof PsiArrayType) {
       return ((PsiArrayType)type).getComponentType();
     }

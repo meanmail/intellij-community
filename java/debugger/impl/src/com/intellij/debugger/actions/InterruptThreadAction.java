@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.actions;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -27,25 +13,21 @@ import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.MessageType;
-import com.intellij.xdebugger.impl.XDebugSessionImpl;
+import com.intellij.xdebugger.impl.XDebuggerManagerImpl;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: lex
- * Date: Sep 26, 2003
- * Time: 7:35:09 PM
- */
 public class InterruptThreadAction extends DebuggerAction{
-  
-  public void actionPerformed(final AnActionEvent e) {
+
+  @Override
+  public void actionPerformed(@NotNull final AnActionEvent e) {
     final DebuggerTreeNodeImpl[] nodes = getSelectedNodes(e.getDataContext());
     if (nodes == null) {
       return;
     }
 
-    //noinspection ConstantConditions
     final List<ThreadReferenceProxyImpl> threadsToInterrupt = new ArrayList<>();
     for (final DebuggerTreeNodeImpl debuggerTreeNode : nodes) {
       final NodeDescriptorImpl descriptor = debuggerTreeNode.getDescriptor();
@@ -53,13 +35,14 @@ public class InterruptThreadAction extends DebuggerAction{
         threadsToInterrupt.add(((ThreadDescriptorImpl)descriptor).getThreadReference());
       }
     }
-    
+
     if (!threadsToInterrupt.isEmpty()) {
       final DebuggerContextImpl debuggerContext = getDebuggerContext(e.getDataContext());
       final DebugProcessImpl debugProcess = debuggerContext.getDebugProcess();
       if (debugProcess != null) {
         debugProcess.getManagerThread().schedule(new DebuggerCommandImpl() {
-          protected void action() throws Exception {
+          @Override
+          protected void action() {
             boolean unsupported = false;
             for (ThreadReferenceProxyImpl thread : threadsToInterrupt) {
               try {
@@ -71,7 +54,7 @@ public class InterruptThreadAction extends DebuggerAction{
             }
             if (unsupported) {
               final Project project = debugProcess.getProject();
-              XDebugSessionImpl.NOTIFICATION_GROUP
+              XDebuggerManagerImpl.NOTIFICATION_GROUP
                 .createNotification("Thread operation 'interrupt' is not supported by VM", MessageType.INFO).notify(project);
             }
           }
@@ -80,7 +63,8 @@ public class InterruptThreadAction extends DebuggerAction{
     }
   }
 
-  public void update(AnActionEvent e) {
+  @Override
+  public void update(@NotNull AnActionEvent e) {
     final DebuggerTreeNodeImpl[] selectedNodes = getSelectedNodes(e.getDataContext());
 
     boolean visible = false;
@@ -96,7 +80,7 @@ public class InterruptThreadAction extends DebuggerAction{
           break;
         }
       }
-      
+
       if (visible) {
         for (DebuggerTreeNodeImpl selectedNode : selectedNodes) {
           final ThreadDescriptorImpl threadDescriptor = (ThreadDescriptorImpl)selectedNode.getDescriptor();

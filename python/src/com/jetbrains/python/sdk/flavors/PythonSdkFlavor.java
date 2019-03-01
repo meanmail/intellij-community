@@ -1,25 +1,12 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.sdk.flavors;
 
 import com.google.common.collect.Lists;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.process.ProcessOutput;
+import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.openapi.module.Module;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkAdditionalData;
 import com.intellij.openapi.util.SystemInfo;
@@ -28,6 +15,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.PatternUtil;
 import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.run.CommandLinePatcher;
 import com.jetbrains.python.sdk.PySdkUtil;
 import com.jetbrains.python.sdk.PythonEnvUtil;
 import com.jetbrains.python.sdk.PythonSdkAdditionalData;
@@ -68,7 +56,15 @@ public abstract class PythonSdkFlavor {
     PythonEnvUtil.addToPythonPath(envs, pythonPathList);
   }
 
+  /**
+   * @deprecated Use {@link #suggestHomePaths(Module)}. To be removed in 2019.2.
+   */
+  @Deprecated
   public Collection<String> suggestHomePaths() {
+    return suggestHomePaths(null);
+  }
+
+  public Collection<String> suggestHomePaths(@Nullable Module module) {
     return Collections.emptyList();
   }
 
@@ -80,7 +76,7 @@ public abstract class PythonSdkFlavor {
     List<PythonSdkFlavor> result = new ArrayList<>();
 
     if (SystemInfo.isWindows) {
-      result.add(WinPythonSdkFlavor.INSTANCE);
+      result.add(ServiceManager.getService(WinPythonSdkFlavor.class));
     }
     else if (SystemInfo.isMac) {
       result.add(MacPythonSdkFlavor.INSTANCE);
@@ -93,16 +89,21 @@ public abstract class PythonSdkFlavor {
       result.addAll(getPlatformIndependentFlavors());
     }
 
-    for (PythonFlavorProvider provider : Extensions.getExtensions(PythonFlavorProvider.EP_NAME)) {
-      PythonSdkFlavor flavor = provider.getFlavor(addPlatformIndependent);
-      if (flavor != null) {
-        result.add(flavor);
-      }
-    }
+    result.addAll(getPlatformFlavorsFromExtensions(addPlatformIndependent));
 
     return result;
   }
 
+  public static List<PythonSdkFlavor> getPlatformFlavorsFromExtensions(boolean isInpedendent) {
+    List<PythonSdkFlavor> result = new ArrayList<>();
+    for (PythonFlavorProvider provider : PythonFlavorProvider.EP_NAME.getExtensionList()) {
+      PythonSdkFlavor flavor = provider.getFlavor(isInpedendent);
+      if (flavor != null) {
+        result.add(flavor);
+      }
+    }
+    return result;
+  }
 
   public static List<PythonSdkFlavor> getPlatformIndependentFlavors() {
     List<PythonSdkFlavor> result = Lists.newArrayList();
@@ -110,13 +111,14 @@ public abstract class PythonSdkFlavor {
     result.add(IronPythonSdkFlavor.INSTANCE);
     result.add(PyPySdkFlavor.INSTANCE);
     result.add(VirtualEnvSdkFlavor.INSTANCE);
+    result.add(CondaEnvSdkFlavor.INSTANCE);
     result.add(PyRemoteSdkFlavor.INSTANCE);
 
     return result;
   }
 
   @Nullable
-  public static PythonSdkFlavor getFlavor(Sdk sdk) {
+  public static PythonSdkFlavor getFlavor(@NotNull final Sdk sdk) {
     final SdkAdditionalData data = sdk.getSdkAdditionalData();
     if (data instanceof PythonSdkAdditionalData) {
       PythonSdkFlavor flavor = ((PythonSdkAdditionalData)data).getFlavor();
@@ -144,6 +146,12 @@ public abstract class PythonSdkFlavor {
     if (sdkPath == null) return null;
 
     for (PythonSdkFlavor flavor : getPlatformIndependentFlavors()) {
+      if (flavor.isValidSdkHome(sdkPath)) {
+        return flavor;
+      }
+    }
+
+    for (PythonSdkFlavor flavor: getPlatformFlavorsFromExtensions(true)) {
       if (flavor.isValidSdkHome(sdkPath)) {
         return flavor;
       }
@@ -206,8 +214,8 @@ public abstract class PythonSdkFlavor {
     return Collections.emptyList();
   }
 
-  public void initPythonPath(GeneralCommandLine cmd, Collection<String> path) {
-    initPythonPath(path, cmd.getEnvironment());
+  public void initPythonPath(GeneralCommandLine cmd, boolean passParentEnvs, Collection<String> path) {
+    initPythonPath(path, passParentEnvs, cmd.getEnvironment());
   }
 
   public static void addToEnv(final String key, String value, Map<String, String> envs) {
@@ -224,7 +232,16 @@ public abstract class PythonSdkFlavor {
 
   @NotNull
   public LanguageLevel getLanguageLevel(@NotNull Sdk sdk) {
-    final String version = sdk.getVersionString();
+    return getLanguageLevelFromVersionString(sdk.getVersionString());
+  }
+
+  @NotNull
+  public LanguageLevel getLanguageLevel(@NotNull String sdkHome) {
+    return getLanguageLevelFromVersionString(getVersionString(sdkHome));
+  }
+
+  @NotNull
+  public LanguageLevel getLanguageLevelFromVersionString(@Nullable String version) {
     final String prefix = getName() + " ";
     if (version != null && version.startsWith(prefix)) {
       return LanguageLevel.fromPythonVersion(version.substring(prefix.length()));
@@ -236,12 +253,16 @@ public abstract class PythonSdkFlavor {
     return PythonIcons.Python.Python;
   }
 
-  public void initPythonPath(Collection<String> path, Map<String, String> env) {
-    path = appendSystemPythonPath(path);
-    addToEnv(PythonEnvUtil.PYTHONPATH, StringUtil.join(path, File.pathSeparator), env);
+  public void initPythonPath(Collection<String> path, boolean passParentEnvs, Map<String, String> env) {
+    initPythonPath(env, passParentEnvs, path);
   }
 
   public VirtualFile getSdkPath(VirtualFile path) {
     return path;
+  }
+
+  @Nullable
+  public CommandLinePatcher commandLinePatcher() {
+    return null;
   }
 }

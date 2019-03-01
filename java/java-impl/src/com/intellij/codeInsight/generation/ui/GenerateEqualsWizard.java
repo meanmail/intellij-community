@@ -50,8 +50,8 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 import java.util.regex.Pattern;
 
 /**
@@ -107,7 +107,7 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
         myHashCodePanel = null;
         myFieldsToHashCode = null;
       }
-      myNonNullPanel = new MemberSelectionPanel(CodeInsightBundle.message("generate.equals.hashcode.non.null.fields.chooser.title"), Collections.<MemberInfo>emptyList(), null);
+      myNonNullPanel = new MemberSelectionPanel(CodeInsightBundle.message("generate.equals.hashcode.non.null.fields.chooser.title"), Collections.emptyList(), null);
       myFieldsToNonNull = createFieldToMemberInfoMap(false);
       for (final Map.Entry<PsiMember, MemberInfo> entry : myFieldsToNonNull.entrySet()) {
         entry.getValue().setChecked(NullableNotNullManager.isNotNull(entry.getKey()));
@@ -217,12 +217,7 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
     for (MemberInfo info : infos) {
       list.add((PsiField)info.getMember());
     }
-    return list.toArray(new PsiField[list.size()]);
-  }
-
-  @Override
-  protected String getHelpID() {
-    return "editing.altInsert.equals";
+    return list.toArray(PsiField.EMPTY_ARRAY);
   }
 
   private void equalsFieldsSelected() {
@@ -363,14 +358,15 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
       final JLabel templateChooserLabel = new JLabel(CodeInsightBundle.message("generate.equals.hashcode.template"));
       templateChooserPanel.add(templateChooserLabel, BorderLayout.WEST);
 
-    
-      final ComboBox comboBox = new ComboBox();
+
+      final ComboBox<String> comboBox = new ComboBox<>();
       final ComponentWithBrowseButton<ComboBox> comboBoxWithBrowseButton =
         new ComponentWithBrowseButton<>(comboBox, new MyEditTemplatesListener(psiClass, myPanel, comboBox));
       templateChooserLabel.setLabelFor(comboBox);
       final EqualsHashCodeTemplatesManager manager = EqualsHashCodeTemplatesManager.getInstance();
       setupCombobox(manager, comboBox, psiClass);
       comboBox.addActionListener(new ActionListener() {
+        @Override
         public void actionPerformed(@NotNull final ActionEvent M) {
           manager.setDefaultTemplate((String)comboBox.getSelectedItem());
         }
@@ -383,6 +379,7 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
       checkbox.setSelected(!isFinal && CodeInsightSettings.getInstance().USE_INSTANCEOF_ON_EQUALS_PARAMETER);
       checkbox.setEnabled(!isFinal);
       checkbox.addActionListener(new ActionListener() {
+        @Override
         public void actionPerformed(@NotNull final ActionEvent M) {
           CodeInsightSettings.getInstance().USE_INSTANCEOF_ON_EQUALS_PARAMETER = checkbox.isSelected();
         }
@@ -393,6 +390,7 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
       final JCheckBox gettersCheckbox = new NonFocusableCheckBox(CodeInsightBundle.message("generate.equals.hashcode.use.getters"));
       gettersCheckbox.setSelected(CodeInsightSettings.getInstance().USE_ACCESSORS_IN_EQUALS_HASHCODE);
       gettersCheckbox.addActionListener(new ActionListener() {
+        @Override
         public void actionPerformed(@NotNull final ActionEvent M) {
           CodeInsightSettings.getInstance().USE_ACCESSORS_IN_EQUALS_HASHCODE = gettersCheckbox.isSelected();
         }
@@ -405,13 +403,13 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
       return myPanel;
     }
 
-    private static void setupCombobox(EqualsHashCodeTemplatesManager templatesManager, 
-                                      ComboBox comboBox,
+    private static void setupCombobox(EqualsHashCodeTemplatesManager templatesManager,
+                                      ComboBox<String> comboBox,
                                       PsiClass psiClass) {
       final JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(psiClass.getProject());
       final GlobalSearchScope resolveScope = psiClass.getResolveScope();
       final Set<String> names = new LinkedHashSet<>();
-      
+
       final Set<String> invalid = new HashSet<>();
       for (TemplateResource resource : templatesManager.getAllTemplates()) {
         final String templateBaseName = EqualsHashCodeTemplatesManager.getTemplateBaseName(resource);
@@ -419,7 +417,7 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
           final String className = resource.getClassName();
           if (className != null && psiFacade.findClass(className, resolveScope) == null) {
             invalid.add(templateBaseName);
-          }    
+          }
         }
       }
       comboBox.setRenderer(new ListCellRendererWrapper<String>() {
@@ -431,16 +429,20 @@ public class GenerateEqualsWizard extends AbstractGenerateEqualsWizard<PsiClass,
           }
         }
       });
-      comboBox.setModel(new DefaultComboBoxModel(ArrayUtil.toStringArray(names)));
-      comboBox.setSelectedItem(templatesManager.getDefaultTemplateBaseName());
+      comboBox.setModel(new DefaultComboBoxModel<>(ArrayUtil.toStringArray(names)));
+      String baseName = templatesManager.getDefaultTemplateBaseName();
+      if (invalid.contains(baseName)) { //preselect default template but do not remember as default
+        baseName = EqualsHashCodeTemplatesManager.getTemplateBaseName(templatesManager.getAllTemplates().iterator().next());
+      }
+      comboBox.setSelectedItem(baseName);
     }
 
     private static class MyEditTemplatesListener implements ActionListener {
       private final PsiClass myPsiClass;
       private final JComponent myParent;
-      private final ComboBox myComboBox;
+      private final ComboBox<String> myComboBox;
 
-      public MyEditTemplatesListener(PsiClass psiClass, JComponent panel, ComboBox comboBox) {
+      MyEditTemplatesListener(PsiClass psiClass, JComponent panel, ComboBox<String> comboBox) {
         myPsiClass = psiClass;
         myParent = panel;
         myComboBox = comboBox;

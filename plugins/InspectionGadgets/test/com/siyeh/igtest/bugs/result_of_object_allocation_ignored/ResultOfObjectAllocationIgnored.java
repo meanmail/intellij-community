@@ -8,6 +8,7 @@ public class ResultOfObjectAllocationIgnored {
 
     public static void foo() {
         new <warning descr="Result of 'new Integer()' is ignored">Integer</warning>(3);
+        new java.util.ArrayList();
     }
 
     void boom() {
@@ -16,6 +17,12 @@ public class ResultOfObjectAllocationIgnored {
             public int compareTo(String o) {
                 return 0;
             }
+        };
+    }
+
+    Throwable switchExpression(int i) {
+        return switch(i) {
+            default -> new Throwable();
         };
     }
 }

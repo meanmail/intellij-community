@@ -18,7 +18,6 @@ package com.intellij.remote.ext;
 import com.intellij.openapi.extensions.ExtensionPointName;
 
 public abstract class CredentialsLanguageContribution<T> {
-
   public static final ExtensionPointName<CredentialsLanguageContribution> EP_NAME
     = ExtensionPointName.create("com.intellij.remote.credentialsLanguageContribution");
 

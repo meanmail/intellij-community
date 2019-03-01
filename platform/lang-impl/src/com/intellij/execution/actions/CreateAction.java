@@ -1,25 +1,10 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.execution.actions;
 
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.RunManager;
 import com.intellij.execution.RunnerAndConfigurationSettings;
-import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.execution.impl.RunDialog;
 import com.intellij.execution.impl.RunManagerImpl;
 import com.intellij.openapi.actionSystem.Presentation;
@@ -61,7 +46,7 @@ public class CreateAction extends BaseRunConfigurationAction {
 
     private final ActionType myType;
 
-    public BaseCreatePolicy(final ActionType type) {
+    BaseCreatePolicy(final ActionType type) {
       myType = type;
     }
 
@@ -72,8 +57,9 @@ public class CreateAction extends BaseRunConfigurationAction {
 
     protected void updateIcon(final Presentation presentation, final ConfigurationContext context) {
       final List<ConfigurationFromContext> fromContext = context.getConfigurationsFromContext();
-      if (fromContext != null && fromContext.size() == 1) { //hide fuzzy icon when multiple run configurations are possible
-        presentation.setIcon(fromContext.iterator().next().getConfiguration().getFactory().getIcon());
+      if (fromContext != null && fromContext.size() == 1) {
+        //hide fuzzy icon when multiple run configurations are possible
+        presentation.setIcon(fromContext.iterator().next().getConfiguration().getIcon());
       }
     }
 
@@ -93,7 +79,7 @@ public class CreateAction extends BaseRunConfigurationAction {
   }
 
   private static class SelectPolicy extends BaseCreatePolicy {
-    public SelectPolicy() {
+    SelectPolicy() {
       super(ActionType.SELECT);
     }
 
@@ -116,20 +102,16 @@ public class CreateAction extends BaseRunConfigurationAction {
   }
 
   private static class CreatePolicy extends BaseCreatePolicy {
-    public CreatePolicy() {
+    CreatePolicy() {
       super(ActionType.CREATE);
     }
 
     @Override
     public void perform(final ConfigurationContext context) {
-      final RunManagerImpl runManager = (RunManagerImpl)context.getRunManager();
-      final RunnerAndConfigurationSettings configuration = context.getConfiguration();
-      final RunnerAndConfigurationSettings template = runManager.getConfigurationTemplate(configuration.getFactory());
-      final RunConfiguration templateConfiguration = template.getConfiguration();
-      runManager.addConfiguration(configuration,
-                                  runManager.isConfigurationShared(template),
-                                  runManager.getBeforeRunTasks(templateConfiguration),
-                                  false);
+      RunManagerImpl runManager = (RunManagerImpl)context.getRunManager();
+      RunnerAndConfigurationSettings configuration = context.getConfiguration();
+      configuration.setShared(runManager.getConfigurationTemplate(configuration.getFactory()).isShared());
+      runManager.addConfiguration(configuration);
       runManager.setSelectedConfiguration(configuration);
     }
   }
@@ -146,16 +128,14 @@ public class CreateAction extends BaseRunConfigurationAction {
       final RunnerAndConfigurationSettings configuration = context.getConfiguration();
       if (RunDialog.editConfiguration(context.getProject(), configuration, ExecutionBundle.message("create.run.configuration.for.item.dialog.title", configuration.getName()))) {
         final RunManagerImpl runManager = (RunManagerImpl)context.getRunManager();
-        runManager.addConfiguration(configuration,
-                                    runManager.isConfigurationShared(configuration),
-                                    runManager.getBeforeRunTasks(configuration.getConfiguration()), false);
+        runManager.addConfiguration(configuration);
         runManager.setSelectedConfiguration(configuration);
       }
     }
   }
 
   private static class SavePolicy extends BaseCreatePolicy {
-    public SavePolicy() {
+    SavePolicy() {
       super(ActionType.SAVE);
     }
 

@@ -1,30 +1,14 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.psi.impl.types;
 
 import com.intellij.lang.ASTNode;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiTypeParameter;
-import com.intellij.psi.StubBasedPsiElement;
+import com.intellij.psi.*;
+import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.psi.stubs.EmptyStub;
-import com.intellij.util.ArrayFactory;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
-import org.jetbrains.plugins.groovy.lang.parser.GroovyElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyEmptyStubElementTypes;
+import org.jetbrains.plugins.groovy.lang.parser.GroovyStubElementTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyElementVisitor;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifier;
 import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.modifiers.GrModifierList;
@@ -33,27 +17,35 @@ import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameter;
 import org.jetbrains.plugins.groovy.lang.psi.api.types.GrTypeParameterList;
 import org.jetbrains.plugins.groovy.lang.psi.impl.GrStubElementBase;
 
+import java.util.Arrays;
+import java.util.List;
+
+import static org.jetbrains.plugins.groovy.lang.resolve.ResolveUtil.processElement;
+import static org.jetbrains.plugins.groovy.lang.resolve.ResolveUtilKt.shouldProcessTypeParameters;
+
 /**
  * @author ilyas
  */
-public class GrTypeParameterListImpl extends GrStubElementBase<EmptyStub> implements GrTypeParameterList, StubBasedPsiElement<EmptyStub> {
-  private static final ArrayFactory<GrTypeParameter> ARRAY_FACTORY = count -> new GrTypeParameter[count];
+public class GrTypeParameterListImpl extends GrStubElementBase<EmptyStub>
+  implements GrTypeParameterList, StubBasedPsiElement<EmptyStub>, PsiListLikeElement {
 
   public GrTypeParameterListImpl(EmptyStub stub) {
-    super(stub, GroovyElementTypes.TYPE_PARAMETER_LIST);
+    super(stub, GroovyEmptyStubElementTypes.TYPE_PARAMETER_LIST);
   }
 
   public GrTypeParameterListImpl(@NotNull ASTNode node) {
     super(node);
   }
 
+  @Override
   public String toString() {
     return "Type parameter list";
   }
 
+  @NotNull
   @Override
   public GrTypeParameter[] getTypeParameters() {
-    return getStubOrPsiChildren(GroovyElementTypes.TYPE_PARAMETER, ARRAY_FACTORY);
+    return getStubOrPsiChildren(GroovyStubElementTypes.TYPE_PARAMETER, GrTypeParameter.ARRAY_FACTORY);
   }
 
   @Override
@@ -67,15 +59,23 @@ public class GrTypeParameterListImpl extends GrStubElementBase<EmptyStub> implem
   }
 
   @Override
-  public void accept(GroovyElementVisitor visitor) {
+  public void accept(@NotNull GroovyElementVisitor visitor) {
     visitor.visitTypeParameterList(this);
+  }
+
+  @Override
+  public PsiElement add(@NotNull PsiElement element) {
+    if (!(element instanceof PsiTypeParameter)) return super.add(element);
+
+    return addInternal(element.getNode(), element.getNode(), null, true).getPsi();
+
   }
 
   @Override
   public ASTNode addInternal(ASTNode first, ASTNode last, ASTNode anchor, Boolean before) {
     appendParenthesesIfNeeded();
 
-    if (first == last && first.getPsi() instanceof GrTypeParameter) {
+    if (first == last && first.getPsi() instanceof PsiTypeParameter) {
       boolean hasParams = getTypeParameters().length > 0;
 
       final ASTNode _anchor;
@@ -123,5 +123,23 @@ public class GrTypeParameterListImpl extends GrStubElementBase<EmptyStub> implem
         list.setModifierProperty(GrModifier.DEF, true);
       }
     }
+  }
+
+  @Override
+  public boolean processDeclarations(@NotNull PsiScopeProcessor processor,
+                                     @NotNull ResolveState state,
+                                     PsiElement lastParent,
+                                     @NotNull PsiElement place) {
+    if (!shouldProcessTypeParameters(processor)) return true;
+    for (GrTypeParameter typeParameter : getTypeParameters()) {
+      if (!processElement(processor, typeParameter, state)) return false;
+    }
+    return true;
+  }
+
+  @NotNull
+  @Override
+  public List<? extends PsiElement> getComponents() {
+    return Arrays.asList(getTypeParameters());
   }
 }

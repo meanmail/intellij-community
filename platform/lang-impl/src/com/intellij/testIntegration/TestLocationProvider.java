@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,9 +22,10 @@ import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
 
-/** @deprecated override SMTRunnerConsoleProperties.getTestLocator() instead (to be removed in IDEA 16) */
+/** @deprecated override SMTRunnerConsoleProperties.getTestLocator() instead (to be removed in IDEA 17) */
+@Deprecated
 public interface TestLocationProvider {
-  @SuppressWarnings("deprecation") ExtensionPointName<TestLocationProvider> EP_NAME = ExtensionPointName.create("com.intellij.testSrcLocator");
+  ExtensionPointName<TestLocationProvider> EP_NAME = ExtensionPointName.create("com.intellij.testSrcLocator");
 
   @NotNull
   List<Location> getLocation(@NotNull String protocolId, @NotNull String locationData, Project project);

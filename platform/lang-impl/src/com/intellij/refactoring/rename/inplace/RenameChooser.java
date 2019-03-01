@@ -28,18 +28,15 @@ import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.refactoring.RefactoringSettings;
-import com.intellij.ui.components.JBList;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
-import javax.swing.*;
-import javax.swing.event.ListSelectionEvent;
-import javax.swing.event.ListSelectionListener;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
-/**
-* User: anna
-* Date: 1/11/12
-*/
 abstract class RenameChooser {
   @NonNls private static final String CODE_OCCURRENCES = "Rename code occurrences";
   @NonNls private static final String ALL_OCCURRENCES = "Rename all occurrences";
@@ -47,7 +44,7 @@ abstract class RenameChooser {
   private final Editor myEditor;
   private final TextAttributes myAttributes;
 
-  public RenameChooser(Editor editor) {
+  RenameChooser(Editor editor) {
     myEditor = editor;
     myAttributes = EditorColorsManager.getInstance().getGlobalScheme().getAttributes(EditorColors.SEARCH_RESULT_ATTRIBUTES);
   }
@@ -62,15 +59,10 @@ abstract class RenameChooser {
       return;
     }
 
-    final DefaultListModel model = new DefaultListModel();
-    model.addElement(CODE_OCCURRENCES);
-    model.addElement(ALL_OCCURRENCES);
-    final JList list = new JBList(model);
 
-    list.addListSelectionListener(new ListSelectionListener() {
-      @Override
-      public void valueChanged(final ListSelectionEvent e) {
-        final String selectedValue = (String)list.getSelectedValue();
+
+    JBPopupFactory.getInstance().createPopupChooserBuilder(ContainerUtil.newArrayList(CODE_OCCURRENCES, ALL_OCCURRENCES))
+      .setItemSelectedCallback(selectedValue -> {
         if (selectedValue == null) return;
         dropHighlighters();
         final MarkupModel markupModel = myEditor.getMarkupModel();
@@ -94,18 +86,15 @@ abstract class RenameChooser {
             HighlighterTargetArea.EXACT_RANGE);
           myRangeHighlighters.add(rangeHighlighter);
         }
-      }
-    });
-
-    JBPopupFactory.getInstance().createListPopupBuilder(list)
+      })
       .setTitle("String occurrences found")
       .setMovable(false)
       .setResizable(false)
       .setRequestFocus(true)
-      .setItemChoosenCallback(() -> runRenameTemplate(ALL_OCCURRENCES.equals(list.getSelectedValue()) ? stringUsages : new ArrayList<>()))
+      .setItemChosenCallback((selectedValue) -> runRenameTemplate(ALL_OCCURRENCES.equals(selectedValue) ? stringUsages : new ArrayList<>()))
       .addListener(new JBPopupAdapter() {
         @Override
-        public void onClosed(LightweightWindowEvent event) {
+        public void onClosed(@NotNull LightweightWindowEvent event) {
           dropHighlighters();
         }
       })

@@ -19,7 +19,6 @@ import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.util.Disposer;
-import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.wm.ToolWindowId;
 import com.intellij.openapi.wm.ToolWindowManager;
 import org.jetbrains.annotations.NotNull;
@@ -92,8 +91,8 @@ public class RunContentExecutor implements Disposable {
     return this;
   }
 
-  private ConsoleView createConsole(@NotNull Project project) {
-    TextConsoleBuilder consoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(project);
+  private ConsoleView createConsole() {
+    TextConsoleBuilder consoleBuilder = TextConsoleBuilderFactory.getInstance().createBuilder(myProject);
     consoleBuilder.filters(myFilterList);
     final ConsoleView console = consoleBuilder.getConsole();
 
@@ -126,13 +125,13 @@ public class RunContentExecutor implements Disposable {
     FileDocumentManager.getInstance().saveAllDocuments();
 
     // Use user-provided console if exist. Create new otherwise
-    ConsoleView view = (myUserProvidedConsole != null ? myUserProvidedConsole :  createConsole(myProject));
+    ConsoleView view = (myUserProvidedConsole != null ? myUserProvidedConsole :  createConsole());
     view.attachToProcess(myProcess);
     if (myAfterCompletion != null) {
       myProcess.addProcessListener(new ProcessAdapter() {
         @Override
-        public void processTerminated(ProcessEvent event) {
-          SwingUtilities.invokeLater(myAfterCompletion);
+        public void processTerminated(@NotNull ProcessEvent event) {
+          ApplicationManager.getApplication().invokeLater(myAfterCompletion);
         }
       });
     }
@@ -153,7 +152,7 @@ public class RunContentExecutor implements Disposable {
   }
 
   private static JComponent createToolbar(ActionGroup actions) {
-    ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar(ActionPlaces.UNKNOWN, actions, false);
+    ActionToolbar actionToolbar = ActionManager.getInstance().createActionToolbar("RunContentExecutor", actions, false);
     return actionToolbar.getComponent();
   }
 
@@ -171,42 +170,42 @@ public class RunContentExecutor implements Disposable {
   }
 
   private class RerunAction extends AnAction {
-    public RerunAction(JComponent consolePanel) {
+    RerunAction(JComponent consolePanel) {
       super("Rerun", "Rerun",
             AllIcons.Actions.Restart);
       registerCustomShortcutSet(CommonShortcuts.getRerun(), consolePanel);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myRerunAction.run();
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setVisible(myRerunAction != null);
       e.getPresentation().setEnabled(myRerunAction != null);
     }
 
     @Override
     public boolean isDumbAware() {
-      return Registry.is("dumb.aware.run.configurations");
+      return true;
     }
   }
 
   private class StopAction extends AnAction implements DumbAware {
-    public StopAction() {
+    StopAction() {
       super("Stop", "Stop",
             AllIcons.Actions.Suspend);
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
       myStopAction.run();
     }
 
     @Override
-    public void update(AnActionEvent e) {
+    public void update(@NotNull AnActionEvent e) {
       e.getPresentation().setVisible(myStopAction != null);
       e.getPresentation().setEnabled(myStopEnabled != null && myStopEnabled.compute());
     }

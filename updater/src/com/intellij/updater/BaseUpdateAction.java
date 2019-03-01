@@ -1,40 +1,54 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.updater;
 
+import com.intellij.updater.Utils.OpenByteArrayOutputStream;
 import ie.wombat.jbdiff.JBDiff;
 import ie.wombat.jbdiff.JBPatch;
 
 import java.io.*;
+import java.util.Objects;
 import java.util.zip.ZipOutputStream;
 
+/**
+ * <p>
+ *   <i>In-place update (standard mode)</i><br/>
+ *   Backup: the file is copied to a temporary directory.<br/>
+ *   Apply: the file is patched in-place.<br/>
+ *   Revert: the file is copied from a temporary directory.<br/>
+ * </p>
+ * <p>
+ *   <i>Move without a change</i><br/>
+ *   Backup: - (the file does not exist; the source is backed by a companion DeleteAction).<br/>
+ *   Apply: the file is copied from the companion backup.<br/>
+ *   Revert: the file is removed (the source is restored by the companion action).<br/>
+ * </p>
+ * <p>
+ *   <i>Move with a change</i><br/>
+ *   Backup: - (the file does not exist; the source is backed by a companion DeleteAction).<br/>
+ *   Apply: the file is copied from the companion backup and patched.<br/>
+ *   Revert: the file is removed (the source is restored by the companion action).<br/>
+ * </p>
+ */
 public abstract class BaseUpdateAction extends PatchAction {
+  private static final byte RAW = 0;
+  private static final byte COMPRESSED = 1;
+
   private final String mySource;
-  protected final boolean myIsMove;
+  private final boolean myIsMove;
+  private final boolean myInPlace;
 
   public BaseUpdateAction(Patch patch, String path, String source, long checksum, boolean move) {
     super(patch, path, checksum);
-    myIsMove = move;
     mySource = source;
+    myIsMove = move;
+    myInPlace = !myIsMove && mySource.equals(getPath());
   }
 
   public BaseUpdateAction(Patch patch, DataInputStream in) throws IOException {
     super(patch, in);
     mySource = in.readUTF();
     myIsMove = in.readBoolean();
+    myInPlace = !myIsMove && mySource.equals(getPath());
   }
 
   @Override
@@ -44,12 +58,17 @@ public abstract class BaseUpdateAction extends PatchAction {
     out.writeBoolean(myIsMove);
   }
 
+  @Override
+  public boolean calculate(File olderDir, File newerDir) throws IOException {
+    return doCalculate(getSource(olderDir), getFile(newerDir));
+  }
+
   protected File getSource(File toDir) {
     return new File(toDir, mySource);
   }
 
-  public String getSourcePath() {
-    return mySource;
+  protected boolean isMove() {
+    return myIsMove;
   }
 
   @Override
@@ -66,81 +85,108 @@ public abstract class BaseUpdateAction extends PatchAction {
   @Override
   public ValidationResult validate(File toDir) throws IOException {
     File fromFile = getSource(toDir);
-    ValidationResult result = doValidateAccess(fromFile, ValidationResult.Action.UPDATE);
+    ValidationResult result = doValidateAccess(fromFile, ValidationResult.Action.UPDATE, true);
     if (result != null) return result;
     if (!mySource.isEmpty()) {
-      result = doValidateAccess(getFile(toDir), ValidationResult.Action.UPDATE);
+      result = doValidateAccess(getFile(toDir), ValidationResult.Action.UPDATE, true);
       if (result != null) return result;
     }
-    return doValidateNotChanged(fromFile, ValidationResult.Kind.ERROR, ValidationResult.Action.UPDATE);
+    return doValidateNotChanged(fromFile, ValidationResult.Action.UPDATE);
   }
 
   @Override
-  protected void doBackup(File toFile, File backupFile) throws IOException {
-    Utils.mirror(toFile, backupFile);
+  public boolean mandatoryBackup() {
+    return !myInPlace;
+  }
+
+  @Override
+  public void backup(File toDir, File backupDir) throws IOException {
+    if (myInPlace) {
+      Utils.copy(getFile(toDir), getFile(backupDir));
+    }
+    else {
+      File moveBackup = getSource(backupDir);
+      if (!moveBackup.exists()) {
+        Utils.copy(getSource(toDir), moveBackup);
+      }
+    }
   }
 
   protected void replaceUpdated(File from, File dest) throws IOException {
-    // on OS X code signing caches seem to be associated with specific file ids, so we need to remove the original file.
-    if (dest.exists() && !dest.delete()) throw new IOException("Cannot delete file " + dest);
+    // on macOS, code signing caches seem to be associated with specific file ids, so we need to remove the original file
+    Utils.delete(dest);
     Utils.copy(from, dest);
   }
 
   @Override
   protected void doRevert(File toFile, File backupFile) throws IOException {
-    if (!toFile.exists() || isModified(toFile)) {
-      Utils.mirror(backupFile, toFile);
+    if (myInPlace) {
+      if (!toFile.exists() || isModified(toFile)) {
+        Utils.delete(toFile);
+        Utils.copy(backupFile, toFile);
+      }
+    }
+    else {
+      Utils.delete(toFile);
     }
   }
 
-  protected void writeDiff(File olderFile, File newerFile, OutputStream patchOutput) throws IOException {
-    BufferedInputStream olderFileIn = new BufferedInputStream(Utils.newFileInputStream(olderFile, myPatch.isNormalized()));
-    BufferedInputStream newerFileIn = new BufferedInputStream(new FileInputStream(newerFile));
-    try {
-      writeDiff(olderFileIn, newerFileIn, patchOutput);
-    }
-    finally {
-      olderFileIn.close();
-      newerFileIn.close();
-    }
-  }
-
-  protected void writeDiff(InputStream olderFileIn, InputStream newerFileIn, OutputStream patchOutput)
-    throws IOException {
+  protected void writeDiff(InputStream olderFileIn, InputStream newerFileIn, OutputStream patchOutput) throws IOException {
     Runner.logger().info("writing diff");
-    ByteArrayOutputStream diffOutput = new ByteArrayOutputStream();
+    ByteArrayOutputStream diffOutput = new OpenByteArrayOutputStream();
     byte[] newerFileBuffer = JBDiff.bsdiff(olderFileIn, newerFileIn, diffOutput);
     diffOutput.close();
 
     if (!isCritical() && diffOutput.size() < newerFileBuffer.length) {
-      patchOutput.write(1);
-      Utils.copyBytesToStream(diffOutput, patchOutput);
+      patchOutput.write(COMPRESSED);
+      diffOutput.writeTo(patchOutput);
     }
     else {
-      patchOutput.write(0);
-      Utils.copyBytesToStream(newerFileBuffer, patchOutput);
+      patchOutput.write(RAW);
+      Utils.writeBytes(newerFileBuffer, newerFileBuffer.length, patchOutput);
     }
   }
 
   protected void applyDiff(InputStream patchInput, InputStream oldFileIn, OutputStream toFileOut) throws IOException {
-    if (patchInput.read() == 1) {
+    int type = patchInput.read();
+    if (type == COMPRESSED) {
       JBPatch.bspatch(oldFileIn, toFileOut, patchInput);
     }
-    else {
+    else if (type == RAW) {
       Utils.copyStream(patchInput, toFileOut);
+    }
+    else {
+      throw new IOException("Corrupted patch");
     }
   }
 
   @Override
   public String toString() {
-    String moveInfo = "";
-    if (!mySource.equals(myPath)) {
-      moveInfo = "[" + (myIsMove ? "= " : "~ ") + mySource + "]";
+    String text = super.toString();
+    if (!myInPlace) {
+      text = text.substring(0, text.length() - 1) + ", " + (myIsMove ? '=' : '~') + mySource + ')';
     }
-    return super.toString() + moveInfo;
+    return text;
   }
 
-  public boolean isMove() {
-    return myIsMove;
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) return true;
+    if (!super.equals(o)) return false;
+
+    BaseUpdateAction that = (BaseUpdateAction)o;
+
+    if (myIsMove != that.myIsMove) return false;
+    if (!Objects.equals(mySource, that.mySource)) return false;
+
+    return true;
+  }
+
+  @Override
+  public int hashCode() {
+    int result = super.hashCode();
+    result = 31 * result + (myIsMove ? 1 : 0);
+    result = 31 * result + Objects.hashCode(mySource);
+    return result;
   }
 }

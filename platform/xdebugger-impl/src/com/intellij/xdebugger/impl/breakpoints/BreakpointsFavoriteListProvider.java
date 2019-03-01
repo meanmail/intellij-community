@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.xdebugger.impl.breakpoints;
 
 import com.intellij.icons.AllIcons;
@@ -20,11 +6,13 @@ import com.intellij.ide.favoritesTreeView.AbstractFavoritesListProvider;
 import com.intellij.ide.favoritesTreeView.FavoritesManager;
 import com.intellij.ide.projectView.PresentationData;
 import com.intellij.ide.util.treeView.AbstractTreeNode;
+import com.intellij.openapi.extensions.ExtensionNotApplicableException;
 import com.intellij.openapi.project.Project;
 import com.intellij.pom.Navigatable;
 import com.intellij.ui.CheckedTreeNode;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.CommonActionsPanel;
+import com.intellij.util.PlatformUtils;
 import com.intellij.util.SingleAlarm;
 import com.intellij.xdebugger.XDebuggerManager;
 import com.intellij.xdebugger.breakpoints.ui.XBreakpointGroup;
@@ -41,12 +29,9 @@ import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreeNode;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-/**
- * User: Vassiliy.Kudryashov
- */
 public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvider<Object>
   implements BreakpointPanelProvider.BreakpointsListener {
 
@@ -61,6 +46,11 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
 
   public BreakpointsFavoriteListProvider(Project project, FavoritesManager favoritesManager) {
     super(project, "Breakpoints");
+
+    if (PlatformUtils.isDataGrip()) {
+      throw ExtensionNotApplicableException.INSTANCE;
+    }
+
     myBreakpointPanelProviders = XBreakpointUtil.collectPanelProviders();
     myFavoritesManager = favoritesManager;
     myTreeController = new BreakpointItemsTreeController(myRulesAvailable);
@@ -120,7 +110,7 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
       }
 
       @Override
-      protected void update(PresentationData presentation) {
+      protected void update(@NotNull PresentationData presentation) {
       }
     };
 
@@ -141,13 +131,7 @@ public class BreakpointsFavoriteListProvider extends AbstractFavoritesListProvid
     if (node.getValue() instanceof Navigatable && ((Navigatable)node.getValue()).canNavigate()) {
       return true;
     }
-    Collection<? extends AbstractTreeNode> children = node.getChildren();
-    for (AbstractTreeNode child : children) {
-      if (checkNavigatable(child)) {
-        return true;
-      }
-    }
-    return false;
+    return node.getChildren().stream().anyMatch(BreakpointsFavoriteListProvider::checkNavigatable);
   }
 
   @Nullable

@@ -6,7 +6,6 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 
 /**
  * @author Denis Zhdanov
- * @since 11/10/11 12:04 PM
  */
 public interface ExternalSystemProgressNotificationManager {
 
@@ -14,8 +13,8 @@ public interface ExternalSystemProgressNotificationManager {
    * Allows to register given listener to listen events from all tasks.
    * 
    * @param listener  listener to register
-   * @return          <code>true</code> if given listener was not registered before for the given key;
-   *                  <code>false</code> otherwise
+   * @return          {@code true} if given listener was not registered before for the given key;
+   *                  {@code false} otherwise
    */
   boolean addNotificationListener(@NotNull ExternalSystemTaskNotificationListener listener);
   
@@ -24,8 +23,8 @@ public interface ExternalSystemProgressNotificationManager {
    * 
    * @param taskId    target task's id
    * @param listener  listener to register
-   * @return          <code>true</code> if given listener was not registered before for the given key;
-   *                  <code>false</code> otherwise
+   * @return          {@code true} if given listener was not registered before for the given key;
+   *                  {@code false} otherwise
    */
   boolean addNotificationListener(@NotNull ExternalSystemTaskId taskId, @NotNull ExternalSystemTaskNotificationListener listener);
 
@@ -33,8 +32,8 @@ public interface ExternalSystemProgressNotificationManager {
    * Allows to de-register given listener from the current manager
    *
    * @param listener  listener to de-register
-   * @return          <code>true</code> if given listener was successfully de-registered;
-   *                  <code>false</code> if given listener was not registered before
+   * @return          {@code true} if given listener was successfully de-registered;
+   *                  {@code false} if given listener was not registered before
    */
   boolean removeNotificationListener(@NotNull ExternalSystemTaskNotificationListener listener);
 }

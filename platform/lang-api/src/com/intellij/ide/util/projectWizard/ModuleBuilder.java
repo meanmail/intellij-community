@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard;
 
 import com.intellij.ide.IdeBundle;
@@ -34,7 +20,6 @@ import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.ui.configuration.ModulesProvider;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.InvalidDataException;
 import com.intellij.openapi.util.ThrowableComputable;
 import com.intellij.openapi.util.io.FileUtil;
@@ -93,7 +78,7 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
   }
 
   @Nullable
-  protected final String acceptParameter(String param) {
+  protected static String acceptParameter(String param) {
     return param != null && param.length() > 0 ? param : null;
   }
 
@@ -123,8 +108,8 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
    * Typically delegates to ModuleType (e.g. JavaModuleType) that is more generic than ModuleBuilder
    *
    * @param settingsStep step to be modified
-   * @return callback ({@link com.intellij.ide.util.projectWizard.ModuleWizardStep#validate()}
-   *         and {@link com.intellij.ide.util.projectWizard.ModuleWizardStep#updateDataModel()}
+   * @return callback ({@link ModuleWizardStep#validate()}
+   *         and {@link ModuleWizardStep#updateDataModel()}
    *         will be invoked)
    */
   @Override
@@ -170,11 +155,13 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
     }
   }
 
+  @Override
   public ModuleWizardStep modifyProjectTypeStep(@NotNull SettingsStep settingsStep) {
     ModuleType type = getModuleType();
     return type == null ? null : type.modifyProjectTypeStep(settingsStep, this);
   }
 
+  @NotNull
   protected List<WizardInputField> getAdditionalFields() {
     return Collections.emptyList();
   }
@@ -273,7 +260,8 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
     myDispatcher.getMulticaster().moduleCreated(module);
   }
 
-  public abstract void setupRootModel(ModifiableRootModel modifiableRootModel) throws ConfigurationException;
+  public void setupRootModel(@NotNull ModifiableRootModel modifiableRootModel) throws ConfigurationException {
+  }
 
   public abstract ModuleType getModuleType();
 
@@ -296,12 +284,8 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
     if (model == null) moduleModel.commit();
 
     if (runFromProjectWizard) {
-      StartupManager.getInstance(module.getProject()).runWhenProjectIsInitialized(new DumbAwareRunnable() {
-        @Override
-        public void run() {
-          ApplicationManager.getApplication().runWriteAction(() -> onModuleInitialized(module));
-        }
-      });
+      StartupManager.getInstance(module.getProject()).runWhenProjectIsInitialized(
+        (DumbAwareRunnable)() -> ApplicationManager.getApplication().runWriteAction(() -> onModuleInitialized(module)));
     }
     else {
       onModuleInitialized(module);
@@ -335,15 +319,11 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
         myName = project.getName();
       }
       if (myModuleFilePath == null) {
-        myModuleFilePath = project.getBaseDir().getPath() + File.separator + myName + ModuleFileType.DOT_DEFAULT_EXTENSION;
+        myModuleFilePath = project.getBasePath() + File.separator + myName + ModuleFileType.DOT_DEFAULT_EXTENSION;
       }
       try {
-        return ApplicationManager.getApplication().runWriteAction(new ThrowableComputable<Module, Exception>() {
-          @Override
-          public Module compute() throws Exception {
-            return createAndCommitIfNeeded(project, model, true);
-          }
-        });
+        return ApplicationManager.getApplication().runWriteAction(
+          (ThrowableComputable<Module, Exception>)() -> createAndCommitIfNeeded(project, model, true));
       }
       catch (Exception ex) {
         LOG.warn(ex);
@@ -353,10 +333,7 @@ public abstract class ModuleBuilder extends AbstractModuleBuilder {
     return null;
   }
 
-  public Icon getBigIcon() {
-    return getModuleType().getBigIcon();
-  }
-
+  @Override
   public Icon getNodeIcon() {
     return getModuleType().getNodeIcon(false);
   }

@@ -1,30 +1,20 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python;
 
 import com.intellij.codeInsight.intention.IntentionAction;
 import com.intellij.codeInspection.ex.InspectionProfileImpl;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.TestDataFile;
 import com.intellij.testFramework.TestDataPath;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.codeInsight.PyCodeInsightSettings;
 import com.jetbrains.python.documentation.docstrings.DocStringFormat;
 import com.jetbrains.python.fixtures.PyTestCase;
 import com.jetbrains.python.inspections.*;
 import com.jetbrains.python.inspections.unresolvedReference.PyUnresolvedReferencesInspection;
 import com.jetbrains.python.psi.LanguageLevel;
+import com.jetbrains.python.quickFixes.PyRenameElementQuickFixTest;
+import org.intellij.lang.regexp.inspection.RedundantEscapeInspection;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,6 +30,8 @@ public class PyQuickFixTest extends PyTestCase {
   protected void setUp() throws Exception {
     super.setUp();
     InspectionProfileImpl.INIT_INSPECTIONS = true;
+    myFixture.setCaresAboutInjection(false);
+    PyRenameElementQuickFixTest.registerTestNameSuggestionProvider(getTestRootDisposable());
   }
 
   @Override
@@ -113,7 +105,7 @@ public class PyQuickFixTest extends PyTestCase {
     settings.HIGHLIGHT_UNUSED_IMPORTS = false;
     try {
       doInspectionTest(new String[]{"AddToImportFromList.py", "AddToImportFromFoo.py"}, PyUnresolvedReferencesInspection.class,
-                       "Import 'foo(a) from AddToImportFromFoo'", true, true);
+                       "Import 'add_to_import_test_unique_name() from AddToImportFromFoo'", true, true);
     }
     finally {
       settings.HIGHLIGHT_UNUSED_IMPORTS = oldHighlightUnused;
@@ -202,6 +194,23 @@ public class PyQuickFixTest extends PyTestCase {
     doInspectionTest("AddClass.py", PyUnresolvedReferencesInspection.class, "Create class 'Xyzzy'", true, true);
   }
 
+  // PY-21204
+  public void testAddClassFromTypeComment() {
+    doInspectionTest(PyUnresolvedReferencesInspection.class, "Create class 'MyClass'", true, true);
+  }
+
+  // PY-21204
+  public void testAddClassFromFString() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36, 
+                         () -> doInspectionTest(PyUnresolvedReferencesInspection.class, "Create class 'MyClass'", true, true));
+  }
+
+  // PY-21204
+  public void testAddFunctionFromFString() {
+    runWithLanguageLevel(LanguageLevel.PYTHON36,
+                         () -> doInspectionTest(PyUnresolvedReferencesInspection.class, PyBundle.message("QFIX.NAME.unresolved.reference.create.function", "my_function"), true, true));
+  }
+
   // PY-1602
   public void testAddFunctionToModule() {
     doInspectionTest(
@@ -236,6 +245,10 @@ public class PyQuickFixTest extends PyTestCase {
 
   // PY-12679
   public void testRedundantParenthesesParenthesizedExpression() {
+    doInspectionTest(PyRedundantParenthesesInspection.class, PyBundle.message("QFIX.redundant.parentheses"), true, true);
+  }
+
+  public void testRedundantParenthesesMultipleParentheses() {
     doInspectionTest(PyRedundantParenthesesInspection.class, PyBundle.message("QFIX.redundant.parentheses"), true, true);
   }
 
@@ -294,6 +307,16 @@ public class PyQuickFixTest extends PyTestCase {
     doInspectionTest(PyChainedComparisonsInspection.class, "Simplify chained comparison", true, true);
   }
 
+  // PY-24942
+  public void testChainedComparison8() {
+    doInspectionTest(PyChainedComparisonsInspection.class, "Simplify chained comparison", true, true);
+  }
+
+  // PY-29121
+  public void testChainedComparison9() {
+    doInspectionTest(PyChainedComparisonsInspection.class, "Simplify chained comparison", true, true);
+  }
+
   // PY-1362, PY-2585
   public void testStatementEffect() {
     doInspectionTest(PyStatementEffectInspection.class, PyBundle.message("QFIX.statement.effect"), true, true);
@@ -304,22 +327,17 @@ public class PyQuickFixTest extends PyTestCase {
     doInspectionTest(PyStatementEffectInspection.class, PyBundle.message("QFIX.statement.effect.introduce.variable"), true, true);
   }
 
-  // PY-2083
-  public void testUnresolvedWith() {
-    runWithLanguageLevel(LanguageLevel.PYTHON25, () -> doInspectionTest(PyUnresolvedReferencesInspection.class, PyBundle.message("QFIX.unresolved.reference.add.future"), true, true));
-  }
-
   // PY-2092
   public void testUnresolvedRefCreateFunction() {
     doInspectionTest(PyUnresolvedReferencesInspection.class,
-                     PyBundle.message("QFIX.unresolved.reference.create.function.$0", "ref"), true, true);
+                     PyBundle.message("QFIX.NAME.unresolved.reference.create.function", "ref"), true, true);
   }
 
   public void testUnresolvedRefNoCreateFunction() {
     myFixture.enableInspections(PyUnresolvedReferencesInspection.class);
     myFixture.configureByFile("UnresolvedRefNoCreateFunction.py");
     myFixture.checkHighlighting(true, false, false);
-    final IntentionAction intentionAction = myFixture.getAvailableIntention(PyBundle.message("QFIX.unresolved.reference.create.function.$0", "ref"));
+    final IntentionAction intentionAction = myFixture.getAvailableIntention(PyBundle.message("QFIX.NAME.unresolved.reference.create.function", "ref"));
     assertNull(intentionAction);
   }
 
@@ -551,7 +569,7 @@ public class PyQuickFixTest extends PyTestCase {
     myFixture.configureByFile(fileName);
     myFixture.enableInspections(PyShadowingBuiltinsInspection.class);
     myFixture.checkHighlighting(true, false, true);
-    final IntentionAction intentionAction = myFixture.getAvailableIntention("Rename element");
+    final IntentionAction intentionAction = myFixture.getAvailableIntention(PyBundle.message("QFIX.NAME.rename.element"));
     assertNotNull(intentionAction);
     myFixture.launchAction(intentionAction);
     myFixture.checkResultByFile(graftBeforeExt(fileName, "_after"));
@@ -563,7 +581,7 @@ public class PyQuickFixTest extends PyTestCase {
     myFixture.configureByFile(fileName);
     myFixture.enableInspections(PyShadowingBuiltinsInspection.class);
     myFixture.checkHighlighting(true, false, true);
-    final IntentionAction intentionAction = myFixture.getAvailableIntention("Rename element");
+    final IntentionAction intentionAction = myFixture.getAvailableIntention(PyBundle.message("QFIX.NAME.rename.element"));
     assertNotNull(intentionAction);
     myFixture.launchAction(intentionAction);
     myFixture.checkResultByFile(graftBeforeExt(fileName, "_after"));
@@ -588,6 +606,14 @@ public class PyQuickFixTest extends PyTestCase {
                      true, true);
   }
 
+  public void testImplementAbstractOrder() {
+    doInspectionTest("ImplementAbstractOrder.py",
+                     PyAbstractClassInspection.class,
+                     PyBundle.message("QFIX.NAME.implement.methods"),
+                     true,
+                     true);
+  }
+
   public void testRemovingUnderscoresInNumericLiterals() {
     myFixture.configureByText(PythonFileType.INSTANCE, "1_0_0");
 
@@ -595,6 +621,80 @@ public class PyQuickFixTest extends PyTestCase {
     myFixture.launchAction(action);
 
     myFixture.checkResult("100");
+  }
+
+  // PY-20452
+  public void testRemoveRedundantEscapeInOnePartRegExp() {
+    myFixture.enableInspections(new RedundantEscapeInspection());
+    myFixture.configureByText(PythonFileType.INSTANCE, "import re\nre.compile(\"(?P<foo>((\\/(?P<bar>.+))?))\")");
+
+    final List<IntentionAction> quickFixes = myFixture.getAllQuickFixes();
+    assertEquals(1, quickFixes.size());
+
+    final IntentionAction removeRedundantEscapeFix = quickFixes.get(0);
+    assertEquals("Remove redundant escape", removeRedundantEscapeFix.getText());
+
+    myFixture.launchAction(removeRedundantEscapeFix);
+    myFixture.checkResult("import re\nre.compile(\"(?P<foo>((/(?P<bar>.+))?))\")");
+  }
+
+  // PY-20452
+  public void testRemoveRedundantEscapeInMultiPartRegExp() {
+    myFixture.enableInspections(new RedundantEscapeInspection());
+    myFixture.configureByText(PythonFileType.INSTANCE, "import re\n" +
+                                                       "re.compile(\"(?P<foo>\"\n" +
+                                                       "           \"((\\/(?P<bar>.+))?))\")");
+
+    final List<IntentionAction> quickFixes = myFixture.getAllQuickFixes();
+    assertEquals(1, quickFixes.size());
+
+    final IntentionAction removeRedundantEscapeFix = quickFixes.get(0);
+    assertEquals("Remove redundant escape", removeRedundantEscapeFix.getText());
+
+    myFixture.launchAction(removeRedundantEscapeFix);
+    myFixture.checkResult("import re\n" +
+                          "re.compile(\"(?P<foo>\"\n" +
+                          "           \"((/(?P<bar>.+))?))\")");
+  }
+
+  // PY-8174
+  public void testChangeSignatureKeywordAndPositionalParameters() {
+    doInspectionTest(PyArgumentListInspection.class, "<html>Change signature of f(x, foo, <b>bar</b>)</html>", true, true);
+  }
+
+  // PY-8174
+  public void testChangeSignatureAddKeywordOnlyParameter() {
+    runWithLanguageLevel(
+      LanguageLevel.PYTHON34,
+      () -> doInspectionTest(PyArgumentListInspection.class, "<html>Change signature of func(x, *args, foo, <b>bar</b>)</html>", true, true)
+    );
+  }
+
+  // PY-8174
+  public void testChangeSignatureNewParametersNames() {
+    doInspectionTest(PyArgumentListInspection.class, "<html>Change signature of func(i1, <b>i</b>, <b>i3</b>, <b>num</b>)</html>", true, true);
+  }
+
+  // PY-8174
+  public void testChangeSignatureParametersDefaultValues() {
+    doInspectionTest(PyArgumentListInspection.class, "<html>Change signature of func(<b>i</b>, <b>foo</b>)</html>", true, true);
+  }
+
+  public void testAddKwargsToNewMethodIncompatibleWithInit() {
+    doInspectionTest(PyInitNewSignatureInspection.class, "<html>Change signature of __new__(cls, <b>**kwargs</b>)</html>", true, true);
+  }
+
+  public void testAddKwargsToIncompatibleOverridingMethod() {
+    doInspectionTest(PyMethodOverridingInspection.class, "<html>Change signature of m(self, <b>**kwargs</b>)</html>", true, true);
+  }
+
+  // PY-30789
+  public void testSetImportedABCMetaAsMetaclassPy2() {
+    doInspectionTest("PyAbstractClassInspection/quickFix/SetImportedABCMetaAsMetaclassPy2/main.py",
+                     PyAbstractClassInspection.class,
+                     "Set '" + PyNames.ABC_META + "' as metaclass",
+                     true,
+                     true);
   }
 
   @Override
@@ -628,7 +728,6 @@ public class PyQuickFixTest extends PyTestCase {
    * @param available       true if the fix should be available, false if it should be explicitly not available.
    * @throws Exception
    */
-  @SuppressWarnings("Duplicates")
   protected void doInspectionTest(@NonNls @NotNull String[] testFiles,
                                   @NotNull Class inspectionClass,
                                   @NonNls @NotNull String quickFixName,
@@ -640,7 +739,9 @@ public class PyQuickFixTest extends PyTestCase {
     final List<IntentionAction> intentionActions = myFixture.filterAvailableIntentions(quickFixName);
     if (available) {
       if (intentionActions.isEmpty()) {
-        throw new AssertionError("Quickfix \"" + quickFixName + "\" is not available");
+        final List<String> intentionNames = ContainerUtil.map(myFixture.getAvailableIntentions(), IntentionAction::getText);
+        throw new AssertionError("Quickfix starting with \"" + quickFixName + "\" is not available. " +
+                                 "Available intentions:\n" + StringUtil.join(intentionNames, "\n"));
       }
       if (intentionActions.size() > 1) {
         throw new AssertionError("There are more than one quickfix with the name \"" + quickFixName + "\"");
@@ -661,6 +762,6 @@ public class PyQuickFixTest extends PyTestCase {
   private static String graftBeforeExt(String name, String insertion) {
     int dotpos = name.indexOf('.');
     if (dotpos < 0) dotpos = name.length();
-    return name.substring(0, dotpos) + insertion + name.substring(dotpos, name.length());
+    return name.substring(0, dotpos) + insertion + name.substring(dotpos);
   }
 }

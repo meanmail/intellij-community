@@ -23,9 +23,9 @@ import java.util.concurrent.*;
  * Makes TaskFuture from the supplied Future
  */
 public class TaskFutureAdapter<T> implements TaskFuture<T> {
-  @NotNull private final Future<T> myFuture;
+  @NotNull private final Future<? extends T> myFuture;
 
-  public TaskFutureAdapter(@NotNull Future<T> future) {
+  public TaskFutureAdapter(@NotNull Future<? extends T> future) {
     myFuture = future;
   }
 
@@ -34,10 +34,7 @@ public class TaskFutureAdapter<T> implements TaskFuture<T> {
     try {
       get();
     }
-    catch (InterruptedException e) {
-      throw new RuntimeException(e);
-    }
-    catch (ExecutionException e) {
+    catch (InterruptedException | ExecutionException e) {
       throw new RuntimeException(e);
     }
     catch (CancellationException ignored) {
@@ -49,15 +46,10 @@ public class TaskFutureAdapter<T> implements TaskFuture<T> {
     try {
       get(timeout, unit);
     }
-    catch (InterruptedException e) {
+    catch (InterruptedException | ExecutionException e) {
       throw new RuntimeException(e);
     }
-    catch (ExecutionException e) {
-      throw new RuntimeException(e);
-    }
-    catch (TimeoutException ignored) {
-    }
-    catch (CancellationException ignored) {
+    catch (TimeoutException | CancellationException ignored) {
     }
     return isDone();
   }

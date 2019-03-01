@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import com.intellij.openapi.util.registry.Registry;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.stubs.PsiFileStub;
 import com.intellij.psi.stubs.StubElement;
+import com.intellij.psi.tree.IElementType;
 import com.intellij.psi.util.PsiUtilCore;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -58,7 +59,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
 
   public PsiInvalidElementAccessException(@Nullable PsiElement element, @Nullable String message, @Nullable Throwable cause) {
     super(null, cause);
-    myElementReference = new SoftReference<PsiElement>(element);
+    myElementReference = new SoftReference<>(element);
 
     if (element == null) {
       myMessage = message;
@@ -84,8 +85,10 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
   }
 
   private PsiInvalidElementAccessException(@NotNull ASTNode node, @Nullable String message) {
-    myElementReference = new SoftReference<PsiElement>(null);
-    myMessage = "Element " + node.getClass() + " of type " + node.getElementType() + (message == null ? "" : "; " + message);
+    myElementReference = new SoftReference<>(null);
+    final IElementType elementType = node.getElementType();
+    myMessage = "Element " + node.getClass() + " of type " + elementType + " (" + elementType.getClass() + ")" +
+                (message == null ? "" : "; " + message);
     myDiagnostic = createAttachments(findInvalidationTrace(node));
   }
 
@@ -104,7 +107,12 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
   @Nullable
   private static Object getPsiInvalidationTrace(@NotNull PsiElement element) {
     Object trace = getInvalidationTrace(element);
-    return trace != null || element instanceof PsiFile ? trace : findInvalidationTrace(element.getNode());
+    if (trace != null) return trace;
+
+    if (element instanceof PsiFile) {
+      return getInvalidationTrace(((PsiFile)element).getOriginalFile());
+    }
+    return findInvalidationTrace(element.getNode());
   }
 
   private static String getMessageWithReason(@NotNull PsiElement element,
@@ -113,17 +121,25 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
                                              @Nullable Object trace) {
     String reason = "Element: " + element.getClass();
     if (!recursiveInvocation) {
+      try {
+        reason += " #" + getLanguage(element).getID() + " ";
+      }
+      catch (PsiInvalidElementAccessException ignore) { }
       String traceText = !isTrackingInvalidation() ? "disabled" :
                          trace != null ? "see attachment" :
                          "no info";
       try {
-        reason += " because: " + reason(element);
+        reason += " because: " + findOutInvalidationReason(element);
       }
-      catch (PsiInvalidElementAccessException ignore) {
-      }
+      catch (PsiInvalidElementAccessException ignore) { }
       reason += "\ninvalidated at: " + traceText;
     }
     return reason + (message == null ? "" : "; " + message);
+  }
+
+  @NotNull
+  private static Language getLanguage(@NotNull PsiElement element) {
+    return element instanceof ASTNode ? ((ASTNode)element).getElementType().getLanguage() : element.getLanguage();
   }
 
   @Override
@@ -158,8 +174,10 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
 
   @NonNls
   @NotNull
-  private static String reason(@NotNull PsiElement root) {
-    if (root == PsiUtilCore.NULL_PSI_ELEMENT) return "NULL_PSI_ELEMENT";
+  public static String findOutInvalidationReason(@NotNull PsiElement root) {
+    if (root == PsiUtilCore.NULL_PSI_ELEMENT) {
+      return "NULL_PSI_ELEMENT";
+    }
 
     PsiElement element = root instanceof PsiFile ? root : root.getParent();
     if (element == null) {
@@ -167,6 +185,7 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
       if (root instanceof StubBasedPsiElement) {
         StubElement stub = ((StubBasedPsiElement)root).getStub();
         while (stub != null) {
+          //noinspection StringConcatenationInLoop
           m += "\n  each stub=" + stub;
           if (stub instanceof PsiFileStub) {
             m += "; fileStub.psi=" + stub.getPsi() + "; reason=" + ((PsiFileStub)stub).getInvalidationReason();
@@ -179,28 +198,45 @@ public class PsiInvalidElementAccessException extends RuntimeException implement
 
     while (element != null && !(element instanceof PsiFile)) element = element.getParent();
     PsiFile file = (PsiFile)element;
-    if (file == null) return "containing file is null";
+    if (file == null) {
+      return "containing file is null";
+    }
 
     FileViewProvider provider = file.getViewProvider();
     VirtualFile vFile = provider.getVirtualFile();
-    if (!vFile.isValid()) return vFile + " is invalid";
+    if (!vFile.isValid()) {
+      return vFile + " is invalid";
+    }
     if (!provider.isPhysical()) {
       PsiElement context = file.getContext();
       if (context != null && !context.isValid()) {
-        return "invalid context: " + reason(context);
+        return "invalid context: " + findOutInvalidationReason(context);
       }
     }
 
+    PsiFile original = file.getOriginalFile();
+    if (original != file && !original.isValid()) {
+      return "invalid original: " + findOutInvalidationReason(original);
+    }
+
     PsiManager manager = file.getManager();
-    if (manager.getProject().isDisposed()) return "project is disposed";
+    if (manager.getProject().isDisposed()) {
+      return "project is disposed: " + manager.getProject();
+    }
 
     Language language = file.getLanguage();
-    if (language != provider.getBaseLanguage()) return "File language:" + language + " != Provider base language:" + provider.getBaseLanguage();
+    if (language != provider.getBaseLanguage()) {
+      return "File language:" + language + " != Provider base language:" + provider.getBaseLanguage();
+    }
 
     FileViewProvider p = manager.findViewProvider(vFile);
-    if (provider != p) return "different providers: " + provider + "(" + id(provider) + "); " + p + "(" + id(p) + ")";
+    if (provider != p) {
+      return "different providers: " + provider + "(" + id(provider) + "); " + p + "(" + id(p) + ")";
+    }
 
-    if (!provider.isPhysical()) return "non-physical provider: " + provider; // "dummy" file?
+    if (!provider.isPhysical()) {
+      return "non-physical provider: " + provider; // "dummy" file?
+    }
 
     return "psi is outdated";
   }

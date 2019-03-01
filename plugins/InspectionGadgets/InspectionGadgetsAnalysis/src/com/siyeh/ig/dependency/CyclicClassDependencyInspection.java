@@ -1,5 +1,5 @@
 /*
- * Copyright 2006-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2006-2016 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,13 +20,14 @@ import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.reference.RefClass;
 import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.codeInspection.util.RefEntityAlphabeticalComparator;
-import com.intellij.psi.PsiAnonymousClass;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiElement;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseGlobalInspection;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UDeclarationKt;
+import org.jetbrains.uast.UElement;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -51,8 +52,7 @@ public class CyclicClassDependencyInspection extends BaseGlobalInspection {
       return null;
     }
     final RefClass refClass = (RefClass)refEntity;
-    final PsiClass aClass = refClass.getElement();
-    if (aClass == null || aClass.getContainingClass() != null || aClass instanceof PsiAnonymousClass) {
+    if (refClass.isAnonymous() || refClass.isLocalClass() || refClass.isSyntheticJSP()) {
       return null;
     }
     final Set<RefClass> dependencies = DependencyUtils.calculateTransitiveDependenciesForClass(refClass);
@@ -79,7 +79,7 @@ public class CyclicClassDependencyInspection extends BaseGlobalInspection {
       errorString = InspectionGadgetsBundle.message("cyclic.class.dependency.problem.descriptor",
                                                     refEntity.getName(), Integer.valueOf(numMutualDependents));
     }
-    final PsiElement anchor = aClass.getNameIdentifier();
+    final PsiElement anchor = UDeclarationKt.getAnchorPsi(refClass.getUastElement());
     if (anchor == null) return null;
     return new CommonProblemDescriptor[]{
       inspectionManager.createProblemDescriptor(anchor, errorString, (LocalQuickFix)null,

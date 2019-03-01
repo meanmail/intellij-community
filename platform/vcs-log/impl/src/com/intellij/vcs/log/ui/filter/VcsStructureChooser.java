@@ -1,21 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.vcs.log.ui.filter;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diff.impl.patch.formove.FilePathComparator;
 import com.intellij.openapi.fileChooser.FileChooserDescriptor;
 import com.intellij.openapi.fileChooser.ex.FileNodeDescriptor;
@@ -25,9 +11,9 @@ import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.ui.DialogWrapper;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
+import com.intellij.openapi.vcs.changes.ui.PlusMinus;
 import com.intellij.openapi.vcs.changes.ui.VirtualFileListCellRenderer;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.*;
@@ -36,11 +22,10 @@ import com.intellij.ui.components.JBPanel;
 import com.intellij.ui.components.JBScrollPane;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.PlatformIcons;
-import com.intellij.openapi.vcs.changes.ui.PlusMinus;
-import com.intellij.util.treeWithCheckedNodes.TreeNodeState;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.Convertor;
 import com.intellij.util.treeWithCheckedNodes.SelectionManager;
+import com.intellij.util.treeWithCheckedNodes.TreeNodeState;
 import com.intellij.util.ui.JBUI;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
@@ -55,13 +40,11 @@ import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author irengrig
- *         Date: 2/3/11
- *         Time: 12:04 PM
  */
 public class VcsStructureChooser extends DialogWrapper {
   private final static int MAX_FOLDERS = 100;
@@ -98,16 +81,12 @@ public class VcsStructureChooser extends DialogWrapper {
   }
 
   @NotNull
-  private Map<VirtualFile, String> calculateModules(@NotNull List<VirtualFile> roots) {
+  private Map<VirtualFile, String> calculateModules(@NotNull List<? extends VirtualFile> roots) {
     Map<VirtualFile, String> result = ContainerUtil.newHashMap();
 
     final ModuleManager moduleManager = ModuleManager.getInstance(myProject);
     // assertion for read access inside
-    Module[] modules = ApplicationManager.getApplication().runReadAction(new Computable<Module[]>() {
-      public Module[] compute() {
-        return moduleManager.getModules();
-      }
-    });
+    Module[] modules = ReadAction.compute(() -> moduleManager.getModules());
 
     TreeSet<VirtualFile> checkSet = new TreeSet<>(FilePathComparator.getInstance());
     checkSet.addAll(roots);
@@ -216,6 +195,7 @@ public class VcsStructureChooser extends DialogWrapper {
     }.installOn(myTree);
 
     myTree.addKeyListener(new KeyAdapter() {
+      @Override
       public void keyPressed(KeyEvent e) {
         if (e.getKeyCode() == KeyEvent.VK_SPACE) {
           TreePath[] paths = myTree.getSelectionPaths();
@@ -409,7 +389,7 @@ public class VcsStructureChooser extends DialogWrapper {
       }
       else {
         if (path.isDirectory()) {
-          setIcon(PlatformIcons.DIRECTORY_CLOSED_ICON);
+          setIcon(PlatformIcons.FOLDER_ICON);
         }
         else {
           setIcon(path.getFileType().getIcon());

@@ -38,7 +38,6 @@ import java.util.Set;
 /**
  * An utility class that checks local definitions of a given name and can show a conflicts panel.
  * User: dcheryasov
- * Date: Oct 11, 2009 5:59:12 AM
  */
 public class DeclarationConflictChecker {
   private DeclarationConflictChecker() { /* Don't instantiate */ }
@@ -53,7 +52,7 @@ public class DeclarationConflictChecker {
    */
   @NotNull
   public static List<Pair<PsiElement, PsiElement>> findDefinitions(@NotNull String name,
-                                                                   @NotNull Collection<PsiReference> references,
+                                                                   @NotNull Collection<? extends PsiReference> references,
                                                                    @NotNull Set<PsiElement> ignored) {
     final List<Pair<PsiElement, PsiElement>> conflicts = new ArrayList<>();
     for (PsiReference ref : references) {
@@ -78,7 +77,7 @@ public class DeclarationConflictChecker {
    * @param name full name (maybe qualified) to show as obscured and display as qualifier in "would be" chunks.
    * @return true iff conflicts is not empty and the panel is shown.
    */
-  public static boolean showConflicts(Project project, List<Pair<PsiElement, PsiElement>> conflicts, String obscured, @Nullable String name) {
+  public static boolean showConflicts(Project project, List<? extends Pair<PsiElement, PsiElement>> conflicts, String obscured, @Nullable String name) {
     if (conflicts.size() > 0) {
       Usage[] usages = new Usage[conflicts.size()];
       int i = 0;

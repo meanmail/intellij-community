@@ -1,36 +1,21 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.idea;
 
 import com.intellij.ide.Bootstrap;
 import com.intellij.openapi.application.JetBrainsProtocolHandler;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.SystemInfo;
-import com.intellij.util.ui.JBUI;
-import com.intellij.util.ui.UIUtil;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.PrintStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.Arrays;
+import java.util.List;
 
 public class Main {
   public static final int NO_GRAPHICS = 1;
-  //public static final int UPDATE_FAILED = 2;
+  public static final int RESTART_FAILED = 2;
   public static final int STARTUP_EXCEPTION = 3;
   public static final int JDK_CHECK_FAILED = 4;
   public static final int DIR_CHECK_FAILED = 5;
@@ -38,12 +23,17 @@ public class Main {
   public static final int LICENSE_ERROR = 7;
   public static final int PLUGIN_ERROR = 8;
   public static final int OUT_OF_MEMORY = 9;
+  @SuppressWarnings("unused") // left for compatibility and reserved for future use
   public static final int UNSUPPORTED_JAVA_VERSION = 10;
   public static final int PRIVACY_POLICY_REJECTION = 11;
+  public static final int INSTALLATION_CORRUPTED = 12;
 
   private static final String AWT_HEADLESS = "java.awt.headless";
   private static final String PLATFORM_PREFIX_PROPERTY = "idea.platform.prefix";
   private static final String[] NO_ARGS = {};
+  private static final List<String> HEADLESS_COMMANDS = Arrays.asList(
+    "ant", "duplocate", "traverseUI", "buildAppcodeCache", "format", "keymap", "update", "inspections", "intentions");
+  private static final List<String> GUI_COMMANDS = Arrays.asList("diff", "merge");
 
   private static boolean isHeadless;
   private static boolean isCommandLine;
@@ -51,7 +41,6 @@ public class Main {
 
   private Main() { }
 
-  @SuppressWarnings("MethodNamesDifferingOnlyByCase")
   public static void main(String[] args) {
     if (args.length == 1 && "%f".equals(args[0])) {
       args = NO_ARGS;
@@ -64,17 +53,8 @@ public class Main {
 
     setFlags(args);
 
-    if (isHeadless()) {
-      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
-    }
-    else if (!checkGraphics()) {
+    if (!isHeadless() && !checkGraphics()) {
       System.exit(NO_GRAPHICS);
-    }
-
-    if (!SystemInfo.isJavaVersionAtLeast("1.8")) {
-      showMessage("Unsupported Java Version",
-                  "Cannot start under Java " + SystemInfo.JAVA_RUNTIME_VERSION + ": Java 1.8 or later is required.", true);
-      System.exit(UNSUPPORTED_JAVA_VERSION);
     }
 
     try {
@@ -97,9 +77,12 @@ public class Main {
   public static void setFlags(String[] args) {
     isHeadless = isHeadless(args);
     isCommandLine = isCommandLine(args);
+    if (isHeadless()) {
+      System.setProperty(AWT_HEADLESS, Boolean.TRUE.toString());
+    }
   }
 
-  private static boolean isHeadless(String[] args) {
+  public static boolean isHeadless(String[] args) {
     if (Boolean.valueOf(System.getProperty(AWT_HEADLESS))) {
       return true;
     }
@@ -109,17 +92,11 @@ public class Main {
     }
 
     String firstArg = args[0];
-    return Comparing.strEqual(firstArg, "ant") ||
-           Comparing.strEqual(firstArg, "duplocate") ||
-           Comparing.strEqual(firstArg, "traverseUI") ||
-           Comparing.strEqual(firstArg, "buildAppcodeCache") ||
-           Comparing.strEqual(firstArg, "format") ||
-           (firstArg.length() < 20 && firstArg.endsWith("inspect"));
+    return HEADLESS_COMMANDS.contains(firstArg) || firstArg.length() < 20 && firstArg.endsWith("inspect");
   }
 
   private static boolean isCommandLine(String[] args) {
-    if (isHeadless()) return true;
-    return args.length > 0 && Comparing.strEqual(args[0], "diff");
+    return isHeadless(args) || args.length > 0 && GUI_COMMANDS.contains(args[0]);
   }
 
   private static boolean checkGraphics() {
@@ -131,11 +108,12 @@ public class Main {
     return true;
   }
 
-  public static boolean isUITraverser(final String[] args) {
-    return args.length > 0 && Comparing.strEqual(args[0], "traverseUI");
+  public static boolean isApplicationStarterForBuilding(final String[] args) {
+    return args.length > 0 && (Comparing.strEqual(args[0], "traverseUI") ||
+                               Comparing.strEqual(args[0], "listBundledPlugins") ||
+                               Comparing.strEqual(args[0], "buildAppcodeCache"));
   }
 
-  @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
   public static void showMessage(String title, Throwable t) {
     StringWriter message = new StringWriter();
 
@@ -166,7 +144,7 @@ public class Main {
     return null;
   }
 
-  @SuppressWarnings({"UseJBColor", "UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
+  @SuppressWarnings({"UndesirableClassUsage", "UseOfSystemOutOrSystemErr"})
   public static void showMessage(String title, String message, boolean error) {
     PrintStream stream = error ? System.err : System.out;
     stream.println("\n" + title + ": " + message);
@@ -180,14 +158,14 @@ public class Main {
         JTextPane textPane = new JTextPane();
         textPane.setEditable(false);
         textPane.setText(message.replaceAll("\t", "    "));
-        textPane.setBackground(UIUtil.getPanelBackground());
+        textPane.setBackground(UIManager.getColor("Panel.background"));
         textPane.setCaretPosition(0);
         JScrollPane scrollPane = new JScrollPane(
           textPane, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED, ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
         scrollPane.setBorder(null);
 
-        int maxHeight = Math.min(JBUI.scale(600), Toolkit.getDefaultToolkit().getScreenSize().height - 150);
-        int maxWidth = Math.min(JBUI.scale(600), Toolkit.getDefaultToolkit().getScreenSize().width - 150);
+        int maxHeight = Toolkit.getDefaultToolkit().getScreenSize().height / 2;
+        int maxWidth = Toolkit.getDefaultToolkit().getScreenSize().width / 2;
         Dimension component = scrollPane.getPreferredSize();
         if (component.height > maxHeight || component.width > maxWidth) {
           scrollPane.setPreferredSize(new Dimension(Math.min(maxWidth, component.width), Math.min(maxHeight, component.height)));

@@ -22,8 +22,9 @@ import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys;
 import com.intellij.openapi.externalSystem.model.execution.ExternalSystemTaskExecutionSettings;
 import com.intellij.openapi.externalSystem.model.task.TaskData;
 import com.intellij.openapi.externalSystem.service.execution.ExternalSystemRunConfiguration;
-import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager;
+import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl;
 import com.intellij.openapi.externalSystem.service.project.manage.ExternalSystemTaskActivator;
+import com.intellij.openapi.externalSystem.statistics.ExternalSystemActionsCollector;
 import com.intellij.openapi.externalSystem.view.ExternalSystemNode;
 import com.intellij.openapi.externalSystem.view.RunConfigurationNode;
 import com.intellij.openapi.externalSystem.view.TaskNode;
@@ -37,28 +38,29 @@ import static com.intellij.openapi.externalSystem.service.project.manage.Externa
 
 /**
  * @author Vladislav.Soroka
- * @since 10/28/2014
  */
 public abstract class ToggleTaskActivationAction extends ExternalSystemToggleAction {
 
+  @NotNull
   private final ExternalSystemTaskActivator.Phase myPhase;
 
-  protected ToggleTaskActivationAction(ExternalSystemTaskActivator.Phase phase) {
+  protected ToggleTaskActivationAction(@NotNull ExternalSystemTaskActivator.Phase phase) {
     myPhase = phase;
   }
 
   @Override
-  protected boolean isEnabled(AnActionEvent e) {
+  protected boolean isEnabled(@NotNull AnActionEvent e) {
     return super.isEnabled(e) && !getTasks(e).isEmpty();
   }
 
   @Override
-  protected boolean doIsSelected(AnActionEvent e) {
+  protected boolean doIsSelected(@NotNull AnActionEvent e) {
     return hasTask(getTaskActivator(e), getTasks(e).get(0));
   }
 
   @Override
-  public void setSelected(AnActionEvent e, boolean state) {
+  public void setSelected(@NotNull AnActionEvent e, boolean state) {
+    ExternalSystemActionsCollector.trigger(getProject(e), getSystemId(e), this, e);
     List<TaskData> tasks = getTasks(e);
     if (state) {
       addTasks(getTaskActivator(e), tasks);
@@ -69,7 +71,7 @@ public abstract class ToggleTaskActivationAction extends ExternalSystemToggleAct
   }
 
   @NotNull
-  private static List<TaskData> getTasks(AnActionEvent e) {
+  private static List<TaskData> getTasks(@NotNull AnActionEvent e) {
     final List<ExternalSystemNode> selectedNodes = ExternalSystemDataKeys.SELECTED_NODES.getData(e.getDataContext());
     if (selectedNodes == null) return Collections.emptyList();
 
@@ -106,7 +108,7 @@ public abstract class ToggleTaskActivationAction extends ExternalSystemToggleAct
   }
 
 
-  private ExternalSystemTaskActivator getTaskActivator(AnActionEvent e) {
-    return ExternalProjectsManager.getInstance(getProject(e)).getTaskActivator();
+  private ExternalSystemTaskActivator getTaskActivator(@NotNull AnActionEvent e) {
+    return ExternalProjectsManagerImpl.getInstance(getProject(e)).getTaskActivator();
   }
 }

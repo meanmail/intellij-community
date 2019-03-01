@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInspection.export;
 
 import com.intellij.codeHighlighting.HighlightDisplayLevel;
@@ -30,6 +16,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.SimpleTextAttributes;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
 import java.util.function.Consumer;
 
 /**
@@ -44,7 +31,6 @@ public class InspectionTreeHtmlWriter {
   private final StringBuffer myBuilder = new StringBuffer();
   private final InspectionProfile myProfile;
   private final RefManager myManager;
-  private final ExcludedInspectionTreeNodesManager myExcludedManager;
 
   public InspectionTreeHtmlWriter(InspectionResultsView view,
                                   String outputDir) {
@@ -52,21 +38,7 @@ public class InspectionTreeHtmlWriter {
     myOutputDir = outputDir;
     myProfile = view.getCurrentProfile();
     myManager = view.getGlobalInspectionContext().getRefManager();
-    myExcludedManager = view.getExcludedManager();
     serializeTreeToHtml();
-  }
-
-  private void traverseInspectionTree(final InspectionTreeNode node,
-                                             final Consumer<InspectionTreeNode> preAction,
-                                             final Consumer<InspectionTreeNode> postAction) {
-    if (node.isExcluded(myExcludedManager)) {
-      return;
-    }
-    preAction.accept(node);
-    for (int i = 0; i < node.getChildCount(); i++) {
-      traverseInspectionTree((InspectionTreeNode)node.getChildAt(i), preAction, postAction);
-    }
-    postAction.accept(node);
   }
 
   private void serializeTreeToHtml() {
@@ -83,7 +55,8 @@ public class InspectionTreeHtmlWriter {
           builder.append(escapeNonBreakingSymbols(text));
         }
       };
-      traverseInspectionTree(myTree.getRoot(),
+      InspectionTreeModel model = myTree.getInspectionTreeModel();
+      traverseInspectionTree(model.getRoot(),
                              (n) -> {
                                final int nodeId = System.identityHashCode(n);
                                builder
@@ -99,14 +72,14 @@ public class InspectionTreeHtmlWriter {
                                }
                                builder.append(" onclick=\"navigate(").append(nodeId).append(")\" ");
                                builder.append(" id=\"").append(nodeId).append("\" />");
-                               if (n instanceof RefElementAndDescriptorAware) {
-                                 RefEntity e = ((RefElementAndDescriptorAware)n).getElement();
+                               if (n instanceof SuppressableInspectionTreeNode) {
+                                 RefEntity e = ((SuppressableInspectionTreeNode)n).getElement();
                                  if (e != null) {
                                    builder
                                      .append("<div id=\"d")
                                      .append(nodeId)
                                      .append("\" style=\"display:none\">");
-                                   ((RefElementAndDescriptorAware)n).getPresentation().getComposer().compose(builder, e);
+                                   ((SuppressableInspectionTreeNode)n).getPresentation().getComposer().compose(builder, e);
                                    builder.append("</div>");
                                  }
                                }
@@ -117,6 +90,19 @@ public class InspectionTreeHtmlWriter {
 
     HTMLExportUtil.writeFile(myOutputDir, "index.html", myBuilder, myTree.getContext().getProject());
     InspectionTreeHtmlExportResources.copyInspectionReportResources(myOutputDir);
+  }
+
+  private static void traverseInspectionTree(InspectionTreeNode node,
+                                             Consumer<? super InspectionTreeNode> preAction,
+                                             Consumer<? super InspectionTreeNode> postAction) {
+    if (node.isExcluded()) {
+      return;
+    }
+    preAction.accept(node);
+    for (InspectionTreeNode child : node.getChildren()) {
+      traverseInspectionTree(child, preAction, postAction);
+    }
+    postAction.accept(node);
   }
 
   private String convertNodeToHtml(InspectionTreeNode node) {
@@ -154,7 +140,7 @@ public class InspectionTreeHtmlWriter {
       return sb.toString();
     }
     else if (node instanceof RefElementNode) {
-      final String type = myManager.getType((RefEntity)node.getUserObject());
+      final String type = myManager.getType(((RefElementNode)node).getElement());
       return type + "&nbsp;<b>" + node.toString() + "</b>";
     }
     else if (node instanceof InspectionNode) {
@@ -182,7 +168,7 @@ public class InspectionTreeHtmlWriter {
       .append(":</h3>");
   }
 
-  private void appendTree(Consumer<StringBuffer> treeRenderer) {
+  private void appendTree(Consumer<? super StringBuffer> treeRenderer) {
     myBuilder.append("<div style=\"width:100%;\"><div style=\"float:left; width:50%;\"><h4>Inspection tree:</h4>");
     treeRenderer.accept(myBuilder);
     myBuilder.append("</div><div style=\"float:left; width:50%;\"><h4>Problem description:</h4>" +
@@ -190,6 +176,6 @@ public class InspectionTreeHtmlWriter {
   }
 
   private static String escapeNonBreakingSymbols(@NotNull Object source) {
-    return StringUtil.replace(StringUtil.escapeXml(source.toString()), new String[]{" ", "-"}, new String[]{"&nbsp;", "&#8209;"});
+    return StringUtil.replace(StringUtil.escapeXmlEntities(source.toString()), Arrays.asList(" ", "-"), Arrays.asList("&nbsp;", "&#8209;"));
   }
 }

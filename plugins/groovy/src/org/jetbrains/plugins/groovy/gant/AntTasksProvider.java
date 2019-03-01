@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,24 +19,22 @@ import com.intellij.lang.ant.ReflectedProject;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.module.ModuleUtil;
+import com.intellij.openapi.module.ModuleUtilCore;
 import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.OrderEnumerator;
 import com.intellij.openapi.roots.ProjectRootManager;
+import com.intellij.openapi.util.ClassLoaderUtil;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.vfs.LocalFileSystem;
+import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VfsUtilCore;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightMethodBuilder;
 import com.intellij.psi.util.*;
-import com.intellij.util.PathUtil;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.SoftValueHashMap;
 import com.intellij.util.lang.UrlClassLoader;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.impl.statements.expressions.TypesUtil;
 import org.jetbrains.plugins.groovy.lang.psi.util.GroovyCommonClassNames;
@@ -44,7 +42,6 @@ import org.jetbrains.plugins.groovy.runner.GroovyScriptUtil;
 
 import java.net.URL;
 import java.util.*;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -54,34 +51,17 @@ import java.util.concurrent.TimeoutException;
  */
 public class AntTasksProvider {
   private static final Logger LOG = Logger.getInstance("#org.jetbrains.plugins.groovy.gant.AntTasksProvider");
-  public static final boolean antAvailable;
   private static final Key<CachedValue<Set<LightMethodBuilder>>> GANT_METHODS = Key.create("gantMethods");
   private static final Object ourLock = new Object();
   public static final ParameterizedCachedValueProvider<Map<List<URL>,AntClassLoader>,Project> PROVIDER =
-    new ParameterizedCachedValueProvider<Map<List<URL>, AntClassLoader>, Project>() {
-      @Nullable
-      @Override
-      public CachedValueProvider.Result<Map<List<URL>, AntClassLoader>> compute(Project project) {
-        final Map<List<URL>, AntClassLoader> map = new SoftValueHashMap<>();
-        return CachedValueProvider.Result.create(map, ProjectRootManager.getInstance(project));
-      }
+    project -> {
+      final Map<List<URL>, AntClassLoader> map = ContainerUtil.createSoftValueMap();
+      return CachedValueProvider.Result.create(map, ProjectRootManager.getInstance(project));
     };
   public static final Key<ParameterizedCachedValue<Map<List<URL>,AntClassLoader>,Project>> KEY =
     Key.create("ANtClassLoader");
 
-  private AntTasksProvider() {
-  }
-
-  static {
-    boolean ant = false;
-    try {
-      Class.forName("com.intellij.lang.ant.ReflectedProject");
-      ant = true;
-    }
-    catch (ClassNotFoundException ignored) {
-    }
-    antAvailable = ant;
-  }
+  private AntTasksProvider() { }
 
   public static Set<LightMethodBuilder> getAntTasks(PsiElement place) {
     final PsiFile file = place.getContainingFile();
@@ -109,7 +89,7 @@ public class AntTasksProvider {
   private static Map<String, Class> getAntObjects(final GroovyFile groovyFile) {
     final Project project = groovyFile.getProject();
 
-    final Module module = ModuleUtil.findModuleForPsiElement(groovyFile);
+    final Module module = ModuleUtilCore.findModuleForPsiElement(groovyFile);
     Set<VirtualFile> jars = new HashSet<>();
     if (module != null) {
       ContainerUtil.addAll(jars, OrderEnumerator.orderEntries(module).getAllLibrariesAndSdkClassesRoots());
@@ -121,8 +101,8 @@ public class AntTasksProvider {
 
     final ArrayList<URL> urls = new ArrayList<>();
     for (VirtualFile jar : jars) {
-      VirtualFile localFile = PathUtil.getLocalFile(jar);
-      if (localFile.getFileSystem() instanceof LocalFileSystem) {
+      VirtualFile localFile = VfsUtil.getLocalFile(jar);
+      if (localFile.isInLocalFileSystem()) {
         urls.add(VfsUtilCore.convertToURL(localFile.getUrl()));
       }
     }
@@ -144,8 +124,8 @@ public class AntTasksProvider {
   private static class AntClassLoader extends UrlClassLoader {
     private final Future<Map<String, Class>> myFuture;
 
-    public AntClassLoader(ArrayList<URL> urls) {
-      super(build().urls(urls).allowUnescaped().noPreload());
+    AntClassLoader(ArrayList<URL> urls) {
+      super(getBuilder(urls));
       myFuture = ApplicationManager.getApplication().executeOnPooledThread(() -> {
         try {
           final ReflectedProject antProject = ReflectedProject.getProject(this);
@@ -167,6 +147,15 @@ public class AntTasksProvider {
           return null;
         }
       });
+    }
+
+    private static Builder getBuilder(ArrayList<URL> urls) {
+      Builder builder = build()
+        .urls(urls)
+        .allowUnescaped()
+        .noPreload();
+      ClassLoaderUtil.addPlatformLoaderParentIfOnJdk9(builder);
+      return builder;
     }
 
     @NotNull

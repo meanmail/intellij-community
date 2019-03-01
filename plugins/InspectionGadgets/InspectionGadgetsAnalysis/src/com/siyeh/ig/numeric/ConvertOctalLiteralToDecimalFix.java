@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2016 Bas Leijdekkers
+ * Copyright 2010-2017 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,15 +27,9 @@ import org.jetbrains.annotations.NotNull;
 
 class ConvertOctalLiteralToDecimalFix extends InspectionGadgetsFix {
 
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
-
   @Override
   @NotNull
-  public String getName() {
+  public String getFamilyName() {
     return InspectionGadgetsBundle.message("convert.octal.literal.to.decimal.literal.quickfix");
   }
 
@@ -46,6 +40,10 @@ class ConvertOctalLiteralToDecimalFix extends InspectionGadgetsFix {
       return;
     }
     final PsiLiteralExpression literalExpression = (PsiLiteralExpression)element;
+    replaceWithDecimalLiteral(literalExpression);
+  }
+
+  static void replaceWithDecimalLiteral(PsiLiteralExpression literalExpression) {
     final Object value = literalExpression.getValue();
     if (value == null) {
       return;

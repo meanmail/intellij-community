@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.debugger.engine;
 
 import com.intellij.debugger.DebuggerBundle;
@@ -27,49 +13,47 @@ import com.intellij.debugger.engine.events.DebuggerCommandImpl;
 import com.intellij.debugger.engine.events.SuspendContextCommandImpl;
 import com.intellij.debugger.impl.DebuggerContextImpl;
 import com.intellij.debugger.impl.DebuggerUtilsEx;
+import com.intellij.debugger.memory.agent.MemoryAgent;
+import com.intellij.debugger.memory.agent.MemoryAgentReferringObjectsProvider;
 import com.intellij.debugger.ui.impl.DebuggerTreeRenderer;
 import com.intellij.debugger.ui.impl.watch.*;
 import com.intellij.debugger.ui.tree.*;
-import com.intellij.debugger.ui.tree.render.*;
 import com.intellij.debugger.ui.tree.render.Renderer;
+import com.intellij.debugger.ui.tree.render.*;
+import com.intellij.icons.AllIcons;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Computable;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.psi.CommonClassNames;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.util.TypeConversionUtil;
+import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.util.ThreeState;
 import com.intellij.xdebugger.XExpression;
 import com.intellij.xdebugger.evaluation.XDebuggerEvaluator;
 import com.intellij.xdebugger.evaluation.XInstanceEvaluator;
 import com.intellij.xdebugger.frame.*;
 import com.intellij.xdebugger.frame.presentation.XErrorValuePresentation;
+import com.intellij.xdebugger.frame.presentation.XRegularValuePresentation;
 import com.intellij.xdebugger.frame.presentation.XValuePresentation;
 import com.intellij.xdebugger.impl.breakpoints.XExpressionImpl;
-import com.intellij.xdebugger.impl.evaluate.XValueCompactPresentation;
+import com.intellij.xdebugger.impl.frame.XValueWithInlinePresentation;
 import com.intellij.xdebugger.impl.ui.XValueTextProvider;
-import com.intellij.xdebugger.impl.ui.tree.XValueExtendedPresentation;
 import com.intellij.xdebugger.impl.ui.tree.nodes.XValueNodeImpl;
-import com.sun.jdi.ArrayReference;
-import com.sun.jdi.ArrayType;
-import com.sun.jdi.Value;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.concurrency.AsyncPromise;
 import org.jetbrains.concurrency.Promise;
+import org.jetbrains.concurrency.Promises;
 
 import javax.swing.*;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
 /**
 * @author egor
 */
-public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XValueTextProvider {
+public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XValueTextProvider, XValueWithInlinePresentation {
   private static final Logger LOG = Logger.getInstance(JavaValue.class);
 
   private final JavaValue myParent;
@@ -83,7 +67,16 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
                     @NotNull EvaluationContextImpl evaluationContext,
                     NodeManagerImpl nodeManager,
                     boolean contextSet) {
-    super(valueDescriptor.calcValueName());
+    this(parent, valueDescriptor.calcValueName(), valueDescriptor, evaluationContext, nodeManager, contextSet);
+  }
+
+  protected JavaValue(JavaValue parent,
+                      String name,
+                      @NotNull ValueDescriptorImpl valueDescriptor,
+                      @NotNull EvaluationContextImpl evaluationContext,
+                      NodeManagerImpl nodeManager,
+                      boolean contextSet) {
+    super(name);
     myParent = parent;
     myValueDescriptor = valueDescriptor;
     myEvaluationContext = evaluationContext;
@@ -91,7 +84,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     myContextSet = contextSet;
   }
 
-  static JavaValue create(JavaValue parent,
+  public static JavaValue create(JavaValue parent,
                           @NotNull ValueDescriptorImpl valueDescriptor,
                           @NotNull EvaluationContextImpl evaluationContext,
                           NodeManagerImpl nodeManager,
@@ -125,10 +118,22 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     return myNodeManager;
   }
 
+  private boolean isOnDemand() {
+    return OnDemandRenderer.ON_DEMAND_CALCULATED.isIn(myValueDescriptor);
+  }
+
+  private boolean isCalculated() {
+    return OnDemandRenderer.isCalculated(myValueDescriptor);
+  }
+
   @Override
   public void computePresentation(@NotNull final XValueNode node, @NotNull XValuePlace place) {
-    final SuspendContextImpl suspendContext = myEvaluationContext.getSuspendContext();
-    myEvaluationContext.getManagerThread().schedule(new SuspendContextCommandImpl(suspendContext) {
+    if (isOnDemand() && !isCalculated()) {
+      node.setFullValueEvaluator(OnDemandRenderer.createFullValueEvaluator(DebuggerBundle.message("message.node.evaluate")));
+      node.setPresentation(AllIcons.Debugger.Db_watch, new XRegularValuePresentation("", null, ""), false);
+      return;
+    }
+    myEvaluationContext.getManagerThread().schedule(new SuspendContextCommandImpl(myEvaluationContext.getSuspendContext()) {
       @Override
       public Priority getPriority() {
         return Priority.NORMAL;
@@ -140,7 +145,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
       }
 
       @Override
-      public void contextAction() throws Exception {
+      public void contextAction(@NotNull SuspendContextImpl suspendContext) {
         if (node.isObsolete()) {
           return;
         }
@@ -150,21 +155,15 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
         myValueDescriptor.updateRepresentation(myEvaluationContext, new DescriptorLabelListener() {
           @Override
           public void labelChanged() {
-            Icon nodeIcon = DebuggerTreeRenderer.getValueIcon(myValueDescriptor);
-            final String value = getValueString();
-            XValuePresentation presentation;
-            @SuppressWarnings("ThrowableResultOfMethodCallIgnored")
-            EvaluateException exception = myValueDescriptor.getEvaluateException();
-            presentation = new JavaValuePresentation(value, myValueDescriptor.getIdLabel(), exception != null ? exception.getMessage() : null, myValueDescriptor);
+            Icon nodeIcon = DebuggerTreeRenderer.getValueIcon(myValueDescriptor, myParent != null ? myParent.getDescriptor() : null);
 
-            if (myValueDescriptor.getLastRenderer() instanceof FullValueEvaluatorProvider) {
-              XFullValueEvaluator evaluator = ((FullValueEvaluatorProvider)myValueDescriptor.getLastRenderer())
-                .getFullValueEvaluator(myEvaluationContext, myValueDescriptor);
-              if (evaluator != null) {
-                node.setFullValueEvaluator(evaluator);
-              }
+            XValuePresentation presentation = createPresentation(myValueDescriptor);
+            Renderer lastRenderer = myValueDescriptor.getLastRenderer();
+            boolean fullEvaluatorSet = setFullValueEvaluator(lastRenderer);
+            if (!fullEvaluatorSet && lastRenderer instanceof CompoundNodeRenderer) {
+              fullEvaluatorSet = setFullValueEvaluator(((CompoundNodeRenderer)lastRenderer).getLabelRenderer());
             }
-            else if (value.length() > XValueNode.MAX_VALUE_LENGTH) {
+            if (!fullEvaluatorSet && getValueText().length() > XValueNode.MAX_VALUE_LENGTH) {
               node.setFullValueEvaluator(new JavaFullValueEvaluator(myEvaluationContext) {
                 @Override
                 public void evaluate(@NotNull final XFullValueEvaluationCallback callback) {
@@ -180,9 +179,32 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
             }
             node.setPresentation(nodeIcon, presentation, myValueDescriptor.isExpandable());
           }
+
+          private boolean setFullValueEvaluator(Renderer renderer) {
+            if (renderer instanceof FullValueEvaluatorProvider) {
+              XFullValueEvaluator evaluator = ((FullValueEvaluatorProvider)renderer).getFullValueEvaluator(myEvaluationContext, myValueDescriptor);
+              if (evaluator != null) {
+                node.setFullValueEvaluator(evaluator);
+                return true;
+              }
+            }
+            return false;
+          }
         });
       }
     });
+  }
+
+  public static XValuePresentation createPresentation(ValueDescriptorImpl descriptor) {
+    XValuePresentation presentation = null;
+    Renderer lastLabelRenderer = descriptor.getLastLabelRenderer();
+    if (lastLabelRenderer instanceof ValueLabelRenderer) {
+      presentation = ((ValueLabelRenderer)lastLabelRenderer).getPresentation(descriptor);
+    }
+    if (presentation == null) {
+      presentation = new JavaValuePresentation(descriptor);
+    }
+    return presentation;
   }
 
   public abstract static class JavaFullValueEvaluator extends XFullValueEvaluator {
@@ -218,7 +240,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
         }
 
         @Override
-        public void contextAction() throws Exception {
+        public void contextAction(@NotNull SuspendContextImpl suspendContext) throws Exception {
           if (callback.isObsolete()) return;
           evaluate(callback);
         }
@@ -226,117 +248,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     }
   }
 
-  private static String truncateToMaxLength(String value) {
-    return value.substring(0, Math.min(value.length(), XValueNode.MAX_VALUE_LENGTH));
-  }
-
-  private static class JavaValuePresentation extends XValueExtendedPresentation implements XValueCompactPresentation {
-    private final String myValue;
-    private final String myType;
-    private final String myError;
-    private final ValueDescriptorImpl myValueDescriptor;
-
-    public JavaValuePresentation(@NotNull String value, @Nullable String type, @Nullable String error, ValueDescriptorImpl valueDescriptor) {
-      myValue = value;
-      myType = type;
-      myError = error;
-      myValueDescriptor = valueDescriptor;
-    }
-
-    @Nullable
-    @Override
-    public String getType() {
-      return StringUtil.nullize(myType);
-    }
-
-    @Override
-    public void renderValue(@NotNull XValueTextRenderer renderer) {
-      renderValue(renderer, null);
-    }
-
-    @Override
-    public void renderValue(@NotNull XValueTextRenderer renderer, @Nullable XValueNodeImpl node) {
-      boolean compact = node != null;
-      if (myError != null) {
-        if (myValue.endsWith(myError)) {
-          renderer.renderValue(myValue.substring(0, myValue.length() - myError.length()));
-        }
-        renderer.renderError(myError);
-      }
-      else {
-        if (compact && node.getValueContainer() instanceof JavaValue) {
-          final JavaValue container = (JavaValue)node.getValueContainer();
-
-          if (container.getDescriptor().isArray()) {
-            final ArrayReference value = (ArrayReference)container.getDescriptor().getValue();
-            final ArrayType type = (ArrayType)container.getDescriptor().getType();
-            if (type != null) {
-              final String typeName = type.componentTypeName();
-              if (TypeConversionUtil.isPrimitive(typeName) || CommonClassNames.JAVA_LANG_STRING.equals(typeName)) {
-                int size = value.length();
-                int max = Math.min(size, CommonClassNames.JAVA_LANG_STRING.equals(typeName) ? 5 : 10);
-                //TODO [eu]: this is a quick fix for IDEA-136606, need to move this away from EDT!!!
-                final List<Value> values = value.getValues(0, max);
-                int i = 0;
-                final List<String> vals = new ArrayList<>(max);
-                while (i < values.size()) {
-                  vals.add(StringUtil.first(values.get(i).toString(), 15, true));
-                  i++;
-                }
-                String more = "";
-                if (vals.size() < size) {
-                  more = ", + " + (size - vals.size()) + " more";
-                }
-
-                renderer.renderValue("{" + StringUtil.join(vals, ", ") + more + "}");
-                return;
-              }
-            }
-          }
-        }
-
-        if (myValueDescriptor.isString()) {
-          renderer.renderStringValue(myValue, "\"", XValueNode.MAX_VALUE_LENGTH);
-          return;
-        }
-
-        String value = truncateToMaxLength(myValue);
-        Renderer lastRenderer = myValueDescriptor.getLastRenderer();
-        if (lastRenderer instanceof CompoundTypeRenderer) {
-          lastRenderer = ((CompoundTypeRenderer)lastRenderer).getLabelRenderer();
-        }
-        if (lastRenderer instanceof ToStringRenderer) {
-          if (!StringUtil.isEmpty(value)) {
-            value = StringUtil.wrapWithDoubleQuote(value);
-          }
-        }
-        renderer.renderValue(value);
-      }
-    }
-
-    @NotNull
-    @Override
-    public String getSeparator() {
-      boolean emptyAfterSeparator = !myValueDescriptor.isShowIdLabel() && StringUtil.isEmpty(myValue);
-      String declaredType = myValueDescriptor.getDeclaredTypeLabel();
-      if (!StringUtil.isEmpty(declaredType)) {
-        return emptyAfterSeparator ? declaredType : declaredType + " " + DEFAULT_SEPARATOR;
-      }
-      return emptyAfterSeparator ? "" : DEFAULT_SEPARATOR;
-    }
-
-    @Override
-    public boolean isModified() {
-      return myValueDescriptor.isDirty();
-    }
-  }
-
-  @NotNull
-  String getValueString() {
-    return myValueDescriptor.getValueText();
-  }
-
-  private int myCurrentChildrenStart = 0;
+  private int myChildrenRemaining = -1;
 
   @Override
   public void computeChildren(@NotNull final XCompositeNode node) {
@@ -347,11 +259,9 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
       }
 
       @Override
-      public void contextAction() throws Exception {
-        final XValueChildrenList children = new XValueChildrenList();
-        final NodeRenderer renderer = myValueDescriptor.getRenderer(myEvaluationContext.getDebugProcess());
-        final Ref<Integer> remainingNum = new Ref<>(0);
-        renderer.buildChildren(myValueDescriptor.getValue(), new ChildrenBuilder() {
+      public void contextAction(@NotNull SuspendContextImpl suspendContext) {
+        myValueDescriptor.getChildrenRenderer(myEvaluationContext.getDebugProcess())
+          .buildChildren(myValueDescriptor.getValue(), new ChildrenBuilder() {
           @Override
           public NodeDescriptorFactory getDescriptorManager() {
             return myNodeManager;
@@ -368,35 +278,77 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
           }
 
           @Override
-          public void setRemaining(int remaining) {
-            remainingNum.set(remaining);
+          public void initChildrenArrayRenderer(ArrayRenderer renderer, int arrayLength) {
+            renderer.START_INDEX = 0;
+            if (myChildrenRemaining >= 0) {
+              renderer.START_INDEX = Math.max(0, arrayLength - myChildrenRemaining);
+            }
           }
 
           @Override
-          public void initChildrenArrayRenderer(ArrayRenderer renderer) {
-            renderer.START_INDEX = myCurrentChildrenStart;
-            renderer.END_INDEX = myCurrentChildrenStart + XCompositeNode.MAX_CHILDREN_TO_SHOW - 1;
-            myCurrentChildrenStart += XCompositeNode.MAX_CHILDREN_TO_SHOW;
+          public void addChildren(List<DebuggerTreeNode> nodes, boolean last) {
+            XValueChildrenList childrenList = XValueChildrenList.EMPTY;
+            if (!nodes.isEmpty()) {
+              childrenList = new XValueChildrenList(nodes.size());
+              for (DebuggerTreeNode treeNode : nodes) {
+                NodeDescriptor descriptor = treeNode.getDescriptor();
+                if (descriptor instanceof ValueDescriptorImpl) {
+                  // Value is calculated already in NodeManagerImpl
+                  childrenList.add(create(JavaValue.this, (ValueDescriptorImpl)descriptor, myEvaluationContext, myNodeManager, false));
+                }
+                else if (descriptor instanceof MessageDescriptor) {
+                  childrenList.add(
+                    new JavaStackFrame.DummyMessageValueNode(descriptor.getLabel(), DebuggerTreeRenderer.getDescriptorIcon(descriptor)));
+                }
+              }
+            }
+            node.addChildren(childrenList, last);
           }
 
           @Override
           public void setChildren(List<DebuggerTreeNode> nodes) {
-            for (DebuggerTreeNode node : nodes) {
-              final NodeDescriptor descriptor = node.getDescriptor();
-              if (descriptor instanceof ValueDescriptorImpl) {
-                // Value is calculated already in NodeManagerImpl
-                children.add(create(JavaValue.this, (ValueDescriptorImpl)descriptor, myEvaluationContext, myNodeManager, false));
-              }
-              else if (descriptor instanceof MessageDescriptor) {
-                children.add(new JavaStackFrame.DummyMessageValueNode(descriptor.getLabel(), null));
-              }
-            }
+            addChildren(nodes, true);
+          }
+
+          @Override
+          public void setMessage(@NotNull String message,
+                                 @Nullable Icon icon,
+                                 @NotNull SimpleTextAttributes attributes,
+                                 @Nullable XDebuggerTreeNodeHyperlink link) {
+            node.setMessage(message, icon, attributes, link);
+          }
+
+          @Override
+          public void addChildren(@NotNull XValueChildrenList children, boolean last) {
+            node.addChildren(children, last);
+          }
+
+          @Override
+          public void tooManyChildren(int remaining) {
+            myChildrenRemaining = remaining;
+            node.tooManyChildren(remaining);
+          }
+
+          @Override
+          public void setAlreadySorted(boolean alreadySorted) {
+            node.setAlreadySorted(alreadySorted);
+          }
+
+          @Override
+          public void setErrorMessage(@NotNull String errorMessage) {
+            node.setErrorMessage(errorMessage);
+          }
+
+          @Override
+          public void setErrorMessage(@NotNull String errorMessage, @Nullable XDebuggerTreeNodeHyperlink link) {
+            node.setErrorMessage(errorMessage, link);
+          }
+
+          @Override
+          public boolean isObsolete() {
+            return node.isObsolete();
           }
         }, myEvaluationContext);
-        node.addChildren(children, true);
-        if (remainingNum.get() > 0) {
-          node.tooManyChildren(remainingNum.get());
-        }
       }
     });
   }
@@ -409,11 +361,11 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
     }
     evaluationContext.getManagerThread().schedule(new SuspendContextCommandImpl(command.getSuspendContext()) {
       @Override
-      public void contextAction() throws Exception {
+      public void contextAction(@NotNull SuspendContextImpl suspendContext) throws Exception {
         if (node.isObsolete()) {
           return;
         }
-        command.contextAction();
+        command.contextAction(suspendContext);
       }
 
       @Override
@@ -442,7 +394,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
       }
 
       @Override
-      public void contextAction() throws Exception {
+      public void contextAction(@NotNull SuspendContextImpl suspendContext) {
         ApplicationManager.getApplication().runReadAction(() -> {
           SourcePosition position = SourcePositionProvider.getSourcePosition(myValueDescriptor, getProject(), getDebuggerContext(), false);
           if (position != null) {
@@ -510,7 +462,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
   @Override
   public Promise<XExpression> calculateEvaluationExpression() {
     if (evaluationExpression != null) {
-      return Promise.resolve(evaluationExpression);
+      return Promises.resolvedPromise(evaluationExpression);
     }
     else {
       final AsyncPromise<XExpression> res = new AsyncPromise<>();
@@ -521,30 +473,27 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
         }
 
         @Override
-        public void contextAction() throws Exception {
-          evaluationExpression = ApplicationManager.getApplication().runReadAction(new Computable<XExpression>() {
-            @Override
-            public XExpression compute() {
-              try {
-                PsiElement psiExpression = getDescriptor().getTreeEvaluation(JavaValue.this, getDebuggerContext());
-                if (psiExpression != null) {
-                  XExpression res = TextWithImportsImpl.toXExpression(new TextWithImportsImpl(psiExpression));
-                  // add runtime imports if any
-                  Set<String> imports = psiExpression.getUserData(DebuggerTreeNodeExpression.ADDITIONAL_IMPORTS_KEY);
-                  if (imports != null && res != null) {
-                    if (res.getCustomInfo() != null) {
-                      imports.add(res.getCustomInfo());
-                    }
-                    res = new XExpressionImpl(res.getExpression(), res.getLanguage(), StringUtil.join(imports, ","), res.getMode());
+        public void contextAction(@NotNull SuspendContextImpl suspendContext) {
+          evaluationExpression = ReadAction.compute(() -> {
+            try {
+              PsiElement psiExpression = getDescriptor().getTreeEvaluation(JavaValue.this, getDebuggerContext());
+              if (psiExpression != null) {
+                XExpression res = TextWithImportsImpl.toXExpression(new TextWithImportsImpl(psiExpression));
+                // add runtime imports if any
+                Set<String> imports = psiExpression.getUserData(DebuggerTreeNodeExpression.ADDITIONAL_IMPORTS_KEY);
+                if (imports != null && res != null) {
+                  if (res.getCustomInfo() != null) {
+                    imports.add(res.getCustomInfo());
                   }
-                  return res;
+                  res = new XExpressionImpl(res.getExpression(), res.getLanguage(), StringUtil.join(imports, ","), res.getMode());
                 }
+                return res;
               }
-              catch (EvaluateException e) {
-                LOG.info(e);
-              }
-              return null;
             }
+            catch (EvaluateException e) {
+              LOG.info(e);
+            }
+            return null;
           });
           res.setResult(evaluationExpression);
         }
@@ -554,16 +503,23 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
   }
 
   @Override
+  @NotNull
   public String getValueText() {
     return myValueDescriptor.getValueText();
   }
+
   @Nullable
   @Override
   public XReferrersProvider getReferrersProvider() {
     return new XReferrersProvider() {
       @Override
       public XValue getReferringObjectsValue() {
-        return new JavaReferringObjectsValue(JavaValue.this, false);
+        MemoryAgent memoryAgent = getEvaluationContext().getDebugProcess().getMemoryAgent();
+        ReferringObjectsProvider provider = ReferringObjectsProvider.BASIC_JDI;
+        if (memoryAgent != null && memoryAgent.canFindGcRoots()) {
+          provider = new MemoryAgentReferringObjectsProvider(memoryAgent, MemoryAgent.DEFAULT_GC_ROOTS_OBJECTS_LIMIT);
+        }
+        return new JavaReferringObjectsValue(JavaValue.this, provider, null);
       }
     };
   }
@@ -581,7 +537,7 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
           }
 
           @Override
-          protected void action() throws Exception {
+          protected void action() {
             ValueDescriptorImpl inspectDescriptor = myValueDescriptor;
             if (myValueDescriptor instanceof WatchItemDescriptor) {
               Modifier modifier = ((WatchItemDescriptor)myValueDescriptor).getModifier();
@@ -613,10 +569,17 @@ public class JavaValue extends XNamedValue implements NodeDescriptorProvider, XV
 
   public void reBuild(final XValueNodeImpl node) {
     DebuggerManagerThreadImpl.assertIsManagerThread();
-    myCurrentChildrenStart = 0;
-    node.getTree().getLaterInvocator().offer(() -> {
+    myChildrenRemaining = -1;
+    node.invokeNodeUpdate(() -> {
       node.clearChildren();
       computePresentation(node, XValuePlace.TREE);
     });
+  }
+
+  @Nullable
+  @Override
+  public String computeInlinePresentation() {
+    ValueDescriptorImpl descriptor = getDescriptor();
+    return descriptor.isNull() || descriptor.isPrimitive() ? descriptor.getValueText() : null;
   }
 }

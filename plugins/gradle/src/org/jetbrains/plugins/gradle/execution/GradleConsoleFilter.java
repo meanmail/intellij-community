@@ -26,6 +26,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.ui.UIUtil;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
@@ -33,7 +34,6 @@ import java.io.File;
 
 /**
  * @author Vladislav.Soroka
- * @since 9/29/2015
  */
 public class GradleConsoleFilter implements Filter {
   private final Project myProject;
@@ -48,7 +48,7 @@ public class GradleConsoleFilter implements Filter {
 
   @Nullable
   @Override
-  public Result applyFilter(final String line, final int entireLength) {
+  public Result applyFilter(@NotNull final String line, final int entireLength) {
     String[] filePrefixes = new String[]{"Build file '", "build file '"};
     String[] linePrefixes = new String[]{"' line: ", "': "};
     String filePrefix = null;
@@ -77,7 +77,7 @@ public class GradleConsoleFilter implements Filter {
 
     final String fileName = fileAndLineNumber.substring(0, linePrefixIndex);
     myFilteredFileName = fileName;
-    String lineNumberStr = fileAndLineNumber.substring(linePrefixIndex + linePrefix.length(), fileAndLineNumber.length()).trim();
+    String lineNumberStr = fileAndLineNumber.substring(linePrefixIndex + linePrefix.length()).trim();
     int lineNumberEndIndex = 0;
     for (int i = 0; i < lineNumberStr.length(); i++) {
       if (Character.isDigit(lineNumberStr.charAt(i))) {
@@ -102,7 +102,7 @@ public class GradleConsoleFilter implements Filter {
       return null;
     }
 
-    int textStartOffset = entireLength - line.trim().length() + filePrefix.length() - 1;
+    int textStartOffset = entireLength - line.length() + filePrefix.length() + filePrefixIndex;
     int highlightEndOffset = textStartOffset + fileName.length();
     OpenFileHyperlinkInfo info = new OpenFileHyperlinkInfo(myProject, file, Math.max(lineNumber - 1, 0));
     TextAttributes attributes = HYPERLINK_ATTRIBUTES.clone();

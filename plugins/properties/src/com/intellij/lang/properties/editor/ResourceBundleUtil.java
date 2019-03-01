@@ -30,7 +30,6 @@ import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Denis Zhdanov
- * @since 10/5/11 2:35 PM
  */
 public class ResourceBundleUtil {
 
@@ -42,7 +41,7 @@ public class ResourceBundleUtil {
    *
    * @param dataContext   target context
    * @return              {@link ResourceBundle resource bundle} related to the given context if any;
-   *                      <code>null</code> otherwise
+   *                      {@code null} otherwise
    */
   @Nullable
   public static ResourceBundle getResourceBundleFromDataContext(@NotNull DataContext dataContext) {

@@ -12,12 +12,17 @@ import com.intellij.json.psi.*;
 
 public class JsonBooleanLiteralImpl extends JsonLiteralImpl implements JsonBooleanLiteral {
 
-  public JsonBooleanLiteralImpl(ASTNode node) {
+  public JsonBooleanLiteralImpl(@NotNull ASTNode node) {
     super(node);
   }
 
+  public void accept(@NotNull JsonElementVisitor visitor) {
+    visitor.visitBooleanLiteral(this);
+  }
+
+  @Override
   public void accept(@NotNull PsiElementVisitor visitor) {
-    if (visitor instanceof JsonElementVisitor) ((JsonElementVisitor)visitor).visitBooleanLiteral(this);
+    if (visitor instanceof JsonElementVisitor) accept((JsonElementVisitor)visitor);
     else super.accept(visitor);
   }
 

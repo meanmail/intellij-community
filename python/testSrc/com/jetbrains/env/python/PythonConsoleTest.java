@@ -18,15 +18,15 @@ import static org.junit.Assert.assertTrue;
 /**
  * @author traff
  */
+@Staging
 public class PythonConsoleTest extends PyEnvTestCase {
   @Test
-  public void testConsolePrint() throws Exception {
+  public void testConsolePrint() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
         exec("x = 96");
-        exec("x += 1");
-        exec("print(1)");
+        exec("x = x + 1");
         exec("print(x)");
         waitForOutput("97");
       }
@@ -34,13 +34,13 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  public void testExecuteMultiline() throws Exception {   //PY-4329
+  public void testExecuteMultiline() {   //PY-4329
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
         exec("if True:\n" +
-             "        x=1\n" +
-             "y=x+100\n" +
+             "  x = 1\n" +
+             "y = x + 100\n" +
              "for i in range(1):\n" +
              "  print(y)\n");
         waitForOutput("101");
@@ -55,8 +55,7 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  @Staging
-  public void testInterruptAsync() throws Exception {
+  public void testInterruptAsync() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
@@ -80,16 +79,14 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  public void testLineByLineInput() throws Exception {
+  public void testLineByLineInput() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
         exec("x = 96");
-        exec("x +=1");
-        exec("if True:");
-        exec("  print(x)");
-        exec("");
-        exec("");
+        exec("x = x + 1");
+        exec("if True:\n" +
+             "  print(x)\n");
         waitForOutput("97");
       }
     });
@@ -97,7 +94,8 @@ public class PythonConsoleTest extends PyEnvTestCase {
 
 
   @Test
-  public void testVariablesView() throws Exception {
+  @Staging
+  public void testVariablesView() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
@@ -112,7 +110,7 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  public void testCompoundVariable() throws Exception {
+  public void testCompoundVariable() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {
@@ -128,7 +126,7 @@ public class PythonConsoleTest extends PyEnvTestCase {
   }
 
   @Test
-  public void testChangeVariable() throws Exception {
+  public void testChangeVariable() {
     runPythonTest(new PyConsoleTask() {
       @Override
       public void testing() throws Exception {

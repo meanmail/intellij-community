@@ -15,10 +15,7 @@
  */
 package com.intellij.psi.formatter.java;
 
-import com.intellij.formatting.Alignment;
-import com.intellij.formatting.Block;
-import com.intellij.formatting.Indent;
-import com.intellij.formatting.Wrap;
+import com.intellij.formatting.*;
 import com.intellij.formatting.alignment.AlignmentStrategy;
 import com.intellij.lang.ASTNode;
 import com.intellij.psi.JavaTokenType;
@@ -37,20 +34,23 @@ public class CallChunkBlockBuilder {
   private final CommonCodeStyleSettings mySettings;
   private final CommonCodeStyleSettings.IndentOptions myIndentSettings;
   private final JavaCodeStyleSettings myJavaSettings;
+  private final FormattingMode myFormattingMode;
 
-  public CallChunkBlockBuilder(@NotNull CommonCodeStyleSettings settings, @NotNull JavaCodeStyleSettings javaSettings) {
+  public CallChunkBlockBuilder(@NotNull CommonCodeStyleSettings settings, @NotNull JavaCodeStyleSettings javaSettings,
+                               @NotNull FormattingMode formattingMode) {
     mySettings = settings;
     myIndentSettings = settings.getIndentOptions();
     myJavaSettings = javaSettings;
+    myFormattingMode = formattingMode;
   }
 
   @NotNull
-  public Block create(@NotNull final List<ASTNode> subNodes, final Wrap wrap, @Nullable final Alignment alignment) {
+  public Block create(@NotNull final List<? extends ASTNode> subNodes, final Wrap wrap, @Nullable final Alignment alignment) {
     final ArrayList<Block> subBlocks = new ArrayList<>();
     final ASTNode firstNode = subNodes.get(0);
     if (firstNode.getElementType() == JavaTokenType.DOT) {
       AlignmentStrategy strategy = AlignmentStrategy.getNullStrategy();
-      Block block = newJavaBlock(firstNode, mySettings, myJavaSettings, Indent.getNoneIndent(), null, strategy);
+      Block block = newJavaBlock(firstNode, mySettings, myJavaSettings, Indent.getNoneIndent(), null, strategy, myFormattingMode);
       subBlocks.add(block);
       subNodes.remove(0);
       if (!subNodes.isEmpty()) {
@@ -62,11 +62,11 @@ public class CallChunkBlockBuilder {
   }
 
   @NotNull
-  private List<Block> createJavaBlocks(@NotNull final List<ASTNode> subNodes) {
+  private List<Block> createJavaBlocks(@NotNull final List<? extends ASTNode> subNodes) {
     final ArrayList<Block> result = new ArrayList<>();
     for (ASTNode node : subNodes) {
       Indent indent = Indent.getContinuationWithoutFirstIndent(myIndentSettings.USE_RELATIVE_INDENTS);
-      result.add(newJavaBlock(node, mySettings, myJavaSettings, indent, null, AlignmentStrategy.getNullStrategy()));
+      result.add(newJavaBlock(node, mySettings, myJavaSettings, indent, null, AlignmentStrategy.getNullStrategy(), myFormattingMode));
     }
     return result;
   }

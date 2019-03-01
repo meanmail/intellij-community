@@ -18,12 +18,9 @@ package com.intellij.ide.plugins;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.openapi.util.Condition;
-import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.BooleanTableCellEditor;
 import com.intellij.ui.BooleanTableCellRenderer;
-import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.hash.HashSet;
 import com.intellij.util.ui.ColumnInfo;
@@ -31,7 +28,6 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.TableCellEditor;
 import javax.swing.table.TableCellRenderer;
 import java.awt.*;
@@ -40,7 +36,6 @@ import java.util.List;
 
 /**
  * @author stathik
- * @since Dec 26, 2003
  */
 public class InstalledPluginsTableModel extends PluginTableModel {
   private static final InstalledPluginsState ourState = InstalledPluginsState.getInstance();
@@ -59,14 +54,19 @@ public class InstalledPluginsTableModel extends PluginTableModel {
   public InstalledPluginsTableModel() {
     final MyPluginManagerColumnInfo infoColumn = new MyPluginManagerColumnInfo();
     final EnabledPluginInfo enabledColumn = new EnabledPluginInfo();
-    columns = SystemInfo.isMac ? new ColumnInfo[]{infoColumn, enabledColumn, new Spacer()} : new ColumnInfo[]{infoColumn, enabledColumn};
+    columns = new ColumnInfo[]{infoColumn, enabledColumn};
 
     final ApplicationInfoEx appInfo = ApplicationInfoEx.getInstanceEx();
-    view.addAll(ContainerUtil.filter(PluginManagerCore.getPlugins(),
-                                     descriptor -> !appInfo.isEssentialPlugin(descriptor.getPluginId().getIdString())));
+    for (IdeaPluginDescriptor plugin : PluginManagerCore.getPlugins()) {
+      if (appInfo.isEssentialPlugin(plugin.getPluginId().getIdString())) {
+        myEnabled.put(plugin.getPluginId(), true);
+      }
+      else {
+        view.add(plugin);
+      }
+    }
     view.addAll(ourState.getInstalledPlugins());
 
-    myEnabled.put(PluginId.getId(PluginManagerCore.CORE_PLUGIN_ID), true);
     for (IdeaPluginDescriptor descriptor : view) {
       setEnabled(descriptor, descriptor.isEnabled());
     }
@@ -230,36 +230,9 @@ public class InstalledPluginsTableModel extends PluginTableModel {
     return true;
   }
 
-  private static class Spacer extends ColumnInfo<IdeaPluginDescriptor, Object> {
-    public Spacer() {
-      super("");
-    }
-
-    @Override
-    public Object valueOf(IdeaPluginDescriptor ideaPluginDescriptor) {
-      return null;
-    }
-
-    @Override
-    public boolean isCellEditable(final IdeaPluginDescriptor ideaPluginDescriptor) {
-      return false;
-    }
-
-    @Nullable
-    @Override
-    public TableCellRenderer getRenderer(IdeaPluginDescriptor descriptor) {
-      return new DefaultTableCellRenderer();
-    }
-
-    @Override
-    public Class getColumnClass() {
-      return Spacer.class;
-    }
-  }
-
   private class EnabledPluginInfo extends ColumnInfo<IdeaPluginDescriptor, Boolean> {
 
-    public EnabledPluginInfo() {
+    EnabledPluginInfo() {
       super(/*IdeBundle.message("plugin.manager.enable.column.title")*/"");
     }
 
@@ -328,11 +301,6 @@ public class InstalledPluginsTableModel extends PluginTableModel {
         }
       };
     }
-
-    @Override
-    public int getWidth(JTable table) {
-      return new JCheckBox().getPreferredSize().width;
-    }
   }
 
   private void warnAboutMissedDependencies(final Boolean newVal, final IdeaPluginDescriptor... ideaPluginDescriptors) {
@@ -399,13 +367,13 @@ public class InstalledPluginsTableModel extends PluginTableModel {
         }
 
         updatePluginDependencies();
-        hideNotApplicablePlugins(newVal, pluginDependencies.toArray(new IdeaPluginDescriptor[pluginDependencies.size()]));
+        hideNotApplicablePlugins(newVal, pluginDependencies.toArray(new IdeaPluginDescriptor[0]));
       }
     }
   }
 
   private class MyPluginManagerColumnInfo extends PluginManagerColumnInfo {
-    public MyPluginManagerColumnInfo() {
+    MyPluginManagerColumnInfo() {
       super(PluginManagerColumnInfo.COLUMN_NAME, InstalledPluginsTableModel.this);
     }
 
@@ -472,11 +440,6 @@ public class InstalledPluginsTableModel extends PluginTableModel {
         }
         return comparator.compare(o1, o2);
       };
-    }
-
-    @Override
-    public int getWidth(JTable table) {
-      return super.getWidth(table);
     }
   }
 }

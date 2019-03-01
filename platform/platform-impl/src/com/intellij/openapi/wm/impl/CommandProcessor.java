@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.Conditions;
@@ -31,10 +18,18 @@ public final class CommandProcessor implements Runnable {
 
   private final List<CommandGroup> myCommandGroupList = new ArrayList<>();
   private int myCommandCount;
+  private boolean myFlushed;
 
   public final int getCommandCount() {
     synchronized (myLock) {
       return myCommandCount;
+    }
+  }
+
+  public void flush() {
+    synchronized (myLock) {
+      myFlushed = true;
+      run();
     }
   }
 
@@ -45,7 +40,7 @@ public final class CommandProcessor implements Runnable {
    */
   public final void execute(@NotNull List<FinalizableCommand> commandList, @NotNull Condition expired) {
     synchronized (myLock) {
-      final boolean isBusy = myCommandCount > 0;
+      final boolean isBusy = myCommandCount > 0 || !myFlushed;
 
       final CommandGroup commandGroup = new CommandGroup(commandList, expired);
       myCommandGroupList.add(commandGroup);
@@ -57,21 +52,25 @@ public final class CommandProcessor implements Runnable {
     }
   }
 
+  @Override
   public final void run() {
     synchronized (myLock) {
       //noinspection StatementWithEmptyBody
-      while (runNext()) {
-      }
+      while (runNext()) ;
     }
   }
 
   private boolean runNext() {
     final CommandGroup commandGroup = getNextCommandGroup();
     if (commandGroup == null || commandGroup.isEmpty()) return false;
+    final Condition conditionForGroup = commandGroup.getExpireCondition();
 
     final FinalizableCommand command = commandGroup.takeNextCommand();
     myCommandCount--;
 
+    Condition<?> expire = command.getExpireCondition() != null ? command.getExpireCondition() : conditionForGroup;
+    if (expire == null) expire = ApplicationManager.getApplication().getDisposed();
+    if (expire.value(null)) return true;
     if (LOG.isDebugEnabled()) {
       LOG.debug("CommandProcessor.run " + command);
     }
@@ -102,7 +101,8 @@ public final class CommandProcessor implements Runnable {
       myExpireCondition = expireCondition;
     }
 
-    public Condition getExpireCondition() {
+    @NotNull
+    Condition getExpireCondition() {
       return myExpireCondition;
     }
 
@@ -110,7 +110,8 @@ public final class CommandProcessor implements Runnable {
       return myList.isEmpty();
     }
 
-    public FinalizableCommand takeNextCommand() {
+    @NotNull
+    FinalizableCommand takeNextCommand() {
       FinalizableCommand command = myList.remove(0);
       if (isEmpty()) {
         // memory leak otherwise

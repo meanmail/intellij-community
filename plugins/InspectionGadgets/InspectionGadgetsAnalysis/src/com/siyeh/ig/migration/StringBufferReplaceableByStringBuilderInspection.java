@@ -15,12 +15,12 @@
  */
 package com.siyeh.ig.migration;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
@@ -89,14 +89,8 @@ public class StringBufferReplaceableByStringBuilderInspection extends BaseInspec
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("string.buffer.replaceable.by.string.builder.replace.quickfix");
-    }
-
-    @NotNull
-    @Override
     public String getFamilyName() {
-      return getName();
+      return CommonQuickFixBundle.message("fix.replace.with.x", "StringBuilder");
     }
 
     @Override
@@ -129,11 +123,10 @@ public class StringBufferReplaceableByStringBuilderInspection extends BaseInspec
     private static void replaceWithStringBuilder(PsiJavaCodeReferenceElement newClassReference,
                                                  PsiTypeElement newTypeElement,
                                                  PsiVariable variable) {
-      final PsiExpression initializer = getNewStringBuffer(variable.getInitializer());
-      if (initializer == null) {
+      final PsiNewExpression newExpression = getNewStringBuffer(variable.getInitializer());
+      if (newExpression == null) {
         return;
       }
-      final PsiNewExpression newExpression = (PsiNewExpression)initializer;
       final PsiJavaCodeReferenceElement classReference = newExpression.getClassReference(); // no anonymous classes because StringBuffer is final
       if (classReference == null) {
         return;

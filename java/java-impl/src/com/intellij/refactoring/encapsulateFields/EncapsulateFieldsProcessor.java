@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,7 +36,6 @@ import com.intellij.usageView.UsageViewDescriptor;
 import com.intellij.usageView.UsageViewUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -106,6 +105,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     return data;
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     FieldDescriptor[] fields = new FieldDescriptor[myFieldDescriptors.length];
@@ -113,10 +113,13 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     return new EncapsulateFieldsViewDescriptor(fields);
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return RefactoringBundle.message("encapsulate.fields.command.name", DescriptiveNameUtil.getDescriptiveName(myClass));
   }
 
+  @Override
   protected boolean preprocessUsages(@NotNull Ref<UsageInfo[]> refUsages) {
     final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
 
@@ -173,7 +176,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
       PsiElement element = info.getElement();
       if (element != null) {
         PsiElement parent = element.getParent();
-        if (RefactoringUtil.isPlusPlusOrMinusMinus(parent) && !(parent.getParent() instanceof PsiExpressionStatement)) {
+        if (PsiUtil.isIncrementDecrementOperation(parent) && !(parent.getParent() instanceof PsiExpressionStatement)) {
           conflicts.putValue(parent, "Unable to proceed with postfix/prefix expression when it's result type is used");
         }
       }
@@ -241,6 +244,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     }
   }
 
+  @Override
   @NotNull protected UsageInfo[] findUsages() {
     ArrayList<EncapsulateFieldUsageInfo> array = ContainerUtil.newArrayList();
     for (FieldDescriptor fieldDescriptor : myFieldDescriptors) {
@@ -257,10 +261,11 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
         }
       }
     }
-    EncapsulateFieldUsageInfo[] usageInfos = array.toArray(new EncapsulateFieldUsageInfo[array.size()]);
+    EncapsulateFieldUsageInfo[] usageInfos = array.toArray(new EncapsulateFieldUsageInfo[0]);
     return UsageViewUtil.removeDuplicatedUsages(usageInfos);
   }
 
+  @Override
   protected void refreshElements(@NotNull PsiElement[] elements) {
     LOG.assertTrue(elements.length == myFieldDescriptors.length);
 
@@ -275,6 +280,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
     myClass = myFieldDescriptors[0].getField().getContainingClass();
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
     updateFieldVisibility();
     generateAccessors();
@@ -336,7 +342,7 @@ public class EncapsulateFieldsProcessor extends BaseRefactoringProcessor {
 
     for (List<EncapsulateFieldUsageInfo> usageInfos : usagesInFiles.values()) {
       //this is to avoid elements to become invalid as a result of processUsage
-      final EncapsulateFieldUsageInfo[] infos = usageInfos.toArray(new EncapsulateFieldUsageInfo[usageInfos.size()]);
+      final EncapsulateFieldUsageInfo[] infos = usageInfos.toArray(new EncapsulateFieldUsageInfo[0]);
       CommonRefactoringUtil.sortDepthFirstRightLeftOrder(infos);
 
       for (EncapsulateFieldUsageInfo info : infos) {

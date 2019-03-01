@@ -44,6 +44,7 @@ import com.thaiopensource.validate.rng.CompactSchemaReader;
 import com.thaiopensource.validate.rng.RngProperty;
 import org.intellij.plugins.relaxNG.compact.RncFileType;
 import org.intellij.plugins.relaxNG.model.descriptors.RngElementDescriptor;
+import org.jetbrains.annotations.NotNull;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
@@ -53,12 +54,6 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.util.concurrent.Future;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 19.11.2007
- */
-@SuppressWarnings({ "ComponentNotRegistered" })
 public class ValidateAction extends AnAction {
   private static final String CONTENT_NAME = "Validate RELAX NG";
   private static final Key<NewErrorTreeViewPanel> KEY = Key.create("VALIDATING");
@@ -73,14 +68,14 @@ public class ValidateAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     if (!actionPerformedImpl(e)) {
       myOrigAction.actionPerformed(e);
     }
   }
 
   @Override
-  public final void update(AnActionEvent e) {
+  public final void update(@NotNull AnActionEvent e) {
     super.update(e);
     myOrigAction.update(e);
 
@@ -92,7 +87,7 @@ public class ValidateAction extends AnAction {
     }
   }
 
-  private boolean actionPerformedImpl(AnActionEvent e) {
+  private boolean actionPerformedImpl(@NotNull AnActionEvent e) {
     final PsiFile file = e.getData(CommonDataKeys.PSI_FILE);
     if (file == null) {
       return false;
@@ -165,7 +160,6 @@ public class ValidateAction extends AnAction {
     });
   }
 
-  @SuppressWarnings({ "ThrowableInstanceNeverThrown" })
   private static void doValidation(VirtualFile instanceFile, VirtualFile schemaFile, org.xml.sax.ErrorHandler eh) {
     final SchemaReader sr = schemaFile.getFileType() == RncFileType.getInstance() ?
             CompactSchemaReader.getInstance() :
@@ -197,10 +191,8 @@ public class ValidateAction extends AnAction {
       } catch (IOException e1) {
         eh.fatalError(new SAXParseException(e1.getMessage(), null, UriOrFile.fileToUri(schemaPath), -1, -1, e1));
       }
-    } catch (SAXException e1) {
+    } catch (SAXException | MalformedURLException e1) {
       // huh?
-      Logger.getInstance(ValidateAction.class.getName()).error(e1);
-    } catch (MalformedURLException e1) {
       Logger.getInstance(ValidateAction.class.getName()).error(e1);
     }
   }

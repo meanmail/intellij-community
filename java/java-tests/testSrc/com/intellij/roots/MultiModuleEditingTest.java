@@ -23,7 +23,7 @@ import com.intellij.openapi.module.ModifiableModuleModel;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.StdModuleTypes;
-import com.intellij.openapi.project.ModuleAdapter;
+import com.intellij.openapi.project.ModuleListener;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ContentEntry;
 import com.intellij.openapi.roots.ModifiableRootModel;
@@ -59,7 +59,7 @@ public class MultiModuleEditingTest extends ModuleTestCase {
   protected void setUpJdk() {
   }
 
-  public void testAddTwoModules() throws Exception {
+  public void testAddTwoModules() {
     final MessageBusConnection connection = myProject.getMessageBus().connect();
     final MyModuleListener moduleListener = new MyModuleListener();
     connection.subscribe(ProjectTopics.MODULES, moduleListener);
@@ -165,6 +165,8 @@ public class MultiModuleEditingTest extends ModuleTestCase {
       assertSame(moduleA, moduleModel.findModuleByName("a"));
       assertSame(moduleA, moduleManager.findModuleByName("a"));
       assertEquals("c", moduleModel.getNewName(moduleA));
+      assertEquals("b", moduleModel.getActualName(moduleB));
+      assertEquals("c", moduleModel.getActualName(moduleA));
       assertSame(moduleA, moduleModel.getModuleToBeRenamed("c"));
       ApplicationManager.getApplication().runWriteAction(() -> moduleModel.commit());
     }
@@ -189,7 +191,7 @@ public class MultiModuleEditingTest extends ModuleTestCase {
   }
 
 
-  private static class MyModuleListener extends ModuleAdapter {
+  private static class MyModuleListener implements ModuleListener {
     private final List<String> myLog = new ArrayList<>();
 
     @Override

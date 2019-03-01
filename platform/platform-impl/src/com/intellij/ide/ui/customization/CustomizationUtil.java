@@ -15,8 +15,10 @@
  */
 package com.intellij.ide.ui.customization;
 
-import com.intellij.openapi.actionSystem.*;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.actionSystem.ActionGroup;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.keymap.impl.ui.Group;
 import com.intellij.openapi.util.Pair;
@@ -34,16 +36,10 @@ import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeModel;
 import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
-import java.awt.*;
-import java.awt.event.MouseAdapter;
 import java.awt.event.MouseListener;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * User: anna
- * Date: Mar 30, 2005
- */
 public class CustomizationUtil {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.ui.customization.CustomizationUtil");
 
@@ -53,10 +49,12 @@ public class CustomizationUtil {
   public static ActionGroup correctActionGroup(final ActionGroup group,
                                                final CustomActionsSchema schema,
                                                final String defaultGroupName,
-                                               final String rootGroupName) {
-    if (!schema.isCorrectActionGroup(group, defaultGroupName)){
-       return group;
-     }
+                                               final String rootGroupName,
+                                               boolean force) {
+    if (!force && !schema.isCorrectActionGroup(group, defaultGroupName)) {
+      return group;
+    }
+
     String text = group.getTemplatePresentation().getText();
     final int mnemonic = group.getTemplatePresentation().getMnemonic();
     if (text != null) {
@@ -68,7 +66,7 @@ public class CustomizationUtil {
       }
     }
 
-    return new CustomisedActionGroup(text, group.isPopup(), group, schema, defaultGroupName, rootGroupName);
+    return new CustomisedActionGroup(text, group, schema, defaultGroupName, rootGroupName);
   }
 
 
@@ -116,12 +114,12 @@ public class CustomizationUtil {
     for (int i = 0; i < reorderedChildren.size(); i++) {
       if (reorderedChildren.get(i) instanceof ActionGroup) {
         final ActionGroup groupToCorrect = (ActionGroup)reorderedChildren.get(i);
-        final AnAction correctedAction = correctActionGroup(groupToCorrect, schema, "", rootGroupName);
+        final AnAction correctedAction = correctActionGroup(groupToCorrect, schema, "", rootGroupName, false);
         reorderedChildren.set(i, correctedAction);
       }
     }
 
-    return reorderedChildren.toArray(new AnAction[reorderedChildren.size()]);
+    return reorderedChildren.toArray(AnAction.EMPTY_ARRAY);
   }
 
   public static void optimizeSchema(final JTree tree, final CustomActionsSchema schema) {
@@ -163,7 +161,7 @@ public class CustomizationUtil {
 
   private static void computeDiff(final ActionUrl[] defaultUserObjects,
                                   final ActionUrl[] currentUserObjects,
-                                  @NotNull List<ActionUrl> actions) {
+                                  @NotNull List<? super ActionUrl> actions) {
     Diff.Change change = null;
     try {
       change = Diff.buildChanges(defaultUserObjects, currentUserObjects);
@@ -267,8 +265,7 @@ public class CustomizationUtil {
 
   private static ActionUrl[] getChildUserObjects(DefaultMutableTreeNode node, ActionUrl parent) {
     ArrayList<ActionUrl> result = new ArrayList<>();
-    ArrayList<String> groupPath = new ArrayList<>();
-    groupPath.addAll(parent.getGroupPath());
+    ArrayList<String> groupPath = new ArrayList<>(parent.getGroupPath());
     for (int i = 0; i < node.getChildCount(); i++) {
       DefaultMutableTreeNode child = (DefaultMutableTreeNode)node.getChildAt(i);
       ActionUrl url = new ActionUrl();
@@ -277,20 +274,19 @@ public class CustomizationUtil {
       url.setComponent(userObject instanceof Pair ? ((Pair)userObject).first : userObject);
       result.add(url);
     }
-    return result.toArray(new ActionUrl[result.size()]);
+    return result.toArray(new ActionUrl[0]);
   }
 
-  public static MouseListener installPopupHandler(JComponent component, @NotNull final String groupId, final String place) {
-    if (ApplicationManager.getApplication() == null) return new MouseAdapter(){};
-    PopupHandler popupHandler = new PopupHandler() {
-      @Override
-      public void invokePopup(Component comp, int x, int y) {
-        ActionGroup group = (ActionGroup)CustomActionsSchema.getInstance().getCorrectedAction(groupId);
-        final ActionPopupMenu popupMenu = ActionManager.getInstance().createActionPopupMenu(place, group);
-        popupMenu.getComponent().show(comp, x, y);
-      }
-    };
-    component.addMouseListener(popupHandler);
-    return popupHandler;
+  @NotNull
+  public static MouseListener installPopupHandler(JComponent component, @NotNull String groupId, String place) {
+    return PopupHandler.installPopupHandler(
+      component, new ActionGroup() {
+        @NotNull
+        @Override
+        public AnAction[] getChildren(@Nullable AnActionEvent e) {
+          ActionGroup group = (ActionGroup)CustomActionsSchema.getInstance().getCorrectedAction(groupId);
+          return group == null ? EMPTY_ARRAY : group.getChildren(e);
+        }
+      }, place, ActionManager.getInstance(), null);
   }
 }

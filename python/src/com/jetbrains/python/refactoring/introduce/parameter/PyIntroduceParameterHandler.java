@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.refactoring.introduce.parameter;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -36,9 +22,6 @@ import org.jetbrains.annotations.Nullable;
 import java.util.LinkedHashSet;
 import java.util.List;
 
-/**
- * User: ktisha
- */
 public class PyIntroduceParameterHandler extends IntroduceHandler {
   public PyIntroduceParameterHandler() {
     super(new VariableValidator(), PyBundle.message("refactoring.introduce.parameter.dialog.title"));
@@ -75,6 +58,7 @@ public class PyIntroduceParameterHandler extends IntroduceHandler {
     return PyReplaceExpressionUtil.replaceExpression(expression, newExpression);
   }
 
+  @Override
   protected boolean isValidIntroduceContext(PsiElement element) {
     if (element != null) {
       if (!isValidPlace(element)) return false;
@@ -152,11 +136,11 @@ public class PyIntroduceParameterHandler extends IntroduceHandler {
   private static class PyInplaceParameterIntroducer extends InplaceVariableIntroducer<PsiElement> {
     private final PyNamedParameter myTarget;
 
-    public PyInplaceParameterIntroducer(PyNamedParameter target,
+    PyInplaceParameterIntroducer(PyNamedParameter target,
                                        IntroduceOperation operation,
                                        List<PsiElement> occurrences) {
       super(target, operation.getEditor(), operation.getProject(), "Introduce Parameter",
-            occurrences.toArray(new PsiElement[occurrences.size()]), null);
+            occurrences.toArray(PsiElement.EMPTY_ARRAY), null);
       myTarget = target;
     }
 

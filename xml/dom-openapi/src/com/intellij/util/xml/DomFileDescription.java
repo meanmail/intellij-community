@@ -15,7 +15,6 @@
  */
 package com.intellij.util.xml;
 
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.extensions.ExtensionPointName;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.util.Iconable;
@@ -23,6 +22,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.xml.XmlDocument;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.psi.xml.XmlTag;
+import com.intellij.util.ArrayUtil;
 import com.intellij.util.ConstantFunction;
 import com.intellij.util.NotNullFunction;
 import com.intellij.util.SmartList;
@@ -43,10 +43,12 @@ import java.util.*;
  * @see com.intellij.util.xml.MergingFileDescription
  */
 public class DomFileDescription<T> {
+  /**
+   * @deprecated use "com.intellij.dom.fileMetaData" extension instead
+   */
   public static final ExtensionPointName<DomFileDescription> EP_NAME = ExtensionPointName.create("com.intellij.dom.fileDescription");
 
-  private static final Logger LOG = Logger.getInstance("#com.intellij.util.xml.DomFileDescription");
-  private final ConcurrentInstanceMap<ScopeProvider> myScopeProviders = new ConcurrentInstanceMap<>();
+  private final Map<Class<? extends ScopeProvider>, ScopeProvider> myScopeProviders = ConcurrentInstanceMap.create();
   protected final Class<T> myRootElementClass;
   protected final String myRootTagName;
   private final String[] myAllPossibleRootTagNamespaces;
@@ -57,12 +59,13 @@ public class DomFileDescription<T> {
   private final Map<String, NotNullFunction<XmlTag, List<String>>> myNamespacePolicies =
     ContainerUtil.newConcurrentMap();
 
-  public DomFileDescription(final Class<T> rootElementClass, @NonNls final String rootTagName, @NonNls final String... allPossibleRootTagNamespaces) {
+  public DomFileDescription(final Class<T> rootElementClass, @NonNls final String rootTagName, @NonNls @NotNull String... allPossibleRootTagNamespaces) {
     myRootElementClass = rootElementClass;
     myRootTagName = rootTagName;
-    myAllPossibleRootTagNamespaces = allPossibleRootTagNamespaces;
+    myAllPossibleRootTagNamespaces = allPossibleRootTagNamespaces.length == 0 ? ArrayUtil.EMPTY_STRING_ARRAY : allPossibleRootTagNamespaces;
   }
 
+  @NotNull
   public String[] getAllPossibleRootTagNamespaces() {
     return myAllPossibleRootTagNamespaces;
   }
@@ -76,6 +79,7 @@ public class DomFileDescription<T> {
    * @deprecated use dom.implementation extension point instead
    * @see #initializeFileDescription()
    */
+  @Deprecated
   public final <T extends DomElement> void registerImplementation(Class<T> domElementClass, Class<? extends T> implementationClass) {
     myImplementations.put(domElementClass, implementationClass);
   }
@@ -87,6 +91,7 @@ public class DomFileDescription<T> {
    * function shouldn't use DOM since it may be not initialized for the file at the moment
    * @deprecated use {@link #registerNamespacePolicy(String, String...)} or override {@link #getAllowedNamespaces(String, com.intellij.psi.xml.XmlFile)} instead
    */
+  @Deprecated
   protected final void registerNamespacePolicy(String namespaceKey, NotNullFunction<XmlTag,List<String>> policy) {
     myNamespacePolicies.put(namespaceKey, policy);
   }
@@ -103,7 +108,6 @@ public class DomFileDescription<T> {
   /**
    * Consider using {@link DomService#getXmlFileHeader(com.intellij.psi.xml.XmlFile)} when implementing this.
    */
-  @SuppressWarnings({"MethodMayBeStatic"})
   @NotNull
   public List<String> getAllowedNamespaces(@NotNull String namespaceKey, @NotNull XmlFile file) {
     final NotNullFunction<XmlTag, List<String>> function = myNamespacePolicies.get(namespaceKey);
@@ -126,11 +130,13 @@ public class DomFileDescription<T> {
   }
 
   /**
-   * @return some version. Override and change (e.g. <code>super.getVersion()+1</code>) when after some changes some files stopped being
+   * @return some version. Override and change (e.g. {@code super.getVersion()+1}) when after some changes some files stopped being
    * described by this description or vice versa, so that the
    * {@link com.intellij.util.xml.DomService#getDomFileCandidates(Class, com.intellij.openapi.project.Project, com.intellij.psi.search.GlobalSearchScope)}
    * index is rebuilt correctly.
+   * @deprecated use "domVersion" attribute of "com.intellij.dom.fileMetaData" extension instead
    */
+  @Deprecated
   public int getVersion() {
     return myRootTagName.hashCode();
   }
@@ -265,14 +271,20 @@ public class DomFileDescription<T> {
 
   /**
    * @see Stubbed
-   * @return false
+   * @deprecated define "stubVersion" of "com.intellij.dom.fileMetaData" extension instead
    */
+  @Deprecated
   public boolean hasStubs() {
     return false;
   }
 
+  /**
+   * @see Stubbed
+   * @deprecated define "stubVersion" of "com.intellij.dom.fileMetaData" extension instead
+   */
+  @Deprecated
   public int getStubVersion() {
-    return 0;
+    throw new UnsupportedOperationException("define \"stubVersion\" of \"com.intellij.dom.fileMetaData\" extension instead");
   }
 
   @Override

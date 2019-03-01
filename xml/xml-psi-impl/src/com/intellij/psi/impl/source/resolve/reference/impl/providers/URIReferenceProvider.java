@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.StringTokenizer;
 
 /**
- * @by Maxim.Mossienko
+ * @author Maxim.Mossienko
  */
 public class URIReferenceProvider extends PsiReferenceProvider {
 
@@ -90,7 +90,7 @@ public class URIReferenceProvider extends PsiReferenceProvider {
         }
       }
 
-      return refs.toArray(new PsiReference[refs.size()]);
+      return refs.toArray(PsiReference.EMPTY_ARRAY);
     }
 
     PsiReference reference = getUrlReference(element, s);

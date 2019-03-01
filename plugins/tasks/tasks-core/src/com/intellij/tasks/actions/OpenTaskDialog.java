@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- *  Licensed under the Apache License, Version 2.0 (the "License");
- *  you may not use this file except in compliance with the License.
- *  You may obtain a copy of the License at
- *
- *  http://www.apache.org/licenses/LICENSE-2.0
- *
- *  Unless required by applicable law or agreed to in writing, software
- *  distributed under the License is distributed on an "AS IS" BASIS,
- *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *  See the License for the specific language governing permissions and
- *  limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.tasks.actions;
 
@@ -25,17 +11,21 @@ import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.ValidationInfo;
 import com.intellij.tasks.*;
+import com.intellij.tasks.impl.LocalTaskImpl;
 import com.intellij.tasks.impl.TaskManagerImpl;
 import com.intellij.tasks.impl.TaskStateCombo;
 import com.intellij.tasks.impl.TaskUtil;
 import com.intellij.tasks.ui.TaskDialogPanel;
 import com.intellij.tasks.ui.TaskDialogPanelProvider;
+import com.intellij.ui.DocumentAdapter;
 import com.intellij.ui.components.JBCheckBox;
+import com.intellij.ui.components.JBTextField;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.Collection;
@@ -51,22 +41,25 @@ public class OpenTaskDialog extends DialogWrapper {
   private JPanel myPanel;
   @BindControl(value = "clearContext", instant = true)
   private JCheckBox myClearContext;
-  private JLabel myTaskNameLabel;
   private JBCheckBox myUpdateState;
   private TaskStateCombo myTaskStateCombo;
   private JPanel myAdditionalPanel;
+  private JBTextField myNameField;
 
   private final Project myProject;
-  private final Task myTask;
+  private final LocalTaskImpl myTask;
   private final List<TaskDialogPanel> myPanels;
 
   public OpenTaskDialog(@NotNull final Project project, @NotNull final Task task) {
     super(project, false);
     myProject = project;
-    myTask = task;
+    myTask = new LocalTaskImpl(task);
+    myTaskStateCombo.setProject(myProject);
+    myTaskStateCombo.setTask(myTask);
+
     setTitle("Open Task");
-    myTaskNameLabel.setText(TaskUtil.getTrimmedSummary(task));
-    myTaskNameLabel.setIcon(task.getIcon());
+    myNameField.setText(TaskUtil.getTrimmedSummary(task));
+    myNameField.setEnabled(!task.isIssue());
 
     TaskManagerImpl taskManager = (TaskManagerImpl)TaskManager.getManager(myProject);
     ControlBinder binder = new ControlBinder(taskManager.getState());
@@ -98,12 +91,22 @@ public class OpenTaskDialog extends DialogWrapper {
     if (myUpdateState.isSelected()) {
       myTaskStateCombo.scheduleUpdateOnce();
     }
-    
+
     myAdditionalPanel.setLayout(new BoxLayout(myAdditionalPanel, BoxLayout.Y_AXIS));
-    myPanels = TaskDialogPanelProvider.getOpenTaskPanels(project, task);
+    myPanels = TaskDialogPanelProvider.getOpenTaskPanels(project, myTask);
     for (TaskDialogPanel panel : myPanels) {
       myAdditionalPanel.add(panel.getPanel());
     }
+    myNameField.getDocument().addDocumentListener(new DocumentAdapter() {
+      @Override
+      protected void textChanged(@NotNull DocumentEvent e) {
+        LocalTaskImpl oldTask = new LocalTaskImpl(myTask);
+        myTask.setSummary(myNameField.getText());
+        for (TaskDialogPanel panel : myPanels) {
+          panel.taskNameChanged(oldTask, myTask);
+        }
+      }
+    });
     init();
   }
 
@@ -134,13 +137,13 @@ public class OpenTaskDialog extends DialogWrapper {
         }
       }
     }
-    taskManager.activateTask(myTask, isClearContext());
-    if (myTask.getType() == TaskType.EXCEPTION && AnalyzeTaskStacktraceAction.hasTexts(myTask)) {
-      AnalyzeTaskStacktraceAction.analyzeStacktrace(myTask, myProject);
-    }
 
     for (TaskDialogPanel panel : myPanels) {
       panel.commit();
+    }
+    taskManager.activateTask(myTask, isClearContext());
+    if (myTask.getType() == TaskType.EXCEPTION && AnalyzeTaskStacktraceAction.hasTexts(myTask)) {
+      AnalyzeTaskStacktraceAction.analyzeStacktrace(myTask, myProject);
     }
   }
 
@@ -148,6 +151,7 @@ public class OpenTaskDialog extends DialogWrapper {
     return myClearContext.isSelected();
   }
 
+  @Override
   @NonNls
   protected String getDimensionServiceKey() {
     return "SimpleOpenTaskDialog";
@@ -161,6 +165,9 @@ public class OpenTaskDialog extends DialogWrapper {
         return component;
       }
     }
+    if (myNameField.getText().trim().isEmpty()) {
+      return myNameField;
+    }
     if (myTaskStateCombo.isVisible() && myTaskStateCombo.isEnabled()){
       return myTaskStateCombo.getComboBox();
     }
@@ -170,6 +177,10 @@ public class OpenTaskDialog extends DialogWrapper {
   @Nullable
   @Override
   protected ValidationInfo doValidate() {
+    String taskName = myNameField.getText().trim();
+    if (taskName.isEmpty()) {
+      return new ValidationInfo("Task name should not be empty", myNameField);
+    }
     for (TaskDialogPanel panel : myPanels) {
       ValidationInfo validate = panel.validate();
       if (validate != null) return validate;
@@ -177,12 +188,13 @@ public class OpenTaskDialog extends DialogWrapper {
     return null;
   }
 
+  @Override
   protected JComponent createCenterPanel() {
     return myPanel;
   }
 
   private void createUIComponents() {
-    myTaskStateCombo = new TaskStateCombo(myProject, myTask) {
+    myTaskStateCombo = new TaskStateCombo() {
       @Nullable
       @Override
       protected CustomTaskState getPreferredState(@NotNull TaskRepository repository, @NotNull Collection<CustomTaskState> available) {

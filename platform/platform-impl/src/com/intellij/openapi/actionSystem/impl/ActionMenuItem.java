@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.actionSystem.impl;
 
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.ide.ui.UISettings;
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.MainMenuCollector;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
@@ -24,23 +11,21 @@ import com.intellij.openapi.actionSystem.ex.ActionUtil;
 import com.intellij.openapi.actionSystem.impl.actionholder.ActionRef;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.TransactionGuard;
-import com.intellij.openapi.keymap.KeymapManager;
 import com.intellij.openapi.keymap.KeymapUtil;
-import com.intellij.openapi.util.*;
-import com.intellij.openapi.util.registry.Registry;
+import com.intellij.openapi.util.ActionCallback;
+import com.intellij.openapi.util.Disposer;
+import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.SizedIcon;
 import com.intellij.ui.components.JBCheckBoxMenuItem;
 import com.intellij.ui.plaf.beg.BegMenuItemUI;
-import com.intellij.ui.plaf.gtk.GtkMenuItemUI;
-import com.intellij.util.PlatformIcons;
 import com.intellij.util.ui.EmptyIcon;
+import com.intellij.util.ui.LafIconLookup;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import javax.swing.plaf.MenuItemUI;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -51,10 +36,9 @@ import java.beans.PropertyChangeListener;
 import java.util.HashSet;
 import java.util.Set;
 
-public class ActionMenuItem extends JBCheckBoxMenuItem {
-  private static final Icon ourCheckedIcon = new SizedIcon(PlatformIcons.CHECK_ICON, 18, 18);
-  private static final Icon ourUncheckedIcon = EmptyIcon.ICON_18;
+import static com.intellij.openapi.keymap.KeymapUtil.getActiveKeymapShortcuts;
 
+public class ActionMenuItem extends JBCheckBoxMenuItem {
   private final ActionRef<AnAction> myAction;
   private final Presentation myPresentation;
   private final String myPlace;
@@ -65,6 +49,7 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
   private AnActionEvent myEvent;
   private MenuItemSynchronizer myMenuItemSynchronizer;
   private boolean myToggled;
+  private final boolean myUseDarkIcons;
 
   public ActionMenuItem(final AnAction action,
                         final Presentation presentation,
@@ -72,7 +57,8 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
                         @NotNull DataContext context,
                         final boolean enableMnemonics,
                         final boolean prepareNow,
-                        final boolean insideCheckedGroup) {
+                        final boolean insideCheckedGroup,
+                        final boolean useDarkIcons) {
     myAction = ActionRef.fromAction(action);
     myPresentation = presentation;
     myPlace = place;
@@ -80,8 +66,9 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
     myEnableMnemonics = enableMnemonics;
     myToggleable = action instanceof Toggleable;
     myInsideCheckedGroup = insideCheckedGroup;
+    myUseDarkIcons = useDarkIcons;
 
-    myEvent = new AnActionEvent(null, context, place, myPresentation, ActionManager.getInstance(), 0);
+    myEvent = new AnActionEvent(null, context, place, myPresentation, ActionManager.getInstance(), 0, true, false);
     addActionListener(new ActionTransmitter());
     setBorderPainted(false);
 
@@ -93,6 +80,14 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
     else {
       setText("loading...");
     }
+  }
+
+  public AnAction getAnAction() {
+    return myAction.getAction();
+  }
+
+  public String getPlace() {
+    return myPlace;
   }
 
   private static boolean isEnterKeyStroke(KeyStroke keyStroke) {
@@ -109,6 +104,10 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
    */
   @Override
   public void fireActionPerformed(ActionEvent event) {
+    AnAction action = myAction.getAction();
+    if (action != null && ActionPlaces.MAIN_MENU.equals(myPlace)) {
+      MainMenuCollector.getInstance().record(action);
+    }
     TransactionGuard.submitTransaction(ApplicationManager.getApplication(), () -> super.fireActionPerformed(event));
   }
 
@@ -153,13 +152,11 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
     updateIcon(action);
     String id = ActionManager.getInstance().getId(action);
     if (id != null) {
-      setAcceleratorFromShortcuts(KeymapManager.getInstance().getActiveKeymap().getShortcuts(id));
+      setAcceleratorFromShortcuts(getActiveKeymapShortcuts(id).getShortcuts());
     }
     else {
-      final ShortcutSet shortcutSet = action.getShortcutSet();
-      if (shortcutSet != null) {
-        setAcceleratorFromShortcuts(shortcutSet.getShortcuts());
-      }
+      ShortcutSet shortcutSet = action.getShortcutSet();
+      setAcceleratorFromShortcuts(shortcutSet.getShortcuts());
     }
   }
 
@@ -178,18 +175,7 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
 
   @Override
   public void updateUI() {
-    if (UIUtil.isStandardMenuLAF()) {
-      super.updateUI();
-    }
-    else {
-      setUI(BegMenuItemUI.createUI(this));
-    }
-  }
-
-  @Override
-  public void setUI(final MenuItemUI ui) {
-    final MenuItemUI newUi = UIUtil.isUnderGTKLookAndFeel() && GtkMenuItemUI.isUiAcceptable(ui) ? new GtkMenuItemUI(ui) : ui;
-    super.setUI(newUi);
+    setUI(BegMenuItemUI.createUI(this));
   }
 
   /**
@@ -207,44 +193,56 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
 
   public void updateContext(@NotNull DataContext context) {
     myContext = context;
-    myEvent = new AnActionEvent(null, context, myPlace, myPresentation, ActionManager.getInstance(), 0);
+    myEvent = new AnActionEvent(null, context, myPlace, myPresentation, ActionManager.getInstance(), 0, true, false);
   }
 
   private void updateIcon(AnAction action) {
-    if (isToggleable() && (myPresentation.getIcon() == null || myInsideCheckedGroup || !UISettings.getInstance().SHOW_ICONS_IN_MENUS)) {
+    if (isToggleable() && (myPresentation.getIcon() == null || myInsideCheckedGroup || !UISettings.getInstance().getShowIconsInMenus())) {
       action.update(myEvent);
       myToggled = Boolean.TRUE.equals(myEvent.getPresentation().getClientProperty(Toggleable.SELECTED_PROPERTY));
-      if (ActionPlaces.MAIN_MENU.equals(myPlace) && SystemInfo.isMacSystemMenu ||
-          UIUtil.isUnderNimbusLookAndFeel() ||
-          UIUtil.isUnderWindowsLookAndFeel() && SystemInfo.isWin7OrNewer) {
+      if (ActionPlaces.MAIN_MENU.equals(myPlace) && SystemInfo.isMacSystemMenu) {
         setState(myToggled);
       }
-      else if (!(getUI() instanceof GtkMenuItemUI)) {
+      else {
         if (myToggled) {
-          setIcon(ourCheckedIcon);
-          setDisabledIcon(IconLoader.getDisabledIcon(ourCheckedIcon));
+          setIcon(LafIconLookup.getIcon("checkmark"));
+          setSelectedIcon(LafIconLookup.getSelectedIcon("checkmark"));
+          setDisabledIcon(LafIconLookup.getDisabledIcon("checkmark"));
         }
         else {
-          setIcon(ourUncheckedIcon);
-          setDisabledIcon(IconLoader.getDisabledIcon(ourUncheckedIcon));
+          setIcon(EmptyIcon.ICON_16);
+          setSelectedIcon(EmptyIcon.ICON_16);
+          setDisabledIcon(EmptyIcon.ICON_16);
         }
       }
     }
     else {
-      if (UISettings.getInstance().SHOW_ICONS_IN_MENUS) {
+      if (UISettings.getInstance().getShowIconsInMenus()) {
         Icon icon = myPresentation.getIcon();
         if (action instanceof ToggleAction && ((ToggleAction)action).isSelected(myEvent)) {
           icon = new PoppedIcon(icon, 16, 16);
         }
-        setIcon(icon);
-        if (myPresentation.getDisabledIcon() != null) {
-          setDisabledIcon(myPresentation.getDisabledIcon());
-        }
-        else {
-          setDisabledIcon(IconLoader.getDisabledIcon(icon));
-        }
+        Icon disabled = myPresentation.getDisabledIcon();
+        if (disabled == null)
+          disabled = IconLoader.getDisabledIcon(icon);
+        Icon selected = myPresentation.getSelectedIcon();
+        if (selected == null)
+          selected = icon;
+
+        setIcon(myPresentation.isEnabled() ? icon : disabled);
+        setSelectedIcon(selected != null ? selected : icon);
+        setDisabledIcon(disabled);
       }
     }
+  }
+
+  @Override
+  public void setIcon(Icon icon) {
+    if (SystemInfo.isMacSystemMenu && ActionPlaces.MAIN_MENU.equals(myPlace)) {
+      // JDK can't paint correctly our HiDPI icons at the system menu bar
+      icon = IconLoader.getMenuBarIcon(icon, myUseDarkIcons);
+    }
+    super.setIcon(icon);
   }
 
   public boolean isToggleable() {
@@ -280,29 +278,19 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
       if (id != null) {
         FeatureUsageTracker.getInstance().triggerFeatureUsed("context.menu.click.stats." + id.replace(' ', '.'));
       }
-      fm.typeAheadUntil(typeAhead);
+      fm.typeAheadUntil(typeAhead, getText());
       fm.runOnOwnContext(myContext, () -> {
         final AnActionEvent event = new AnActionEvent(
           new MouseEvent(ActionMenuItem.this, MouseEvent.MOUSE_PRESSED, 0, e.getModifiers(), getWidth() / 2, getHeight() / 2, 1, false),
-          myContext, myPlace, myPresentation, ActionManager.getInstance(), e.getModifiers()
+          myContext, myPlace, myPresentation, ActionManager.getInstance(), e.getModifiers(), true, false
         );
-        final AnAction action1 = myAction.getAction();
-        if (ActionUtil.lastUpdateAndCheckDumb(action1, event, false)) {
+        final AnAction menuItemAction = myAction.getAction();
+        if (ActionUtil.lastUpdateAndCheckDumb(menuItemAction, event, false)) {
           ActionManagerEx actionManager = ActionManagerEx.getInstanceEx();
-          actionManager.fireBeforeActionPerformed(action1, myContext, event);
-          Component component1 = PlatformDataKeys.CONTEXT_COMPONENT.getData(event.getDataContext());
-          if (component1 != null && !isInTree(component1)) {
-            typeAhead.setDone();
-            return;
-          }
-
-          SimpleTimer.getInstance().setUp(() -> {
-            //noinspection SSBasedInspection
-            SwingUtilities.invokeLater(() -> fm.doWhenFocusSettlesDown(typeAhead.createSetDoneRunnable()));
-          }, Registry.intValue("actionSystem.typeAheadTimeAfterPopupAction"));
-
-          ActionUtil.performActionDumbAware(action1, event);
-          actionManager.queueActionPerformedEvent(action1, myContext, event);
+          actionManager.fireBeforeActionPerformed(menuItemAction, myContext, event);
+          fm.doWhenFocusSettlesDown(typeAhead::setDone);
+          ActionUtil.performActionDumbAware(menuItemAction, event);
+          actionManager.queueActionPerformedEvent(menuItemAction, myContext, event);
         }
         else {
           typeAhead.setDone();
@@ -356,6 +344,8 @@ public class ActionMenuItem extends JBCheckBoxMenuItem {
         }
         else if (Presentation.PROP_TEXT.equals(name)) {
           setText(myPresentation.getText());
+          Window window = UIUtil.getWindow(ActionMenuItem.this);
+          if (window != null) window.pack();
         }
         else if (Presentation.PROP_ICON.equals(name) || Presentation.PROP_DISABLED_ICON.equals(name) || SELECTED.equals(name)) {
           updateIcon(myAction.getAction());

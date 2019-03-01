@@ -50,14 +50,14 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(
           PsiJavaPatterns.psiAnnotation().qName(annotationQualifiedName))));
   }
-  public Self annotationParam(@NotNull ElementPattern<PsiAnnotation> annotation) {
+  public Self annotationParam(@NotNull ElementPattern<? extends PsiAnnotation> annotation) {
     return withParent(
       PsiJavaPatterns.psiNameValuePair().withParent(
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(
           annotation)));
   }
 
-  public Self annotationParam(String parameterName, @NotNull ElementPattern<PsiAnnotation> annotation) {
+  public Self annotationParam(String parameterName, @NotNull ElementPattern<? extends PsiAnnotation> annotation) {
     return withParent(
       PsiJavaPatterns.psiNameValuePair().withName(parameterName).withParent(
         PlatformPatterns.psiElement(PsiAnnotationParameterList.class).withParent(annotation)));
@@ -99,7 +99,6 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
   }
 
   public Self methodCallParameter(final int index, final ElementPattern<? extends PsiMethod> methodPattern) {
-    //noinspection unchecked
     final PsiNamePatternCondition nameCondition = ContainerUtil.findInstance(methodPattern.getCondition().getConditions(), PsiNamePatternCondition.class);
 
     return with(new PatternCondition<T>("methodCallParameter") {
@@ -107,19 +106,29 @@ public class PsiJavaElementPattern<T extends PsiElement,Self extends PsiJavaElem
       public boolean accepts(@NotNull final T literal, final ProcessingContext context) {
         final PsiElement parent = literal.getParent();
         if (parent instanceof PsiExpressionList) {
-          final PsiExpressionList psiExpressionList = (PsiExpressionList)parent;
-          final PsiExpression[] psiExpressions = psiExpressionList.getExpressions();
-          if (!(psiExpressions.length > index && psiExpressions[index] == literal)) return false;
-
-          return checkCall(context, psiExpressionList, methodPattern, nameCondition);
+          return hasIndex(literal, index) && checkCall(context, (PsiExpressionList)parent, methodPattern, nameCondition);
         }
         return false;
+      }
+
+      private boolean hasIndex(@NotNull T literal, int index) {
+        int currentIndex = 0;
+        PsiElement each = literal;
+        while (each != null) {
+          each = each.getPrevSibling();
+          if (each instanceof PsiExpression) {
+            currentIndex++;
+            if (currentIndex > index) return false;
+          }
+        }
+
+        if (currentIndex != index) return false;
+        return true;
       }
     });
   }
 
   public Self methodCallParameter(@NotNull final ElementPattern<? extends PsiMethod> methodPattern) {
-    //noinspection unchecked
     final PsiNamePatternCondition nameCondition = ContainerUtil.findInstance(methodPattern.getCondition().getConditions(), PsiNamePatternCondition.class);
 
     return with(new PatternCondition<T>("methodCallParameter") {

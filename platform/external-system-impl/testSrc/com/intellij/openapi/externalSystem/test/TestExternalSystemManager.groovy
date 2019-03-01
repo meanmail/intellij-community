@@ -29,7 +29,6 @@ import com.intellij.util.Function
 import org.jetbrains.annotations.NotNull
 /**
  * @author Denis Zhdanov
- * @since 8/8/13 5:20 PM
  */
 class TestExternalSystemManager implements ExternalSystemManager<
 TestExternalProjectSettings,
@@ -88,9 +87,5 @@ TestExternalSystemExecutionSettings>
 
   @Override
   void enhanceRemoteProcessing(@NotNull SimpleJavaParameters parameters) throws ExecutionException {
-  }
-
-  @Override
-  void enhanceLocalProcessing(@NotNull List<URL> urls) {
   }
 }

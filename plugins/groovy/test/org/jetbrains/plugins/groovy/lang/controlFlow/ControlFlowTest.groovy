@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.plugins.groovy.lang.controlFlow
 
 import com.intellij.openapi.editor.SelectionModel
@@ -26,10 +12,12 @@ import org.jetbrains.plugins.groovy.lang.psi.GroovyFile
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.Instruction
 import org.jetbrains.plugins.groovy.lang.psi.controlFlow.impl.ControlFlowBuilder
 import org.jetbrains.plugins.groovy.util.TestUtils
+
 /**
  * @author ven
  */
 class ControlFlowTest extends LightCodeInsightFixtureTestCase {
+
   final String basePath = TestUtils.testDataPath + "groovy/controlFlow/"
 
   void testAssignment() { doTest() }
@@ -39,6 +27,8 @@ class ControlFlowTest extends LightCodeInsightFixtureTestCase {
   void testComplexAssign() { doTest() }
 
   void testFor1() { doTest() }
+
+  void testFor2() { doTest() }
 
   void testForeach1() { doTest() }
 
@@ -100,6 +90,10 @@ class ControlFlowTest extends LightCodeInsightFixtureTestCase {
 
   void testTry10() { doTest() }
 
+  void testTry11() { doTest() }
+
+  void testTryResources() { doTest() }
+
   void testWhile1() { doTest() }
 
   void testWhile2() { doTest() }
@@ -107,6 +101,12 @@ class ControlFlowTest extends LightCodeInsightFixtureTestCase {
   void testWhileNonConstant() { doTest() }
 
   void testIfInstanceofElse() { doTest() }
+
+  void testIfNegatedInstanceofElse() { doTest() }
+
+  void testIfInstanceofOr() { doTest() }
+
+  void testIfNullOrInstanceof() { doTest() }
 
   void testReturnMapFromClosure() { doTest() }
 
@@ -147,9 +147,11 @@ class ControlFlowTest extends LightCodeInsightFixtureTestCase {
   void testUnfinishedAssignment() { doTest() }
 
   void doTest() {
-    final List<String> input = TestUtils.readInput(testDataPath + getTestName(true) + ".test")
+    final path = getTestName(true) + ".test"
+    final List<String> input = TestUtils.readInput(testDataPath + path)
 
-    myFixture.configureByText(GroovyFileType.GROOVY_FILE_TYPE, input.get(0))
+    final code = input.get(0)
+    myFixture.configureByText(GroovyFileType.GROOVY_FILE_TYPE, code)
 
     final GroovyFile file = (GroovyFile)myFixture.file
     final SelectionModel model = myFixture.editor.selectionModel
@@ -158,7 +160,7 @@ class ControlFlowTest extends LightCodeInsightFixtureTestCase {
     final GrControlFlowOwner owner = PsiTreeUtil.getParentOfType(PsiTreeUtil.findCommonParent(start, end), GrControlFlowOwner, false)
     final Instruction[] instructions = new ControlFlowBuilder(project).buildControlFlow(owner)
     final String cf = ControlFlowUtils.dumpControlFlow(instructions)
-    assertEquals(input.get(1).trim(), cf.trim())
+    myFixture.configureByText(GroovyFileType.GROOVY_FILE_TYPE, code + "\n-----\n" + cf.trim())
+    myFixture.checkResultByFile(path)
   }
-
 }

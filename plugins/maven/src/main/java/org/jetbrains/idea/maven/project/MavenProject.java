@@ -16,22 +16,28 @@
 package org.jetbrains.idea.maven.project;
 
 import com.intellij.execution.configurations.ParametersList;
+import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.module.ModuleType;
 import com.intellij.openapi.module.StdModuleTypes;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.roots.OrderEnumerator;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.BufferExposingByteArrayOutputStream;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.vfs.CharsetToolkit;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.Consumer;
 import com.intellij.util.containers.ContainerUtil;
 import gnu.trove.THashSet;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.idea.maven.importing.MavenAnnotationProcessorsModuleService;
 import org.jetbrains.idea.maven.importing.MavenExtraArtifactType;
 import org.jetbrains.idea.maven.importing.MavenImporter;
 import org.jetbrains.idea.maven.model.*;
@@ -39,15 +45,32 @@ import org.jetbrains.idea.maven.plugins.api.MavenModelPropertiesPatcher;
 import org.jetbrains.idea.maven.server.MavenEmbedderWrapper;
 import org.jetbrains.idea.maven.server.NativeMavenProjectHolder;
 import org.jetbrains.idea.maven.utils.*;
+import org.jetbrains.idea.maven.utils.MavenJDOMUtil;
+import org.jetbrains.jps.util.JpsPathUtil;
 
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static com.intellij.openapi.roots.OrderEnumerator.orderEntries;
+
 public class MavenProject {
 
   private static final Key<MavenArtifactIndex> DEPENDENCIES_CACHE_KEY = Key.create("MavenProject.DEPENDENCIES_CACHE_KEY");
   private static final Key<List<String>> FILTERS_CACHE_KEY = Key.create("MavenProject.FILTERS_CACHE_KEY");
+
+  public enum ConfigFileKind {
+    MAVEN_CONFIG(MavenConstants.MAVEN_CONFIG_RELATIVE_PATH, "true"),
+    JVM_CONFIG(MavenConstants.JVM_CONFIG_RELATIVE_PATH, "");
+    final Key<Map<String, String>> CACHE_KEY = Key.create("MavenProject." + name());
+    final String myRelativeFilePath;
+    final String myValueIfMissing;
+
+    ConfigFileKind(String relativeFilePath, String valueIfMissing) {
+      myRelativeFilePath = relativeFilePath;
+      myValueIfMissing = valueIfMissing;
+    }
+  }
 
   @NotNull private final VirtualFile myFile;
   @NotNull private volatile State myState = new State();
@@ -181,6 +204,7 @@ public class MavenProject {
     LinkedHashSet<MavenArtifactNode> newDependencyTree = new LinkedHashSet<>();
     LinkedHashSet<MavenPlugin> newPlugins = new LinkedHashSet<>();
     LinkedHashSet<MavenArtifact> newExtensions = new LinkedHashSet<>();
+    LinkedHashSet<MavenArtifact> newAnnotationProcessors = new LinkedHashSet<>();
 
     if (!reset) {
       if (state.myUnresolvedArtifactIds != null) newUnresolvedArtifacts.addAll(state.myUnresolvedArtifactIds);
@@ -189,6 +213,7 @@ public class MavenProject {
       if (state.myDependencyTree != null) newDependencyTree.addAll(state.myDependencyTree);
       if (state.myPlugins != null) newPlugins.addAll(state.myPlugins);
       if (state.myExtensions != null) newExtensions.addAll(state.myExtensions);
+      if (state.myAnnotationProcessors != null) newAnnotationProcessors.addAll(state.myAnnotationProcessors);
     }
 
     newUnresolvedArtifacts.addAll(readerResult.unresolvedArtifactIds);
@@ -204,6 +229,7 @@ public class MavenProject {
     state.myDependencyTree = new ArrayList<>(newDependencyTree);
     state.myPlugins = new ArrayList<>(newPlugins);
     state.myExtensions = new ArrayList<>(newExtensions);
+    state.myAnnotationProcessors = new ArrayList<>(newAnnotationProcessors);
   }
 
   private MavenProjectChanges setFolders(MavenProjectReaderResult readerResult) {
@@ -224,14 +250,14 @@ public class MavenProject {
   private Map<String, String> collectModulePathsAndNames(MavenModel mavenModel, String baseDir) {
     String basePath = baseDir + "/";
     Map<String, String> result = new LinkedHashMap<>();
-    for (Map.Entry<String, String> each : collectModulesRelativePathsAndNames(mavenModel).entrySet()) {
+    for (Map.Entry<String, String> each : collectModulesRelativePathsAndNames(mavenModel, basePath).entrySet()) {
       result.put(new Path(basePath + each.getKey()).getPath(), each.getValue());
     }
     return result;
   }
 
-  private Map<String, String> collectModulesRelativePathsAndNames(MavenModel mavenModel) {
-    String pomFileName = MavenConstants.POM_EXTENSION + '.' + StringUtil.notNullize(myFile.getExtension());
+  private Map<String, String> collectModulesRelativePathsAndNames(MavenModel mavenModel, String basePath) {
+    String extension = StringUtil.notNullize(myFile.getExtension());
     LinkedHashMap<String, String> result = new LinkedHashMap<>();
     for (String name : mavenModel.getModules()) {
       name = name.trim();
@@ -242,8 +268,16 @@ public class MavenProject {
       // module name can be relative and contain either / of \\ separators
 
       name = FileUtil.toSystemIndependentName(name);
-      if (!name.endsWith("/")) name += "/";
-      name += pomFileName;
+      if (!name.endsWith('.' + extension)) {
+        if (!name.endsWith("/")) name += "/";
+        name += MavenConstants.POM_EXTENSION + '.' + extension;
+      }
+      else {
+        String systemDependentName = FileUtil.toSystemDependentName(basePath + name);
+        if (new File(systemDependentName).isDirectory()) {
+          name += "/" + MavenConstants.POM_XML;
+        }
+      }
 
       result.put(name, originalName);
     }
@@ -289,7 +323,7 @@ public class MavenProject {
     return MavenUtil.findProfilesXmlFile(myFile);
   }
 
-  @NotNull
+  @Nullable
   public File getProfilesXmlIoFile() {
     return MavenUtil.getProfilesXmlIoFile(myFile);
   }
@@ -776,6 +810,19 @@ public class MavenProject {
     }
   }
 
+  private static List<MavenArtifact> getUnresolvedAnnotationProcessors(State state) {
+    synchronized (state) {
+      if (state.myUnresolvedAnnotationProcessors == null) {
+        List<MavenArtifact> result = new ArrayList<>();
+        for (MavenArtifact each : state.myAnnotationProcessors) {
+          if (!each.isResolved()) result.add(each);
+        }
+        state.myUnresolvedAnnotationProcessors = result;
+      }
+      return state.myUnresolvedAnnotationProcessors;
+    }
+  }
+
   private static boolean pomFileExists(File localRepository, MavenArtifact artifact) {
     return MavenArtifactUtil.hasArtifactFile(localRepository, artifact.getMavenId(), "pom");
   }
@@ -834,6 +881,40 @@ public class MavenProject {
   }
 
   @NotNull
+  public List<MavenArtifact> getExternalAnnotationProcessors() {
+    return myState.myAnnotationProcessors;
+  }
+
+  @NotNull
+  public String getAnnotationProcessorPath(Project project) {
+    StringJoiner annotationProcessorPath = new StringJoiner(File.pathSeparator);
+
+    Consumer<String> resultAppender = path -> annotationProcessorPath.add(FileUtil.toSystemDependentName(path));
+
+    for (MavenArtifact artifact : getExternalAnnotationProcessors()) {
+      resultAppender.consume(artifact.getPath());
+    }
+
+    MavenProjectsManager projectsManager = MavenProjectsManager.getInstance(project);
+    Module module = projectsManager.findModule(this);
+    if (module != null) {
+      MavenAnnotationProcessorsModuleService apService = MavenAnnotationProcessorsModuleService.getInstance(module);
+      for (String moduleName : apService.getAnnotationProcessorModules()) {
+        Module annotationProcessorModule = ModuleManager.getInstance(project).findModuleByName(moduleName);
+        if (annotationProcessorModule != null) {
+          OrderEnumerator enumerator = orderEntries(annotationProcessorModule).withoutSdk().productionOnly().runtimeOnly().recursively();
+
+          for (String url : enumerator.classes().getUrls()) {
+            resultAppender.consume(JpsPathUtil.urlToPath(url));
+          }
+        }
+      }
+    }
+
+    return annotationProcessorPath.toString();
+  }
+
+  @NotNull
   public List<MavenArtifactNode> getDependencyTree() {
     return myState.myDependencyTree;
   }
@@ -881,6 +962,15 @@ public class MavenProject {
     state.myCache.clear();
   }
 
+  public void addAnnotationProcessors(@NotNull Collection<MavenArtifact> annotationProcessors) {
+    State state = myState;
+    List<MavenArtifact> annotationProcessorsCopy = new ArrayList<>(state.myAnnotationProcessors);
+    annotationProcessorsCopy.addAll(annotationProcessors);
+    state.myAnnotationProcessors = annotationProcessorsCopy;
+
+    state.myUnresolvedAnnotationProcessors = null;
+  }
+
   @NotNull
   public List<MavenArtifact> findDependencies(@NotNull MavenProject depProject) {
     return findDependencies(depProject.getMavenId());
@@ -899,7 +989,8 @@ public class MavenProject {
     State state = myState;
     return !isParentResolved(state)
            || !getUnresolvedDependencies(state).isEmpty()
-           || !getUnresolvedExtensions(state).isEmpty();
+           || !getUnresolvedExtensions(state).isEmpty()
+           || !getUnresolvedAnnotationProcessors(state).isEmpty();
   }
 
   public boolean hasUnresolvedPlugins() {
@@ -980,6 +1071,11 @@ public class MavenProject {
   }
 
   @Nullable
+  public String getReleaseLevel() {
+    return getCompilerLevel("release");
+  }
+
+  @Nullable
   private String getCompilerLevel(String level) {
     String result = MavenJDOMUtil.findChildValueByPath(getCompilerConfig(), level);
 
@@ -1000,6 +1096,43 @@ public class MavenProject {
   @NotNull
   public Properties getProperties() {
     return myState.myProperties;
+  }
+
+  @NotNull
+  public Map<String, String> getMavenConfig() {
+    return getPropertiesFromConfig(ConfigFileKind.MAVEN_CONFIG);
+  }
+
+  @NotNull
+  private Map<String, String> getPropertiesFromConfig(ConfigFileKind kind) {
+    Map<String, String> mavenConfig = getCachedValue(kind.CACHE_KEY);
+    if (mavenConfig == null) {
+      mavenConfig = readConfigFile(MavenUtil.getBaseDir(getDirectoryFile()), kind);
+      putCachedValue(kind.CACHE_KEY, mavenConfig);
+    }
+
+    return mavenConfig;
+  }
+
+  @NotNull
+  public Map<String, String> getJvmConfig() {
+    return getPropertiesFromConfig(ConfigFileKind.JVM_CONFIG);
+  }
+
+  @NotNull
+  public static Map<String, String> readConfigFile(final File baseDir, ConfigFileKind kind) {
+    File configFile = new File(baseDir + FileUtil.toSystemDependentName(kind.myRelativeFilePath));
+
+    ParametersList parametersList = new ParametersList();
+    if (configFile.isFile()) {
+      try {
+        parametersList.addParametersString(FileUtil.loadFile(configFile, CharsetToolkit.UTF8));
+      }
+      catch (IOException ignore) {
+      }
+    }
+    Map<String, String> config = parametersList.getProperties(kind.myValueIfMissing);
+    return config.isEmpty() ? Collections.emptyMap() : config;
   }
 
   @NotNull
@@ -1093,6 +1226,7 @@ public class MavenProject {
     List<MavenArtifact> myDependencies;
     List<MavenArtifactNode> myDependencyTree;
     List<MavenRemoteRepository> myRemoteRepositories;
+    List<MavenArtifact> myAnnotationProcessors;
 
     Map<String, String> myModulesPathsAndNames;
 
@@ -1109,6 +1243,7 @@ public class MavenProject {
     volatile List<MavenArtifact> myUnresolvedDependenciesCache;
     volatile List<MavenPlugin> myUnresolvedPluginsCache;
     volatile List<MavenArtifact> myUnresolvedExtensionsCache;
+    volatile List<MavenArtifact> myUnresolvedAnnotationProcessors;
 
     transient ConcurrentHashMap<Key, Object> myCache = new ConcurrentHashMap<>();
 
@@ -1130,6 +1265,7 @@ public class MavenProject {
       myUnresolvedDependenciesCache = null;
       myUnresolvedPluginsCache = null;
       myUnresolvedExtensionsCache = null;
+      myUnresolvedAnnotationProcessors = null;
 
       myCache.clear();
     }

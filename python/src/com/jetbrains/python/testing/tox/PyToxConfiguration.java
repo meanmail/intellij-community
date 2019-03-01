@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.jetbrains.python.testing.tox;
 
@@ -31,7 +19,7 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.xmlb.SkipEmptySerializationFilter;
 import com.intellij.util.xmlb.XmlSerializer;
 import com.intellij.util.xmlb.annotations.Tag;
-import com.jetbrains.python.run.AbstractPythonRunConfiguration;
+import com.jetbrains.python.testing.AbstractPythonTestRunConfiguration;
 import com.jetbrains.serialization.AnnotationSerializationFilter;
 import com.jetbrains.serialization.CompoundFilter;
 import org.jdom.Element;
@@ -43,15 +31,15 @@ import java.util.List;
 /**
  * @author Ilya.Kazakevich
  */
-public final class PyToxConfiguration extends AbstractPythonRunConfiguration<PyToxConfiguration> {
+public final class PyToxConfiguration extends AbstractPythonTestRunConfiguration<PyToxConfiguration> {
 
   @NotNull
   private final Project myProject;
 
-  @Tag
+  @Tag("arguments")
   @Nullable
   private String[] myArguments;
-  @Tag
+  @Tag("runOnlyEnvs")
   @Nullable
   private String[] myRunOnlyEnvs;
 
@@ -82,13 +70,13 @@ public final class PyToxConfiguration extends AbstractPythonRunConfiguration<PyT
   }
 
   @Override
-  public void readExternal(final Element element) throws InvalidDataException {
+  public void readExternal(@NotNull final Element element) throws InvalidDataException {
     super.readExternal(element);
     XmlSerializer.deserializeInto(this, element);
   }
 
   @Override
-  public void writeExternal(final Element element) throws WriteExternalException {
+  public void writeExternal(@NotNull final Element element) throws WriteExternalException {
     super.writeExternal(element);
     XmlSerializer.serializeInto(this, element, new CompoundFilter(
       new SkipEmptySerializationFilter(),
@@ -130,6 +118,9 @@ public final class PyToxConfiguration extends AbstractPythonRunConfiguration<PyT
   public void addTestSpecsAsParameters(@NotNull final ParamsGroup paramsGroup, @NotNull final List<String> testSpecs) {
     if (!testSpecs.isEmpty()) {
       paramsGroup.addParameter(String.format("-e %s", StringUtil.join(testSpecs, ",")));
+    }
+    if (myArguments != null) {
+      paramsGroup.addParameters(myArguments);
     }
   }
 }

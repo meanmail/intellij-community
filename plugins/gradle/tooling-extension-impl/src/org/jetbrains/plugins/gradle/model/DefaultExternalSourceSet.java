@@ -25,14 +25,13 @@ import java.util.*;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/14/2014
  */
 public class DefaultExternalSourceSet implements ExternalSourceSet {
   private static final long serialVersionUID = 1L;
 
   private String myName;
   private Map<IExternalSystemSourceType, ExternalSourceDirectorySet> mySources;
-  private Collection<ExternalDependency> myDependencies;
+  private final Collection<ExternalDependency> myDependencies;
   private Collection<File> myArtifacts;
   private String mySourceCompatibility;
   private String myTargetCompatibility;

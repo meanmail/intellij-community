@@ -22,12 +22,10 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class DirSet extends Tag{
 
   public DirSet(@NonNls final String dir) {
-    //noinspection HardCodedStringLiteral
     super("dirset", Couple.of("dir", dir));
   }
 }

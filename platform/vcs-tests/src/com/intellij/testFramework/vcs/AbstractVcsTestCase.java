@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.testFramework.vcs;
 
 import com.intellij.execution.process.ProcessOutput;
@@ -37,7 +23,6 @@ import com.intellij.testFramework.builders.EmptyModuleFixtureBuilder;
 import com.intellij.testFramework.fixtures.IdeaProjectTestFixture;
 import com.intellij.testFramework.fixtures.IdeaTestFixtureFactory;
 import com.intellij.testFramework.fixtures.TestFixtureBuilder;
-import com.intellij.util.Processor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.Assert;
@@ -53,14 +38,12 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * @author yole
  */
-@SuppressWarnings("UseOfSystemOutOrSystemErr")
 public abstract class AbstractVcsTestCase {
   protected boolean myTraceClient;
   protected Project myProject;
   protected VirtualFile myWorkingCopyDir;
   protected File myClientBinaryPath;
   protected IdeaProjectTestFixture myProjectFixture;
-  protected boolean myInitChangeListManager = true;
 
   protected TestClientRunner createClientRunner() {
     return createClientRunner(null);
@@ -77,7 +60,6 @@ public abstract class AbstractVcsTestCase {
   protected void setVcsMappings(List<VcsDirectoryMapping> mappings) {
     ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(myProject);
     vcsManager.setDirectoryMappings(mappings);
-    vcsManager.updateActiveVcss();
     ChangeListManagerImpl.getInstanceImpl(myProject).waitUntilRefreshed();
   }
 
@@ -107,7 +89,6 @@ public abstract class AbstractVcsTestCase {
   protected void activateVCS(final String vcsName) {
     ProjectLevelVcsManager vcsManager = ProjectLevelVcsManager.getInstance(myProject);
     vcsManager.setDirectoryMapping(myWorkingCopyDir.getPath(), vcsName);
-    vcsManager.updateActiveVcss();
 
     AbstractVcs vcs = vcsManager.findVcsByName(vcsName);
     Assert.assertEquals(1, vcsManager.getRootsUnderVcs(vcs).length);
@@ -125,36 +106,9 @@ public abstract class AbstractVcsTestCase {
     return VcsTestUtil.findOrCreateDir(myProject, parent, name);
   }
 
-  protected void clearDirInCommand(final VirtualFile dir, final Processor<VirtualFile> filter) {
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        int numOfRuns = 5;
-        for (int i = 0; i < numOfRuns; i++) {
-          try {
-            final VirtualFile[] children = dir.getChildren();
-            for (VirtualFile child : children) {
-              if (filter != null && filter.process(child)) {
-                child.delete(AbstractVcsTestCase.this);
-              }
-            }
-            return;
-          }
-          catch (IOException e) {
-            if (i == numOfRuns - 1) {
-              // last run
-              throw e;
-            }
-            Thread.sleep(50);
-          }
-        }
-      }
-    }.execute();
-  }
-
   protected void tearDownProject() throws Exception {
     if (myProject != null) {
-      ((ChangeListManagerImpl)ChangeListManager.getInstance(myProject)).stopEveryThingIfInTestMode();
+      ChangeListManagerImpl.getInstanceImpl(myProject).stopEveryThingIfInTestMode();
       CommittedChangesCache.getInstance(myProject).clearCaches(EmptyRunnable.INSTANCE);
       myProject = null;
     }
@@ -178,7 +132,7 @@ public abstract class AbstractVcsTestCase {
   }
 
   public static void verify(final ProcessOutput runResult) {
-    Assert.assertEquals(runResult.getStderr(), 0, runResult.getExitCode());
+    Assert.assertEquals(runResult.getStdout() + "\n---\n" + runResult.getStderr(), 0, runResult.getExitCode());
   }
 
   protected static void verify(final ProcessOutput runResult, final String... stdoutLines) {
@@ -229,19 +183,17 @@ public abstract class AbstractVcsTestCase {
     VcsTestUtil.editFileInCommand(myProject, file, newContent);
   }
 
-  protected VirtualFile copyFileInCommand(final VirtualFile file, final String toName) {
+  @NotNull
+  protected VirtualFile copyFileInCommand(@NotNull VirtualFile file, final String toName) {
     final AtomicReference<VirtualFile> res = new AtomicReference<>();
-    new WriteCommandAction.Simple(myProject) {
-      @Override
-      protected void run() throws Throwable {
-        try {
-          res.set(file.copy(this, file.getParent(), toName));
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
+    WriteCommandAction.writeCommandAction(myProject).run(() -> {
+      try {
+        res.set(file.copy(this, file.getParent(), toName));
       }
-    }.execute();
+      catch (IOException e) {
+        throw new RuntimeException(e);
+      }
+    });
     return res.get();
   }
 
@@ -275,7 +227,7 @@ public abstract class AbstractVcsTestCase {
     Assert.assertTrue(beforeFullPath + "!=" + beforeRevPath,  beforeFullPath.equalsIgnoreCase(beforeRevPath));
   }
 
-  public static void sortChanges(final List<Change> changes) {
+  public static void sortChanges(final List<? extends Change> changes) {
     Collections.sort(changes, (o1, o2) -> {
       final String p1 = FileUtil.toSystemIndependentName(ChangesUtil.getFilePath(o1).getPath());
       final String p2 = FileUtil.toSystemIndependentName(ChangesUtil.getFilePath(o2).getPath());

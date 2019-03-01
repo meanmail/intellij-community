@@ -1,31 +1,21 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 @file:JvmName("CredentialPromptDialog")
 package com.intellij.credentialStore
 
 import com.intellij.CommonBundle
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.application.ModalityState
-import com.intellij.openapi.application.invokeAndWaitIfNeed
+import com.intellij.openapi.application.invokeAndWaitIfNeeded
 import com.intellij.openapi.project.Project
+import com.intellij.ui.AppIcon
 import com.intellij.ui.components.CheckBox
 import com.intellij.ui.components.dialog
 import com.intellij.ui.layout.*
 import com.intellij.util.text.nullize
+import javax.swing.JCheckBox
 import javax.swing.JPasswordField
+import javax.swing.text.BadLocationException
+import javax.swing.text.Segment
 
 /**
  * @param project The context project (might be null)
@@ -42,42 +32,114 @@ fun askPassword(project: Project?,
                 attributes: CredentialAttributes,
                 resetPassword: Boolean = false,
                 error: String? = null): String? {
-  val store = PasswordSafe.getInstance()
-  if (resetPassword) {
+  return askCredentials(project, dialogTitle, passwordFieldLabel, attributes,
+                        isResetPassword = resetPassword,
+                        error = error,
+                        isCheckExistingBeforeDialog = true)?.credentials?.getPasswordAsString()?.nullize()
+}
+
+@JvmOverloads
+fun askCredentials(project: Project?,
+                   dialogTitle: String,
+                   passwordFieldLabel: String,
+                   attributes: CredentialAttributes,
+                   isSaveOnOk: Boolean = true,
+                   isCheckExistingBeforeDialog: Boolean = false,
+                   isResetPassword: Boolean = false,
+                   error: String? = null): CredentialRequestResult? {
+  val store = PasswordSafe.instance
+  if (isResetPassword) {
     store.set(attributes, null)
   }
-  else {
-    store.get(attributes)?.getPasswordAsString()?.nullize()?.let {
-      return it
+  else if (isCheckExistingBeforeDialog) {
+    store.get(attributes)?.let {
+      return CredentialRequestResult(it, false)
     }
   }
 
-  return invokeAndWaitIfNeed(ModalityState.any()) {
+  return invokeAndWaitIfNeeded(ModalityState.any()) {
     val passwordField = JPasswordField()
-    val rememberCheckBox = if (store.isMemoryOnly) {
-      null
-    }
-    else {
-      CheckBox(CommonBundle.message("checkbox.remember.password"),
-               selected = true,
-               toolTip = "The password will be stored between application sessions.")
-    }
+    val rememberCheckBox = RememberCheckBoxState.createCheckBox(toolTip = "The password will be stored between application sessions.")
 
     val panel = panel {
       row { label(if (passwordFieldLabel.endsWith(":")) passwordFieldLabel else "$passwordFieldLabel:") }
       row { passwordField() }
-      rememberCheckBox?.let {
-        row { it() }
-      }
+      row { rememberCheckBox() }
     }
 
-    if (dialog(dialogTitle, project = project, panel = panel, focusedComponent = passwordField, errorText = error).showAndGet()) {
-      val credentials = Credentials(attributes.userName, passwordField.password.nullize())
-      store.set(attributes, credentials, store.isMemoryOnly || rememberCheckBox!!.isSelected)
+    AppIcon.getInstance().requestAttention(project, true)
+    if (!dialog(dialogTitle, project = project, panel = panel, focusedComponent = passwordField, errorText = error).showAndGet()) {
+      return@invokeAndWaitIfNeeded null
+    }
+
+    RememberCheckBoxState.update(rememberCheckBox)
+
+    val credentials = Credentials(attributes.userName, passwordField.getTrimmedChars())
+    if (isSaveOnOk && rememberCheckBox.isSelected) {
+      store.set(attributes, credentials)
       credentials.getPasswordAsString()
     }
-    else {
-      null
-    }
+
+    // for memory only store isRemember is true, because false doesn't matter
+    return@invokeAndWaitIfNeeded CredentialRequestResult(credentials, isRemember = rememberCheckBox.isSelected)
   }
+}
+
+data class CredentialRequestResult(val credentials: Credentials, val isRemember: Boolean)
+
+object RememberCheckBoxState {
+  val isSelected: Boolean
+    get() = PasswordSafe.instance.isRememberPasswordByDefault
+
+  @JvmStatic
+  fun update(component: JCheckBox) {
+    PasswordSafe.instance.isRememberPasswordByDefault = component.isSelected
+  }
+
+  fun createCheckBox(toolTip: String?): JCheckBox {
+    return CheckBox(
+      CommonBundle.message("checkbox.remember.password"),
+      selected = isSelected,
+      toolTip = toolTip
+    )
+  }
+}
+
+// do not trim trailing whitespace
+fun JPasswordField.getTrimmedChars(): CharArray? {
+  val doc = document
+  val size = doc.length
+  if (size == 0) {
+     return null
+  }
+
+  val segment = Segment()
+  try {
+    doc.getText(0, size, segment)
+  }
+  catch (e: BadLocationException) {
+    return null
+  }
+
+  val chars = segment.array
+  var startOffset = segment.offset
+  while (Character.isWhitespace(chars[startOffset])) {
+    startOffset++
+  }
+  // exclusive
+  var endIndex = segment.count
+  while (endIndex > startOffset && Character.isWhitespace(chars[endIndex - 1])) {
+    endIndex--
+  }
+
+  if (startOffset >= endIndex) {
+    return null
+  }
+  else if (startOffset == 0 && endIndex == chars.size) {
+    return chars
+  }
+
+  val result = chars.copyOfRange(startOffset, endIndex)
+  chars.fill(0.toChar(), segment.offset, segment.count)
+  return result
 }

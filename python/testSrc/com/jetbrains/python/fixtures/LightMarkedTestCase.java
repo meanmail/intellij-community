@@ -21,10 +21,10 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.testFramework.TestDataFile;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NonNls;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,7 +32,6 @@ import java.util.regex.Pattern;
 /**
  * Base for cases that need marked PSI elements.
  * User: dcheryasov
- * Date: Mar 14, 2009 11:57:52 PM
  */
 public abstract class LightMarkedTestCase extends PyTestCase {
   protected PsiFile myFile;
@@ -94,7 +93,7 @@ public abstract class LightMarkedTestCase extends PyTestCase {
     Matcher mat = pat.matcher(fileText);
     int rest_index = 0; // from here on fileText is not yet looked at
     Map<String, Integer> offsets = new HashMap<>();
-    final StringBuffer text = new StringBuffer();
+    final StringBuilder text = new StringBuilder();
     while (mat.find(rest_index)) {
       String mark = mat.group();
       CharSequence prev_part = fileText.subSequence(rest_index, mat.start());
@@ -114,7 +113,7 @@ public abstract class LightMarkedTestCase extends PyTestCase {
     return result;
   }
 
-  protected Map<String, PsiElement> loadTest() throws Exception {
+  protected Map<String, PsiElement> loadTest() {
     String fname = getTestName(false) + ".py";
     return configureByFile(fname);
   }

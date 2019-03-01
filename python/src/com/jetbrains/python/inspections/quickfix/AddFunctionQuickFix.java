@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.quickfix;
 
 import com.intellij.codeInsight.CodeInsightUtilCore;
@@ -21,8 +7,8 @@ import com.intellij.codeInsight.template.TemplateBuilder;
 import com.intellij.codeInsight.template.TemplateBuilderFactory;
 import com.intellij.codeInspection.LocalQuickFix;
 import com.intellij.codeInspection.ProblemDescriptor;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
 import com.intellij.openapi.project.Project;
@@ -49,7 +35,6 @@ import static com.jetbrains.python.psi.PyUtil.sure;
  * Adds a missing top-level function to a module.
  * <br/>
  * User: dcheryasov
- * Date: Sep 15, 2010 4:34:23 PM
  * @see AddMethodQuickFix AddMethodQuickFix
  */
 public class AddFunctionQuickFix  implements LocalQuickFix {
@@ -62,16 +47,24 @@ public class AddFunctionQuickFix  implements LocalQuickFix {
     myModuleName = moduleName;
   }
 
+  @Override
   @NotNull
   public String getName() {
     return PyBundle.message("QFIX.NAME.add.function.$0.to.module.$1", myIdentifier, myModuleName);
   }
 
+  @Override
   @NotNull
   public String getFamilyName() {
     return "Create function in module";
   }
 
+  @Override
+  public boolean startInWriteAction() {
+    return false;
+  }
+
+  @Override
   public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
     try {
       final PsiElement problemElement = descriptor.getPsiElement();
@@ -105,7 +98,7 @@ public class AddFunctionQuickFix  implements LocalQuickFix {
         }
       }
       else if (problemParent != null) {
-        for (PyInspectionExtension extension : Extensions.getExtensions(PyInspectionExtension.EP_NAME)) {
+        for (PyInspectionExtension extension : PyInspectionExtension.EP_NAME.getExtensionList()) {
           List<String> params = extension.getFunctionParametersFromUsage(problemElement);
           if (params != null) {
             for (String param : params) {
@@ -116,11 +109,14 @@ public class AddFunctionQuickFix  implements LocalQuickFix {
         }
       }
       // else: no arglist, use empty args
-      PyFunction function = builder.buildFunction(project, LanguageLevel.forElement(file));
 
-      // add to the bottom
-      function = (PyFunction) file.add(function);
-      showTemplateBuilder(function, file);
+      WriteAction.run(() -> {
+        PyFunction function = builder.buildFunction();
+
+        // add to the bottom
+        function = (PyFunction) file.add(function);
+        showTemplateBuilder(function, file);
+      });
     }
     catch (IncorrectOperationException ignored) {
       // we failed. tell about this
@@ -135,6 +131,7 @@ public class AddFunctionQuickFix  implements LocalQuickFix {
     ParamHelper.walkDownParamArray(
       method.getParameterList().getParameters(),
       new ParamHelper.ParamVisitor() {
+        @Override
         public void visitNamedParameter(PyNamedParameter param, boolean first, boolean last) {
           builder.replaceElement(param, param.getName());
         }

@@ -15,7 +15,6 @@
  */
 package com.intellij.ide.customize;
 
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.Nullable;
 
@@ -32,7 +31,7 @@ class IdSet {
     int i = description.indexOf(":");
     if (i > 0) {
       myTitle = description.substring(0, i);
-      description = description.substring(i + 1, description.length());
+      description = description.substring(i + 1);
     }
     myIds = description.split(",");
     myIds = ContainerUtil.filter(myIds, id -> pluginGroups.findPlugin(id) != null).toArray(new String[]{});
@@ -57,7 +56,7 @@ class IdSet {
 
   @Override
   public String toString() {
-    return String.valueOf(myTitle) + ": " + (myIds != null ? myIds.length : 0);
+    return myTitle + ": " + (myIds != null ? myIds.length : 0);
   }
 
   @Nullable

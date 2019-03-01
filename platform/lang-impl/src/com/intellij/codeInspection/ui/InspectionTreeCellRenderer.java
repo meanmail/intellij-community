@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import com.intellij.codeInspection.reference.RefEntity;
 import com.intellij.openapi.vcs.FileStatus;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.JBColor;
+import com.intellij.ui.LoadingNode;
 import com.intellij.ui.SimpleTextAttributes;
 import org.jetbrains.annotations.NotNull;
 
@@ -29,10 +30,9 @@ import javax.swing.*;
  * @author Dmitry Batkovich
  */
 class InspectionTreeCellRenderer extends ColoredTreeCellRenderer {
-  private final InspectionResultsView myView;
   private final InspectionTreeTailRenderer myTailRenderer;
 
-  public InspectionTreeCellRenderer(InspectionResultsView view) {
+  InspectionTreeCellRenderer(InspectionResultsView view) {
     myTailRenderer = new InspectionTreeTailRenderer(view.getGlobalInspectionContext()) {
       @Override
       protected void appendText(String text, SimpleTextAttributes attributes) {
@@ -44,7 +44,6 @@ class InspectionTreeCellRenderer extends ColoredTreeCellRenderer {
         append(text);
       }
     };
-    myView = view;
   }
 
   @Override
@@ -55,9 +54,16 @@ class InspectionTreeCellRenderer extends ColoredTreeCellRenderer {
                                     boolean leaf,
                                     int row,
                                     boolean hasFocus) {
+    if (value instanceof InspectionRootNode) {
+      return;
+    }
+    if (value instanceof LoadingNode) {
+      append(LoadingNode.getText());
+      return;
+    }
     InspectionTreeNode node = (InspectionTreeNode)value;
 
-    append(node.toString(),
+    append(node.getPresentableText(),
            patchMainTextAttrs(node, node.appearsBold()
                                     ? SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES
                                     : getMainForegroundAttributes(node)));
@@ -65,8 +71,8 @@ class InspectionTreeCellRenderer extends ColoredTreeCellRenderer {
     setIcon(node.getIcon(expanded));
   }
 
-  private SimpleTextAttributes patchMainTextAttrs(InspectionTreeNode node, SimpleTextAttributes attributes) {
-    if (node.isExcluded(myView.getExcludedManager())) {
+  private static SimpleTextAttributes patchMainTextAttrs(InspectionTreeNode node, SimpleTextAttributes attributes) {
+    if (node.isExcluded()) {
       return attributes.derive(attributes.getStyle() | SimpleTextAttributes.STYLE_STRIKEOUT, null, null, null);
     }
     if (node instanceof SuppressableInspectionTreeNode && ((SuppressableInspectionTreeNode)node).isQuickFixAppliedFromView()) {
@@ -90,11 +96,6 @@ class InspectionTreeCellRenderer extends ColoredTreeCellRenderer {
           foreground = new SimpleTextAttributes(SimpleTextAttributes.STYLE_PLAIN, JBColor.blue);
         }
       }
-    }
-    final FileStatus nodeStatus = node.getNodeStatus();
-    if (nodeStatus != FileStatus.NOT_CHANGED) {
-      foreground =
-        new SimpleTextAttributes(foreground.getBgColor(), nodeStatus.getColor(), foreground.getWaveColor(), foreground.getStyle());
     }
     return foreground;
   }

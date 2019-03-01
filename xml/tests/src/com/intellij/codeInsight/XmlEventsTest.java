@@ -15,12 +15,12 @@
  */
 package com.intellij.codeInsight;
 
+import com.intellij.lang.xml.XMLLanguage;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.editor.ex.DocumentEx;
+import com.intellij.openapi.editor.RangeMarker;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.pom.PomManager;
 import com.intellij.pom.PomModel;
@@ -31,12 +31,14 @@ import com.intellij.pom.event.PomModelListener;
 import com.intellij.pom.xml.XmlAspect;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.PsiFileImpl;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.xml.*;
 import com.intellij.testFramework.LightCodeInsightTestCase;
+import com.intellij.util.DocumentUtil;
 import org.jetbrains.annotations.NotNull;
 
 public class XmlEventsTest extends LightCodeInsightTestCase {
-  public void test1() throws Exception{
+  public void test1() {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = XmlElementFactory.getInstance(getProject()).createTagFromText("<a/>");
     WriteCommandAction.runWriteCommandAction(null, () -> {
@@ -53,7 +55,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     return listener;
   }
 
-  public void test2() throws Exception{
+  public void test2() {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = XmlElementFactory.getInstance(getProject()).createTagFromText("<a>aaa</a>");
     final XmlTag otherTag = XmlElementFactory.getInstance(getProject()).createTagFromText("<a/>");
@@ -65,7 +67,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(text changed to 'aa' was: 'aaa'), (child added to a child: XmlText), (child added to a child: XmlTag:a)\n", listener.getEventString());
   }
 
-  public void test3() throws Exception{
+  public void test3() {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = XmlElementFactory.getInstance(getProject()).createTagFromText("<a>aaa</a>");
     final XmlText xmlText = tagFromText.getValue().getTextElements()[0];
@@ -74,7 +76,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(text changed to 'aabba' was: 'aaa')\n", listener.getEventString());
   }
 
-  public void testTagDelete() throws Exception{
+  public void testTagDelete() {
     final Listener listener = addPomListener();
     configureFromFileText("x.xml", "<a>aaa\n<x>xxx</x>\n<y>yyy</y></a>");
     final XmlTag x = ((XmlFile)getFile()).getRootTag().findSubTags("x")[0];
@@ -87,7 +89,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(child removed from a child: XmlTag:x), (child removed from a child: XmlText)\n", listener.getEventString());
   }
 
-  public void testTagInsert() throws Exception{
+  public void testTagInsert() {
     final Listener listener = addPomListener();
     configureFromFileText("x.xml", "<a>aaa\n<x>xxx</x>\n<y>yyy</y></a>");
     final XmlTag x = ((XmlFile)getFile()).getRootTag().findSubTags("x")[0];
@@ -100,7 +102,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(child added to a child: XmlText), (child added to a child: XmlTag:z)\n", listener.getEventString());
   }
 
-  public void test4() throws Exception{
+  public void test4() {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = XmlElementFactory.getInstance(getProject()).createTagFromText("<a>a </a>");
     WriteCommandAction.runWriteCommandAction(null, () -> {
@@ -110,7 +112,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(text changed to 'a a ' was: 'a ')\n", listener.getEventString());
   }
 
-  public void test5() throws Exception{
+  public void test5() {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = XmlElementFactory.getInstance(getProject()).createTagFromText("<a>aaa</a>");
     WriteCommandAction.runWriteCommandAction(null, () -> tagFromText.delete());
@@ -118,23 +120,20 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(Xml document changed)\n", listener.getEventString());
   }
 
-  public void testBulkUpdate() throws Exception{
+  public void testBulkUpdate() {
     final Listener listener = addPomListener();
     final PsiFile file = createFile("a.xml", "<a/>");
-    new WriteCommandAction(getProject()) {
-      @Override
-      protected void run(@NotNull Result result) throws Throwable {
-        final Document document = PsiDocumentManager.getInstance(getProject()).getDocument(file);
-        ((DocumentEx)document).setInBulkUpdate(true);
+    WriteCommandAction.runWriteCommandAction(getProject(), () -> {
+      final Document document = PsiDocumentManager.getInstance(getProject()).getDocument(file);
+      DocumentUtil.executeInBulk(document, true, () -> {
         document.insertString(0, " ");
         commitDocument(document);
-        ((DocumentEx)document).setInBulkUpdate(false);
-      }
-    }.execute();
+      });
+    });
     assertEquals("(Xml document changed)", listener.getEventString().trim());
   }
 
-  public void testDocumentChange1() throws Exception{
+  public void testDocumentChange1() {
     final String rootTagText = "<a/>";
     final String stringToInsert = "b=\"c\"";
     final int positionToInsert = 2;
@@ -142,7 +141,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     checkEventsByDocumentChange(rootTagText, positionToInsert, stringToInsert, "(Xml document changed)\n");
   }
 
-  public void testDocumentChange2() throws Exception{
+  public void testDocumentChange2() {
     final String rootTagText = "<a />";
     final String stringToInsert = "b=\"c\"";
     final int positionToInsert = 3;
@@ -151,7 +150,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
   }
 
 
-  public void testDocumentChange3() throws Exception{
+  public void testDocumentChange3() {
     final String rootTagText = "<b><a /></b>";
     final String stringToInsert = "b=\"c\"";
     final int positionToInsert = 6;
@@ -159,7 +158,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     checkEventsByDocumentChange(rootTagText, positionToInsert, stringToInsert, "(child changed in b child: XmlTag:a)\n");
   }
 
-  public void testAttributeValueReplace() throws Exception {
+  public void testAttributeValueReplace() {
     final String text = "<target name=\"old\"/>";
     final Listener listener = addPomListener();
 
@@ -173,8 +172,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     assertEquals("(Attribute \"name\" for tag \"target\" set to \"\"new\"\")\n", listener.getEventString());
   }
 
-  private void checkEventsByDocumentChange(final String rootTagText, final int positionToInsert, final String stringToInsert, String events)
-    throws Exception {
+  private void checkEventsByDocumentChange(final String rootTagText, final int positionToInsert, final String stringToInsert, String events) {
     final Listener listener = addPomListener();
     final XmlTag tagFromText = ((XmlFile)createFile("file.xml", rootTagText)).getDocument().getRootTag();
     final PsiFileImpl containingFile = (PsiFileImpl)tagFromText.getContainingFile();
@@ -197,7 +195,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     }
 
     @Override
-    public void modelChanged(PomModelEvent event) {
+    public void modelChanged(@NotNull PomModelEvent event) {
       final PomChangeSet changeSet = event.getChangeSet(myAspect);
       if(changeSet == null) return;
       myBuffer.append(changeSet);
@@ -205,7 +203,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     }
 
     @Override
-    public boolean isAspectChangeInteresting(PomModelAspect aspect) {
+    public boolean isAspectChangeInteresting(@NotNull PomModelAspect aspect) {
       return aspect == myAspect;
     }
 
@@ -214,7 +212,7 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
     }
   }
 
-  public void testDocumentChange() throws Exception {
+  public void testDocumentChange() {
     final String xml = "" +
                        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n" +
                        "<LinearLayout xmlns:android=\"http://schemas.android.com/apk/res/android\"\n" +
@@ -256,6 +254,22 @@ public class XmlEventsTest extends LightCodeInsightTestCase {
 
     PsiManager.getInstance(getProject()).removePsiTreeChangeListener(listener);
   }
+
+  public void testRangeMarkersShouldSurviveOnSmallTagValueModification() {
+    String text = "<tag>x y z a b c d</tag>";
+
+    PsiFile file = PsiFileFactory.getInstance(getProject()).createFileFromText("a.xml", XMLLanguage.INSTANCE, text);
+    Document document = file.getViewProvider().getDocument();
+    RangeMarker marker = document.createRangeMarker(TextRange.from(text.indexOf("a b"), 3));
+
+    XmlTag tag = PsiTreeUtil.findElementOfClassAtOffset(file, 0, XmlTag.class, false);
+    WriteCommandAction.runWriteCommandAction(null, () -> tag.getValue().setText("x a b c d"));
+
+    assertEquals("<tag>x a b c d</tag>", document.getText());
+    assertTrue(marker.isValid());
+    assertEquals("a b", document.getText(TextRange.create(marker)));
+  }
+
 
   private static class TestListener extends PsiTreeChangeAdapter {
     @Override

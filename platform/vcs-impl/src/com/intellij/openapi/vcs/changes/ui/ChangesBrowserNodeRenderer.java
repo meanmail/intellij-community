@@ -1,20 +1,7 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.vcs.changes.ui;
 
+import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.BooleanGetter;
 import com.intellij.openapi.vcs.changes.issueLinks.IssueLinkRenderer;
@@ -22,6 +9,8 @@ import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.ui.ColoredTreeCellRenderer;
 import com.intellij.ui.SimpleTextAttributes;
 import com.intellij.ui.speedSearch.SpeedSearchUtil;
+import com.intellij.util.PlatformIcons;
+import com.intellij.util.ui.JBInsets;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -31,21 +20,23 @@ import java.awt.*;
 public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
 
   @NotNull private final BooleanGetter myShowFlatten;
-  @NotNull private final Project myProject;
-  @NotNull private final IssueLinkRenderer myIssueLinkRenderer;
+  @Nullable private final Project myProject;
+  @Nullable private final IssueLinkRenderer myIssueLinkRenderer;
   private final boolean myHighlightProblems;
+  @Nullable private JBInsets myBackgroundInsets;
 
-  public ChangesBrowserNodeRenderer(@NotNull Project project, @NotNull BooleanGetter showFlattenGetter, boolean highlightProblems) {
+  public ChangesBrowserNodeRenderer(@Nullable Project project, @NotNull BooleanGetter showFlattenGetter, boolean highlightProblems) {
     myShowFlatten = showFlattenGetter;
     myProject = project;
     myHighlightProblems = highlightProblems;
-    myIssueLinkRenderer = new IssueLinkRenderer(project, this);
+    myIssueLinkRenderer = project != null ? new IssueLinkRenderer(project, this) : null;
   }
 
   public boolean isShowFlatten() {
     return myShowFlatten.get();
   }
 
+  @Override
   public void customizeCellRenderer(@NotNull JTree tree,
                                     Object value,
                                     boolean selected,
@@ -59,7 +50,8 @@ public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
   }
 
   protected void appendFileName(@Nullable VirtualFile vFile, @NotNull String fileName, Color color) {
-    ChangesFileNameDecorator decorator = !myProject.isDefault() ? ChangesFileNameDecorator.getInstance(myProject) : null;
+    ChangesFileNameDecorator decorator = myProject != null && !myProject.isDefault()
+                                         ? ChangesFileNameDecorator.getInstance(myProject) : null;
 
     if (decorator != null) {
       decorator.appendFileName(this, vFile, fileName, color, myHighlightProblems);
@@ -69,7 +61,44 @@ public class ChangesBrowserNodeRenderer extends ColoredTreeCellRenderer {
     }
   }
 
+  @Override
+  public void clear() {
+    setBackgroundInsets(null);
+    setToolTipText(null);
+    super.clear();
+  }
+
+  @Override
+  protected void doPaintFragmentBackground(@NotNull Graphics2D g, int index, @NotNull Color bgColor, int x, int y, int width, int height) {
+    if (myBackgroundInsets != null) {
+      g.setColor(bgColor);
+      g.fillRect(x + myBackgroundInsets.left, y + myBackgroundInsets.top, width - myBackgroundInsets.width(),
+                 height - myBackgroundInsets.height());
+    }
+    else {
+      super.doPaintFragmentBackground(g, index, bgColor, x, y, width, height);
+    }
+  }
+
   public void appendTextWithIssueLinks(@NotNull String text, @NotNull SimpleTextAttributes baseStyle) {
-    myIssueLinkRenderer.appendTextWithLinks(text, baseStyle);
+    if (myIssueLinkRenderer != null) {
+      myIssueLinkRenderer.appendTextWithLinks(text, baseStyle);
+    }
+    else {
+      append(text, baseStyle);
+    }
+  }
+
+  public void setIcon(@NotNull FileType fileType, boolean isDirectory) {
+    Icon icon = isDirectory ? PlatformIcons.FOLDER_ICON : fileType.getIcon();
+    setIcon(icon);
+  }
+
+  public void setBackgroundInsets(@Nullable JBInsets backgroundInsets) {
+    myBackgroundInsets = backgroundInsets;
+  }
+
+  public boolean isShowingLocalChanges() {
+    return myHighlightProblems;
   }
 }

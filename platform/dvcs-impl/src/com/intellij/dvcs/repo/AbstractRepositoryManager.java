@@ -1,10 +1,11 @@
 package com.intellij.dvcs.repo;
 
+import com.intellij.dvcs.MultiRootBranches;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.vcs.AbstractVcs;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.changes.ChangesUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -58,6 +59,15 @@ public abstract class AbstractRepositoryManager<T extends Repository>
     return validateAndGetRepository(myGlobalRepositoryManager.getRepositoryForFile(file));
   }
 
+  /**
+   * @deprecated to delete in 2017.X
+   */
+  @Nullable
+  @Deprecated
+  public T getRepositoryForFileQuick(@NotNull VirtualFile file) {
+    return validateAndGetRepository(myGlobalRepositoryManager.getRepositoryForFileQuick(file));
+  }
+
   @Override
   @Nullable
   public T getRepositoryForFile(@NotNull FilePath file) {
@@ -89,27 +99,38 @@ public abstract class AbstractRepositoryManager<T extends Repository>
 
   @Override
   public void updateAllRepositories() {
-    ContainerUtil.process(getRepositories(), new Processor<T>() {
-      @Override
-      public boolean process(T repo) {
-        repo.update();
-        return true;
-      }
+    ContainerUtil.process(getRepositories(), repo -> {
+      repo.update();
+      return true;
     });
   }
 
   @Nullable
   private T validateAndGetRepository(@Nullable Repository repository) {
     if (repository == null || !myVcs.equals(repository.getVcs())) return null;
-    VirtualFile vcsDir = repository.getRoot().findChild(myRepoDirName);
-    //noinspection unchecked
-    return vcsDir != null && vcsDir.exists() ? (T)repository : null;
+    return ReadAction.compute(() -> {
+      VirtualFile root = repository.getRoot();
+      if (root.isValid()) {
+        VirtualFile vcsDir = root.findChild(myRepoDirName);
+        //noinspection unchecked
+        return vcsDir != null && vcsDir.exists() ? (T)repository : null;
+      }
+      return null;
+    });
   }
 
   @Override
   @NotNull
   public AbstractVcs getVcs() {
     return myVcs;
+  }
+
+  /**
+   * Returns true if the synchronous branch control should be proposed for this project,
+   * if the setting was not defined yet, and all repositories are on the same branch.
+   */
+  public boolean shouldProposeSyncControl() {
+    return !MultiRootBranches.diverged(getRepositories());
   }
 
 }

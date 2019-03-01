@@ -27,22 +27,19 @@ import java.util.List;
 public abstract class HgActionFromMqPatches extends DumbAwareAction {
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final HgMqUnAppliedPatchesPanel patchInfo = e.getRequiredData(HgMqUnAppliedPatchesPanel.MQ_PATCHES);
     final List<String> names = patchInfo.getSelectedPatchNames();
     final HgRepository repository = patchInfo.getRepository();
-    Runnable task = new Runnable() {
-      @Override
-      public void run() {
-        ProgressManager.getInstance().getProgressIndicator().setText(getTitle());
-        executeInCurrentThread(repository, names);
-      }
+    Runnable task = () -> {
+      ProgressManager.getInstance().getProgressIndicator().setText(getTitle());
+      executeInCurrentThread(repository, names);
     };
     patchInfo.updatePatchSeriesInBackground(task);
   }
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     HgMqUnAppliedPatchesPanel patchInfo = e.getData(HgMqUnAppliedPatchesPanel.MQ_PATCHES);
     e.getPresentation().setEnabled(patchInfo != null && patchInfo.getSelectedRowsCount() != 0 && isEnabled(patchInfo.getRepository()));
   }

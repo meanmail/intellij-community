@@ -92,7 +92,7 @@ public class AntArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
     public static final String BUILDER_NAME = "ant";
     private final JpsAntArtifactExtension myExtension;
 
-    public AntArtifactBuildTask(@NotNull JpsAntArtifactExtension extension) {
+    AntArtifactBuildTask(@NotNull JpsAntArtifactExtension extension) {
       myExtension = extension;
     }
 
@@ -132,7 +132,7 @@ public class AntArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
         throw new StopBuildException();
       }
 
-      List<String> classpath = new ArrayList<String>();
+      List<String> classpath = new ArrayList<>();
       File jreHome = new File(jdk.getHomePath(), "jre");
       for (File file : jdkLibrary.getFiles(JpsOrderRootType.COMPILED)) {
         if (!FileUtil.isAncestor(jreHome, file, false)) {
@@ -144,12 +144,12 @@ public class AntArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
       JpsAntInstallationImpl.addAllJarsFromDirectory(classpath, new File(SystemProperties.getUserHome(), ".ant/lib"));
       classpath.add(PathManager.getJarPathForClass(AntMain2.class));
 
-      List<String> vmParams = new ArrayList<String>();
+      List<String> vmParams = new ArrayList<>();
       vmParams.add("-Xmx" + options.getMaxHeapSize() + "m");
       vmParams.add("-Xss" + options.getMaxStackSize() + "m");
       vmParams.add("-Dant.home=" + antInstallation.getAntHome().getAbsolutePath());
 
-      List<String> programParams = new ArrayList<String>();
+      List<String> programParams = new ArrayList<>();
       for (String param : ParametersListUtil.parse(options.getAntCommandLineParameters())) {
         if (param.startsWith("-J")) {
           String vmParam = StringUtil.trimStart(param, "-J");
@@ -183,7 +183,7 @@ public class AntArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
       }
 
       List <String> commandLine = ExternalProcessUtil.buildJavaCommandLine(JpsJavaSdkType.getJavaExecutable(jdk), AntMain2.class.getName(),
-                                                                          Collections.<String>emptyList(), classpath, vmParams, programParams, false);
+                                                                           Collections.emptyList(), classpath, vmParams, programParams, false);
       try {
         Process process = new ProcessBuilder(commandLine).directory(new File(buildFilePath).getParentFile()).start();
         String commandLineString = StringUtil.join(commandLine, " ");
@@ -195,14 +195,14 @@ public class AntArtifactBuildTaskProvider extends ArtifactBuildTaskProvider {
         final StringBuilder errorOutput = new StringBuilder();
         handler.addProcessListener(new ProcessAdapter() {
           @Override
-          public void onTextAvailable(ProcessEvent event, Key outputType) {
+          public void onTextAvailable(@NotNull ProcessEvent event, @NotNull Key outputType) {
             if (outputType == ProcessOutputTypes.STDERR) {
               errorOutput.append(event.getText());
             }
           }
 
           @Override
-          public void processTerminated(ProcessEvent event) {
+          public void processTerminated(@NotNull ProcessEvent event) {
             int exitCode = event.getExitCode();
             if (exitCode != 0) {
               context.processMessage(new CompilerMessage(BUILDER_NAME, BuildMessage.Kind.ERROR, errorOutput.toString()));

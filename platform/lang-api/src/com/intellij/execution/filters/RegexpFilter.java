@@ -21,6 +21,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VirtualFile;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
@@ -36,7 +37,7 @@ public class RegexpFilter implements Filter, DumbAware {
   @NonNls public static final String LINE_MACROS = "$LINE$";
   @NonNls public static final String COLUMN_MACROS = "$COLUMN$";
 
-  @NonNls private static final String FILE_PATH_REGEXP = "(?<file>(?:\\p{Alpha}\\:)?[0-9 a-z_A-Z\\-\\\\./]+)";
+  @NonNls private static final String FILE_PATH_REGEXP = "(^|[\\W])(?<file>(?:\\p{Alpha}\\:|/)[0-9 a-z_A-Z\\-\\\\./]+)";
   @NonNls private static final String LINE_REGEXP = "(?<line>[0-9]+)";
   @NonNls private static final String COLUMN_REGEXP = "(?<column>[0-9]+)";
 
@@ -119,7 +120,7 @@ public class RegexpFilter implements Filter, DumbAware {
   }
 
   @Override
-  public Result applyFilter(String line, int entireLength) {
+  public Result applyFilter(@NotNull String line, int entireLength) {
     Matcher matcher = myPattern.matcher(StringUtil.newBombedCharSequence(line, 100));
     if (!matcher.find()) {
       return null;

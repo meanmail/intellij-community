@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.remoteServer.util.importProject;
 
 import com.intellij.execution.RunManager;
-import com.intellij.execution.RunManagerAdapter;
-import com.intellij.execution.RunManagerEx;
+import com.intellij.execution.RunManagerListener;
 import com.intellij.execution.RunnerAndConfigurationSettings;
 import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.ide.actions.ImportModuleAction;
@@ -26,10 +11,9 @@ import com.intellij.ide.util.newProjectWizard.AbstractProjectWizard;
 import com.intellij.ide.util.newProjectWizard.AddModuleWizard;
 import com.intellij.ide.util.newProjectWizard.StepSequence;
 import com.intellij.ide.util.projectWizard.ImportFromSourcesProvider;
-import com.intellij.ide.wizard.Step;
 import com.intellij.notification.Notification;
 import com.intellij.notification.NotificationListener;
-import com.intellij.openapi.components.AbstractProjectComponent;
+import com.intellij.openapi.components.ProjectComponent;
 import com.intellij.openapi.module.Module;
 import com.intellij.openapi.module.ModuleManager;
 import com.intellij.openapi.project.Project;
@@ -46,8 +30,8 @@ import com.intellij.remoteServer.impl.configuration.deployment.ModuleDeploymentS
 import com.intellij.remoteServer.util.CloudBundle;
 import com.intellij.remoteServer.util.CloudGitDeploymentDetector;
 import com.intellij.remoteServer.util.CloudNotifier;
-import com.intellij.util.Function;
 import com.intellij.util.containers.hash.HashMap;
+import com.intellij.util.messages.MessageBusConnection;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryChangeListener;
 import git4idea.repo.GitRepositoryManager;
@@ -58,37 +42,29 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**
- * @author michael.golubev
- */
-public class CloudGitRemoteDetector extends AbstractProjectComponent implements GitRepositoryChangeListener {
-
-  private final GitRepositoryManager myRepositoryManager;
-  private final RunManagerEx myRunManager;
+public class CloudGitRemoteDetector implements GitRepositoryChangeListener, ProjectComponent {
+  private final Project myProject;
 
   private final CloudNotifier myNotifier;
 
   private final List<CloudTypeDelegate> myDelegates;
 
-  public CloudGitRemoteDetector(Project project, GitRepositoryManager repositoryManager, RunManager runManager) {
-    super(project);
-    myRepositoryManager = repositoryManager;
-    myRunManager = (RunManagerEx)runManager;
+  public CloudGitRemoteDetector(Project project) {
+    myProject = project;
 
     myNotifier = new CloudNotifier("Git remotes detector");
 
     myDelegates = new ArrayList<>();
-    for (CloudGitDeploymentDetector deploymentDetector : CloudGitDeploymentDetector.EP_NAME.getExtensions()) {
+    for (CloudGitDeploymentDetector deploymentDetector : CloudGitDeploymentDetector.EP_NAME.getExtensionList()) {
       myDelegates.add(new CloudTypeDelegate(deploymentDetector));
     }
   }
 
   @Override
   public void projectOpened() {
-    myProject.getMessageBus().connect().subscribe(GitRepository.GIT_REPO_CHANGE, this);
-
-    myRunManager.addRunManagerListener(new RunManagerAdapter() {
-
+    MessageBusConnection connection = myProject.getMessageBus().connect();
+    connection.subscribe(GitRepository.GIT_REPO_CHANGE, this);
+    connection.subscribe(RunManagerListener.TOPIC, new RunManagerListener() {
       @Override
       public void runConfigurationAdded(@NotNull RunnerAndConfigurationSettings settings) {
         onRunConfigurationAddedOrChanged(settings);
@@ -119,9 +95,9 @@ public class CloudGitRemoteDetector extends AbstractProjectComponent implements 
 
     private final CloudGitDeploymentDetector myDeploymentDetector;
 
-    private Map<GitRepository, RepositoryNotifier> myRepositoryToNotifier = new HashMap<>();
+    private final Map<GitRepository, RepositoryNotifier> myRepositoryToNotifier = new HashMap<>();
 
-    public CloudTypeDelegate(CloudGitDeploymentDetector deploymentDetector) {
+    CloudTypeDelegate(CloudGitDeploymentDetector deploymentDetector) {
       myDeploymentDetector = deploymentDetector;
     }
 
@@ -148,7 +124,7 @@ public class CloudGitRemoteDetector extends AbstractProjectComponent implements 
 
     private boolean hasRunConfig4Repository(GitRepository repository) {
       List<RunConfiguration> runConfigurations
-        = myRunManager.getConfigurationsList(DeployToServerConfigurationTypesRegistrar.getDeployConfigurationType(getCloudType()));
+        = RunManager.getInstance(myProject).getConfigurationsList(DeployToServerConfigurationTypesRegistrar.getDeployConfigurationType(getCloudType()));
 
       VirtualFile repositoryRoot = repository.getRoot();
 
@@ -184,7 +160,7 @@ public class CloudGitRemoteDetector extends AbstractProjectComponent implements 
         return;
       }
 
-      GitRepository repository = myRepositoryManager.getRepositoryForRoot(contentRoot);
+      GitRepository repository = GitRepositoryManager.getInstance(myProject).getRepositoryForRoot(contentRoot);
       if (repository == null) {
         return;
       }
@@ -211,7 +187,7 @@ public class CloudGitRemoteDetector extends AbstractProjectComponent implements 
 
     private String myApplicationName;
 
-    public RepositoryNotifier(CloudGitDeploymentDetector deploymentDetector, GitRepository repository) {
+    RepositoryNotifier(CloudGitDeploymentDetector deploymentDetector, GitRepository repository) {
       myDeploymentDetector = deploymentDetector;
       myRepositoryRoot = repository.getRoot();
       myCloudName = deploymentDetector.getCloudType().getPresentableName();

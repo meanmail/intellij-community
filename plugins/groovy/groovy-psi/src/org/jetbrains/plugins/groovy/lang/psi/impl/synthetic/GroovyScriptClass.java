@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package org.jetbrains.plugins.groovy.lang.psi.impl.synthetic;
 
@@ -27,6 +15,7 @@ import com.intellij.psi.scope.PsiScopeProcessor;
 import com.intellij.ui.RowIcon;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.PathUtil;
+import icons.JetgroovyIcons;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -64,6 +53,7 @@ public class GroovyScriptClass extends GrLightTypeDefinitionBase implements Synt
     return new GroovyScriptClass(myFile);
   }
 
+  @NotNull
   @Override
   public GroovyFile getContainingFile() {
     return myFile;
@@ -231,8 +221,7 @@ public class GroovyScriptClass extends GrLightTypeDefinitionBase implements Synt
   @Override
   @Nullable
   public Icon getIcon(int flags) {
-    final Icon icon = myFile.getIcon(flags);
-    RowIcon baseIcon = ElementBase.createLayeredIcon(this, icon, 0);
+    RowIcon baseIcon = ElementBase.createLayeredIcon(this, JetgroovyIcons.Groovy.Class, 0);
     return ElementPresentationUtil.addVisibilityIcon(this, flags, baseIcon);
   }
 

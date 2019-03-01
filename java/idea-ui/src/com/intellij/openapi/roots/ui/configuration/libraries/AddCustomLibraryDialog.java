@@ -19,11 +19,8 @@ import com.intellij.facet.impl.ui.libraries.LibraryCompositionSettings;
 import com.intellij.facet.impl.ui.libraries.LibraryOptionsPanel;
 import com.intellij.framework.library.FrameworkLibraryVersionFilter;
 import com.intellij.ide.IdeBundle;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.roots.ModifiableRootModel;
 import com.intellij.openapi.roots.ModuleRootManager;
 import com.intellij.openapi.roots.libraries.Library;
@@ -48,13 +45,13 @@ public class AddCustomLibraryDialog extends DialogWrapper {
   private final LibrariesContainer myLibrariesContainer;
   private final Module myModule;
   private final ModifiableRootModel myModifiableRootModel;
-  private final @Nullable ParameterizedRunnable<ModifiableRootModel> myBeforeLibraryAdded;
+  private final @Nullable ParameterizedRunnable<? super ModifiableRootModel> myBeforeLibraryAdded;
   private final List<Library> myAddedLibraries = new ArrayList<>();
 
   private AddCustomLibraryDialog(CustomLibraryDescription description, LibrariesContainer librariesContainer,
                                  Module module,
                                  ModifiableRootModel modifiableRootModel,
-                                 @Nullable ParameterizedRunnable<ModifiableRootModel> beforeLibraryAdded) {
+                                 @Nullable ParameterizedRunnable<? super ModifiableRootModel> beforeLibraryAdded) {
     super(module.getProject(), true);
     myLibrariesContainer = librariesContainer;
     myModule = module;
@@ -70,14 +67,14 @@ public class AddCustomLibraryDialog extends DialogWrapper {
 
   public static AddCustomLibraryDialog createDialog(@NotNull CustomLibraryDescription description,
                                                     final @NotNull Module module,
-                                                    final ParameterizedRunnable<ModifiableRootModel> beforeLibraryAdded) {
+                                                    final ParameterizedRunnable<? super ModifiableRootModel> beforeLibraryAdded) {
     return createDialog(description, LibrariesContainerFactory.createContainer(module), module, null, beforeLibraryAdded);
   }
 
   public static AddCustomLibraryDialog createDialog(CustomLibraryDescription description,
                                                     final @NotNull LibrariesContainer librariesContainer, final @NotNull Module module,
                                                     final @Nullable ModifiableRootModel modifiableRootModel,
-                                                    @Nullable ParameterizedRunnable<ModifiableRootModel> beforeLibraryAdded) {
+                                                    @Nullable ParameterizedRunnable<? super ModifiableRootModel> beforeLibraryAdded) {
     return new AddCustomLibraryDialog(description, librariesContainer, module, modifiableRootModel, beforeLibraryAdded);
   }
 
@@ -89,25 +86,20 @@ public class AddCustomLibraryDialog extends DialogWrapper {
   @Override
   protected void doOKAction() {
     final LibraryCompositionSettings settings = myPanel.apply();
-    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> {
-      if (settings != null && settings.downloadFiles(myPanel.getMainPanel())) {
-        if (myModifiableRootModel == null) {
-          final ModifiableRootModel model = ModuleRootManager.getInstance(myModule).getModifiableModel();
-          new WriteAction() {
-            @Override
-            protected void run(@NotNull final Result result) {
-              addLibraries(model, settings);
-              model.commit();
-            }
-          }.execute();
-        }
-        else {
-          addLibraries(myModifiableRootModel, settings);
-        }
-
+    if (settings != null && settings.downloadFiles(myPanel.getMainPanel())) {
+      if (myModifiableRootModel == null) {
+        final ModifiableRootModel model = ModuleRootManager.getInstance(myModule).getModifiableModel();
+        WriteAction.run(() -> {
+          addLibraries(model, settings);
+          model.commit();
+        });
       }
-      super.doOKAction();
-    });
+      else {
+        addLibraries(myModifiableRootModel, settings);
+      }
+
+    }
+    super.doOKAction();
   }
 
   private void addLibraries(ModifiableRootModel model, final LibraryCompositionSettings settings) {

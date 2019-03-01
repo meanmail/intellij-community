@@ -1,23 +1,23 @@
-<idea-plugin version="2">
-  <name>Subversion Integration</name>
+<idea-plugin>
+  <name>Subversion</name>
   <id>Subversion</id>
-  <version>1.1</version>
   <category>VCS Integration</category>
-  <description>For Subversion 1.7 and older versions</description>
+  <description>
+    <![CDATA[
+      Provides integration with Subversion VCS.<br/>
+      Supports Subversion 1.7 and above.<br/>
+      Requires command line svn client.
+      ]]>
+  </description>
   <depends>com.intellij.modules.vcs</depends>
   <vendor>JetBrains</vendor>
   <resource-bundle>org.jetbrains.idea.svn.SvnBundle</resource-bundle>
-  <project-components>
-    <component>
-      <implementation-class>org.jetbrains.idea.svn.SvnFileUrlMappingImpl</implementation-class>
-      <option name="workspace" value="true"/>
-    </component>
-  </project-components>
 
   <actions>
 
     <action id="Subversion.ImportToSVNRepository" class="org.jetbrains.idea.svn.actions.ImportToRepositoryAction">
       <add-to-group group-id="Vcs.Import"/>
+      <add-to-group group-id="Vcs.Operations.Popup.NonVcsAware" relative-to-action="Start.Use.Vcs" anchor="before"/>
     </action>
     <action id="Subversion.BrowseSVNRepository" class="org.jetbrains.idea.svn.actions.BrowseRepositoryAction">
       <add-to-group group-id="Vcs.Browse"/>
@@ -33,16 +33,13 @@
 
 
     <action id="IntegrateChangeSetAction" class="org.jetbrains.idea.svn.actions.IntegrateChangeSetAction" popup="true"
-            icon="SvnIcons.IntegrateToBranch">
-      <add-to-group group-id="RepositoryChangesBrowserToolbar" anchor="last"/>
+            icon="AllIcons.Vcs.Merge">
+      <add-to-group group-id="Vcs.RepositoryChangesBrowserToolbar" anchor="last"/>
     </action>
 
     <action id="Subversion.TogglePropertiesDiff" class="com.intellij.openapi.actionSystem.EmptyAction" popup="true"
             icon="AllIcons.Actions.Preview"/>
 
-    <action id="PropertiesDiff" class="org.jetbrains.idea.svn.actions.ShowPropertiesDiffAction" popup="true" icon="SvnIcons.PropertiesDiff">
-      <add-to-group group-id="RepositoryChangesBrowserToolbar" anchor="last"/>
-    </action>
     <action id="EditCommitMessage" class="org.jetbrains.idea.svn.history.SvnEditCommitMessageAction" popup="true"
             icon="AllIcons.Actions.Edit"
             text="Edit Revision Comment" description="Edit revision comment. Previous message is rewritten.">
@@ -87,10 +84,10 @@
     </group>
     <action id="Subversion.MarkLocallyDeletedTreeResolved"
             class="org.jetbrains.idea.svn.actions.MarkLocallyDeletedTreeConflictResolvedAction">
-      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="ChangesView.Diff"/>
+      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="Diff.ShowDiff"/>
     </action>
     <reference id="Subversion.MarkTreeResolved">
-      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="ChangesView.Diff"/>
+      <add-to-group group-id="ChangesViewPopupMenu" anchor="after" relative-to-action="Diff.ShowDiff"/>
     </reference>
     <group id="SubversionUpdateActionGroup" class="org.jetbrains.idea.svn.actions.SubversionGroup">
       <reference ref="ChangesView.AddUnversioned"/>
@@ -110,7 +107,7 @@
     </action>
 
     <action id="Svn.Show.Working.Copies" class="org.jetbrains.idea.svn.actions.ShowSvnMapAction" text="Show Working Copies"
-            description="Shows working copies information: working copy formats and URLs" icon="SvnIcons.ShowWorkingCopies">
+            description="Shows working copies information: working copy formats and URLs">
       <add-to-group group-id="Vcs.Show.Toolwindow.Tab"/>
     </action>
   </actions>
@@ -121,6 +118,8 @@
     <applicationService serviceInterface="org.jetbrains.idea.svn.SvnApplicationSettings"
                         serviceImplementation="org.jetbrains.idea.svn.SvnApplicationSettings"/>
     <projectService serviceImplementation="org.jetbrains.idea.svn.SvnConfiguration"/>
+    <projectService serviceInterface="org.jetbrains.idea.svn.SvnFileUrlMapping"
+                    serviceImplementation="org.jetbrains.idea.svn.SvnFileUrlMappingImpl"/>
     <projectService serviceInterface="org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager"
                     serviceImplementation="org.jetbrains.idea.svn.branchConfig.SvnBranchConfigurationManager"/>
     <projectService serviceInterface="org.jetbrains.idea.svn.history.LoadedRevisionsCache"
@@ -136,15 +135,23 @@
     <applicationService serviceInterface="org.jetbrains.idea.svn.dialogs.browserCache.Loader"
                         serviceImplementation="org.jetbrains.idea.svn.dialogs.browserCache.CacheLoader"/>
 
-    <search.topHitProvider implementation="org.jetbrains.idea.svn.SvnOptionsTopHitProvider"/>
-    <vcs name="svn" vcsClass="org.jetbrains.idea.svn.SvnVcs" displayName="Subversion" administrativeAreaName=".svn, _svn"
-         crawlUpToCheckUnderVcs="true"/>
+    <search.projectOptionsTopHitProvider implementation="org.jetbrains.idea.svn.SvnOptionsTopHitProvider"/>
+    <vcs name="svn" vcsClass="org.jetbrains.idea.svn.SvnVcs" displayName="Subversion" administrativeAreaName=".svn, _svn"/>
+    <projectConfigurable id="vcs.Subversion" displayName="Subversion" instance="org.jetbrains.idea.svn.SvnConfigurable$General"
+                         parentId="project.propVCSSupport.Mappings" groupWeight="-500">
+      <configurable id="vcs.Subversion.Presentation" displayName="Presentation"
+                    instance="org.jetbrains.idea.svn.SvnConfigurable$Presentation"/>
+      <configurable id="vcs.Subversion.Network" displayName="Network" instance="org.jetbrains.idea.svn.SvnConfigurable$Network"/>
+      <configurable id="vcs.Subversion.SSH" displayName="SSH" instance="org.jetbrains.idea.svn.SvnConfigurable$Ssh"/>
+    </projectConfigurable>
     <vcsPopupProvider implementation="org.jetbrains.idea.svn.actions.SvnQuickListContentProvider"/>
 
-    <statistics.usagesCollector implementation="org.jetbrains.idea.svn.statistics.SvnWorkingCopyFormatUsagesCollector"/>
+    <statistics.projectUsagesCollector implementation="org.jetbrains.idea.svn.statistics.SvnWorkingCopyFormatUsagesCollector"/>
 
     <changesViewContent tabName="Subversion Working Copies Information" className="org.jetbrains.idea.svn.WorkingCopiesContent"
                         predicateClassName="org.jetbrains.idea.svn.WorkingCopiesContent$VisibilityPredicate"/>
+
+    <vcs.branchStateProvider implementation="org.jetbrains.idea.svn.branchConfig.SvnBranchStateProvider"/>
 
     <openapi.vcs.changes.actions.diff.ChangeDiffViewerWrapperProvider
         implementation="org.jetbrains.idea.svn.difftool.SvnChangeDiffViewerProvider"/>

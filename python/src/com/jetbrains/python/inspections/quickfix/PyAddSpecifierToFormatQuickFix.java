@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections.quickfix;
 
 import com.intellij.codeInspection.LocalQuickFix;
@@ -31,7 +17,6 @@ import com.jetbrains.python.psi.types.PyClassType;
 import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.psi.types.PyTypeChecker;
 import com.jetbrains.python.psi.types.TypeEvalContext;
-import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -40,17 +25,13 @@ import static com.jetbrains.python.inspections.PyStringFormatParser.filterSubsti
 import static com.jetbrains.python.inspections.PyStringFormatParser.parsePercentFormat;
 
 public class PyAddSpecifierToFormatQuickFix implements LocalQuickFix {
+  @Override
   @NotNull
-  public String getName() {
+  public String getFamilyName() {
     return PyBundle.message("QFIX.NAME.add.specifier");
   }
 
-  @NonNls
-  @NotNull
-  public String getFamilyName() {
-    return getName();
-  }
-
+  @Override
   public void applyFix(@NotNull final Project project, @NotNull final ProblemDescriptor descriptor) {
     final PsiElement element = descriptor.getPsiElement();
     final PyBinaryExpression expression = PsiTreeUtil.getParentOfType(element, PyBinaryExpression.class);
@@ -74,7 +55,7 @@ public class PyAddSpecifierToFormatQuickFix implements LocalQuickFix {
     final PyExpression leftExpression = expression.getLeftExpression();
     if (leftExpression instanceof PyStringLiteralExpression) {
       final List<PyStringFormatParser.SubstitutionChunk> chunks =
-        filterSubstitutions(parsePercentFormat(((PyStringLiteralExpression)leftExpression).getStringValue()));
+        filterSubstitutions(parsePercentFormat(leftExpression.getText()));
       PyExpression[] elements;
       if (rightExpression instanceof PyTupleExpression) {
         elements = ((PyTupleExpression)rightExpression).getElements();
@@ -83,22 +64,24 @@ public class PyAddSpecifierToFormatQuickFix implements LocalQuickFix {
         elements = new PyExpression[]{rightExpression};
       }
 
-      int shift = 2;
+      int shift = 1;
       for (int i = 0; i < chunks.size(); i++) {
-        final PyStringFormatParser.SubstitutionChunk chunk = chunks.get(i);
-        if (elements.length <= i) return;
-        final PyType type = context.getType(elements[i]);
-        final char conversionType = chunk.getConversionType();
-        if (conversionType == '\u0000') {
-          final int insertOffset = offset + chunk.getStartIndex() + shift;
-          if (insertOffset > leftExpression.getTextRange().getEndOffset()) return;
-          if (PyTypeChecker.match(strType, type, context)) {
-            document.insertString(insertOffset, "s");
-            shift += 1;
-          }
-          if (PyTypeChecker.match(intType, type, context) || PyTypeChecker.match(floatType, type, context)) {
-            document.insertString(insertOffset, "d");
-            shift += 1;
+        final PyStringFormatParser.PercentSubstitutionChunk chunk = PyUtil.as(chunks.get(i), PyStringFormatParser.PercentSubstitutionChunk.class);
+        if (chunk != null) {
+          if (elements.length <= i) return;
+          final PyType type = context.getType(elements[i]);
+          final char conversionType = chunk.getConversionType();
+          if (conversionType == '\u0000') {
+            final int insertOffset = offset + chunk.getStartIndex() + shift;
+            if (insertOffset > leftExpression.getTextRange().getEndOffset()) return;
+            if (PyTypeChecker.match(strType, type, context)) {
+              document.insertString(insertOffset, "s");
+              shift += 1;
+            }
+            if (PyTypeChecker.match(intType, type, context) || PyTypeChecker.match(floatType, type, context)) {
+              document.insertString(insertOffset, "d");
+              shift += 1;
+            }
           }
         }
       }

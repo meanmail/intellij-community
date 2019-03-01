@@ -1,6 +1,8 @@
 // "Extract if (a)" "true"
 class TestThreadInspection {
   void f(boolean a, boolean b, boolean c){
+      /*the comment inside redundant parenthesis*/
+      //simple end comment
       if (a) {
           System.out.println("a&b");
       } else if (b) {

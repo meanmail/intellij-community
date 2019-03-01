@@ -29,7 +29,6 @@ import org.jetbrains.plugins.gradle.util.GradleConstants;
 
 /**
  * @author Vladislav.Soroka
- * @since 3/27/14
  */
 public class GradleNotificationExtension implements ExternalSystemNotificationExtension {
   @NotNull
@@ -43,23 +42,19 @@ public class GradleNotificationExtension implements ExternalSystemNotificationEx
                         @NotNull Project project,
                         @Nullable Throwable error) {
     if (error == null) return;
-    //noinspection ThrowableResultOfMethodCallIgnored
     Throwable unwrapped = RemoteUtil.unwrap(error);
     if (unwrapped instanceof ExternalSystemException) {
       updateNotification(notification, project, (ExternalSystemException)unwrapped);
     }
   }
 
-  private static void updateNotification(@NotNull final NotificationData notificationData,
+  protected void updateNotification(@NotNull final NotificationData notificationData,
                                          @NotNull final Project project,
                                          @NotNull ExternalSystemException e) {
 
     for (String fix : e.getQuickFixes()) {
       if (OpenGradleSettingsCallback.ID.equals(fix)) {
         notificationData.setListener(OpenGradleSettingsCallback.ID, new OpenGradleSettingsCallback(project));
-      }
-      else if (ApplyGradlePluginCallback.ID.equals(fix)) {
-        notificationData.setListener(ApplyGradlePluginCallback.ID, new ApplyGradlePluginCallback(notificationData, project));
       }
       else if (GotoSourceNotificationCallback.ID.equals(fix)) {
         notificationData.setListener(GotoSourceNotificationCallback.ID, new GotoSourceNotificationCallback(notificationData, project));

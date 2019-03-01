@@ -8,7 +8,7 @@
       successive-show="5"/>
     <feature
       id="navigation.popup.file"
-      tip-file="GoToClass.html"
+      tip-file="GoToFile.html"
       min-usage-count="2"
       first-show="3"
       successive-show="5"/>
@@ -247,6 +247,12 @@
       first-show="2"
       successive-show="4"/>
     <feature
+      id="editor.delete.line"
+      tip-file="DeleteLine.html"
+      min-usage-count="1"
+      first-show="2"
+      successive-show="1"/>
+    <feature
       id="scratch"
       tip-file="Scratch.html"
       min-usage-count="10"
@@ -369,6 +375,11 @@
       successive-show="5"
       min-usage-count="5"
       />
+    <feature id="codeassist.inspect.batch"
+             tip-file="InspectCode.html"
+             first-show="3"
+             min-usage-count="5"
+             successive-show="5"/>
   </group>
 
   <group id="refactoring">

@@ -11,6 +11,7 @@ import com.intellij.diff.fragments.DiffFragment;
 import com.intellij.diff.fragments.LineFragment;
 import com.intellij.diff.fragments.LineFragmentImpl;
 import com.intellij.diff.requests.ContentDiffRequest;
+import com.intellij.diff.tools.util.BaseSyncScrollable;
 import com.intellij.diff.tools.util.DiffSplitter;
 import com.intellij.diff.tools.util.SyncScrollSupport;
 import com.intellij.diff.tools.util.side.TwosideTextDiffViewer;
@@ -44,8 +45,10 @@ import org.jetbrains.idea.svn.properties.PropertyValue;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.geom.AffineTransform;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   @NotNull private final WrapperRequest myWrapperRequest;
@@ -135,13 +138,10 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       }
     }
 
-    return new Runnable() {
-      @Override
-      public void run() {
-        for (DiffChange change : myDiffChanges) {
-          setupHighlighting(change, Side.LEFT);
-          setupHighlighting(change, Side.RIGHT);
-        }
+    return () -> {
+      for (DiffChange change : myDiffChanges) {
+        setupHighlighting(change, Side.LEFT);
+        setupHighlighting(change, Side.RIGHT);
       }
     };
   }
@@ -190,7 +190,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
   private class MyDividerPainter implements DiffSplitter.Painter, DiffDividerDrawUtil.DividerPaintable {
     @NotNull private final JBLabel myLabel;
 
-    public MyDividerPainter() {
+    MyDividerPainter() {
       myLabel = new JBLabel();
       myLabel.setFont(UIUtil.getLabelFont());
       myLabel.setHorizontalAlignment(SwingConstants.CENTER);
@@ -219,7 +219,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       int shift2 = editor2.getScrollingModel().getVerticalScrollOffset() - headerOffset2;
       double rotate = shift1 == shift2 ? 0 : Math.atan2(shift2 - shift1, clip.width);
 
-      DiffDividerDrawUtil.paintPolygons(gg, divider.getWidth(), false, rotate == 0, editor1, editor2, this);
+      DiffDividerDrawUtil.paintPolygons(gg, divider.getWidth(), rotate == 0, editor1, editor2, this);
 
       for (DiffChange change : myDiffChanges) {
         int y1 = editor1.logicalPositionToXY(new LogicalPosition(change.getStartLine(Side.LEFT), 0)).y - shift1;
@@ -305,12 +305,18 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       public int transfer(@NotNull Side side, int line) {
         return line;
       }
+
+      @NotNull
+      @Override
+      public Range getRange(@NotNull Side baseSide, int line) {
+        return BaseSyncScrollable.idRange(line);
+      }
     };
   }
 
   @Nullable
   @Override
-  public Object getData(@NonNls String dataId) {
+  public Object getData(@NotNull @NonNls String dataId) {
     if (PlatformDataKeys.HELP_ID.is(dataId)) {
       return "topicId758145";
     }
@@ -384,12 +390,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
       records.add(createRecord(name, before.get(name), after.get(name)));
     }
 
-    ContainerUtil.sort(records, new Comparator<PropertyRecord>() {
-      @Override
-      public int compare(PropertyRecord o1, PropertyRecord o2) {
-        return StringUtil.naturalCompare(o1.getName(), o2.getName());
-      }
-    });
+    ContainerUtil.sort(records, (o1, o2) -> StringUtil.naturalCompare(o1.getName(), o2.getName()));
 
     return records;
   }
@@ -426,7 +427,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
     @NotNull DocumentContent myContent2;
     private final boolean myEmbedded;
 
-    public WrapperRequest(@NotNull SvnPropertiesDiffRequest request,
+    WrapperRequest(@NotNull SvnPropertiesDiffRequest request,
                           @NotNull Document document1,
                           @NotNull Document document2,
                           boolean embedded) {
@@ -446,13 +447,13 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
     @NotNull
     @Override
     public List<DiffContent> getContents() {
-      return ContainerUtil.<DiffContent>list(myContent1, myContent2);
+      return ContainerUtil.list(myContent1, myContent2);
     }
 
     @NotNull
     @Override
     public List<String> getContentTitles() {
-      return myEmbedded ? ContainerUtil.<String>list(null, null) : myRequest.getContentTitles();
+      return myEmbedded ? ContainerUtil.list(null, null) : myRequest.getContentTitles();
     }
 
     @Nullable
@@ -477,7 +478,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
     @Nullable private final String myBefore;
     @Nullable private final String myAfter;
 
-    public PropertyRecord(@NotNull String name,
+    PropertyRecord(@NotNull String name,
                           @Nullable String before,
                           @Nullable String after) {
       assert before != null || after != null;
@@ -512,7 +513,7 @@ public class SvnPropertiesDiffViewer extends TwosideTextDiffViewer {
 
     @Nullable private List<? extends LineFragment> myFragments;
 
-    public DiffChange(@NotNull PropertyRecord record, int startLine1, int endLine1, int startLine2, int endLine2) {
+    DiffChange(@NotNull PropertyRecord record, int startLine1, int endLine1, int startLine2, int endLine2) {
       myRecord = record;
       myStartLine1 = startLine1;
       myEndLine1 = endLine1;

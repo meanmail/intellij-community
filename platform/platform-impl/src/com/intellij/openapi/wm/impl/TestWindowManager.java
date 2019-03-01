@@ -1,21 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.wm.impl;
 
+import com.intellij.ide.DataManager;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.actionSystem.ex.ActionManagerEx;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.TaskInfo;
 import com.intellij.openapi.project.Project;
@@ -49,18 +37,10 @@ import java.util.Map;
  */
 public final class TestWindowManager extends WindowManagerEx {
   private static final Key<StatusBar> STATUS_BAR = Key.create("STATUS_BAR");
+  private final DesktopLayout myLayout = new DesktopLayout();
 
+  @Override
   public final void doNotSuggestAsParent(final Window window) { }
-
-  @Override
-  public StatusBar getStatusBar(@NotNull Component c, @Nullable Project project) {
-    return null;
-  }
-
-  @Override
-  public StatusBar getStatusBar(@NotNull Component c) {
-    return null;
-  }
 
   @Override
   public final Window suggestParentWindow(@Nullable final Project project) {
@@ -114,13 +94,13 @@ public final class TestWindowManager extends WindowManagerEx {
   }
 
   @Override
-  public final IdeFrameImpl allocateFrame(final Project project) {
-    throw new UnsupportedOperationException();
+  public final IdeFrameImpl allocateFrame(@NotNull Project project) {
+    return new IdeFrameImpl(ActionManagerEx.getInstanceEx(), DataManager.getInstance());
   }
 
   @Override
-  public final void releaseFrame(final IdeFrameImpl frame) {
-    throw new UnsupportedOperationException();
+  public final void releaseFrame(@NotNull final IdeFrameImpl frame) {
+    frame.dispose();
   }
 
   @Override
@@ -151,7 +131,7 @@ public final class TestWindowManager extends WindowManagerEx {
 
   @Override
   public final DesktopLayout getLayout() {
-    throw new UnsupportedOperationException();
+    return myLayout;
   }
 
   @Override
@@ -171,11 +151,6 @@ public final class TestWindowManager extends WindowManagerEx {
 
   @Override
   public final boolean isInsideScreenBounds(final int x, final int y, final int width) {
-    throw new UnsupportedOperationException();
-  }
-
-  @Override
-  public final boolean isInsideScreenBounds(final int x, final int y) {
     throw new UnsupportedOperationException();
   }
 
@@ -250,12 +225,7 @@ public final class TestWindowManager extends WindowManagerEx {
     public void install(IdeFrame frame) { }
 
     @Override
-    public void setInfo(@Nullable String s, @Nullable String requestor) {     }
-
-    @Override
-    public String getInfoRequestor() {
-      return null;
-    }
+    public void setInfo(@Nullable String s, @Nullable String requestor) { }
 
     @Override
     public boolean isVisible() {
@@ -350,10 +320,7 @@ public final class TestWindowManager extends WindowManagerEx {
 
     @Override
     public BalloonHandler notifyProgressByBalloon(@NotNull MessageType type, @NotNull String htmlBody) {
-      return new BalloonHandler() {
-        public void hide() {
-        }
-      };
+      return () -> { };
     }
 
     @Override
@@ -361,10 +328,7 @@ public final class TestWindowManager extends WindowManagerEx {
                                                   @NotNull String htmlBody,
                                                   @Nullable Icon icon,
                                                   @Nullable HyperlinkListener listener) {
-      return new BalloonHandler() {
-        public void hide() {
-        }
-      };
+      return () -> { };
     }
   }
 }

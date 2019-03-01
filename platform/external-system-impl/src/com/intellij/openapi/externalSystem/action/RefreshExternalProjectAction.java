@@ -1,6 +1,7 @@
 package com.intellij.openapi.externalSystem.action;
 
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.Presentation;
 import com.intellij.openapi.externalSystem.model.ExternalSystemDataKeys;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
 import com.intellij.openapi.externalSystem.model.project.AbstractExternalEntityData;
@@ -14,7 +15,6 @@ import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
 import com.intellij.openapi.externalSystem.view.ExternalSystemNode;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
-import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
@@ -26,7 +26,6 @@ import java.util.List;
  * (e.g. imports missing libraries).
  *
  * @author Vladislav.Soroka
- * @since 9/18/13
  */
 public class RefreshExternalProjectAction extends ExternalSystemNodeAction<AbstractExternalEntityData> {
 
@@ -37,7 +36,19 @@ public class RefreshExternalProjectAction extends ExternalSystemNodeAction<Abstr
   }
 
   @Override
-  protected boolean isEnabled(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
+    super.update(e);
+    if(this.getClass() != RefreshExternalProjectAction.class) return;
+
+    ProjectSystemId systemId = getSystemId(e);
+    final String systemIdName = systemId != null ? systemId.getReadableName() : "external";
+    Presentation presentation = e.getPresentation();
+    presentation.setText(ExternalSystemBundle.message("action.refresh.project.text", systemIdName));
+    presentation.setDescription(ExternalSystemBundle.message("action.refresh.project.description", systemIdName));
+  }
+
+  @Override
+  protected boolean isEnabled(@NotNull AnActionEvent e) {
     if (!super.isEnabled(e)) return false;
     final List<ExternalSystemNode> selectedNodes = ExternalSystemDataKeys.SELECTED_NODES.getData(e.getDataContext());
     if (selectedNodes == null || selectedNodes.size() != 1) return false;

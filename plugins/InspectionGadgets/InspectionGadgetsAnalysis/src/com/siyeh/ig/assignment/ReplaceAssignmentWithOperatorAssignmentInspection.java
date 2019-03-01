@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2012 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,18 @@
  */
 package com.siyeh.ig.assignment;
 
+import com.intellij.codeInspection.CommonQuickFixBundle;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.util.IncorrectOperationException;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
+import com.siyeh.ig.psiutils.CommentTracker;
 import com.siyeh.ig.psiutils.EquivalenceChecker;
 import com.siyeh.ig.psiutils.ParenthesesUtils;
 import org.jetbrains.annotations.NotNull;
@@ -65,7 +66,7 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
     final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)infos[1];
     return InspectionGadgetsBundle.message(
       "assignment.replaceable.with.operator.assignment.problem.descriptor",
-      calculateReplacementExpression(lhs, polyadicExpression));
+      calculateReplacementExpression(lhs, polyadicExpression, new CommentTracker()));
   }
 
   @Override
@@ -81,7 +82,9 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
     return optionsPanel;
   }
 
-  static String calculateReplacementExpression(PsiExpression lhs, PsiPolyadicExpression polyadicExpression) {
+  static String calculateReplacementExpression(PsiExpression lhs,
+                                               PsiPolyadicExpression polyadicExpression,
+                                               CommentTracker ct) {
     final PsiExpression[] operands = polyadicExpression.getOperands();
     final PsiJavaToken sign = polyadicExpression.getTokenBeforeOperand(operands[1]);
     String signText = sign.getText();
@@ -91,7 +94,7 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
     else if ("||".equals(signText)) {
       signText = "|";
     }
-    final StringBuilder text = new StringBuilder(lhs.getText());
+    final StringBuilder text = new StringBuilder(ct.text(lhs));
     text.append(' ');
     text.append(signText);
     text.append("= ");
@@ -109,7 +112,7 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
       else {
         addToken = true;
       }
-      text.append(operand.getText());
+      text.append(ct.text(operand));
     }
     return text.toString();
   }
@@ -132,15 +135,13 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
       else if ("||".equals(signText)) {
         signText = "|";
       }
-      m_name = InspectionGadgetsBundle.message(
-        "assignment.replaceable.with.operator.replace.quickfix",
-        signText);
+      m_name = CommonQuickFixBundle.message("fix.replace.x.with.y", "=", signText+"=");
     }
 
     @NotNull
     @Override
     public String getFamilyName() {
-      return "Simplify";
+      return CommonQuickFixBundle.message("fix.simplify");
     }
 
     @Override
@@ -150,8 +151,7 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
     }
 
     @Override
-    public void doFix(@NotNull Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
+    public void doFix(@NotNull Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof PsiAssignmentExpression)) {
         return;
@@ -170,9 +170,10 @@ public class ReplaceAssignmentWithOperatorAssignmentInspection extends BaseInspe
       if (!(rhs instanceof PsiPolyadicExpression)) {
         return;
       }
+      CommentTracker ct = new CommentTracker();
       final PsiPolyadicExpression polyadicExpression = (PsiPolyadicExpression)rhs;
-      final String newExpression = calculateReplacementExpression(lhs, polyadicExpression);
-      PsiReplacementUtil.replaceExpression(expression, newExpression);
+      final String newExpression = calculateReplacementExpression(lhs, polyadicExpression, ct);
+      PsiReplacementUtil.replaceExpression(expression, newExpression, ct);
     }
   }
 

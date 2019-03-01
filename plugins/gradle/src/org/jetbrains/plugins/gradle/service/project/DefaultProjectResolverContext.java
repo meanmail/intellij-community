@@ -19,30 +19,36 @@ import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskId;
 import com.intellij.openapi.externalSystem.model.task.ExternalSystemTaskNotificationListener;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.util.UserDataHolderBase;
+import org.gradle.initialization.BuildLayoutParameters;
 import org.gradle.tooling.CancellationTokenSource;
+import org.gradle.tooling.GradleConnector;
 import org.gradle.tooling.ProjectConnection;
+import org.gradle.tooling.model.build.BuildEnvironment;
 import org.gradle.tooling.model.idea.IdeaModule;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.gradle.model.ProjectImportAction;
 import org.jetbrains.plugins.gradle.settings.GradleExecutionSettings;
 
+import java.io.File;
 import java.util.Collection;
 
 /**
  * @author Vladislav.Soroka
- * @since 12/8/2015
  */
 public class DefaultProjectResolverContext extends UserDataHolderBase implements ProjectResolverContext {
   @NotNull private final ExternalSystemTaskId myExternalSystemTaskId;
   @NotNull private final String myProjectPath;
   @Nullable private final GradleExecutionSettings mySettings;
   @NotNull private final ExternalSystemTaskNotificationListener myListener;
-  private ProjectConnection myConnection;
-  @Nullable private CancellationTokenSource myCancellationTokenSource;
   private final boolean myIsPreviewMode;
+  @NotNull private final CancellationTokenSource myCancellationTokenSource;
+  private ProjectConnection myConnection;
   @NotNull
   private ProjectImportAction.AllModels myModels;
+  private File myGradleUserHome;
+  @Nullable private String myProjectGradleVersion;
+  @Nullable private String myBuildSrcGroup;
 
   public DefaultProjectResolverContext(@NotNull final ExternalSystemTaskId externalSystemTaskId,
                                        @NotNull final String projectPath,
@@ -65,6 +71,7 @@ public class DefaultProjectResolverContext extends UserDataHolderBase implements
     myConnection = connection;
     myListener = listener;
     myIsPreviewMode = isPreviewMode;
+    myCancellationTokenSource = GradleConnector.newCancellationTokenSource();
   }
 
   @NotNull
@@ -101,14 +108,10 @@ public class DefaultProjectResolverContext extends UserDataHolderBase implements
     myConnection = connection;
   }
 
-  @Nullable
+  @NotNull
   @Override
   public CancellationTokenSource getCancellationTokenSource() {
     return myCancellationTokenSource;
-  }
-
-  public void setCancellationTokenSource(@Nullable CancellationTokenSource cancellationTokenSource) {
-    myCancellationTokenSource = cancellationTokenSource;
   }
 
   @NotNull
@@ -127,6 +130,24 @@ public class DefaultProjectResolverContext extends UserDataHolderBase implements
     return mySettings == null || mySettings.isResolveModulePerSourceSet();
   }
 
+  @Override
+  public boolean isUseQualifiedModuleNames() {
+    return mySettings != null && mySettings.isUseQualifiedModuleNames();
+  }
+
+  @Override
+  public boolean isDelegatedBuild() {
+    return mySettings == null || mySettings.isDelegatedBuild();
+  }
+
+  public File getGradleUserHome() {
+    if (myGradleUserHome == null) {
+      String serviceDirectory = mySettings == null ? null : mySettings.getServiceDirectory();
+      myGradleUserHome = serviceDirectory != null ? new File(serviceDirectory) : new BuildLayoutParameters().getGradleUserHomeDir();
+    }
+    return myGradleUserHome;
+  }
+
   @NotNull
   @Override
   public ProjectImportAction.AllModels getModels() {
@@ -141,13 +162,13 @@ public class DefaultProjectResolverContext extends UserDataHolderBase implements
   @Nullable
   @Override
   public <T> T getExtraProject(Class<T> modelClazz) {
-    return myModels.getExtraProject(null, modelClazz);
+    return myModels.getExtraProject((IdeaModule)null, modelClazz);
   }
 
   @Nullable
   @Override
   public <T> T getExtraProject(@Nullable IdeaModule module, Class<T> modelClazz) {
-    return myModels.getExtraProject(module, modelClazz);
+    return myModels.getExtraProject(module != null ? module.getGradleProject() : null, modelClazz);
   }
 
   @NotNull
@@ -163,8 +184,29 @@ public class DefaultProjectResolverContext extends UserDataHolderBase implements
 
   @Override
   public void checkCancelled() {
-    if (myCancellationTokenSource != null && myCancellationTokenSource.token().isCancellationRequested()) {
+    if (myCancellationTokenSource.token().isCancellationRequested()) {
       throw new ProcessCanceledException();
     }
+  }
+
+  @Override
+  public String getProjectGradleVersion() {
+    if (myProjectGradleVersion == null) {
+      final BuildEnvironment env = getModels().getBuildEnvironment();
+      if (env != null) {
+        myProjectGradleVersion = env.getGradle().getGradleVersion();
+      }
+    }
+    return myProjectGradleVersion;
+  }
+
+  public void setBuildSrcGroup(@Nullable String groupId) {
+    myBuildSrcGroup = groupId;
+  }
+
+  @Nullable
+  @Override
+  public String getBuildSrcGroup() {
+    return myBuildSrcGroup;
   }
 }

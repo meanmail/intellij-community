@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2010 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,13 +18,14 @@ package com.siyeh.ig.performance;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.PsiReplacementUtil;
-import com.siyeh.ig.psiutils.StringUtils;
+import com.siyeh.ig.psiutils.CommentTracker;
+import com.siyeh.ig.psiutils.ExpressionUtils;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -52,6 +53,10 @@ public class InstantiatingObjectToGetClassObjectInspection
 
   @Override
   protected InspectionGadgetsFix buildFix(Object... infos) {
+    final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)infos[0];
+    if (ExpressionUtils.isVoidContext(methodCallExpression)) {
+      return null;
+    }
     return new InstantiatingObjectToGetClassObjectFix();
   }
 
@@ -60,26 +65,16 @@ public class InstantiatingObjectToGetClassObjectInspection
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "instantiating.object.to.get.class.object.replace.quickfix");
     }
 
-    @NotNull
     @Override
-    public String getFamilyName() {
-      return getName();
-    }
-
-    @Override
-    public void doFix(Project project, ProblemDescriptor descriptor)
-      throws IncorrectOperationException {
-      final PsiMethodCallExpression expression =
-        (PsiMethodCallExpression)descriptor.getPsiElement();
-      final PsiReferenceExpression methodExpression =
-        expression.getMethodExpression();
-      final PsiExpression qualifier =
-        methodExpression.getQualifierExpression();
+    public void doFix(Project project, ProblemDescriptor descriptor) {
+      final PsiMethodCallExpression expression = (PsiMethodCallExpression)descriptor.getPsiElement();
+      final PsiReferenceExpression methodExpression = expression.getMethodExpression();
+      final PsiExpression qualifier = methodExpression.getQualifierExpression();
       if (qualifier == null) {
         return;
       }
@@ -87,22 +82,30 @@ public class InstantiatingObjectToGetClassObjectInspection
       if (type == null) {
         return;
       }
-      PsiReplacementUtil.replaceExpression(expression,
-                                           getTypeText(type, new StringBuilder()) + ".class");
+      PsiReplacementUtil.replaceExpression(expression, getTypeText(type, new StringBuilder()) + ".class", new CommentTracker());
     }
 
-    private static StringBuilder getTypeText(PsiType type,
-                                             StringBuilder text) {
+    private static StringBuilder getTypeText(PsiType type, StringBuilder text) {
       if (type instanceof PsiArrayType) {
         text.append("[]");
         final PsiArrayType arrayType = (PsiArrayType)type;
         getTypeText(arrayType.getComponentType(), text);
       }
       else if (type instanceof PsiClassType) {
-        final String canonicalText = type.getCanonicalText();
-        final String typeText =
-          StringUtils.stripAngleBrackets(canonicalText);
-        text.insert(0, typeText);
+        PsiClass aClass = ((PsiClassType)type).resolve();
+        if (aClass != null && PsiUtil.isLocalClass(aClass)) {
+          text.insert(0, aClass.getName());
+          aClass = aClass.getContainingClass();
+          while (aClass != null) {
+            text.insert(0, aClass.getName() + '.');
+            aClass = aClass.getContainingClass();
+          }
+        }
+        else {
+          final String canonicalText = type.getCanonicalText();
+          final String typeText = PsiNameHelper.getQualifiedClassName(canonicalText, false);
+          text.insert(0, typeText);
+        }
       }
       else {
         text.insert(0, type.getCanonicalText());
@@ -120,23 +123,14 @@ public class InstantiatingObjectToGetClassObjectInspection
     extends BaseInspectionVisitor {
 
     @Override
-    public void visitMethodCallExpression(
-      @NotNull PsiMethodCallExpression expression) {
+    public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
       super.visitMethodCallExpression(expression);
-      final PsiReferenceExpression methodExpression =
-        expression.getMethodExpression();
-      @NonNls final String methodName =
-        methodExpression.getReferenceName();
-      if (!"getClass".equals(methodName)) {
+      final PsiReferenceExpression methodExpression = expression.getMethodExpression();
+      @NonNls final String methodName = methodExpression.getReferenceName();
+      if (!"getClass".equals(methodName) || !expression.getArgumentList().isEmpty()) {
         return;
       }
-      final PsiExpressionList argumentList = expression.getArgumentList();
-      final PsiExpression[] args = argumentList.getExpressions();
-      if (args.length != 0) {
-        return;
-      }
-      final PsiExpression qualifier =
-        methodExpression.getQualifierExpression();
+      final PsiExpression qualifier = PsiUtil.skipParenthesizedExprDown(methodExpression.getQualifierExpression());
       if (!(qualifier instanceof PsiNewExpression)) {
         return;
       }
@@ -144,7 +138,7 @@ public class InstantiatingObjectToGetClassObjectInspection
       if (newExpression.getAnonymousClass() != null) {
         return;
       }
-      registerError(expression);
+      registerError(expression, expression);
     }
   }
 }

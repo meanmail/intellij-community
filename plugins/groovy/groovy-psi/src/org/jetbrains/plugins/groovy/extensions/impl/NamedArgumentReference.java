@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import com.intellij.psi.PsiMethod;
 import com.intellij.psi.PsiPolyVariantReferenceBase;
 import com.intellij.psi.PsiSubstitutor;
 import com.intellij.psi.util.PropertyUtil;
-import com.intellij.util.ArrayUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
@@ -52,15 +52,15 @@ public class NamedArgumentReference extends PsiPolyVariantReferenceBase<GrArgume
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final PsiElement resolved = resolve();
 
     if (resolved instanceof PsiMethod) {
       final PsiMethod method = (PsiMethod)resolved;
       final String oldName = getElement().getName();
       if (!method.getName().equals(oldName)) { //was property reference to accessor
-        if (PropertyUtil.isSimplePropertySetter(method)) {
-          final String newPropertyName = PropertyUtil.getPropertyName(newElementName);
+        if (PropertyUtilBase.isSimplePropertySetter(method)) {
+          final String newPropertyName = PropertyUtilBase.getPropertyName(newElementName);
           if (newPropertyName != null) {
             newElementName = newPropertyName;
           }
@@ -69,12 +69,6 @@ public class NamedArgumentReference extends PsiPolyVariantReferenceBase<GrArgume
     }
 
     return super.handleElementRename(newElementName);
-  }
-
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 
   @NotNull

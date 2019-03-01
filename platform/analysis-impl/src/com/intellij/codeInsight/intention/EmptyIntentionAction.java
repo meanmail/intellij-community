@@ -25,12 +25,7 @@ import com.intellij.psi.PsiFile;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
-import java.util.List;
 
-/**
- * User: anna
- * Date: May 11, 2005
- */
 public final class EmptyIntentionAction extends AbstractEmptyIntentionAction implements LowPriorityAction, Iconable {
   private final String myName;
 
@@ -66,12 +61,6 @@ public final class EmptyIntentionAction extends AbstractEmptyIntentionAction imp
 
   public int hashCode() {
     return myName.hashCode();
-  }
-
-  // used by TeamCity plugin
-  @Deprecated
-  public EmptyIntentionAction(@NotNull final String name, @NotNull List<IntentionAction> options) {
-    myName = name;
   }
 
   @Override

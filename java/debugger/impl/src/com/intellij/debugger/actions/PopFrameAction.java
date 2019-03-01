@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 /*
@@ -37,15 +25,14 @@ import com.intellij.openapi.actionSystem.ActionPlaces;
 import com.intellij.openapi.actionSystem.AnActionEvent;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.ModalityState;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.MessageDialogBuilder;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.psi.PsiCodeBlock;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiStatement;
-import com.intellij.psi.PsiTryStatement;
+import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
@@ -68,6 +55,9 @@ import java.util.Collections;
 import java.util.List;
 
 public class PopFrameAction extends DebuggerAction implements DumbAware {
+  private static final Logger LOG = Logger.getInstance(PopFrameAction.class);
+
+  @Override
   public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
     final JavaStackFrame stackFrame = getStackFrame(e);
@@ -93,10 +83,8 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
 
                                   @Override
                                   public void errorOccurred(@NotNull final String errorMessage) {
-                                    ApplicationManager.getApplication().invokeLater(() -> Messages
-                                      .showMessageDialog(project, DebuggerBundle.message("error.executing.finally", errorMessage),
-                                                         UIUtil.removeMnemonic(ActionsBundle.actionText(DebuggerActions.POP_FRAME)),
-                                                         Messages.getErrorIcon()));
+                                    showError(project, DebuggerBundle.message("error.executing.finally", errorMessage),
+                                              UIUtil.removeMnemonic(ActionsBundle.actionText(DebuggerActions.POP_FRAME)));
                                   }
                                 })) return;
       popFrame(debugProcess, debuggerContext, stackFrame);
@@ -105,9 +93,7 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
       Messages.showMessageDialog(project, DebuggerBundle.message("error.native.method.exception"),
                                  UIUtil.removeMnemonic(ActionsBundle.actionText(DebuggerActions.POP_FRAME)), Messages.getErrorIcon());
     }
-    catch (InvalidStackFrameException ignored) {
-    }
-    catch(VMDisconnectedException ignored) {
+    catch (InvalidStackFrameException | VMDisconnectedException ignored) {
     }
   }
 
@@ -116,7 +102,7 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
                                 JavaStackFrame stackFrame,
                                 XDebuggerEvaluator.XEvaluationCallback callback) {
     if (!DebuggerSettings.EVALUATE_FINALLY_NEVER.equals(DebuggerSettings.getInstance().EVALUATE_FINALLY_ON_POP_FRAME)) {
-      List<PsiStatement> statements = getFinallyStatements(stackFrame.getDescriptor().getSourcePosition());
+      List<PsiStatement> statements = getFinallyStatements(project, stackFrame.getDescriptor().getSourcePosition());
       if (!statements.isEmpty()) {
         StringBuilder sb = new StringBuilder();
         for (PsiStatement statement : statements) {
@@ -209,7 +195,13 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
     }
   }
 
-  private static List<PsiStatement> getFinallyStatements(@Nullable SourcePosition position) {
+  static void showError(Project project, String message, String title) {
+    ApplicationManager.getApplication().invokeLater(
+      () -> Messages.showMessageDialog(project, message, title, Messages.getErrorIcon()),
+      ModalityState.any());
+  }
+
+  private static List<PsiStatement> getFinallyStatements(Project project, @Nullable SourcePosition position) {
     if (position == null) {
       return Collections.emptyList();
     }
@@ -217,6 +209,16 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
     PsiElement element = position.getFile().findElementAt(position.getOffset());
     PsiTryStatement tryStatement = PsiTreeUtil.getParentOfType(element, PsiTryStatement.class);
     while (tryStatement != null) {
+      PsiResourceList resourceList = tryStatement.getResourceList();
+      if (resourceList != null) {
+        PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
+        for (PsiResourceListElement listElement : resourceList) {
+          String varName = getResourceName(listElement);
+          if (varName != null) {
+            res.add(factory.createStatementFromText("if (" + varName + " != null) " + varName + ".close();", tryStatement));
+          }
+        }
+      }
       PsiCodeBlock finallyBlock = tryStatement.getFinallyBlock();
       if (finallyBlock != null) {
         ContainerUtil.addAll(res, finallyBlock.getStatements());
@@ -224,6 +226,17 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
       tryStatement = PsiTreeUtil.getParentOfType(tryStatement, PsiTryStatement.class);
     }
     return res;
+  }
+
+  private static String getResourceName(PsiResourceListElement resource) {
+    if (resource instanceof PsiResourceVariable) {
+      return ((PsiResourceVariable)resource).getName();
+    }
+    else if (resource instanceof PsiResourceExpression) {
+      return ((PsiResourceExpression)resource).getExpression().getText();
+    }
+    LOG.error("Unknown PsiResourceListElement type: " + resource.getClass());
+    return null;
   }
 
   static JavaStackFrame getStackFrame(AnActionEvent e) {
@@ -305,6 +318,7 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
     return suspendContext != null && debuggerContext.getThreadProxy() == suspendContext.getThread();
   }
 
+  @Override
   public void update(@NotNull AnActionEvent e) {
     boolean enable = false;
 
@@ -313,7 +327,8 @@ public class PopFrameAction extends DebuggerAction implements DumbAware {
       enable = proxy.getVirtualMachine().canPopFrames();
     }
 
-    if(ActionPlaces.isMainMenuOrActionSearch(e.getPlace()) || ActionPlaces.DEBUGGER_TOOLBAR.equals(e.getPlace())) {
+    if((ActionPlaces.isMainMenuOrActionSearch(e.getPlace()) || ActionPlaces.DEBUGGER_TOOLBAR.equals(e.getPlace()))
+        && isInJavaSession(e)) {
       e.getPresentation().setEnabled(enable);
     }
     else {

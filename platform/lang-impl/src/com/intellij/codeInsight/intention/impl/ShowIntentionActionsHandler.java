@@ -1,27 +1,16 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.intention.impl;
 
 import com.intellij.codeInsight.CodeInsightActionHandler;
+import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInsight.daemon.DaemonCodeAnalyzer;
 import com.intellij.codeInsight.daemon.impl.DaemonCodeAnalyzerImpl;
+import com.intellij.codeInsight.daemon.impl.IntentionsUI;
 import com.intellij.codeInsight.daemon.impl.ShowIntentionsPass;
 import com.intellij.codeInsight.hint.HintManagerImpl;
 import com.intellij.codeInsight.intention.IntentionAction;
+import com.intellij.codeInsight.intention.IntentionActionDelegate;
 import com.intellij.codeInsight.intention.PsiElementBaseIntentionAction;
 import com.intellij.codeInsight.lookup.LookupEx;
 import com.intellij.codeInsight.lookup.LookupManager;
@@ -31,19 +20,24 @@ import com.intellij.codeInspection.SuppressIntentionActionFromFix;
 import com.intellij.featureStatistics.FeatureUsageTracker;
 import com.intellij.featureStatistics.FeatureUsageTrackerImpl;
 import com.intellij.injected.editor.EditorWindow;
+import com.intellij.internal.statistic.collectors.fus.actions.persistence.IntentionsCollector;
 import com.intellij.lang.injection.InjectedLanguageManager;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.TransactionGuard;
 import com.intellij.openapi.application.WriteAction;
+import com.intellij.openapi.application.impl.ApplicationInfoImpl;
 import com.intellij.openapi.command.CommandProcessor;
-import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.IndexNotReadyException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.registry.Registry;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.stubs.StubTextInconsistencyException;
 import com.intellij.util.PairProcessor;
 import com.intellij.util.ThreeState;
 import org.jetbrains.annotations.NotNull;
@@ -53,7 +47,6 @@ import org.jetbrains.annotations.Nullable;
  * @author mike
  */
 public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
-  private static final Logger LOG = Logger.getInstance("#com.intellij.codeInsight.intention.impl.ShowIntentionActionsHandler");
 
   @Override
   public void invoke(@NotNull final Project project, @NotNull Editor editor, @NotNull PsiFile file) {
@@ -72,17 +65,8 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     final DaemonCodeAnalyzerImpl codeAnalyzer = (DaemonCodeAnalyzerImpl)DaemonCodeAnalyzer.getInstance(project);
     letAutoImportComplete(editor, file, codeAnalyzer);
 
-    ShowIntentionsPass.IntentionsInfo intentions = new ShowIntentionsPass.IntentionsInfo();
-    ShowIntentionsPass.getActionsToShow(editor, file, intentions, -1);
-    IntentionHintComponent hintComponent = codeAnalyzer.getLastIntentionHint();
-    if (hintComponent != null) {
-      IntentionHintComponent.PopupUpdateResult result = hintComponent.isForEditor(editor)
-                                                        ? hintComponent.updateActions(intentions)
-                                                        : IntentionHintComponent.PopupUpdateResult.HIDE_AND_RECREATE;
-      if (result == IntentionHintComponent.PopupUpdateResult.HIDE_AND_RECREATE) {
-        hintComponent.hide();
-      }
-    }
+    ShowIntentionsPass.IntentionsInfo intentions = ShowIntentionsPass.getActionsToShow(editor, file, true);
+    IntentionsUI.getInstance(project).hide();
 
     if (HintManagerImpl.getInstanceImpl().performCurrentQuestionAction()) return;
 
@@ -93,8 +77,16 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
       return;
     }
 
+    editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
+    Editor finalEditor = editor;
+    PsiFile finalFile = file;
+    editor.getScrollingModel().runActionOnScrollingFinished(() -> showIntentionHint(project, finalEditor, finalFile, intentions));
+  }
+
+  protected void showIntentionHint(@NotNull Project project, @NotNull Editor editor, @NotNull PsiFile file, @NotNull ShowIntentionsPass.IntentionsInfo intentions) {
     if (!intentions.isEmpty()) {
-      IntentionHintComponent.showIntentionHint(project, file, editor, intentions, true);
+      CachedIntentions cachedIntentions = CachedIntentions.createAndUpdateActions(project, file, editor, intentions);
+      IntentionHintComponent.showIntentionHint(project, file, editor, true, cachedIntentions);
     }
   }
 
@@ -107,15 +99,15 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     return false;
   }
 
-  // returns editor,file where the action is available or null if there are none
   public static boolean availableFor(@NotNull PsiFile psiFile, @NotNull Editor editor, @NotNull IntentionAction action) {
     if (!psiFile.isValid()) return false;
 
     int offset = editor.getCaretModel().getOffset();
     PsiElement psiElement = psiFile.findElementAt(offset);
-    boolean inProject = psiFile.getManager().isInProject(psiFile);
     try {
       Project project = psiFile.getProject();
+      if (action instanceof IntentionActionDelegate) action = ((IntentionActionDelegate)action).getDelegate();
+      if (action instanceof IntentionActionDelegate) action = ((IntentionActionDelegate)action).getDelegate();
       if (action instanceof SuppressIntentionActionFromFix) {
         final ThreeState shouldBeAppliedToInjectionHost = ((SuppressIntentionActionFromFix)action).isShouldBeAppliedToInjectionHost();
         if (editor instanceof EditorWindow && shouldBeAppliedToInjectionHost == ThreeState.YES) {
@@ -127,7 +119,8 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
       }
       
       if (action instanceof PsiElementBaseIntentionAction) {
-        if (!inProject || psiElement == null || !((PsiElementBaseIntentionAction)action).isAvailable(project, editor, psiElement)) return false;
+        PsiElementBaseIntentionAction psiAction = (PsiElementBaseIntentionAction)action;
+        if (psiElement == null || !psiAction.checkFile(psiFile) || !psiAction.isAvailable(project, editor, psiElement)) return false;
       }
       else if (!action.isAvailable(project, editor, psiFile)) {
         return false;
@@ -140,7 +133,7 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
   }
 
   @Nullable
-  public static Pair<PsiFile,Editor> chooseBetweenHostAndInjected(@NotNull PsiFile hostFile, @NotNull Editor hostEditor, @NotNull PairProcessor<PsiFile, Editor> predicate) {
+  public static Pair<PsiFile,Editor> chooseBetweenHostAndInjected(@NotNull PsiFile hostFile, @NotNull Editor hostEditor, @NotNull PairProcessor<? super PsiFile, ? super Editor> predicate) {
     Editor editorToApply = null;
     PsiFile fileToApply = null;
 
@@ -178,26 +171,50 @@ public class ShowIntentionActionsHandler implements CodeInsightActionHandler {
     FeatureUsageTracker.getInstance().triggerFeatureUsed("codeassists.quickFix");
     ((FeatureUsageTrackerImpl)FeatureUsageTracker.getInstance()).getFixesStats().registerInvocation();
 
-    final Pair<PsiFile, Editor> pair = hostEditor != null ? chooseBetweenHostAndInjected(hostFile, hostEditor,
-                                                                                         (psiFile, editor) -> availableFor(psiFile, editor, action)) : Pair.<PsiFile, Editor>create(hostFile, null);
+    PsiDocumentManager.getInstance(project).commitAllDocuments();
+
+    Pair<PsiFile, Editor> pair = chooseFileForAction(hostFile, hostEditor, action);
     if (pair == null) return false;
 
-    CommandProcessor.getInstance().executeCommand(project, () -> {
-      Runnable r = () -> action.invoke(project, pair.second, pair.first);
-      try {
-        if (action.startInWriteAction()) {
-          WriteAction.run(r::run);
-        } else {
-          r.run();
-        }
-      }
-      catch (IncorrectOperationException e) {
-        LOG.error(e);
-      }
-      if (hostEditor != null) {
-        DaemonCodeAnalyzer.getInstance(project).updateVisibleHighlighters(hostEditor);
-      }
-    }, text, null);
+    CommandProcessor.getInstance().executeCommand(project, () ->
+      TransactionGuard.getInstance().submitTransactionAndWait(
+        () -> invokeIntention(action, pair.second, pair.first)), text, null);
+
+    checkPsiTextConsistency(hostFile);
+
     return true;
+  }
+
+  private static void checkPsiTextConsistency(@NotNull PsiFile hostFile) {
+    if (Registry.is("ide.check.stub.text.consistency") ||
+        ApplicationManager.getApplication().isUnitTestMode() && !ApplicationInfoImpl.isInStressTest()) {
+      if (hostFile.isValid()) {
+        StubTextInconsistencyException.checkStubTextConsistency(hostFile);
+      }
+    }
+  }
+
+  private static void invokeIntention(@NotNull IntentionAction action, @Nullable Editor editor, @NotNull PsiFile file) {
+    IntentionsCollector.getInstance().record(file.getProject(), action, file.getLanguage());
+    PsiElement elementToMakeWritable = action.getElementToMakeWritable(file);
+    if (elementToMakeWritable != null && !FileModificationService.getInstance().preparePsiElementsForWrite(elementToMakeWritable)) {
+      return;
+    }
+
+    Runnable r = () -> action.invoke(file.getProject(), editor, file);
+    if (action.startInWriteAction()) {
+      WriteAction.run(r::run);
+    } else {
+      r.run();
+    }
+  }
+
+
+  @Nullable
+  public static Pair<PsiFile, Editor> chooseFileForAction(@NotNull PsiFile hostFile,
+                                                          @Nullable Editor hostEditor,
+                                                          @NotNull IntentionAction action) {
+    return hostEditor == null ? Pair.create(hostFile, null) :
+           chooseBetweenHostAndInjected(hostFile, hostEditor, (psiFile, editor) -> availableFor(psiFile, editor, action));
   }
 }

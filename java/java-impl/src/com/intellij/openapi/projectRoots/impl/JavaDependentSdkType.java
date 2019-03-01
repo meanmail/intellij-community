@@ -20,29 +20,36 @@ import com.intellij.openapi.projectRoots.JavaSdkType;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkType;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author Dmitry Avdeev
- *         Date: 12/5/12
  */
-public abstract class JavaDependentSdkType extends DependentSdkType {
+public abstract class JavaDependentSdkType extends DependentSdkType implements JavaSdkType {
 
-  public JavaDependentSdkType(@NonNls String name) {
+  public JavaDependentSdkType(@NonNls @NotNull String name) {
     super(name);
   }
 
   @Override
-  protected boolean isValidDependency(Sdk sdk) {
+  protected boolean isValidDependency(@NotNull Sdk sdk) {
     return sdk.getSdkType() instanceof JavaSdkType;
   }
 
+  @NotNull
   @Override
   public String getUnsatisfiedDependencyMessage() {
     return "You need to configure a Java SDK first";
   }
 
+  @NotNull
   @Override
-  protected SdkType getDependencyType() {
+  public SdkType getDependencyType() {
     return JavaSdk.getInstance();
+  }
+
+  @Override
+  public boolean isDependent() {
+    return true;
   }
 }

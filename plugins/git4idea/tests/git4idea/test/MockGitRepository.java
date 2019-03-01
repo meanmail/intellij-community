@@ -15,6 +15,7 @@
  */
 package git4idea.test;
 
+import com.intellij.dvcs.ignore.VcsRepositoryIgnoredFilesHolder;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
 import git4idea.GitLocalBranch;
@@ -84,6 +85,12 @@ public class MockGitRepository implements GitRepository {
     throw new UnsupportedOperationException();
   }
 
+  @Nullable
+  @Override
+  public GitBranchTrackInfo getBranchTrackInfo(@NotNull String localBranchName) {
+    throw new UnsupportedOperationException();
+  }
+
   @Override
   public boolean isRebaseInProgress() {
     throw new UnsupportedOperationException();
@@ -130,6 +137,12 @@ public class MockGitRepository implements GitRepository {
     throw new UnsupportedOperationException();
   }
 
+  @NotNull
+  @Override
+  public Collection<GitSubmoduleInfo> getSubmodules() {
+    throw new UnsupportedOperationException();
+  }
+
   @Nullable
   @Override
   public String getCurrentRevision() {
@@ -149,6 +162,12 @@ public class MockGitRepository implements GitRepository {
   @NotNull
   @Override
   public String toLogString() {
+    throw new UnsupportedOperationException();
+  }
+
+  @NotNull
+  @Override
+  public VcsRepositoryIgnoredFilesHolder getIgnoredFilesHolder() {
     throw new UnsupportedOperationException();
   }
 

@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 
 package com.intellij.codeInspection.ex;
@@ -75,11 +63,9 @@ public class DescriptorComposer extends HTMLComposerImpl {
     }
   }
 
+  @NotNull
   public static String[] quickFixTexts(RefEntity where, @NotNull InspectionToolPresentation toolPresentation){
-    QuickFixAction[] quickFixes = toolPresentation.getQuickFixes(new RefEntity[] {where}, null);
-    if (quickFixes == null) {
-      return null;
-    }
+    QuickFixAction[] quickFixes = toolPresentation.getQuickFixes(where);
     List<String> texts = new ArrayList<>();
     for (QuickFixAction quickFix : quickFixes) {
       String text = quickFix.getText();
@@ -89,8 +75,8 @@ public class DescriptorComposer extends HTMLComposerImpl {
     return ArrayUtil.toStringArray(texts);
   }
 
-  private static String escapeQuickFixText(String text) {
-    return XmlStringUtil.isWrappedInHtml(text) ? XmlStringUtil.stripHtml(text) : StringUtil.escapeXml(text);
+  private static String escapeQuickFixText(@NotNull String text) {
+    return XmlStringUtil.isWrappedInHtml(text) ? XmlStringUtil.stripHtml(text) : StringUtil.escapeXmlEntities(text);
   }
 
   protected void composeAdditionalDescription(@NotNull StringBuffer buf, @NotNull RefEntity refEntity) {}
@@ -114,7 +100,6 @@ public class DescriptorComposer extends HTMLComposerImpl {
 
     genPageHeader(buf, refElement);
     appendHeading(buf, InspectionsBundle.message("inspection.problem.synopsis"));
-    //noinspection HardCodedStringLiteral
     buf.append("<br>");
     appendAfterHeaderIndention(buf);
 
@@ -124,23 +109,17 @@ public class DescriptorComposer extends HTMLComposerImpl {
 
     final QuickFix[] fixes = descriptor.getFixes();
     if (fixes != null && fixes.length > 0) {
-      //noinspection HardCodedStringLiteral
       buf.append("<br><br>");
       appendHeading(buf, InspectionsBundle.message("inspection.problem.resolution"));
-      //noinspection HardCodedStringLiteral
       buf.append("<br>");
       appendAfterHeaderIndention(buf);
 
       int idx = 0;
       for (QuickFix fix : fixes) {
-        //noinspection HardCodedStringLiteral
-        //noinspection HardCodedStringLiteral
         buf.append("<a HREF=\"file://bred.txt#invokelocal:" + (idx++));
         buf.append("\">");
         buf.append(escapeQuickFixText(fix.getName()));
-        //noinspection HardCodedStringLiteral
         buf.append("</a>");
-        //noinspection HardCodedStringLiteral
         buf.append("<br>");
         appendAfterHeaderIndention(buf);
       }
@@ -156,26 +135,16 @@ public class DescriptorComposer extends HTMLComposerImpl {
       vFile = expression.getContainingFile().getVirtualFile();
       if (vFile instanceof VirtualFileWindow) vFile = ((VirtualFileWindow)vFile).getDelegate();
 
-      //noinspection HardCodedStringLiteral
       anchor.append("<a HREF=\"");
-      if (myExporter == null){
-        //noinspection HardCodedStringLiteral
-        anchor.append(appendURL(vFile, "descr:" + i));
-      }
-      else {
-        anchor.append(myExporter.getURL(refElement));
-      }
+      anchor.append(appendURL(vFile, "descr:" + i));
 
       anchor.append("\">");
       anchor.append(ProblemDescriptorUtil.extractHighlightedText(description, expression).replaceAll("\\$", "\\\\\\$"));
-      //noinspection HardCodedStringLiteral
       anchor.append("</a>");
     }
     else {
-      //noinspection HardCodedStringLiteral
       anchor.append("<font style=\"font-weight:bold; color:#FF0000\";>");
       anchor.append(InspectionsBundle.message("inspection.export.results.invalidated.item"));
-      //noinspection HardCodedStringLiteral
       anchor.append("</font>");
     }
 
@@ -188,27 +157,21 @@ public class DescriptorComposer extends HTMLComposerImpl {
       descriptionTemplate = StringUtil.replace(descriptionTemplate, "</code>", "'");
       descriptionTemplate = XmlStringUtil.escapeString(descriptionTemplate);
     }
-    //noinspection HardCodedStringLiteral
     final String reference = "#ref";
     final boolean containsReference = descriptionTemplate.contains(reference);
     String res = descriptionTemplate.replaceAll(reference, anchor.toString());
     final int lineNumber = description instanceof ProblemDescriptor ? ((ProblemDescriptor)description).getLineNumber() : -1;
-    StringBuffer lineAnchor = new StringBuffer();
-    if (expression != null && lineNumber > 0) {
+    StringBuilder lineAnchor = new StringBuilder();
+    if (expression != null && lineNumber >= 0) {
       Document doc = FileDocumentManager.getInstance().getDocument(vFile);
       lineAnchor.append(InspectionsBundle.message("inspection.export.results.at.line")).append(" ");
-      if (myExporter == null) {
-        //noinspection HardCodedStringLiteral
-        lineAnchor.append("<a HREF=\"");
-        int offset = doc.getLineStartOffset(lineNumber - 1);
-        offset = CharArrayUtil.shiftForward(doc.getCharsSequence(), offset, " \t");
-        lineAnchor.append(appendURL(vFile, String.valueOf(offset)));
-        lineAnchor.append("\">");
-      }
-      lineAnchor.append(Integer.toString(lineNumber));
-      //noinspection HardCodedStringLiteral
+      lineAnchor.append("<a HREF=\"");
+      int offset = doc.getLineStartOffset(lineNumber);
+      offset = CharArrayUtil.shiftForward(doc.getCharsSequence(), offset, " \t");
+      lineAnchor.append(appendURL(vFile, String.valueOf(offset)));
+      lineAnchor.append("\">");
+      lineAnchor.append((lineNumber + 1));
       lineAnchor.append("</a>");
-      //noinspection HardCodedStringLiteral
       final String location = "#loc";
       if (!res.contains(location)) {
         res += " (" + location + ")";

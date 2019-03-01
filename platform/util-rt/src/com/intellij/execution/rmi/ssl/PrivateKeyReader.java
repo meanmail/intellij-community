@@ -15,6 +15,10 @@
  */
 package com.intellij.execution.rmi.ssl;
 
+import com.intellij.openapi.util.io.FileUtilRt;
+import com.intellij.util.Base64;
+import org.jetbrains.annotations.NotNull;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -31,10 +35,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.intellij.openapi.util.io.FileUtilRt;
-import com.intellij.util.Base64;
-import org.jetbrains.annotations.NotNull;
-
 public class PrivateKeyReader {
   public static final String P1_BEGIN_MARKER = "-----BEGIN RSA PRIVATE KEY";
   public static final String P1_END_MARKER = "-----END RSA PRIVATE KEY";
@@ -42,7 +42,7 @@ public class PrivateKeyReader {
   public static final String P8_BEGIN_MARKER = "-----BEGIN PRIVATE KEY";
   public static final String P8_END_MARKER = "-----END PRIVATE KEY";
 
-  private static Map<String, PrivateKey> keyCache = Collections.synchronizedMap(new HashMap<String, PrivateKey>());
+  private static final Map<String, PrivateKey> keyCache = Collections.synchronizedMap(new HashMap<String, PrivateKey>());
 
   @NotNull private final String myFileName;
 
@@ -172,7 +172,7 @@ public class PrivateKeyReader {
  * tagged types with an outer tag.
  * <p/>
  * <p/>This parser can only handle one layer. To parse nested constructs,
- * get a new parser for each layer using <code>Asn1Object.getParser()</code>.
+ * get a new parser for each layer using {@code Asn1Object.getParser()}.
  * <p/>
  * <p/>There are many DER decoders in JRE but using them will tie this
  * program to a specific JCE/JVM.
@@ -224,7 +224,7 @@ class DerParser {
    *
    * @param in The DER encoded stream
    */
-  public DerParser(InputStream in) throws IOException {
+  DerParser(InputStream in) throws IOException {
     this.in = in;
   }
 
@@ -234,14 +234,14 @@ class DerParser {
    * @param bytes The encoded bytes
    * @throws IOException
    */
-  public DerParser(byte[] bytes) throws IOException {
+  DerParser(byte[] bytes) throws IOException {
     this(new ByteArrayInputStream(bytes));
   }
 
   /**
    * Read next object. If it's constructed, the value holds
    * encoded content and it should be parsed by a new
-   * parser from <code>Asn1Object.getParser</code>.
+   * parser from {@code Asn1Object.getParser}.
    *
    * @return A object
    * @throws IOException
@@ -349,7 +349,7 @@ class Asn1Object {
    * @param length Length of the field
    * @param value  Encoded octet string for the field.
    */
-  public Asn1Object(int tag, int length, byte[] value) {
+  Asn1Object(int tag, int length, byte[] value) {
     this.tag = tag;
     this.type = tag & 0x1F;
     this.length = length;

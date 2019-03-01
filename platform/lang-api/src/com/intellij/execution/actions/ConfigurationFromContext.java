@@ -21,6 +21,7 @@ import com.intellij.execution.configurations.RunConfiguration;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.Comparator;
 
@@ -31,6 +32,12 @@ import java.util.Comparator;
  * @see RunConfigurationProducer
  */
 public abstract class ConfigurationFromContext {
+
+  private boolean myIsFromAlternativeLocation;
+
+  @Nullable
+  private String myAlternativeLocationDisplayName;
+
   /**
    * Returns the created run configuration settings.
    *
@@ -118,6 +125,34 @@ public abstract class ConfigurationFromContext {
   }
 
   /**
+   * Return if this configuration was created from alternative location provided by {@link MultipleRunLocationsProvider}.
+   *
+   * @return true if the configuration was created from alternative location, false otherwise.
+   */
+  public boolean isFromAlternativeLocation() {
+    return myIsFromAlternativeLocation;
+  }
+
+  public void setFromAlternativeLocation(boolean isFromAlternativeLocation) {
+    this.myIsFromAlternativeLocation = isFromAlternativeLocation;
+  }
+
+  /**
+   * Return alternative location display name provided by {@link MultipleRunLocationsProvider}.
+   *
+   * @return Location display name, null if name was not provided or this configuration is not from alternative location.
+   */
+  @Nullable
+  public String getAlternativeLocationDisplayName() {
+    return myAlternativeLocationDisplayName;
+  }
+
+  public void setAlternativeLocationDisplayName(@Nullable String alternativeLocationDisplayName) {
+    this.myAlternativeLocationDisplayName = alternativeLocationDisplayName;
+  }
+
+
+  /**
    * Compares configurations according to precedence.
    */
   public static final Comparator<ConfigurationFromContext> COMPARATOR = (configuration1, configuration2) -> {
@@ -145,6 +180,5 @@ public abstract class ConfigurationFromContext {
   /**
    * Compares configurations according to configuration type name.
    */
-  public static final Comparator<ConfigurationFromContext> NAME_COMPARATOR =
-    (p1, p2) -> p1.getConfigurationType().getDisplayName().compareTo(p2.getConfigurationType().getDisplayName());
+  public static final Comparator<ConfigurationFromContext> NAME_COMPARATOR = Comparator.comparing(p -> p.getConfigurationType().getDisplayName());
 }

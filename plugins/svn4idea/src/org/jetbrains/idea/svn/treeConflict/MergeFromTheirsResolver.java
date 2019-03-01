@@ -1,22 +1,9 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.treeConflict;
 
 import com.intellij.CommonBundle;
 import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diff.impl.patch.BinaryFilePatch;
 import com.intellij.openapi.diff.impl.patch.FilePatch;
 import com.intellij.openapi.diff.impl.patch.PatchSyntaxException;
@@ -41,39 +28,35 @@ import com.intellij.openapi.vcs.versionBrowser.ChangeBrowserSettings;
 import com.intellij.openapi.vfs.LocalFileSystem;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.SmartList;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.MultiMap;
-import com.intellij.util.continuation.Continuation;
-import com.intellij.util.continuation.ContinuationContext;
-import com.intellij.util.continuation.TaskDescriptor;
-import com.intellij.util.continuation.Where;
 import com.intellij.vcsUtil.VcsUtil;
 import org.jetbrains.annotations.CalledInAwt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.idea.svn.SvnConfiguration;
-import org.jetbrains.idea.svn.SvnContentRevision;
-import org.jetbrains.idea.svn.SvnRevisionNumber;
-import org.jetbrains.idea.svn.SvnVcs;
+import org.jetbrains.concurrency.AsyncPromise;
+import org.jetbrains.idea.svn.*;
 import org.jetbrains.idea.svn.api.Depth;
+import org.jetbrains.idea.svn.api.Revision;
 import org.jetbrains.idea.svn.conflict.TreeConflictDescription;
 import org.jetbrains.idea.svn.history.SvnChangeList;
 import org.jetbrains.idea.svn.history.SvnRepositoryLocation;
-import org.tmatesoft.svn.core.wc.SVNRevision;
 
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import static com.intellij.openapi.diff.impl.patch.IdeaTextPatchBuilder.buildPatch;
 import static com.intellij.openapi.util.io.FileUtil.getRelativePath;
 import static com.intellij.openapi.util.io.FileUtil.isAncestor;
-import static com.intellij.openapi.vcs.changes.ChangesUtil.getAfterPath;
-import static com.intellij.openapi.vcs.changes.ChangesUtil.getBeforePath;
+import static com.intellij.openapi.vcs.changes.ChangesUtil.*;
+import static com.intellij.util.ExceptionUtil.rethrowAllAsUnchecked;
 import static com.intellij.util.ObjectUtils.notNull;
-import static com.intellij.util.containers.ContainerUtil.*;
+import static com.intellij.util.containers.ContainerUtil.filter;
+import static com.intellij.util.containers.ContainerUtil.map;
 import static com.intellij.util.containers.ContainerUtilRt.newArrayList;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
@@ -82,7 +65,7 @@ import static java.util.stream.Collectors.partitioningBy;
 import static java.util.stream.Collectors.toMap;
 import static org.jetbrains.idea.svn.SvnBundle.message;
 
-public class MergeFromTheirsResolver {
+public class MergeFromTheirsResolver extends BackgroundTaskGroup {
   @NotNull private final SvnVcs myVcs;
   @NotNull private final TreeConflictDescription myDescription;
   @NotNull private final Change myChange;
@@ -95,27 +78,27 @@ public class MergeFromTheirsResolver {
 
   @NotNull private final List<Change> myTheirsChanges;
   @NotNull private final List<Change> myTheirsBinaryChanges;
-  @NotNull private final List<VcsException> myWarnings;
   private List<TextFilePatch> myTextPatches;
   private final VirtualFile myBaseForPatch;
+  private boolean myThereAreCreations;
 
   public MergeFromTheirsResolver(@NotNull SvnVcs vcs,
                                  @NotNull TreeConflictDescription description,
                                  @NotNull Change change,
                                  SvnRevisionNumber revision) {
+    super(vcs.getProject(), TreeConflictRefreshablePanel.TITLE);
     myVcs = vcs;
     myDescription = description;
     myChange = change;
     myCommittedRevision = revision;
     myOldFilePath = notNull(myChange.getBeforeRevision()).getFile();
     myNewFilePath = notNull(myChange.getAfterRevision()).getFile();
-    myBaseForPatch = ChangesUtil.findValidParentAccurately(myNewFilePath);
+    myBaseForPatch = findValidParentAccurately(myNewFilePath);
     myOldPresentation = TreeConflictRefreshablePanel.filePath(myOldFilePath);
     myNewPresentation = TreeConflictRefreshablePanel.filePath(myNewFilePath);
 
     myTheirsChanges = newArrayList();
     myTheirsBinaryChanges = newArrayList();
-    myWarnings = newArrayList();
     myTextPatches = emptyList();
   }
 
@@ -128,101 +111,66 @@ public class MergeFromTheirsResolver {
     if (Messages.OK != ok) return;
 
     FileDocumentManager.getInstance().saveAllDocuments();
-    Continuation fragmented = Continuation.createFragmented(myVcs.getProject(), false);
-    fragmented.addExceptionHandler(VcsException.class, e -> {
-      myWarnings.add(e);
-      if (!e.isWarning()) {
-        AbstractVcsHelper.getInstance(myVcs.getProject()).showErrors(myWarnings, TreeConflictRefreshablePanel.TITLE);
+
+    runInBackground("Getting base and theirs revisions content", indicator -> preloadContent());
+    runInEdt(this::convertTextPaths);
+    runInBackground("Creating patch for theirs changes", indicator -> createPatches());
+    runInEdt(() -> selectPatchesInApplyPatchDialog(exception -> {
+      if (exception == null) {
+        runInBackground("Accepting working state", indicator -> resolveConflicts());
+        if (myThereAreCreations) {
+          runInBackground("Adding " + myOldPresentation + " to Subversion", indicator -> addDirectories());
+        }
+        runInEdt(this::selectBinaryFiles);
+        runInBackground("Applying binary changes", indicator -> applyBinaryChanges());
+        runInEdt(this::notifyMergeIsFinished);
       }
-    });
-
-    List<TaskDescriptor> tasks = new SmartList<>();
-    tasks.add(myDescription.isDirectory() ? new PreloadChangesContentsForDir() : new PreloadChangesContentsForFile());
-    tasks.add(new ConvertTextPaths());
-    tasks.add(new PatchCreator());
-    tasks.add(new SelectPatchesInApplyPatchDialog());
-    tasks.add(new SelectBinaryFiles());
-
-    fragmented.run(tasks);
+      else {
+        addError(exception);
+        showErrors();
+      }
+    }));
   }
 
-  private class FinalNotification extends TaskDescriptor {
-    private FinalNotification() {
-      super("", Where.AWT);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      VcsBalloonProblemNotifier.showOverChangesView(myVcs.getProject(), "Theirs changes merged for " + myOldPresentation, MessageType.INFO);
-      if (!myWarnings.isEmpty()) {
-        AbstractVcsHelper.getInstance(myVcs.getProject()).showErrors(myWarnings, TreeConflictRefreshablePanel.TITLE);
-      }
-    }
+  private void notifyMergeIsFinished() {
+    VcsBalloonProblemNotifier.showOverChangesView(myVcs.getProject(), "Theirs changes merged for " + myOldPresentation, MessageType.INFO);
+    showErrors();
   }
 
-  private class ResolveConflictInSvn extends TaskDescriptor {
-    private ResolveConflictInSvn() {
-      super("Accepting working state", Where.POOLED);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      try {
-        new SvnTreeConflictResolver(myVcs, myOldFilePath, null).resolveSelectMineFull();
-      }
-      catch (VcsException e1) {
-        context.handleException(e1, false);
-      }
-    }
+  private void resolveConflicts() throws VcsException {
+    new SvnTreeConflictResolver(myVcs, myOldFilePath, null).resolveSelectMineFull();
   }
 
-  private class ConvertTextPaths extends TaskDescriptor {
-    private ConvertTextPaths() {
-      super("", Where.AWT);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      List<Change> convertedChanges = new SmartList<>();
-      try {
-        // revision contents is preloaded, so ok to call in awt
-        convertedChanges = convertPaths(myTheirsChanges);
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-      }
-      myTheirsChanges.clear();
-      myTheirsChanges.addAll(convertedChanges);
-    }
+  @CalledInAwt
+  private void convertTextPaths() throws VcsException {
+    // revision contents is preloaded, so ok to call in awt
+    List<Change> convertedChanges = convertPaths(myTheirsChanges);
+    myTheirsChanges.clear();
+    myTheirsChanges.addAll(convertedChanges);
   }
 
-  private class SelectPatchesInApplyPatchDialog extends TaskDescriptor {
-    private SelectPatchesInApplyPatchDialog() {
-      super("", Where.AWT);
-    }
+  @CalledInAwt
+  private void selectPatchesInApplyPatchDialog(@NotNull Consumer<VcsException> callback) {
+    LocalChangeList changeList = ChangeListManager.getInstance(myVcs.getProject()).getChangeList(myChange);
+    TreeConflictApplyTheirsPatchExecutor patchExecutor = new TreeConflictApplyTheirsPatchExecutor(myVcs, myBaseForPatch);
+    ApplyPatchDifferentiatedDialog dialog = new ApplyPatchDifferentiatedDialog(
+      myVcs.getProject(), patchExecutor, singletonList(new ApplyPatchSaveToFileExecutor(myVcs.getProject(), myBaseForPatch)),
+      ApplyPatchMode.APPLY_PATCH_IN_MEMORY, myTextPatches, changeList);
 
-    @Override
-    public void run(ContinuationContext context) {
-      LocalChangeList changeList = ChangeListManager.getInstance(myVcs.getProject()).getChangeList(myChange);
-      ApplyPatchDifferentiatedDialog dialog = new ApplyPatchDifferentiatedDialog(
-        myVcs.getProject(), new TreeConflictApplyTheirsPatchExecutor(myVcs, context, myBaseForPatch),
-        singletonList(new ApplyPatchSaveToFileExecutor(myVcs.getProject(), myBaseForPatch)),
-        ApplyPatchMode.APPLY_PATCH_IN_MEMORY, myTextPatches, changeList);
-
-      context.suspend();
-      dialog.show();
-    }
+    // dialog is not modal - so such async behavior is used
+    patchExecutor.myPromise.onSuccess(callback);
+    dialog.show();
   }
 
   private class TreeConflictApplyTheirsPatchExecutor implements ApplyPatchExecutor<TextFilePatchInProgress> {
     @NotNull private final SvnVcs myVcs;
-    @NotNull private final ContinuationContext myInner;
     private final VirtualFile myBaseDir;
+    @NotNull private final AsyncPromise<VcsException> myPromise;
 
-    public TreeConflictApplyTheirsPatchExecutor(@NotNull SvnVcs vcs, @NotNull ContinuationContext inner, final VirtualFile baseDir) {
+    TreeConflictApplyTheirsPatchExecutor(@NotNull SvnVcs vcs, final VirtualFile baseDir) {
       myVcs = vcs;
-      myInner = inner;
       myBaseDir = baseDir;
+      myPromise = new AsyncPromise<>();
     }
 
     @Override
@@ -231,92 +179,51 @@ public class MergeFromTheirsResolver {
     }
 
     @Override
-    public void apply(@NotNull List<FilePatch> remaining,
+    public void apply(@NotNull List<? extends FilePatch> remaining,
                       @NotNull MultiMap<VirtualFile, TextFilePatchInProgress> patchGroupsToApply,
                       @Nullable LocalChangeList localList,
                       @Nullable String fileName,
-                      @Nullable TransparentlyFailedValueI<Map<String, Map<String, CharSequence>>, PatchSyntaxException> additionalInfo) {
-      List<FilePatch> patches;
+                      @Nullable ThrowableComputable<Map<String, Map<String, CharSequence>>, PatchSyntaxException> additionalInfo) {
+      List<FilePatch> patches = null;
+      VcsException exception = null;
       try {
         patches = ApplyPatchSaveToFileExecutor.toOnePatchGroup(patchGroupsToApply, myBaseDir);
       }
       catch (IOException e) {
-        myInner.handleException(e, true);
-        return;
+        exception = new VcsException(e);
       }
 
-      new PatchApplier<BinaryFilePatch>(myVcs.getProject(), myBaseDir, patches, localList, null, null).execute(false, true);
-      boolean thereAreCreations =
-        patches.stream().anyMatch(patch -> patch.isNewFile() || !Comparing.equal(patch.getAfterName(), patch.getBeforeName()));
-
-      if (thereAreCreations) {
-        // restore deletion of old directory:
-        myInner.next(new DirectoryAddition());
+      if (patches != null) {
+        new PatchApplier<BinaryFilePatch>(myVcs.getProject(), myBaseDir, patches, localList, null).execute(false, true);
+        myThereAreCreations =
+          patches.stream().anyMatch(patch -> patch.isNewFile() || !Comparing.equal(patch.getAfterName(), patch.getBeforeName()));
       }
-      myInner.next(new ResolveConflictInSvn());
-      myInner.last(new ApplyBinaryChanges(), new FinalNotification());
-      myInner.ping();
+
+      myPromise.setResult(exception);
     }
   }
 
-  private class DirectoryAddition extends TaskDescriptor {
-    private DirectoryAddition() {
-      super("Adding " + myOldPresentation + " to Subversion", Where.POOLED);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      try {
-        // TODO: Previously SVNKit client was invoked with mkDir=true option - so corresponding directory would be created. Now mkDir=false
-        // TODO: is used. Command line also does not support automatic directory creation.
-        // TODO: Need to check additionally if there are cases when directory does not exist and add corresponding code.
-        myVcs.getFactory(myOldFilePath.getIOFile()).createAddClient()
-          .add(myOldFilePath.getIOFile(), Depth.EMPTY, true, false, true, null);
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-      }
-    }
+  private void addDirectories() throws VcsException {
+    // TODO: Previously SVNKit client was invoked with mkDir=true option - so corresponding directory would be created. Now mkDir=false
+    // TODO: is used. Command line also does not support automatic directory creation.
+    // TODO: Need to check additionally if there are cases when directory does not exist and add corresponding code.
+    myVcs.getFactory(myOldFilePath.getIOFile()).createAddClient().add(myOldFilePath.getIOFile(), Depth.EMPTY, true, false, true, null);
   }
 
-  private class PatchCreator extends TaskDescriptor {
-    private PatchCreator() {
-      super("Creating patch for theirs changes", Where.POOLED);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      try {
-        List<FilePatch> patches = buildPatch(myVcs.getProject(), myTheirsChanges, notNull(myBaseForPatch).getPath(), false);
-        myTextPatches = map(patches, o -> (TextFilePatch)o);
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-      }
-    }
+  private void createPatches() throws VcsException {
+    List<FilePatch> patches = buildPatch(myVcs.getProject(), myTheirsChanges, notNull(myBaseForPatch).getPath(), false);
+    myTextPatches = map(patches, TextFilePatch.class::cast);
   }
 
-  private class SelectBinaryFiles extends TaskDescriptor {
-    private SelectBinaryFiles() {
-      super("", Where.AWT);
-    }
-
-    @Override
-    public void run(ContinuationContext context) {
-      List<Change> converted;
-      try {
-        converted = convertPaths(myTheirsBinaryChanges);
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-        return;
-      }
-      if (converted.isEmpty()) return;
+  @CalledInAwt
+  private void selectBinaryFiles() throws VcsException {
+    List<Change> converted = convertPaths(myTheirsBinaryChanges);
+    if (!converted.isEmpty()) {
       Map<FilePath, Change> map = converted.stream().collect(toMap(ChangesUtil::getFilePath, identity()));
       Collection<FilePath> selected = chooseBinaryFiles(converted, map.keySet());
 
       myTheirsBinaryChanges.clear();
-      if (!isEmpty(selected)) {
+      if (!ContainerUtil.isEmpty(selected)) {
         for (FilePath filePath : selected) {
           myTheirsBinaryChanges.add(map.get(filePath));
         }
@@ -324,60 +231,65 @@ public class MergeFromTheirsResolver {
     }
   }
 
-  private class ApplyBinaryChanges extends TaskDescriptor {
-    private ApplyBinaryChanges() {
-      super("", Where.AWT);
-    }
-
-    @Override
-    public void run(final ContinuationContext context) {
-      if (myTheirsBinaryChanges.isEmpty()) return;
-      List<FilePath> dirtyPaths = newArrayList();
-      for (Change change : myTheirsBinaryChanges) {
-        try {
-          ApplicationManager.getApplication().runWriteAction((ThrowableComputable<Void, VcsException>)() -> {
-            try {
-              if (change.getAfterRevision() == null) {
-                FilePath path = notNull(change.getBeforeRevision()).getFile();
-                dirtyPaths.add(path);
-                VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path.getPath());
-                if (file == null) {
-                  context.handleException(new VcsException("Can not delete file: " + path.getPath(), true), false);
-                  return null;
-                }
-                file.delete(TreeConflictRefreshablePanel.class);
-              }
-              else {
-                FilePath file = change.getAfterRevision().getFile();
-                dirtyPaths.add(file);
-                String parentPath = notNull(file.getParentPath()).getPath();
-                VirtualFile parentFile = VfsUtil.createDirectoryIfMissing(parentPath);
-                if (parentFile == null) {
-                  context.handleException(new VcsException("Can not create directory: " + parentPath, true), false);
-                  return null;
-                }
-                VirtualFile child = parentFile.createChildData(TreeConflictRefreshablePanel.class, file.getName());
-                byte[] content = ((BinaryContentRevision)change.getAfterRevision()).getBinaryContent();
-                // actually it was the fix for IDEA-91572 Error saving merged data: Argument 0 for @NotNull parameter of > com/intellij/
-                if (content == null) {
-                  context.handleException(new VcsException("Can not load Theirs content for file " + file.getPath()), false);
-                  return null;
-                }
-                child.setBinaryContent(content);
-              }
-            }
-            catch (IOException e) {
-              throw new VcsException(e);
-            }
-            return null;
-          });
-        }
-        catch (VcsException e) {
-          context.handleException(e, true);
-          return;
-        }
+  private void applyBinaryChanges() throws VcsException {
+    List<FilePath> dirtyPaths = newArrayList();
+    for (Change change : myTheirsBinaryChanges) {
+      try {
+        WriteAction.runAndWait(() -> {
+          dirtyPaths.add(getFilePath(change));
+          try {
+            applyBinaryChange(change);
+          }
+          catch (IOException e) {
+            throw new VcsException(e);
+          }
+        });
       }
-      VcsDirtyScopeManager.getInstance(myVcs.getProject()).filePathsDirty(dirtyPaths, null);
+      catch (Throwable e) {
+        processBinaryChangeError(e);
+      }
+    }
+    VcsDirtyScopeManager.getInstance(myVcs.getProject()).filePathsDirty(dirtyPaths, null);
+  }
+
+  private void processBinaryChangeError(@NotNull Throwable error) throws VcsException {
+    if (error instanceof VcsException) {
+      VcsException vcsError = (VcsException)error;
+      if (vcsError.isWarning()) {
+        addError(vcsError);
+      }
+      else {
+        throw vcsError;
+      }
+    }
+    else {
+      rethrowAllAsUnchecked(error);
+    }
+  }
+
+  private static void applyBinaryChange(@NotNull Change change) throws IOException, VcsException {
+    if (change.getAfterRevision() == null) {
+      FilePath path = notNull(change.getBeforeRevision()).getFile();
+      VirtualFile file = LocalFileSystem.getInstance().refreshAndFindFileByPath(path.getPath());
+      if (file == null) {
+        throw new VcsException("Can not delete file: " + path.getPath(), true);
+      }
+      file.delete(TreeConflictRefreshablePanel.class);
+    }
+    else {
+      FilePath file = change.getAfterRevision().getFile();
+      String parentPath = notNull(file.getParentPath()).getPath();
+      VirtualFile parentFile = VfsUtil.createDirectoryIfMissing(parentPath);
+      if (parentFile == null) {
+        throw new VcsException("Can not create directory: " + parentPath, true);
+      }
+      VirtualFile child = parentFile.createChildData(TreeConflictRefreshablePanel.class, file.getName());
+      byte[] content = ((BinaryContentRevision)change.getAfterRevision()).getBinaryContent();
+      // actually it was the fix for IDEA-91572 Error saving merged data: Argument 0 for @NotNull parameter of > com/intellij/
+      if (content == null) {
+        throw new VcsException("Can not load Theirs content for file " + file.getPath(), true);
+      }
+      child.setBinaryContent(content);
     }
   }
 
@@ -386,7 +298,7 @@ public class MergeFromTheirsResolver {
     String singleMessage = "";
     if (changes.size() == 1) {
       FileStatus status = changes.get(0).getFileStatus();
-      FilePath path = ChangesUtil.getFilePath(changes.get(0));
+      FilePath path = getFilePath(changes.get(0));
       String prefix = FileStatus.DELETED.equals(status)
                       ? "Delete"
                       : FileStatus.ADDED.equals(status)
@@ -414,6 +326,7 @@ public class MergeFromTheirsResolver {
       });
   }
 
+  @CalledInAwt
   @NotNull
   private List<Change> convertPaths(@NotNull List<Change> changes) throws VcsException {
     initAddOption();
@@ -421,7 +334,8 @@ public class MergeFromTheirsResolver {
     List<Change> result = newArrayList();
     for (Change change : changes) {
       if (isUnderOldDir(change, myOldFilePath)) {
-        result.add(new Change(convertBeforeRevision(change.getBeforeRevision()), convertAfterRevision(change, change.getAfterRevision())));
+        result
+          .add(new Change(convertBeforeRevision(change.getBeforeRevision()), convertAfterRevision(change, change.getAfterRevision())));
       }
     }
     return result;
@@ -460,48 +374,31 @@ public class MergeFromTheirsResolver {
     return VcsUtil.getFilePath(newBase.getPath() + "/" + relativePath, path.isDirectory());
   }
 
-  private class PreloadChangesContentsForFile extends TaskDescriptor {
-    private PreloadChangesContentsForFile() {
-      super("Getting base and theirs revisions content", Where.POOLED);
+  private void preloadContent() throws VcsException {
+    if (myDescription.isDirectory()) {
+      preloadForDirectory();
     }
-
-    @Override
-    public void run(ContinuationContext context) {
-      SvnContentRevision base = SvnContentRevision.createBaseRevision(myVcs, myNewFilePath, myCommittedRevision.getRevision());
-      SvnContentRevision remote =
-        SvnContentRevision.createRemote(myVcs, myOldFilePath, SVNRevision.create(myDescription.getSourceRightVersion().getPegRevision()));
-      try {
-        myTheirsChanges.add(new Change(toSimpleRevision(base, false), toSimpleRevision(remote, false)));
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-      }
+    else {
+      preloadForFile();
     }
   }
 
-  private class PreloadChangesContentsForDir extends TaskDescriptor {
-    private PreloadChangesContentsForDir() {
-      super("Getting base and theirs revisions content", Where.POOLED);
-    }
+  private void preloadForFile() throws VcsException {
+    SvnContentRevision base = SvnContentRevision.createBaseRevision(myVcs, myNewFilePath, myCommittedRevision.getRevision());
+    SvnContentRevision remote =
+      SvnContentRevision.createRemote(myVcs, myOldFilePath, Revision.of(myDescription.getSourceRightVersion().getPegRevision()));
+    myTheirsChanges.add(new Change(toSimpleRevision(base, false), toSimpleRevision(remote, false)));
+  }
 
-    @Override
-    public void run(ContinuationContext context) {
-      List<Change> changes;
-      try {
-        changes = CommittedChangesTreeBrowser.collectChanges(loadSvnChangeListsForPatch(myDescription), true);
-        for (Change change : changes) {
-          preloadRevisionContents(change.getBeforeRevision());
-          preloadRevisionContents(change.getAfterRevision());
-        }
-      }
-      catch (VcsException e) {
-        context.handleException(e, true);
-        return;
-      }
-      Map<Boolean, List<Change>> changesSplit = changes.stream().collect(partitioningBy(ChangesUtil::isBinaryChange));
-      myTheirsBinaryChanges.addAll(changesSplit.get(Boolean.TRUE));
-      myTheirsChanges.addAll(changesSplit.get(Boolean.FALSE));
+  private void preloadForDirectory() throws VcsException {
+    List<Change> changes = CommittedChangesTreeBrowser.collectChanges(loadSvnChangeListsForPatch(myDescription), true);
+    for (Change change : changes) {
+      preloadRevisionContents(change.getBeforeRevision());
+      preloadRevisionContents(change.getAfterRevision());
     }
+    Map<Boolean, List<Change>> changesSplit = changes.stream().collect(partitioningBy(MergeFromTheirsResolver::isBinaryChange));
+    myTheirsBinaryChanges.addAll(changesSplit.get(Boolean.TRUE));
+    myTheirsChanges.addAll(changesSplit.get(Boolean.FALSE));
   }
 
   private static void preloadRevisionContents(@Nullable ContentRevision revision) throws VcsException {
@@ -519,7 +416,7 @@ public class MergeFromTheirsResolver {
   private List<SvnChangeList> loadSvnChangeListsForPatch(@NotNull TreeConflictDescription description) throws VcsException {
     long max = description.getSourceRightVersion().getPegRevision();
     long min = description.getSourceLeftVersion().getPegRevision();
-    SvnRepositoryLocation location = new SvnRepositoryLocation(description.getSourceRightVersion().getRepositoryRoot().toString());
+    SvnRepositoryLocation location = new SvnRepositoryLocation(description.getSourceRightVersion().getRepositoryRoot());
     ChangeBrowserSettings settings = new ChangeBrowserSettings();
     settings.USE_CHANGE_BEFORE_FILTER = settings.USE_CHANGE_AFTER_FILTER = true;
     settings.CHANGE_BEFORE = String.valueOf(max);
@@ -584,5 +481,13 @@ public class MergeFromTheirsResolver {
 
   private static boolean containAdditions(@NotNull List<Change> changes) {
     return changes.stream().anyMatch(change -> change.getBeforeRevision() == null || change.isMoved() || change.isRenamed());
+  }
+
+  private static boolean isBinaryContentRevision(@Nullable ContentRevision revision) {
+    return revision instanceof BinaryContentRevision && !revision.getFile().isDirectory();
+  }
+
+  private static boolean isBinaryChange(@NotNull Change change) {
+    return isBinaryContentRevision(change.getBeforeRevision()) || isBinaryContentRevision(change.getAfterRevision());
   }
 }

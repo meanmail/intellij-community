@@ -15,6 +15,7 @@
  */
 package com.intellij.javadoc;
 
+import com.intellij.application.options.CodeStyle;
 import com.intellij.lang.ASTNode;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.CaretModel;
@@ -26,7 +27,7 @@ import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleSettings;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.javadoc.PsiDocTag;
 import com.intellij.psi.javadoc.PsiDocTagValue;
 import com.intellij.psi.javadoc.PsiDocToken;
@@ -44,14 +45,13 @@ import java.util.List;
  * This class is not singleton but provides {@link #getInstance() single-point-of-usage field}.
  * 
  * @author Denis Zhdanov
- * @since 5/27/11 2:35 PM
  */
 public class JavadocHelper {
 
   private static final String PARAM_TEXT = "param";
   
   private static final Pair<JavadocParameterInfo, List<JavadocParameterInfo>> EMPTY
-    = new Pair<>(null, Collections.<JavadocParameterInfo>emptyList());
+    = new Pair<>(null, Collections.emptyList());
   private static final JavadocHelper INSTANCE = new JavadocHelper();
   
   @NotNull
@@ -66,7 +66,6 @@ public class JavadocHelper {
    * @param editor    target editor
    * @param project   target project
    */
-  @SuppressWarnings("MethodMayBeStatic")
   public void navigate(@NotNull LogicalPosition position, @NotNull Editor editor, @NotNull final Project project) {
     final Document document = editor.getDocument();
     final CaretModel caretModel = editor.getCaretModel();
@@ -91,10 +90,9 @@ public class JavadocHelper {
    * @param anchor   descriptor for the target parameter
    * @return         logical position that points to the desired parameter description start location
    */
-  @SuppressWarnings("MethodMayBeStatic")
   @NotNull
   public LogicalPosition calculateDescriptionStartPosition(@NotNull PsiFile psiFile,
-                                                           @NotNull Collection<JavadocParameterInfo> data,
+                                                           @NotNull Collection<? extends JavadocParameterInfo> data,
                                                            @NotNull JavadocHelper.JavadocParameterInfo anchor)
   {
     int descriptionStartColumn = -1;
@@ -106,17 +104,16 @@ public class JavadocHelper {
       }
     }
 
-    final CodeStyleSettings codeStyleSettings = CodeStyleSettingsManager.getInstance(psiFile.getProject()).getCurrentSettings();
-    final int indentSize = codeStyleSettings.getIndentSize(psiFile.getFileType());
+    final CodeStyleSettings codeStyleSettings = CodeStyle.getSettings(psiFile);
     int column;
-    if (codeStyleSettings.JD_ALIGN_PARAM_COMMENTS) {
+    if (codeStyleSettings.getCustomSettings(JavaCodeStyleSettings.class).JD_ALIGN_PARAM_COMMENTS) {
       column = Math.max(descriptionStartColumn, parameterNameEndColumn);
       if (column <= parameterNameEndColumn) {
-        column = parameterNameEndColumn + indentSize;
+        column = parameterNameEndColumn + 1;
       }
     }
     else {
-      column = anchor.parameterNameEndPosition.column + indentSize;
+      column = anchor.parameterNameEndPosition.column + 1;
     }
     return new LogicalPosition(anchor.parameterNameEndPosition.line, column);
   }
@@ -130,7 +127,6 @@ public class JavadocHelper {
    * @return              pair like (javadoc info for the line identified by the given offset; list of javadoc parameter infos for
    *                      adjacent lines if any
    */
-  @SuppressWarnings("MethodMayBeStatic")
   @NotNull
   public Pair<JavadocParameterInfo, List<JavadocParameterInfo>> parse(@NotNull PsiFile psiFile, @NotNull Editor editor, int offset) {
     List<JavadocParameterInfo> result = new ArrayList<>();

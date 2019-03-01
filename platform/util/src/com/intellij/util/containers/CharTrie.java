@@ -111,6 +111,7 @@ public class CharTrie {
     return index + (((long)resultingLength) << 32);
   }
 
+  @NotNull
   public char[] getChars(int hashCode) {
     int length = 0;
     int run = hashCode;
@@ -142,6 +143,7 @@ public class CharTrie {
     return index;
   }
 
+  @NotNull
   public char[] getReversedChars(final int hashCode) {
     int length = 0;
     int run = hashCode;
@@ -219,11 +221,5 @@ public class CharTrie {
     init();
   }
 
-  private static final ArrayFactory<char[]> FACTORY = new ArrayFactory<char[]>() {
-    @NotNull
-    @Override
-    public char[][] create(int count) {
-      return new char[count][];
-    }
-  };
+  private static final ArrayFactory<char[]> FACTORY = char[][]::new;
 }

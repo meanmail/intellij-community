@@ -31,12 +31,15 @@ import javax.swing.*;
 import java.util.List;
 
 /**
- * Override this class to provide custom library type. The implementation should be registered in plugin.xml:
+ * Override this class to provide custom library type. Type and properties for custom libraries are stored in project configuration files. If
+ * they can be detected automatically it's better to use {@link LibraryPresentationProvider} extension point instead. <br>
+ * The implementation should be registered in plugin.xml:
  * <p>
  * &lt;extensions defaultExtensionNs="com.intellij"&gt;<br>
  * &nbsp;&nbsp;&lt;library.type implementation="qualified-class-name"/&gt;<br>
  * &lt;/extensions&gt;
  *
+ * @see LibraryPresentationProvider
  * @author nik
  */
 public abstract class LibraryType<P extends LibraryProperties> extends LibraryPresentationProvider<P> {
@@ -95,11 +98,13 @@ public abstract class LibraryType<P extends LibraryProperties> extends LibraryPr
    * @return Root types to collect library files which do not belong to the project and therefore
    *         indicate that the library is external.
    */
+  @NotNull
   public OrderRootType[] getExternalRootTypes() {
     return DEFAULT_EXTERNAL_ROOT_TYPES;
   }
 
-  public static LibraryType findByKind(LibraryKind kind) {
+  @NotNull
+  public static LibraryType findByKind(@NotNull LibraryKind kind) {
     for (LibraryType type : EP_NAME.getExtensions()) {
       if (type.getKind() == kind) {
         return type;

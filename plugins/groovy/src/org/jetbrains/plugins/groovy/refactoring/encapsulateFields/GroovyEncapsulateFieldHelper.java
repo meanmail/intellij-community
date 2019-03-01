@@ -1,17 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package org.jetbrains.plugins.groovy.refactoring.encapsulateFields;
 
@@ -19,11 +7,12 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.tree.IElementType;
-import com.intellij.psi.util.PropertyUtil;
+import com.intellij.psi.util.PropertyUtilBase;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.encapsulateFields.*;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.VisibilityUtil;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -31,6 +20,7 @@ import org.jetbrains.plugins.groovy.codeInspection.utils.JavaStylePropertiesUtil
 import org.jetbrains.plugins.groovy.lang.lexer.GroovyTokenTypes;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyFile;
 import org.jetbrains.plugins.groovy.lang.psi.GroovyPsiElementFactory;
+import org.jetbrains.plugins.groovy.lang.psi.api.GroovyResolveResult;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.*;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.expressions.path.GrMethodCallExpression;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.typedef.GrTypeDefinition;
@@ -58,13 +48,13 @@ public class GroovyEncapsulateFieldHelper extends EncapsulateFieldHelper {
   @Override
   @NotNull
   public String suggestSetterName(@NotNull PsiField field) {
-    return PropertyUtil.suggestSetterName(field);
+    return PropertyUtilBase.suggestSetterName(field);
   }
 
   @Override
   @NotNull
   public String suggestGetterName(@NotNull PsiField field) {
-    return PropertyUtil.suggestGetterName(field);
+    return PropertyUtilBase.suggestGetterName(field);
   }
 
   @Override
@@ -151,7 +141,8 @@ public class GroovyEncapsulateFieldHelper extends EncapsulateFieldHelper {
         PsiClass accessObjectClass = getAccessObject(expr);
         final PsiResolveHelper helper = JavaPsiFacade.getInstance((expr).getProject()).getResolveHelper();
         if (helper.isAccessible(fieldDescriptor.getField(), newModifierList, expr, accessObjectClass, null)) {
-          if (expr.resolve() instanceof PsiMethod) {
+          GroovyResolveResult[] results = expr.multiResolve(false);
+          if (ContainerUtil.or(results, it -> it.isValidResult() && it.getElement() instanceof PsiMethod)) {
             addMemberOperator(expr, field);
           }
           return true;
@@ -163,8 +154,7 @@ public class GroovyEncapsulateFieldHelper extends EncapsulateFieldHelper {
         GrAssignmentExpression assignment = (GrAssignmentExpression)parent;
         if (assignment.getRValue() != null) {
           PsiElement opSign = assignment.getOperationToken();
-          IElementType opType = assignment.getOperationTokenType();
-          if (opType == GroovyTokenTypes.mASSIGN) {
+          if (!assignment.isOperatorAssignment()) {
             if (!processSet || (checkSetterIsSimple(field, setter) && checkFieldIsInaccessible(field, expr))) return true;
 
 

@@ -20,6 +20,7 @@ import com.intellij.spellchecker.dictionary.Loader;
 import com.intellij.spellchecker.engine.Transformation;
 import com.intellij.util.ArrayUtil;
 import com.intellij.util.Consumer;
+import com.intellij.util.ObjectUtils;
 import gnu.trove.THashSet;
 import gnu.trove.TIntObjectHashMap;
 import gnu.trove.TIntObjectProcedure;
@@ -84,21 +85,11 @@ public final class CompressedDictionary implements Dictionary {
     return new TreeSet<>(COMPARATOR);
   }
 
-  /** @deprecated use {@link #getWords(char, int, int, Collection)} (to be removed in IDEA 17) */
-  public List<String> getWords(char first, int minLength, int maxLength) {
-    List<String> result = new ArrayList<>();
-    getWords(first, minLength, maxLength, result);
-    return result;
+  public void getWords(char first, int minLength, int maxLength, @NotNull Collection<? super String> result) {
+    getWords(first, minLength, maxLength, result::add);
   }
 
-  /** @deprecated use {@link #getWords(char, int, int, Collection)} (to be removed in IDEA 17) */
-  public List<String> getWords(char first) {
-    List<String> result = new ArrayList<>();
-    getWords(first, 0, Integer.MAX_VALUE, result);
-    return result;
-  }
-
-  public void getWords(char first, int minLength, int maxLength, @NotNull Collection<String> result) {
+  public void getWords(char first, int minLength, int maxLength, @NotNull Consumer<? super String> consumer) {
     int index = alphabet.getIndex(first, false);
     if (index == -1) return;
 
@@ -108,14 +99,18 @@ public final class CompressedDictionary implements Dictionary {
       if (length < minLength || length > maxLength) continue;
       for (int x = 0; x < data.length; x += length) {
         if (encoder.getFirstLetterIndex(data[x]) == index) {
-          byte[] toTest = new byte[length];
-          System.arraycopy(data, x, toTest, 0, length);
-          String decoded = encoder.decode(toTest);
-          result.add(decoded);
+          String decoded = encoder.decode(data, x, x + length);
+          consumer.consume(decoded);
         }
       }
       i++;
     }
+  }
+
+
+  @Override
+  public void getSuggestions(@NotNull String word, @NotNull Consumer<String> consumer) {
+      getWords(word.charAt(0), 0, Integer.MAX_VALUE, consumer);
   }
 
   @NotNull
@@ -147,6 +142,7 @@ public final class CompressedDictionary implements Dictionary {
   }
 
   @Override
+  @NotNull
   public Set<String> getWords() {
     Set<String> words = new THashSet<>();
     for (int i = 0; i <= alphabet.getLastIndexUsed(); i++) {
@@ -216,21 +212,6 @@ public final class CompressedDictionary implements Dictionary {
 
   public static int binarySearchNew(@NotNull byte[] goal, int fromIndex, int toIndex, @NotNull byte[] data) {
     int unitLength = goal.length;
-    int low = fromIndex;
-    int high = toIndex - 1;
-    while (low <= high) {
-      int mid = low + high >>> 1;
-      int check = compareArrays(data, mid * unitLength, unitLength, goal);
-      if (check == -1) {
-        low = mid + 1;
-      }
-      else if (check == 1) {
-        high = mid - 1;
-      }
-      else {
-        return mid;
-      }
-    }
-    return -(low + 1);  // key not found.
+    return ObjectUtils.binarySearch(fromIndex, toIndex, mid -> compareArrays(data, mid * unitLength, unitLength, goal));
   }
 }

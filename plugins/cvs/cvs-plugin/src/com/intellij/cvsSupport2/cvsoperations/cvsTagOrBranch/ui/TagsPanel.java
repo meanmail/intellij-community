@@ -16,9 +16,9 @@
 package com.intellij.cvsSupport2.cvsoperations.cvsTagOrBranch.ui;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.ui.popup.PopupChooserBuilder;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.ui.ClickListener;
-import com.intellij.ui.components.JBList;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,13 +40,13 @@ public class TagsPanel extends JPanel implements TableCellRenderer{
 
   private final JLabel myMoreLabel = new JLabel(MORE_LABEL_TEXT){
     private final Cursor myCursor = new Cursor(Cursor.HAND_CURSOR);
+    @Override
     public Cursor getCursor() {
       return myCursor;
     }
   };
 
   private Collection<String> myTags;
-  private final JList myList = new JBList();
   @NonNls private static final String MORE_LABEL_TEXT = "<html><b>(...)</b></html>";
   private final String myPopupTitle;
 
@@ -67,13 +67,8 @@ public class TagsPanel extends JPanel implements TableCellRenderer{
   }
 
   private void showTags() {
-    DefaultListModel model = new DefaultListModel();
-    myList.setModel(model);
-    for (final String myTag : myTags) {
-      model.addElement(myTag);
-    }
-
-    new PopupChooserBuilder(myList).
+    JBPopupFactory.getInstance()
+      .createPopupChooserBuilder(ContainerUtil.newArrayList(myTags)).
       setTitle(myPopupTitle).
       createPopup().
       showUnderneathOf(myMoreLabel);
@@ -87,6 +82,7 @@ public class TagsPanel extends JPanel implements TableCellRenderer{
     revalidate();
   }
 
+  @Override
   public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
     setSelected(isSelected, table);
     if (!(value instanceof Collection)) {

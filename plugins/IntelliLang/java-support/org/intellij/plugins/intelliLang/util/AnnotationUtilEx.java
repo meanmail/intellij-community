@@ -41,7 +41,7 @@ public class AnnotationUtilEx {
   }
 
   /**
-   * @see AnnotationUtilEx#getAnnotatedElementFor(com.intellij.psi.PsiElement, LookupType)
+   * @see AnnotationUtilEx#getAnnotatedElementFor(PsiElement, LookupType)
    */
   public enum LookupType {
     PREFER_CONTEXT, PREFER_DECLARATION, CONTEXT_ONLY, DECLARATION_ONLY
@@ -119,7 +119,7 @@ public class AnnotationUtilEx {
   }
 
   public interface AnnotatedElementVisitor {
-    boolean visitMethodParameter(PsiExpression expression, PsiCallExpression psiCallExpression);
+    boolean visitMethodParameter(PsiExpression expression, PsiCall psiCallExpression);
     boolean visitMethodReturnStatement(PsiElement source, PsiMethod method);
     boolean visitVariable(PsiVariable variable);
     boolean visitAnnotationParameter(PsiNameValuePair nameValuePair, PsiAnnotation psiAnnotation);
@@ -178,8 +178,8 @@ public class AnnotationUtilEx {
     else if (parent instanceof PsiArrayInitializerMemberValue || parent instanceof PsiNameValuePair) {
       return true;
     }
-    else if (parent instanceof PsiExpressionList && parent.getParent() instanceof PsiCallExpression) {
-      return visitor.visitMethodParameter((PsiExpression)element, (PsiCallExpression)parent.getParent());
+    else if (parent instanceof PsiExpressionList && parent.getParent() instanceof PsiCall) {
+      return visitor.visitMethodParameter((PsiExpression)element, (PsiCall)parent.getParent());
     }
     return true;
   }
@@ -188,13 +188,13 @@ public class AnnotationUtilEx {
    * Utility method to obtain annotations of a specific type from the supplied PsiModifierListOwner.
    * For optimization reasons, this method only looks at elements of type java.lang.String.
    * <p/>
-   * The parameter <code>allowIndirect</code> determines if the method should look for indirect annotations, i.e.
+   * The parameter {@code allowIndirect} determines if the method should look for indirect annotations, i.e.
    * annotations which have themselves been annotated by the supplied annotation name. Currently, this only allows
    * one level of indirection and returns an array of [base-annotation, indirect annotation]
    * <p/>
-   * The <code>annotationName</code> parameter is a pair of the target annotation class' fully qualified name as a
+   * The {@code annotationName} parameter is a pair of the target annotation class' fully qualified name as a
    * String and as a Set. This is done for performance reasons because the Set is required by the
-   * {@link com.intellij.codeInsight.AnnotationUtil} utility class and allows to avoid unnecessary object constructions.
+   * {@link AnnotationUtil} utility class and allows to avoid unnecessary object constructions.
    */
   @NotNull
   public static PsiAnnotation[] getAnnotationFrom(PsiModifierListOwner owner,
@@ -208,13 +208,13 @@ public class AnnotationUtilEx {
 
 
   /**
-   * The parameter <code>allowIndirect</code> determines if the method should look for indirect annotations, i.e.
+   * The parameter {@code allowIndirect} determines if the method should look for indirect annotations, i.e.
    * annotations which have themselves been annotated by the supplied annotation name. Currently, this only allows
    * one level of indirection and returns an array of [base-annotation, indirect annotation]
    * <p/>
-   * The <code>annotationName</code> parameter is a pair of the target annotation class' fully qualified name as a
+   * The {@code annotationName} parameter is a pair of the target annotation class' fully qualified name as a
    * String and as a Set. This is done for performance reasons because the Set is required by the
-   * {@link com.intellij.codeInsight.AnnotationUtil} utility class and allows to avoid unnecessary object constructions.
+   * {@link AnnotationUtil} utility class and allows to avoid unnecessary object constructions.
    */
 
   public static PsiAnnotation[] getAnnotationsFromImpl(PsiModifierListOwner owner,
@@ -250,7 +250,7 @@ public class AnnotationUtilEx {
   }
 
   /**
-   * Calculates the value of the annotation's attribute referenced by the <code>attr</code> parameter by trying to
+   * Calculates the value of the annotation's attribute referenced by the {@code attr} parameter by trying to
    * find the attribute in the supplied list of annotations and calculating the constant value for the first attribute
    * it finds.
    */
@@ -274,9 +274,9 @@ public class AnnotationUtilEx {
   }
 
   /**
-   * Returns all annotations for <code>listOwner</code>, possibly walking up the method hierarchy.
+   * Returns all annotations for {@code listOwner}, possibly walking up the method hierarchy.
    *
-   * @see com.intellij.codeInsight.AnnotationUtil#isAnnotated(com.intellij.psi.PsiModifierListOwner, java.lang.String, boolean)
+   * @see AnnotationUtil#getSuperAnnotationOwners(PsiModifierListOwner)
    */
   private static PsiAnnotation[] getAnnotations(@NotNull final PsiModifierListOwner listOwner, final boolean inHierarchy) {
     final PsiModifierList modifierList = listOwner.getModifierList();
@@ -289,6 +289,7 @@ public class AnnotationUtilEx {
 
   private static PsiAnnotation[] getHierarchyAnnotations(PsiModifierListOwner listOwner) {
     final Set<PsiAnnotation> all = new HashSet<PsiAnnotation>() {
+      @Override
       public boolean add(PsiAnnotation o) {
         // don't overwrite "higher level" annotations
         return !contains(o) && super.add(o);
@@ -305,6 +306,6 @@ public class AnnotationUtilEx {
         ContainerUtil.addAll(all, modifierList.getAnnotations());
       }
     }
-    return all.isEmpty() ? PsiAnnotation.EMPTY_ARRAY : all.toArray(new PsiAnnotation[all.size()]);
+    return all.isEmpty() ? PsiAnnotation.EMPTY_ARRAY : all.toArray(PsiAnnotation.EMPTY_ARRAY);
   }
 }

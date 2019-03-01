@@ -467,7 +467,7 @@ public abstract class RadComponent extends PropertiesContainer {
 
   public static List<ErrorInfo> getError(RadComponent component) {
     List<ErrorInfo> errorInfos = component.getClientProperty(ERROR_KEY);
-    return errorInfos == null ? Collections.<ErrorInfo>emptyList() : errorInfos;
+    return errorInfos == null ? Collections.emptyList() : errorInfos;
   }
 
   public static void addError(RadComponent component, ErrorInfo errorInfo) {
@@ -524,7 +524,7 @@ public abstract class RadComponent extends PropertiesContainer {
     return siblingLists;
   }
 
-  public static Set<RadComponent> getParents(List<RadComponent> components) {
+  public static Set<RadComponent> getParents(List<? extends RadComponent> components) {
     Set<RadComponent> parents = new HashSet<>();
     for (RadComponent component : components) {
       RadComponent parent = component.getParent();

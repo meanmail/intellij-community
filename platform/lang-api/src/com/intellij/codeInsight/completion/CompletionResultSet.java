@@ -1,21 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.completion;
 
 import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.patterns.ElementPattern;
 import com.intellij.patterns.StandardPatterns;
 import com.intellij.util.Consumer;
@@ -61,7 +48,8 @@ public abstract class CompletionResultSet implements Consumer<LookupElement> {
   }
 
   /**
-   * If a given element matches the prefix, give it for further processing (which may eventually result in its appearing in the completion list)
+   * If a given element matches the prefix, give it for further processing (which may eventually result in its appearing in the completion list).
+   * @see #addAllElements(Iterable) 
    */
   public abstract void addElement(@NotNull final LookupElement element);
 
@@ -69,10 +57,39 @@ public abstract class CompletionResultSet implements Consumer<LookupElement> {
     myConsumer.consume(result);
   }
 
-  public void addAllElements(@NotNull final Iterable<? extends LookupElement> elements) {
-    for (LookupElement element : elements) {
-      addElement(element);
+  public void startBatch() {
+    if (myConsumer instanceof BatchConsumer) {
+      ((BatchConsumer)myConsumer).startBatch();
     }
+  }
+
+  public void endBatch() {
+    if (myConsumer instanceof BatchConsumer) {
+      ((BatchConsumer)myConsumer).endBatch();
+    }
+  }
+
+  /**
+   * Adds all elements from the given collection that match the prefix for further processing. The elements are processed in batch,
+   * so that they'll appear in lookup all together.<p/>
+   * This can be useful to ensure predictable order of top suggested elements.
+   * Otherwise, when the lookup is shown, most relevant elements processed to that moment are put to the top 
+   * and remain there even if more relevant elements appear later. 
+   * These "first" elements may differ from completion invocation to completion invocation due to performance fluctuations,
+   * resulting in varying preselected item in completion and worse user experience. Using {@code addAllElements} 
+   * instead of {@link #addElement(LookupElement)} helps to avoid that.
+   */
+  public void addAllElements(@NotNull final Iterable<? extends LookupElement> elements) {
+    startBatch();
+    int seldomCounter = 0;
+    for (LookupElement element : elements) {
+      seldomCounter++;
+      addElement(element);
+      if (seldomCounter % 1000 == 0) {
+        ProgressManager.checkCanceled();
+      }
+    }
+    endBatch();
   }
 
   @Contract(value="", pure=true)
@@ -129,14 +146,45 @@ public abstract class CompletionResultSet implements Consumer<LookupElement> {
     if (stop) {
       stopHere();
     }
-    myCompletionService.getVariantsFromContributors(parameters, myContributor, consumer);
+    myCompletionService.getVariantsFromContributors(parameters, myContributor, new BatchConsumer<CompletionResult>() {
+      @Override
+      public void startBatch() {
+        CompletionResultSet.this.startBatch();
+      }
+
+      @Override
+      public void endBatch() {
+        CompletionResultSet.this.endBatch();
+      }
+
+      @Override
+      public void consume(CompletionResult result) {
+        consumer.consume(result);
+      }
+    });
   }
 
+  /**
+   * Request that the completion contributors be run again when the user changes the prefix so that it becomes equal to the one given.
+   */
   public void restartCompletionOnPrefixChange(String prefix) {
     restartCompletionOnPrefixChange(StandardPatterns.string().equalTo(prefix));
   }
 
+  /**
+   * Request that the completion contributors be run again when the user changes the prefix in a way satisfied by the given condition.
+   */
   public abstract void restartCompletionOnPrefixChange(ElementPattern<String> prefixCondition);
 
+  /**
+   * Request that the completion contributors be run again when the user changes the prefix in any way.
+   */
+  public void restartCompletionOnAnyPrefixChange() {
+    restartCompletionOnPrefixChange(StandardPatterns.string());
+  }
+
+  /**
+   * Request that the completion contributors be run again when the user types something into the editor so that no existing lookup elements match that prefix anymore.
+   */
   public abstract void restartCompletionWhenNothingMatches();
 }

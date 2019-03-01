@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.updateSettings.impl.pluginsAdvertisement;
 
 import com.intellij.ide.plugins.*;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.PluginId;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.updateSettings.impl.DetectedPluginsPanel;
@@ -33,16 +18,16 @@ import java.util.*;
  * @author anna
  */
 public class PluginsAdvertiserDialog extends DialogWrapper {
-  private static final Logger LOG = Logger.getInstance("#" + PluginsAdvertiserDialog.class.getName());
+  private static final Logger LOG = Logger.getInstance(PluginsAdvertiserDialog.class);
 
   @Nullable private final Project myProject;
   private final PluginDownloader[] myUploadedPlugins;
-  private final List<PluginId> myAllPlugins;
+  private final List<? extends IdeaPluginDescriptor> myAllPlugins;
   private final Set<String> mySkippedPlugins = new HashSet<>();
 
   private final PluginManagerMain.PluginEnabler.HEADLESS pluginHelper = new PluginManagerMain.PluginEnabler.HEADLESS();
 
-  PluginsAdvertiserDialog(@Nullable Project project, PluginDownloader[] plugins, List<PluginId> allPlugins) {
+  PluginsAdvertiserDialog(@Nullable Project project, PluginDownloader[] plugins, List<? extends IdeaPluginDescriptor> allPlugins) {
     super(project);
     myProject = project;
     Arrays.sort(plugins, (o1, o2) -> o1.getPluginName().compareToIgnoreCase(o2.getPluginName()));
@@ -78,12 +63,13 @@ public class PluginsAdvertiserDialog extends DialogWrapper {
       if (!mySkippedPlugins.contains(pluginId)) {
         pluginsToEnable.add(pluginId);
         if (!pluginHelper.isDisabled(pluginId)) {
-          final PluginNode pluginNode = PluginDownloader.createPluginNode(null, downloader);
-          if (pluginNode != null) {
-            nodes.add(pluginNode);
-          }
+          nodes.add(PluginDownloader.createPluginNode(null, downloader));
         }
       }
+    }
+
+    if (!PluginManagerMain.checkThirdPartyPluginsAllowed(nodes)) {
+      return;
     }
 
     PluginManagerMain.suggestToEnableInstalledDependantPlugins(pluginHelper, nodes);
@@ -94,7 +80,7 @@ public class PluginsAdvertiserDialog extends DialogWrapper {
     }
     if (!nodes.isEmpty()) {
       try {
-        PluginManagerMain.downloadPlugins(nodes, myAllPlugins, notifyRunnable, null);
+        PluginManagerMain.downloadPlugins(nodes, myAllPlugins, notifyRunnable, pluginHelper, null);
       }
       catch (IOException e) {
         LOG.error(e);

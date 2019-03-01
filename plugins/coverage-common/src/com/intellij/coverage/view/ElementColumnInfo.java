@@ -6,12 +6,8 @@ import com.intellij.util.ui.ColumnInfo;
 
 import java.util.Comparator;
 
-/**
-* User: anna
-* Date: 1/9/12
-*/
 class ElementColumnInfo extends ColumnInfo<NodeDescriptor, String> {
-  public ElementColumnInfo() {
+  ElementColumnInfo() {
     super("Element");
   }
 

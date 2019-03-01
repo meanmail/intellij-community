@@ -18,9 +18,11 @@ package com.intellij.codeInsight.completion;
 import com.intellij.codeInsight.lookup.LookupElement;
 import com.intellij.codeInsight.lookup.LookupElementBuilder;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.html.HtmlTag;
+import com.intellij.psi.impl.source.html.dtd.HtmlAttributeDescriptorImpl;
 import com.intellij.psi.impl.source.xml.XmlAttributeImpl;
 import com.intellij.psi.impl.source.xml.XmlAttributeReference;
 import com.intellij.psi.meta.PsiPresentableMetaData;
@@ -43,7 +45,7 @@ public class XmlAttributeReferenceCompletionProvider extends CompletionProvider<
 
   @Override
   protected void addCompletions(@NotNull CompletionParameters parameters,
-                                ProcessingContext context,
+                                @NotNull ProcessingContext context,
                                 @NotNull CompletionResultSet result) {
     PsiReference reference = parameters.getPosition().getContainingFile().findReferenceAt(parameters.getOffset());
     if (reference instanceof XmlAttributeReference) {
@@ -78,10 +80,6 @@ public class XmlAttributeReferenceCompletionProvider extends CompletionProvider<
                           ? attribute.getNamespacePrefix() + ":"
                           : null;
 
-    CompletionData
-      completionData = CompletionUtil.getCompletionDataByElement(attribute, attribute.getContainingFile().getOriginalFile());
-    boolean caseSensitive = !(completionData instanceof HtmlCompletionData) || ((HtmlCompletionData)completionData).isCaseSensitive();
-
     for (XmlAttributeDescriptor descriptor : descriptors) {
       if (isValidVariant(attribute, descriptor, attributes, extension)) {
         String name = descriptor.getName(tag);
@@ -114,14 +112,19 @@ public class XmlAttributeReferenceCompletionProvider extends CompletionProvider<
           }
           LookupElementBuilder element = LookupElementBuilder.create(name);
           if (descriptor instanceof PsiPresentableMetaData) {
-            element = element.withIcon(((PsiPresentableMetaData)descriptor).getIcon());
+            PsiPresentableMetaData presentableMetaData = (PsiPresentableMetaData)descriptor;
+            element = element.withIcon(presentableMetaData.getIcon());
+            String typeName = presentableMetaData.getTypeName();
+            if (!StringUtil.isEmpty(typeName)) {
+              element = element.withTypeText(typeName);
+            }
           }
           final int separator = name.indexOf(':');
           if (separator > 0) {
             element = element.withLookupString(name.substring(separator + 1));
           }
           element = element
-            .withCaseSensitivity(caseSensitive)
+            .withCaseSensitivity(!(descriptor instanceof HtmlAttributeDescriptorImpl) || ((HtmlAttributeDescriptorImpl)descriptor).isCaseSensitive())
             .withInsertHandler(insertHandler);
           result.addElement(
             descriptor.isRequired() ? PrioritizedLookupElement.withPriority(element.appendTailText("(required)", true), 100) :
@@ -131,7 +134,7 @@ public class XmlAttributeReferenceCompletionProvider extends CompletionProvider<
     }
   }
 
-  private static boolean isValidVariant(XmlAttribute attribute,
+  public static boolean isValidVariant(XmlAttribute attribute,
                                         @NotNull XmlAttributeDescriptor descriptor,
                                         final XmlAttribute[] attributes,
                                         final XmlExtension extension) {

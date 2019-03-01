@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.uiDesigner.compiler;
 
 import com.intellij.openapi.util.Key;
@@ -47,7 +33,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: 11/20/12
  */
 public class FormsBindingManager extends FormsBuilder {
   private static final String JAVA_EXTENSION = ".java";
@@ -104,9 +89,9 @@ public class FormsBindingManager extends FormsBuilder {
       return exitCode;
     }
 
-    final Map<File, ModuleBuildTarget> filesToCompile = new THashMap<File, ModuleBuildTarget>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, ModuleBuildTarget> formsToCompile = new THashMap<File, ModuleBuildTarget>(FileUtil.FILE_HASHING_STRATEGY);
-    final Map<File, Collection<File>> srcToForms = new THashMap<File, Collection<File>>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, ModuleBuildTarget> filesToCompile = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, ModuleBuildTarget> formsToCompile = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
+    final Map<File, Collection<File>> srcToForms = new THashMap<>(FileUtil.FILE_HASHING_STRATEGY);
 
     if (!JavaBuilderUtil.isForcedRecompilationAllJavaModules(context) && config.isInstrumentClasses() && FORCE_FORMS_REBUILD_FLAG.get(context, Boolean.FALSE)) {
       // force compilation of all forms, but only once per chunk
@@ -117,6 +102,7 @@ public class FormsBindingManager extends FormsBuilder {
     }
 
     dirtyFilesHolder.processDirtyFiles(new FileProcessor<JavaSourceRootDescriptor, ModuleBuildTarget>() {
+      @Override
       public boolean apply(ModuleBuildTarget target, File file, JavaSourceRootDescriptor descriptor) throws IOException {
         if (JAVA_SOURCES_FILTER.accept(file)) {
           filesToCompile.put(file, target);
@@ -180,7 +166,7 @@ public class FormsBindingManager extends FormsBuilder {
               exitCode = ExitCode.OK;
               // now inform others about files just copied
               for (File file : generatedFiles) {
-                outputConsumer.registerOutputFile(target, file, Collections.<String>emptyList());
+                outputConsumer.registerOutputFile(target, file, Collections.emptyList());
               }
             }
           }
@@ -221,7 +207,7 @@ public class FormsBindingManager extends FormsBuilder {
       }
     }
 
-    final Set<File> candidates = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+    final Set<File> candidates = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
     for (JavaSourceRootDescriptor rd : targetRoots) {
       candidates.addAll(findPossibleSourcesForClass(rd, className));
     }
@@ -261,7 +247,7 @@ public class FormsBindingManager extends FormsBuilder {
     if (files == null || files.length == 0) {
       return Collections.emptyList();
     }
-    return Arrays.asList(files); 
+    return Arrays.asList(files);
   }
 
   @NotNull

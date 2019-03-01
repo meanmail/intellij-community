@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.commands;
 
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -20,7 +6,6 @@ import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.vcs.VcsException;
-import com.intellij.openapi.vfs.VirtualFile;
 import git4idea.i18n.GitBundle;
 import git4idea.util.GitUIUtil;
 import org.jetbrains.annotations.NonNls;
@@ -31,7 +16,9 @@ import java.awt.*;
 
 /**
  * Handler utilities that allow running handlers with progress indicators
+ * @deprecated use {@link GitImpl}
  */
+@Deprecated
 public class GitHandlerUtil {
 
   private GitHandlerUtil() {
@@ -48,6 +35,7 @@ public class GitHandlerUtil {
   @Nullable
   public static String doSynchronously(final GitSimpleHandler handler, final String operationTitle, @NonNls final String operationName) {
     handler.addListener(new GitHandlerListenerBase(handler, operationName) {
+      @Override
       protected String getErrorText() {
         String text = handler.getStderr();
         if (text.length() == 0) {
@@ -57,12 +45,8 @@ public class GitHandlerUtil {
       }
     });
     final ProgressManager manager = ProgressManager.getInstance();
-    manager.runProcessWithProgressSynchronously(new Runnable() {
-      public void run() {
-        runInCurrentThread(handler, manager.getProgressIndicator(), true,
-                           operationTitle);
-      }
-    }, operationTitle, false, handler.project());
+    manager.runProcessWithProgressSynchronously(() -> runInCurrentThread(handler, manager.getProgressIndicator(), true,
+                                                                     operationTitle), operationTitle, false, handler.project());
     if (!handler.isStarted() || handler.getExitCode() != 0) {
       return null;
     }
@@ -80,6 +64,7 @@ public class GitHandlerUtil {
   public static int doSynchronously(final GitLineHandler handler, final String operationTitle, @NonNls final String operationName) {
     final ProgressManager manager = ProgressManager.getInstance();
     manager.run(new Task.Modal(handler.project(), operationTitle, true) {
+      @Override
       public void run(@NotNull final ProgressIndicator indicator) {
         handler.addLineListener(new GitLineHandlerListenerProgress(indicator, handler, operationName, true));
         runInCurrentThread(handler, indicator, true, operationTitle);
@@ -104,14 +89,12 @@ public class GitHandlerUtil {
                                         final ProgressIndicator indicator,
                                         final boolean setIndeterminateFlag,
                                         @Nullable final String operationName) {
-    runInCurrentThread(handler, new Runnable() {
-      public void run() {
-        if (indicator != null) {
-          indicator.setText(operationName == null ? GitBundle.message("git.running", handler.printableCommandLine()) : operationName);
-          indicator.setText2("");
-          if (setIndeterminateFlag) {
-            indicator.setIndeterminate(true);
-          }
+    runInCurrentThread(handler, () -> {
+      if (indicator != null) {
+        indicator.setText(operationName == null ? GitBundle.message("git.running", handler.printableCommandLine()) : operationName);
+        indicator.setText2("");
+        if (setIndeterminateFlag) {
+          indicator.setIndeterminate(true);
         }
       }
     });
@@ -125,10 +108,6 @@ public class GitHandlerUtil {
    */
   public static void runInCurrentThread(final GitHandler handler, @Nullable final Runnable postStartAction) {
     handler.runInCurrentThread(postStartAction);
-  }
-
-  public static String formatOperationName(String operation, @NotNull VirtualFile root) {
-    return operation + " '" + root.getName() + "'...";
   }
 
   /**
@@ -154,7 +133,7 @@ public class GitHandlerUtil {
      * @param handler       a handler instance
      * @param operationName an operation name
      */
-    public GitHandlerListenerBase(final GitHandler handler, final String operationName) {
+    GitHandlerListenerBase(final GitHandler handler, final String operationName) {
       this(handler, operationName, true);
     }
 
@@ -165,7 +144,7 @@ public class GitHandlerUtil {
      * @param operationName an operation name
      * @param showErrors    if true, the errors are shown when process is terminated
      */
-    public GitHandlerListenerBase(final GitHandler handler, final String operationName, boolean showErrors) {
+    GitHandlerListenerBase(final GitHandler handler, final String operationName, boolean showErrors) {
       myHandler = handler;
       myOperationName = operationName;
       myShowErrors = showErrors;
@@ -174,15 +153,12 @@ public class GitHandlerUtil {
     /**
      * {@inheritDoc}
      */
+    @Override
     public void processTerminated(final int exitCode) {
-      if (exitCode != 0 && !myHandler.isIgnoredErrorCode(exitCode)) {
+      if (exitCode != 0) {
         ensureError(exitCode);
         if (myShowErrors) {
-          EventQueue.invokeLater(new Runnable() {
-            public void run() {
-              GitUIUtil.showOperationErrors(myHandler.project(), myHandler.errors(), myOperationName);
-            }
-          });
+          EventQueue.invokeLater(() -> GitUIUtil.showOperationErrors(myHandler.project(), myHandler.errors(), myOperationName));
         }
       }
     }
@@ -196,11 +172,9 @@ public class GitHandlerUtil {
       if (myHandler.errors().isEmpty()) {
         String text = getErrorText();
         if ((text == null || text.length() == 0) && myHandler.errors().isEmpty()) {
-          //noinspection ThrowableInstanceNeverThrown
           myHandler.addError(new VcsException(GitBundle.message("git.error.exit", exitCode)));
         }
         else {
-          //noinspection ThrowableInstanceNeverThrown
           myHandler.addError(new VcsException(text));
         }
       }
@@ -214,15 +188,11 @@ public class GitHandlerUtil {
     /**
      * {@inheritDoc}
      */
-    public void startFailed(final Throwable exception) {
-      //noinspection ThrowableInstanceNeverThrown
+    @Override
+    public void startFailed(@NotNull final Throwable exception) {
       myHandler.addError(new VcsException("Git start failed: " + exception.getMessage(), exception));
       if (myShowErrors) {
-        EventQueue.invokeLater(new Runnable() {
-          public void run() {
-            GitUIUtil.showOperationError(myHandler.project(), myOperationName, exception.getMessage());
-          }
-        });
+        EventQueue.invokeLater(() -> GitUIUtil.showOperationError(myHandler.project(), myOperationName, exception.getMessage()));
       }
     }
   }
@@ -238,7 +208,7 @@ public class GitHandlerUtil {
      * @param operationName an operation name
      * @param showErrors    if true, the errors are shown when process is terminated
      */
-    public GitLineHandlerListenerBase(GitHandler handler, String operationName, boolean showErrors) {
+    GitLineHandlerListenerBase(GitHandler handler, String operationName, boolean showErrors) {
       super(handler, operationName, showErrors);
     }
 
@@ -262,13 +232,14 @@ public class GitHandlerUtil {
      * @param showErrors    if true, the errors are shown when process is terminated
      */
     public GitLineHandlerListenerProgress(@Nullable ProgressIndicator indicator, GitHandler handler, String operationName, boolean showErrors) {
-      super(handler, operationName, showErrors);    //To change body of overridden methods use File | Settings | File Templates.
+      super(handler, operationName, showErrors);
       myProgressIndicator = indicator;
     }
 
     /**
      * {@inheritDoc}
      */
+    @Override
     protected String getErrorText() {
       // all lines are already calculated as errors
       return "";
@@ -277,9 +248,9 @@ public class GitHandlerUtil {
     /**
      * {@inheritDoc}
      */
+    @Override
     public void onLineAvailable(final String line, final Key outputType) {
       if (isErrorLine(line.trim())) {
-        //noinspection ThrowableInstanceNeverThrown
         myHandler.addError(new VcsException(line));
       }
       if (myProgressIndicator != null) {

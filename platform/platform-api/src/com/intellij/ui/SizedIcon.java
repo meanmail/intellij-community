@@ -15,67 +15,96 @@
  */
 package com.intellij.ui;
 
+import com.intellij.openapi.util.IconLoader;
+import com.intellij.openapi.util.IconLoader.DarkIconProvider;
+import com.intellij.openapi.util.IconLoader.MenuBarIconProvider;
 import com.intellij.openapi.util.ScalableIcon;
+import com.intellij.util.ui.JBUI;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.awt.*;
 
+import static java.lang.Math.ceil;
+import static java.lang.Math.floor;
+
 /**
  * @author peter
  */
-public class SizedIcon implements Icon, ScalableIcon {
+public class SizedIcon extends JBUI.CachingScalableJBIcon implements MenuBarIconProvider, DarkIconProvider, RetrievableIcon {
   private final int myWidth;
   private final int myHeight;
   private final Icon myDelegate;
   private Icon myScaledDelegate;
-  private float myScale = 1f;
 
   public SizedIcon(Icon delegate, int width, int height) {
-    myDelegate = delegate;
+    myScaledDelegate = myDelegate = delegate;
     myWidth = width;
     myHeight = height;
   }
 
-  public void paintIcon(Component c, Graphics g, int x, int y) {
-    x = scale(x);
-    y = scale(y);
-    int dx = scale(myWidth) - scale(myDelegate.getIconWidth());
-    int dy = scale(myHeight) - scale(myDelegate.getIconHeight());
-    if (dx > 0 || dy > 0) {
-      myDelegate.paintIcon(c, g, x + dx/2, y + dy/2);
-    }
-    else {
-      myDelegate.paintIcon(c, g, x, y);
-    }
+  protected SizedIcon(SizedIcon icon) {
+    super(icon);
+    myWidth = icon.myWidth;
+    myHeight = icon.myHeight;
+    myDelegate = icon.myDelegate;
+    myScaledDelegate = null;
   }
 
-  private int scale(int n) {
-    return myScale == 1f ? n : (int) (n * myScale);
+  @NotNull
+  @Override
+  public SizedIcon copy() {
+    return new SizedIcon(this);
   }
 
-  public int getIconWidth() {
-    if (myDelegate instanceof ScalableIcon) {
-      return myDelegate.getIconWidth();
+  private Icon myScaledIcon() {
+    if (myScaledDelegate != null) {
+      return myScaledDelegate;
     }
-
-    return myWidth;
-  }
-
-  public int getIconHeight() {
-    if (myDelegate instanceof ScalableIcon) {
-      return myDelegate.getIconHeight();
+    if (getScale() == 1f) {
+      return myScaledDelegate = myDelegate;
     }
-
-    return myHeight;
+    if (!(myDelegate instanceof ScalableIcon)) {
+      return myScaledDelegate = myDelegate;
+    }
+    return myScaledDelegate = ((ScalableIcon)myDelegate).scale(getScale());
   }
 
   @Override
-  public Icon scale(float scaleFactor) {
-    if (scaleFactor == 1f) {
-      myScaledDelegate = null;
-    } else if (myDelegate instanceof ScalableIcon) {
-      myScaledDelegate = ((ScalableIcon)myDelegate).scale(scaleFactor);
+  public Icon getMenuBarIcon(boolean isDark) {
+    return new SizedIcon(IconLoader.getMenuBarIcon(myDelegate, isDark), myWidth, myHeight);
+  }
+
+  @Override
+  public Icon getDarkIcon(boolean isDark) {
+    return new SizedIcon(IconLoader.getDarkIcon(myDelegate, isDark), myWidth, myHeight);
+  }
+
+  @Nullable
+  @Override
+  public Icon retrieveIcon() { return myDelegate; }
+
+  @Override
+  public void paintIcon(Component c, Graphics g, int x, int y) {
+    Icon icon = myScaledIcon();
+    double dx = scaleVal(myWidth) - icon.getIconWidth();
+    double dy = scaleVal(myHeight) - icon.getIconHeight();
+    if (dx > 0 || dy > 0) {
+      icon.paintIcon(c, g, x + (int)floor(dx / 2), y + (int)floor(dy / 2));
     }
-    return this;
+    else {
+      icon.paintIcon(c, g, x, y);
+    }
+  }
+
+  @Override
+  public int getIconWidth() {
+    return (int)ceil(scaleVal(myWidth));
+  }
+
+  @Override
+  public int getIconHeight() {
+    return (int)ceil(scaleVal(myHeight));
   }
 }

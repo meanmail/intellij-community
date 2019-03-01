@@ -1,4 +1,4 @@
-<idea-plugin version="2" xmlns:xi="http://www.w3.org/2001/XInclude" url="https://confluence.jetbrains.com/display/PYH/">
+<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" url="https://confluence.jetbrains.com/display/PYH/">
   <!-- Components and extensions declared in this file work ONLY in PyCharm, not in Python plugin.
        Both Community and Professional editions. -->
 
@@ -16,5 +16,14 @@
                          id="com.jetbrains.python.configuration.PyDependenciesConfigurable"
                          displayName="Project Dependencies"
                          provider="com.jetbrains.python.configuration.PyDependenciesConfigurableProvider"/>
+
+    <filetype.prebuiltStubsProvider filetype="Python" implementationClass="com.jetbrains.python.psi.impl.stubs.PyPrebuiltStubsProvider"/>
+
+    <!-- Status Bar -->
+    <statusBarWidgetProvider implementation="com.jetbrains.python.configuration.PySdkStatusBarWidgetProvider"/>
   </extensions>
+
+  <actions>
+    <action id="PySwitchSdkAction" class="com.jetbrains.python.configuration.PySwitchSdkAction"/>
+  </actions>
 </idea-plugin>

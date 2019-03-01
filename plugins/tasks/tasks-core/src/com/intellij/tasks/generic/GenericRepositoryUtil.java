@@ -18,7 +18,7 @@ package com.intellij.tasks.generic;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import org.apache.commons.httpclient.HttpMethod;
 import org.apache.commons.httpclient.NameValuePair;
 import org.apache.commons.httpclient.methods.PostMethod;
@@ -53,11 +53,11 @@ public class GenericRepositoryUtil {
     return postMethod;
   }
 
-  public static String substituteTemplateVariables(String s, Collection<TemplateVariable> variables) throws Exception {
+  public static String substituteTemplateVariables(String s, Collection<? extends TemplateVariable> variables) throws Exception {
     return substituteTemplateVariables(s, variables, true);
   }
 
-  public static String substituteTemplateVariables(String s, Collection<TemplateVariable> variables, boolean escape) throws Exception {
+  public static String substituteTemplateVariables(String s, Collection<? extends TemplateVariable> variables, boolean escape) throws Exception {
     Map<String, String> lookup = new HashMap<>();
     for (TemplateVariable v : variables) {
       lookup.put(v.getName(), v.getValue());
@@ -85,7 +85,7 @@ public class GenericRepositoryUtil {
     return createPlaceholdersList(repository.getAllTemplateVariables());
   }
 
-  public static List<String> createPlaceholdersList(List<TemplateVariable> variables) {
+  public static List<String> createPlaceholdersList(List<? extends TemplateVariable> variables) {
     return ContainerUtil.map2List(variables, variable -> String.format("{%s}", variable.getName()));
   }
 

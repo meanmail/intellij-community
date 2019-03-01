@@ -20,7 +20,6 @@ import com.intellij.lang.ant.config.AntBuildFileBase;
 import com.intellij.lang.ant.config.AntBuildListener;
 import com.intellij.lang.ant.config.AntConfigurationBase;
 import com.intellij.lang.ant.config.execution.ExecutionHandler;
-import com.intellij.lang.ant.config.impl.BuildFileProperty;
 import com.intellij.lang.ant.dom.AntDomTarget;
 import com.intellij.lang.ant.resources.AntActionsBundle;
 import com.intellij.openapi.actionSystem.AnAction;
@@ -45,7 +44,6 @@ import java.util.Collections;
 
 /**
  * Created by Eugene Petrenko (eugene.petrenko@gmail.com)
- * Date: 28.05.12 16:07
  */
 public class RunTargetAction extends AnAction {
   public RunTargetAction() {
@@ -53,21 +51,21 @@ public class RunTargetAction extends AnAction {
   }
 
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     Pair<AntBuildFileBase, AntDomTarget> antTarget = findAntTarget(e);
     if (antTarget == null) return;
 
     ExecutionHandler.runBuild(
-      antTarget.first, new String[] {antTarget.second.getName().getValue() },
+      antTarget.first, Collections.singletonList(antTarget.second.getName().getValue()),
       null,
       e.getDataContext(),
-      Collections.<BuildFileProperty>emptyList(),
+      Collections.emptyList(),
       AntBuildListener.NULL);
   }
 
 
   @Override
-  public void update(AnActionEvent e) {
+  public void update(@NotNull AnActionEvent e) {
     super.update(e);
 
     final Presentation presentation = e.getPresentation();
@@ -75,10 +73,10 @@ public class RunTargetAction extends AnAction {
     Pair<AntBuildFileBase, AntDomTarget> antTarget = findAntTarget(e);
     if (antTarget == null) {
       presentation.setEnabled(false);
-      presentation.setText(AntActionsBundle.message("action.RunTargetAction.text", ""));
+      presentation.setText(AntActionsBundle.message("action.RunTargetAction.text.template", ""));
     } else {
       presentation.setEnabled(true);
-      presentation.setText(AntActionsBundle.message("action.RunTargetAction.text", "'" + antTarget.second.getName().getValue() + "'"));
+      presentation.setText(AntActionsBundle.message("action.RunTargetAction.text.template", "'" + antTarget.second.getName().getValue() + "'"));
     }
   }
 

@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 /*
  * @author max
@@ -35,51 +21,84 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Predicate;
 
-public class KeyedExtensionCollector<T, KeyT> {
+public class KeyedExtensionCollector<T, KeyT> implements ModificationTracker {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.util.KeyedExtensionCollector");
 
-  private final Map<String, List<T>> myExplicitExtensions = new THashMap<String, List<T>>();
+  private final Map<String, List<T>> myExplicitExtensions = new THashMap<>(); // guarded by lock
   private final ConcurrentMap<String, List<T>> myCache = ContainerUtil.newConcurrentMap();
 
-  @NonNls private final String lock;
+  @NonNls protected final String lock;
 
-  private ExtensionPoint<KeyedLazyInstance<T>> myPoint;
   private final String myEpName;
-  private ExtensionPointAndAreaListener<KeyedLazyInstance<T>> myListener;
-  private final List<ExtensionPointListener<T>> myListeners = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final SimpleModificationTracker myTracker = new SimpleModificationTracker();
 
-  public KeyedExtensionCollector(@NonNls @NotNull String epName) {
-    myEpName = epName;
-    lock = "lock for KeyedExtensionCollector " + epName;
-    resetAreaListener();
-  }
-
-  private void resetAreaListener() {
-    synchronized (lock) {
-      myCache.clear();
-
-      if (myPoint != null) {
-        myPoint.removeExtensionPointListener(myListener);
-        myPoint = null;
-        myListener = null;
+  private final ExtensionPointAndAreaListener<KeyedLazyInstance<T>> myListener = new ExtensionPointAndAreaListener<KeyedLazyInstance<T>>() {
+    @Override
+    public void extensionAdded(@NotNull final KeyedLazyInstance<T> bean, @Nullable final PluginDescriptor pluginDescriptor) {
+      synchronized (lock) {
+      if (bean.getKey() == null) {
+        if (pluginDescriptor != null) {
+          throw new PluginException("No key specified for extension of class " + bean.getInstance().getClass(),
+                                    pluginDescriptor.getPluginId());
+        }
+        LOG.error("No key specified for extension of class " + bean.getInstance().getClass());
+        return;
+      }
+      myCache.remove(bean.getKey());
+      myTracker.incModificationCount();
       }
     }
+
+    @Override
+    public void extensionRemoved(@NotNull final KeyedLazyInstance<T> bean, @Nullable final PluginDescriptor pluginDescriptor) {
+      synchronized (lock) {
+      myCache.remove(bean.getKey());
+      myTracker.incModificationCount();
+      }
+    }
+
+    @Override
+    public void areaReplaced(@NotNull final ExtensionsArea area) {
+      myCache.clear();
+      myTracker.incModificationCount();
+    }
+  };
+
+  public KeyedExtensionCollector(@NonNls @NotNull String epName) {
+    this(epName, null);
+  }
+
+  public KeyedExtensionCollector(@NonNls @NotNull String epName, @Nullable Disposable parentDisposable) {
+    myEpName = epName;
+    lock = "lock for KeyedExtensionCollector " + epName;
+
+    Extensions.getRootArea().addAvailabilityListener(epName, new ExtensionPointAvailabilityListener() {
+      @Override
+      public void extensionPointRegistered(@NotNull ExtensionPoint extensionPoint) {
+        if (extensionPoint.getName().equals(epName)) {
+          //noinspection unchecked
+          extensionPoint.addExtensionPointListener(myListener, false, parentDisposable);
+          myCache.clear();
+          myTracker.incModificationCount();
+        }
+      }
+
+      @Override
+      public void extensionPointRemoved(@NotNull ExtensionPoint extensionPoint) {
+        // no need to remove myListener - it should deregister automatically
+      }
+    }, parentDisposable);
   }
 
   public void addExplicitExtension(@NotNull KeyT key, @NotNull T t) {
     synchronized (lock) {
       final String skey = keyToString(key);
-      List<T> list = myExplicitExtensions.get(skey);
-      if (list == null) {
-        list = new ArrayList<T>();
-        myExplicitExtensions.put(skey, list);
-      }
+      List<T> list = myExplicitExtensions.computeIfAbsent(skey, __ -> new SmartList<>());
       list.add(t);
       myCache.remove(skey);
-      for (ExtensionPointListener<T> listener : myListeners) {
-        listener.extensionAdded(t, null);
-      }
+      myTracker.incModificationCount();
     }
   }
 
@@ -89,11 +108,12 @@ public class KeyedExtensionCollector<T, KeyT> {
       List<T> list = myExplicitExtensions.get(skey);
       if (list != null) {
         list.remove(t);
-        myCache.remove(skey);
+        if (list.isEmpty()) {
+          myExplicitExtensions.remove(skey);
+        }
       }
-      for (ExtensionPointListener<T> listener : myListeners) {
-        listener.extensionRemoved(t, null);
-      }
+      myCache.remove(skey);
+      myTracker.incModificationCount();
     }
   }
 
@@ -109,12 +129,15 @@ public class KeyedExtensionCollector<T, KeyT> {
   public List<T> forKey(@NotNull KeyT key) {
     final String stringKey = keyToString(key);
 
-    boolean rebuild = myPoint == null && Extensions.getRootArea().hasExtensionPoint(myEpName);
-    List<T> cached = rebuild ? null : myCache.get(stringKey);
-    if (cached != null) return cached;
-
-    cached = buildExtensions(stringKey, key);
-    cached = ConcurrencyUtil.cacheOrGet(myCache, stringKey, cached);
+    List<T> cached = myCache.get(stringKey);
+    if (cached == null) {
+      List<T> list = buildExtensions(stringKey, key);
+      // tiny optimisations to save memory
+      //noinspection unchecked
+      cached = list.isEmpty() ? Collections.emptyList() :
+               list.size() == 1 ? ContainerUtil.immutableSingletonList(list.get(0)) : ContainerUtil.immutableList((T[])list.toArray());
+      cached = ConcurrencyUtil.cacheOrGet(myCache, stringKey, cached);
+    }
     return cached;
   }
 
@@ -125,99 +148,76 @@ public class KeyedExtensionCollector<T, KeyT> {
 
   @NotNull
   protected List<T> buildExtensions(@NotNull String stringKey, @NotNull KeyT key) {
-    return buildExtensions(Collections.singleton(stringKey));
+    // compute out of our lock (https://youtrack.jetbrains.com/issue/IDEA-208060)
+    List<KeyedLazyInstance<T>> extensions = getExtensions();
+    synchronized (lock) {
+      List<T> list = myExplicitExtensions.get(stringKey);
+      return ContainerUtil.notNullize(buildExtensionsFromExtensionPoint(list == null ? null : new ArrayList<>(list), bean -> stringKey.equals(bean.getKey()), extensions));
+    }
+  }
+
+  // must be called not under our lock
+  @NotNull
+  protected final List<KeyedLazyInstance<T>> getExtensions() {
+    ExtensionPoint<KeyedLazyInstance<T>> point = getPoint();
+    return point == null ? Collections.emptyList() : point.getExtensionList();
+  }
+
+  protected final List<T> buildExtensionsFromExtensionPoint(@Nullable List<T> result, @NotNull Predicate<? super KeyedLazyInstance<T>> isMyBean, @NotNull List<KeyedLazyInstance<T>> extensions) {
+    for (KeyedLazyInstance<T> bean : extensions) {
+      if (isMyBean.test(bean)) {
+        final T instance;
+        try {
+          instance = bean.getInstance();
+        }
+        catch (ProcessCanceledException e) {
+          throw e;
+        }
+        catch (ExtensionNotApplicableException ignore) {
+          continue;
+        }
+        catch (Exception | LinkageError e) {
+          LOG.error(e);
+          continue;
+        }
+
+        if (result == null) result = new SmartList<>();
+        result.add(instance);
+      }
+    }
+    return result;
   }
 
   @NotNull
-  protected final List<T> buildExtensions(@NotNull Set<String> keys) {
+  protected List<T> buildExtensions(@NotNull Set<String> keys) {
+    List<KeyedLazyInstance<T>> extensions = getExtensions();
     synchronized (lock) {
-      List<T> result = null;
-      for (Map.Entry<String, List<T>> entry : myExplicitExtensions.entrySet()) {
-        String key = entry.getKey();
-        if (keys.contains(key)) {
-          List<T> list = entry.getValue();
-          if (result == null) {
-            result = new ArrayList<T>(list);
-          }
-          else {
-            result.addAll(list);
-          }
-        }
-      }
-
-      final ExtensionPoint<KeyedLazyInstance<T>> point = getPoint();
-      if (point != null) {
-        final KeyedLazyInstance<T>[] beans = point.getExtensions();
-        for (KeyedLazyInstance<T> bean : beans) {
-          if (keys.contains(bean.getKey())) {
-            final T instance;
-            try {
-              instance = bean.getInstance();
-            }
-            catch (ProcessCanceledException e) {
-              throw e;
-            }
-            catch (Exception e) {
-              LOG.error(e);
-              continue;
-            }
-            catch (LinkageError e) {
-              LOG.error(e);
-              continue;
-            }
-            if (result == null) result = new SmartList<T>();
-            result.add(instance);
-          }
-        }
-      }
-      return result == null ? Collections.<T>emptyList() : result;
+      List<T> result = buildExtensionsFromExplicitRegistration(null, key -> keys.contains(key));
+      result = buildExtensionsFromExtensionPoint(result, bean -> keys.contains(bean.getKey()), extensions);
+      return ContainerUtil.notNullize(result);
     }
   }
 
   @Nullable
-  private ExtensionPoint<KeyedLazyInstance<T>> getPoint() {
-    ExtensionPoint<KeyedLazyInstance<T>> point = myPoint;
-    if (point == null && Extensions.getRootArea().hasExtensionPoint(myEpName)) {
-      ExtensionPointName<KeyedLazyInstance<T>> typesafe = ExtensionPointName.create(myEpName);
-      myPoint = point = Extensions.getRootArea().getExtensionPoint(typesafe);
-      myListener = new ExtensionPointAndAreaListener<KeyedLazyInstance<T>>() {
-        @Override
-        public void extensionAdded(@NotNull final KeyedLazyInstance<T> bean, @Nullable final PluginDescriptor pluginDescriptor) {
-          synchronized (lock) {
-            if (bean.getKey() == null) {
-              if (pluginDescriptor != null) {
-                throw new PluginException("No key specified for extension of class " + bean.getInstance().getClass(),
-                                          pluginDescriptor.getPluginId());
-              }
-              LOG.error("No key specified for extension of class " + bean.getInstance().getClass());
-              return;
-            }
-            myCache.remove(bean.getKey());
-            for (ExtensionPointListener<T> listener : myListeners) {
-              listener.extensionAdded(bean.getInstance(), null);
-            }
-          }
+  protected List<T> buildExtensionsFromExplicitRegistration(@Nullable List<T> result, Condition<String> isMyBean) {
+    for (Map.Entry<String, List<T>> entry : myExplicitExtensions.entrySet()) {
+      String key = entry.getKey();
+      if (isMyBean.value(key)) {
+        List<T> list = entry.getValue();
+        if (result == null) {
+          result = new ArrayList<>(list);
         }
-
-        @Override
-        public void extensionRemoved(@NotNull final KeyedLazyInstance<T> bean, @Nullable final PluginDescriptor pluginDescriptor) {
-          synchronized (lock) {
-            myCache.remove(bean.getKey());
-            for (ExtensionPointListener<T> listener : myListeners) {
-              listener.extensionRemoved(bean.getInstance(), null);
-            }
-          }
+        else {
+          result.addAll(list);
         }
-
-        @Override
-        public void areaReplaced(final ExtensionsArea area) {
-          resetAreaListener();
-        }
-      };
-
-      point.addExtensionPointListener(myListener);
+      }
     }
-    return point;
+    return result;
+  }
+
+  @Nullable
+  private ExtensionPoint<KeyedLazyInstance<T>> getPoint() {
+    return Extensions.getRootArea().hasExtensionPoint(myEpName) ? Extensions.getRootArea().getExtensionPoint(myEpName) : null;
   }
 
   public boolean hasAnyExtensions() {
@@ -228,20 +228,23 @@ public class KeyedExtensionCollector<T, KeyT> {
     }
   }
 
-  public void addListener(@NotNull ExtensionPointListener<T> listener) {
-    myListeners.add(listener);
-  }
-  public void addListener(@NotNull final ExtensionPointListener<T> listener, @NotNull Disposable parent) {
-    myListeners.add(listener);
-    Disposer.register(parent, new Disposable() {
-      @Override
-      public void dispose() {
-        myListeners.remove(listener);
-      }
-    });
+  @NotNull
+  public String getName() {
+    return myEpName;
   }
 
-  public void removeListener(@NotNull ExtensionPointListener<T> listener) {
-    myListeners.remove(listener);
+  @Override
+  public long getModificationCount() {
+    return myTracker.getModificationCount();
   }
+
+  protected void ensureValuesLoaded() {
+    ExtensionPoint<KeyedLazyInstance<T>> point = getPoint();
+    if (point != null) {
+      for (KeyedLazyInstance<T> bean : point.getExtensionList()) {
+        bean.getInstance();
+      }
+    }
+  }
+
 }

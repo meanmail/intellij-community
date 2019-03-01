@@ -28,8 +28,8 @@ import com.intellij.openapi.project.DumbModeTask;
 import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.CollectingContentIterator;
-import com.intellij.openapi.roots.ModuleRootAdapter;
 import com.intellij.openapi.roots.ModuleRootEvent;
+import com.intellij.openapi.roots.ModuleRootListener;
 import com.intellij.openapi.roots.impl.PushedFilePropertiesUpdater;
 import com.intellij.openapi.startup.StartupManager;
 import com.intellij.openapi.vfs.VirtualFile;
@@ -39,29 +39,31 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- * @since Jan 29, 2008
  */
 public class UnindexedFilesUpdater extends DumbModeTask {
   private static final Logger LOG = Logger.getInstance("#com.intellij.util.indexing.UnindexedFilesUpdater");
 
   private final FileBasedIndexImpl myIndex = (FileBasedIndexImpl)FileBasedIndex.getInstance();
   private final Project myProject;
-  private final boolean myOnStartup;
+  private final StartupManager myStartupManager;
+  private final PushedFilePropertiesUpdater myPusher;
 
-  public UnindexedFilesUpdater(final Project project, boolean onStartup) {
+  public UnindexedFilesUpdater(final Project project) {
     myProject = project;
-    myOnStartup = onStartup;
-    project.getMessageBus().connect(this).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootAdapter() {
+    myStartupManager = StartupManager.getInstance(myProject);
+    myPusher = PushedFilePropertiesUpdater.getInstance(myProject);
+    project.getMessageBus().connect(this).subscribe(ProjectTopics.PROJECT_ROOTS, new ModuleRootListener() {
       @Override
-      public void rootsChanged(ModuleRootEvent event) {
+      public void rootsChanged(@NotNull ModuleRootEvent event) {
         DumbService.getInstance(project).cancelTask(UnindexedFilesUpdater.this);
       }
     });
   }
 
   private void updateUnindexedFiles(ProgressIndicator indicator) {
+    if (!IndexInfrastructure.hasIndices()) return;
     PerformanceWatcher.Snapshot snapshot = PerformanceWatcher.takeSnapshot();
-    PushedFilePropertiesUpdater.getInstance(myProject).pushAllPropertiesNow();
+    myPusher.pushAllPropertiesNow();
     boolean trackResponsiveness = !ApplicationManager.getApplication().isUnitTestMode();
 
     if (trackResponsiveness) snapshot.logResponsivenessSinceCreation("Pushing properties");
@@ -82,9 +84,9 @@ public class UnindexedFilesUpdater extends DumbModeTask {
 
     List<VirtualFile> files = finder.getFiles();
 
-    if (myOnStartup && !ApplicationManager.getApplication().isUnitTestMode()) {
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
       // full VFS refresh makes sense only after it's loaded, i.e. after scanning files to index is finished
-      ((StartupManagerImpl)StartupManager.getInstance(myProject)).scheduleInitialVfsRefresh();
+      ((StartupManagerImpl)myStartupManager).scheduleInitialVfsRefresh();
     }
 
     if (files.isEmpty()) {
@@ -104,7 +106,7 @@ public class UnindexedFilesUpdater extends DumbModeTask {
   }
 
   private void indexFiles(ProgressIndicator indicator, List<VirtualFile> files) {
-    CacheUpdateRunner.processFiles(indicator, true, files, myProject, content -> myIndex.indexFileContent(myProject, content));
+    CacheUpdateRunner.processFiles(indicator, files, myProject, content -> myIndex.indexFileContent(myProject, content));
   }
 
   @Override

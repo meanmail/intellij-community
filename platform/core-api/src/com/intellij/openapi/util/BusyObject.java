@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.openapi.util;
 
 import org.jetbrains.annotations.NotNull;
@@ -31,7 +17,7 @@ public interface BusyObject {
 
   abstract class Impl implements BusyObject {
 
-    private final Map<Object, ActionCallback> myReadyCallbacks = new WeakHashMap<Object, ActionCallback>();
+    private final Map<Object, ActionCallback> myReadyCallbacks = new WeakHashMap<>();
 
     public abstract boolean isReady();
 
@@ -86,7 +72,7 @@ public interface BusyObject {
     @NotNull
     private ActionCallback[] getReadyCallbacks() {
       synchronized (myReadyCallbacks) {
-        ActionCallback[] result = myReadyCallbacks.values().toArray(new ActionCallback[myReadyCallbacks.size()]);
+        ActionCallback[] result = myReadyCallbacks.values().toArray(new ActionCallback[0]);
         myReadyCallbacks.clear();
         return result;
       }
@@ -101,10 +87,9 @@ public interface BusyObject {
         }
 
         myReadyCallbacks.remove(readyRequestor);
-        ArrayList<ActionCallback> rejected = new ArrayList<ActionCallback>();
-        rejected.addAll(myReadyCallbacks.values());
+        ArrayList<ActionCallback> rejected = new ArrayList<>(myReadyCallbacks.values());
         myReadyCallbacks.clear();
-        return new Pair<ActionCallback, List<ActionCallback>>(done, rejected);
+        return new Pair<>(done, rejected);
       }
     }
 
@@ -121,13 +106,10 @@ public interface BusyObject {
       public ActionCallback execute(@NotNull ActiveRunnable runnable) {
         myBusyCount.addAndGet(1);
         ActionCallback cb = runnable.run();
-        cb.doWhenProcessed(new Runnable() {
-          @Override
-          public void run() {
-            myBusyCount.addAndGet(-1);
-            if (isReady()) {
-              onReady();
-            }
+        cb.doWhenProcessed(() -> {
+          myBusyCount.addAndGet(-1);
+          if (isReady()) {
+            onReady();
           }
         });
         return cb;

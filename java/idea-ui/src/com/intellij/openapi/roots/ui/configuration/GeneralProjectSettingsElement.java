@@ -17,16 +17,21 @@ package com.intellij.openapi.roots.ui.configuration;
 
 import com.intellij.compiler.ModuleCompilerUtil;
 import com.intellij.compiler.ModuleSourceSet;
+import com.intellij.compiler.server.impl.BuildProcessCustomPluginsConfiguration;
 import com.intellij.openapi.module.Module;
+import com.intellij.openapi.module.ModuleManager;
+import com.intellij.openapi.module.UnloadedModuleDescription;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootModel;
+import com.intellij.openapi.roots.libraries.Library;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.ProjectSdksModel;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.StructureConfigurableContext;
 import com.intellij.openapi.roots.ui.configuration.projectRoot.daemon.*;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.util.Chunk;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
@@ -40,6 +45,7 @@ public class GeneralProjectSettingsElement extends ProjectStructureElement {
     super(context);
   }
 
+  @NotNull
   @Override
   public String getPresentableText() {
     return "Project";
@@ -104,7 +110,7 @@ public class GeneralProjectSettingsElement extends ProjectStructureElement {
       problemsHolder.registerProblem(new ProjectStructureProblemDescription(message, description, place,
                                                                             ProjectStructureProblemType
                                                                               .warning("module-circular-dependency"),
-                                                                            Collections.<ConfigurationErrorQuickFix>emptyList()));
+                                                                            Collections.emptyList()));
     }
   }
 
@@ -120,7 +126,39 @@ public class GeneralProjectSettingsElement extends ProjectStructureElement {
 
   @Override
   public List<ProjectStructureElementUsage> getUsagesInElement() {
-    return Collections.emptyList();
+    List<ProjectStructureElementUsage> usages = new ArrayList<>();
+
+    Collection<UnloadedModuleDescription> unloadedModules = ModuleManager.getInstance(myContext.getProject()).getUnloadedModuleDescriptions();
+    if (!unloadedModules.isEmpty()) {
+      MultiMap<Module, UnloadedModuleDescription> dependenciesInUnloadedModules = new MultiMap<>();
+      for (UnloadedModuleDescription unloaded : unloadedModules) {
+        for (String moduleName : unloaded.getDependencyModuleNames()) {
+          Module depModule = myContext.getModulesConfigurator().getModuleModel().findModuleByName(moduleName);
+          if (depModule != null) {
+            dependenciesInUnloadedModules.putValue(depModule, unloaded);
+          }
+        }
+      }
+
+      for (Map.Entry<Module, Collection<UnloadedModuleDescription>> entry : dependenciesInUnloadedModules.entrySet()) {
+        usages.add(new UsagesInUnloadedModules(myContext, this, new ModuleProjectStructureElement(myContext, entry.getKey()),
+                                               entry.getValue()));
+      }
+
+      //currently we don't store dependencies on project libraries from unloaded modules in the model, so suppose that all the project libraries are used
+      for (Library library : myContext.getProjectLibrariesProvider().getModifiableModel().getLibraries()) {
+        usages.add(new UsagesInUnloadedModules(myContext, this, new LibraryProjectStructureElement(myContext, library), unloadedModules));
+      }
+    }
+
+    for (String libraryName : BuildProcessCustomPluginsConfiguration.getInstance(myContext.getProject()).getProjectLibraries()) {
+      Library library = myContext.getProjectLibrariesProvider().getModifiableModel().getLibraryByName(libraryName);
+      if (library != null) {
+        usages.add(new UsageInProjectSettings(myContext, new LibraryProjectStructureElement(myContext, library), "Build process configuration"));
+      }
+    }
+
+    return usages;
   }
 
   @Override

@@ -18,7 +18,6 @@ package com.intellij.refactoring;
 import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.openapi.actionSystem.CommonDataKeys;
 import com.intellij.openapi.actionSystem.DataContext;
-import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.project.Project;
@@ -27,6 +26,7 @@ import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.refactoring.extractMethod.ExtractMethodHandler;
 import com.intellij.refactoring.introduce.inplace.AbstractInplaceIntroducer;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 /**
@@ -39,14 +39,15 @@ public abstract class IntroduceHandlerBase implements RefactoringActionHandler, 
   public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
     final PsiElement[] elements = ExtractMethodHandler.getElements(file.getProject(), editor, file);
     if (elements != null && elements.length > 0) return true;
-    return acceptLocalVariable() && 
+    return acceptLocalVariable() &&
            PsiTreeUtil.getParentOfType(file.findElementAt(editor.getCaretModel().getOffset()), PsiLocalVariable.class) != null;
   }
-  
+
   protected boolean acceptLocalVariable() {
     return true;
   }
 
+  @Override
   public void invoke(@NotNull Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
     LOG.assertTrue(elements.length >= 1 && elements[0] instanceof PsiExpression, "incorrect invoke() parameters");
     final PsiElement tempExpr = elements[0];
@@ -64,11 +65,15 @@ public abstract class IntroduceHandlerBase implements RefactoringActionHandler, 
     else {
       editor = null;
     }
-    if (tempExpr instanceof PsiExpression) {
-      invokeImpl(project, (PsiExpression)tempExpr, editor);
+    invoke(project, tempExpr, editor);
+  }
+
+  public void invoke(@NotNull Project project, PsiElement element, @Nullable Editor editor) {
+    if (element instanceof PsiExpression) {
+      invokeImpl(project, (PsiExpression)element, editor);
     }
-    else if(tempExpr instanceof PsiLocalVariable) {
-      invokeImpl(project, (PsiLocalVariable)tempExpr, editor);
+    else if(element instanceof PsiLocalVariable) {
+      invokeImpl(project, (PsiLocalVariable)element, editor);
     }
     else {
       LOG.error("elements[0] should be PsiExpression or PsiLocalVariable");
@@ -78,7 +83,7 @@ public abstract class IntroduceHandlerBase implements RefactoringActionHandler, 
   /**
    * @param project
    * @param tempExpr
-   * @param editor editor to highlight stuff in. Should accept <code>null</code>
+   * @param editor editor to highlight stuff in. Should accept {@code null}
    * @return
    */
   protected abstract boolean invokeImpl(Project project, PsiExpression tempExpr,
@@ -87,7 +92,7 @@ public abstract class IntroduceHandlerBase implements RefactoringActionHandler, 
   /**
    * @param project
    * @param localVariable
-   * @param editor editor to highlight stuff in. Should accept <code>null</code>
+   * @param editor editor to highlight stuff in. Should accept {@code null}
    * @return
    */
   protected abstract boolean invokeImpl(Project project, PsiLocalVariable localVariable,

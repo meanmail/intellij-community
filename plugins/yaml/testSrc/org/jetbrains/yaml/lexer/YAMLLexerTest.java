@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.yaml.lexer;
 
 import com.intellij.lexer.Lexer;
@@ -149,19 +150,23 @@ public class YAMLLexerTest extends LexerTestCase {
     doTest();
   }
 
-  public void testRuby14864() throws Throwable {
+  public void testRuby14864() {
     doTest();
   }
 
-  public void testRuby15402() throws Throwable {
+  public void testRuby15402() {
     doTest();
   }
 
-  public void testRuby17389() throws Throwable {
+  public void testRuby17389() {
     doTest();
   }
 
-  public void testEmptyMultiline() throws Throwable {
+  public void testRuby19105() {
+    doTest();
+  }
+
+  public void testEmptyMultiline() {
     doTest();
   }
 
@@ -204,10 +209,68 @@ public class YAMLLexerTest extends LexerTestCase {
   public void testSingleQuotedEscapes() {
     doTest();
   }
-  
+
   public void testUnicodeNewlines() {
     doTest();
   }
+
+  public void testCcDocumentMarker1() {
+    doTest();
+  }
+
+  public void testCcDocumentMarker2() {
+    doTest();
+  }
+
+  public void testAnchorsAndAliases() {
+    doTest();
+  }
+
+  public void testBlockScalarAfterDocMarker() {
+    doTest();
+  }
+
+  public void testBlockScalarDocument() {
+    doTest();
+  }
+
+  public void testBlockScalarZeroIndent() {
+    doTest();
+  }
+
+  // Copy-paste from parser test
+  public void testExplicitMaps() {
+    doTest();
+  }
+
+  // NOTE: check invalid syntax
+  public void testEarlyDocumentEnd() {
+    doTest();
+  }
+
+  // NOTE: check invalid syntax
+  public void testInlinedSequence() {
+    doTest();
+  }
+
+  public void testExoticMultilinePlainScalar() {
+    doTest();
+  }
+
+  public void testLonelyCloseBracket() {
+    doTest();
+  }
+
+  // NOTE: check invalid syntax
+  public void testShiftedSecondKey() {
+    doTest();
+  }
+
+  public void testColonStartedTokens() {
+    doTest();
+  }
+
+  public void testAliasInKey() { doTest(); }
 
   private void doTest() {
     doFileTest("yml");

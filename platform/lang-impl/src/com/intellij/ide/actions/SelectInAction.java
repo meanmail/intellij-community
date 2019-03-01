@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.actions;
 
@@ -29,13 +15,16 @@ import com.intellij.openapi.ui.popup.util.BaseListPopupStep;
 import com.intellij.openapi.wm.ToolWindow;
 import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.psi.PsiDocumentManager;
+import com.intellij.util.containers.ContainerUtil;
+import com.intellij.util.ui.EmptyIcon;
 import org.jetbrains.annotations.NotNull;
 
+import javax.swing.*;
 import java.util.*;
 
 public class SelectInAction extends AnAction implements DumbAware {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     FeatureUsageTracker.getInstance().triggerFeatureUsed("navigation.select.in");
     SelectInContext context = SelectInContextImpl.createContext(e);
     if (context == null) return;
@@ -52,7 +41,7 @@ public class SelectInAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(AnActionEvent event) {
+  public void update(@NotNull AnActionEvent event) {
     Presentation presentation = event.getPresentation();
 
     if (SelectInContextImpl.createContext(event) == null) {
@@ -82,16 +71,27 @@ public class SelectInAction extends AnAction implements DumbAware {
   }
 
   private static class SelectInActionsStep extends BaseListPopupStep<SelectInTarget> {
-    @NotNull private final SelectInContext mySelectInContext;
+    private final SelectInContext mySelectInContext;
     private final List<SelectInTarget> myVisibleTargets;
 
-    public SelectInActionsStep(@NotNull final Collection<SelectInTarget> targetVector, @NotNull SelectInContext selectInContext) {
+    SelectInActionsStep(@NotNull final Collection<SelectInTarget> targetVector, @NotNull SelectInContext selectInContext) {
       mySelectInContext = selectInContext;
-      myVisibleTargets = new ArrayList<>();
-      for (SelectInTarget target : targetVector) {
-        myVisibleTargets.add(target);
+      myVisibleTargets = ContainerUtil.newArrayList(targetVector);
+      List<Icon> icons = fillInIcons(targetVector, selectInContext);
+      init(IdeBundle.message("title.popup.select.target"), myVisibleTargets, icons);
+    }
+
+    @NotNull
+    private static List<Icon> fillInIcons(@NotNull Collection<? extends SelectInTarget> targets, @NotNull SelectInContext selectInContext) {
+      ToolWindowManager toolWindowManager = ToolWindowManager.getInstance(selectInContext.getProject());
+      List<Icon> list = new ArrayList<>();
+      for (SelectInTarget target : targets) {
+        String id = target.getMinorViewId() != null ? null : target.getToolWindowId();
+        ToolWindow toolWindow = toolWindowManager.getToolWindow(id);
+        Icon icon = toolWindow != null ? toolWindow.getIcon() : EmptyIcon.ICON_13;
+        list.add(icon);
       }
-      init(IdeBundle.message("title.popup.select.target"), myVisibleTargets, null);
+      return list;
     }
 
     @Override
@@ -162,12 +162,12 @@ public class SelectInAction extends AnAction implements DumbAware {
   }
 
   private static class NoTargetsAction extends AnAction {
-    public NoTargetsAction() {
+    NoTargetsAction() {
       super(IdeBundle.message("message.no.targets.available"));
     }
 
     @Override
-    public void actionPerformed(AnActionEvent e) {
+    public void actionPerformed(@NotNull AnActionEvent e) {
     }
   }
 }

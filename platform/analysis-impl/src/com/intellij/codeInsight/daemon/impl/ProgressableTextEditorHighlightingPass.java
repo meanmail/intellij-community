@@ -17,6 +17,7 @@
 package com.intellij.codeInsight.daemon.impl;
 
 import com.intellij.codeHighlighting.TextEditorHighlightingPass;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.progress.ProgressIndicator;
@@ -40,9 +41,9 @@ public abstract class ProgressableTextEditorHighlightingPass extends TextEditorH
   private final String myPresentableName;
   protected final PsiFile myFile;
   @Nullable private final Editor myEditor;
-  @NotNull protected final TextRange myRestrictRange;
-  @NotNull protected final HighlightInfoProcessor myHighlightInfoProcessor;
-  protected HighlightingSession myHighlightingSession;
+  @NotNull final TextRange myRestrictRange;
+  @NotNull final HighlightInfoProcessor myHighlightInfoProcessor;
+  HighlightingSession myHighlightingSession;
 
   protected ProgressableTextEditorHighlightingPass(@NotNull Project project,
                                                    @Nullable final Document document,
@@ -72,11 +73,12 @@ public abstract class ProgressableTextEditorHighlightingPass extends TextEditorH
   @Override
   public final void doCollectInformation(@NotNull final ProgressIndicator progress) {
     if (!(progress instanceof DaemonProgressIndicator)) {
-      throw new IncorrectOperationException("Highlighting must be run under DaemonProgressIndicator, but got: "+progress);
+      throw new IncorrectOperationException("Highlighting must be run under DaemonProgressIndicator, but got: " + progress);
     }
     myFinished = false;
     if (myFile != null) {
-      myHighlightingSession = HighlightingSessionImpl.getOrCreateHighlightingSession(myFile, myEditor, (DaemonProgressIndicator)progress, getColorsScheme());
+      myHighlightingSession =
+        HighlightingSessionImpl.getOrCreateHighlightingSession(myFile, (DaemonProgressIndicator)progress, getColorsScheme());
     }
     try {
       collectInformationWithProgress(progress);
@@ -96,9 +98,6 @@ public abstract class ProgressableTextEditorHighlightingPass extends TextEditorH
     applyInformationWithProgress();
     DaemonCodeAnalyzerEx daemonCodeAnalyzer = DaemonCodeAnalyzerEx.getInstanceEx(myProject);
     daemonCodeAnalyzer.getFileStatusMap().markFileUpToDate(myDocument, getId());
-    if (myHighlightingSession != null) {
-      myHighlightInfoProcessor.progressIsAdvanced(myHighlightingSession, 1);  //causes traffic light repaint
-    }
   }
 
   protected abstract void applyInformationWithProgress();
@@ -126,6 +125,7 @@ public abstract class ProgressableTextEditorHighlightingPass extends TextEditorH
     return myFinished;
   }
 
+  @Nullable("null means do not show progress")
   protected String getPresentableName() {
     return myPresentableName;
   }
@@ -146,13 +146,21 @@ public abstract class ProgressableTextEditorHighlightingPass extends TextEditorH
       if (current >= myNextChunkThreshold) {
         double progress = getProgress();
         myNextChunkThreshold += Math.max(1, myProgressLimit / 100);
-        myHighlightInfoProcessor.progressIsAdvanced(myHighlightingSession, progress);
+        myHighlightInfoProcessor.progressIsAdvanced(myHighlightingSession, getEditor(), progress);
       }
     }
   }
 
+  void waitForHighlightInfosApplied() {
+    ApplicationManager.getApplication().assertIsDispatchThread();
+    HighlightingSessionImpl session = (HighlightingSessionImpl)myHighlightingSession;
+    if (session != null) {
+      session.waitForHighlightInfosApplied();
+    }
+  }
+
   static class EmptyPass extends TextEditorHighlightingPass {
-    public EmptyPass(final Project project, @Nullable final Document document) {
+    EmptyPass(final Project project, @Nullable final Document document) {
       super(project, document, false);
     }
 

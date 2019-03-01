@@ -14,16 +14,11 @@
  * limitations under the License.
  */
 
-/*
- * User: anna
- * Date: 15-Aug-2007
- */
 package com.intellij.execution.testframework.stacktrace;
 
 import com.intellij.execution.ExecutionBundle;
 import com.intellij.execution.filters.HyperlinkInfo;
 import com.intellij.execution.filters.HyperlinkInfoBase;
-import com.intellij.execution.testframework.AbstractTestProxy;
 import com.intellij.execution.testframework.Printable;
 import com.intellij.execution.testframework.Printer;
 import com.intellij.execution.testframework.actions.ViewAssertEqualsDiffAction;
@@ -40,14 +35,15 @@ import java.io.File;
 
 public class DiffHyperlink implements Printable {
   private static final String NEW_LINE = "\n";
-  private static final Logger LOG = Logger.getInstance("#" + DiffHyperlink.class.getName());
+  private static final Logger LOG = Logger.getInstance(DiffHyperlink.class);
 
   protected final String myExpected;
   protected final String myActual;
   protected final String myFilePath;
   protected final String myActualFilePath;
-  private boolean myPrintOneLine;
+  private final boolean myPrintOneLine;
   private final HyperlinkInfo myDiffHyperlink = new DiffHyperlinkInfo();
+  private String myTestProxyName;
 
 
   public DiffHyperlink(final String expected, final String actual, final String filePath) {
@@ -60,7 +56,7 @@ public class DiffHyperlink implements Printable {
                        boolean printOneLine) {
     this(expected, actual, filePath, null, printOneLine);
   }
-  
+
   public DiffHyperlink(final String expected,
                        final String actual,
                        final String expectedFilePath,
@@ -73,29 +69,16 @@ public class DiffHyperlink implements Printable {
     myPrintOneLine = printOneLine;
   }
 
+  public void setTestProxyName(String name) {
+    myTestProxyName = name;
+  }
+
   private static String normalizeSeparators(String filePath) {
     return filePath == null ? null : filePath.replace(File.separatorChar, '/');
   }
 
-  /**
-   * Use {@link ViewAssertEqualsDiffAction#openDiff(DataContext, DiffHyperlink)} 
-   */
-  @Deprecated
-  public void openDiff(Project project) {
-    ViewAssertEqualsDiffAction.openDiff(DataManager.getInstance().getDataContext(), this);
-  }
-
-  /**
-   * Use {@link ViewAssertEqualsDiffAction#openDiff(DataContext, DiffHyperlink)}
-   */
-  @Deprecated
-  public void openMultiDiff(final Project project,
-                            final AbstractTestProxy.AssertEqualsDiffChain chain) {
-    ViewAssertEqualsDiffAction.openDiff(DataManager.getInstance().getDataContext(), this);
-  }
-
   protected String getTitle() {
-    return ExecutionBundle.message("strings.equal.failed.dialog.title");
+    return ExecutionBundle.message("strings.equal.failed.dialog.title") + (myTestProxyName != null ? " (" + myTestProxyName + ")" : "");
   }
 
   public String getDiffTitle() {
@@ -113,20 +96,21 @@ public class DiffHyperlink implements Printable {
   public String getFilePath() {
     return myFilePath;
   }
-  
+
   public String getActualFilePath() {
     return myActualFilePath;
   }
 
+  @Override
   public void printOn(final Printer printer) {
-    if (!hasMoreThanOneLine(myActual.trim()) && !hasMoreThanOneLine(myExpected.trim()) && myPrintOneLine) {
+    if (!hasMoreThanOneLine(myActual) && !hasMoreThanOneLine(myExpected) && myPrintOneLine) {
       printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
       printer.print(ExecutionBundle.message("diff.content.expected.for.file.title"), ConsoleViewContentType.SYSTEM_OUTPUT);
       printer.print(myExpected + NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
       printer.print(ExecutionBundle.message("junit.actual.text.label"), ConsoleViewContentType.SYSTEM_OUTPUT);
-      printer.print(myActual + NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
+      printer.print(myActual, ConsoleViewContentType.ERROR_OUTPUT);
     }
-    printer.print(" ", ConsoleViewContentType.ERROR_OUTPUT);
+    printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
     printer.printHyperlink(ExecutionBundle.message("junit.click.to.see.diff.link"), myDiffHyperlink);
     printer.print(NEW_LINE, ConsoleViewContentType.ERROR_OUTPUT);
   }

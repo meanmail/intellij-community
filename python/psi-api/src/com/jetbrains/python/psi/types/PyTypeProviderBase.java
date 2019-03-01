@@ -24,10 +24,7 @@ import com.jetbrains.python.psi.impl.PyTypeProvider;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
 /**
  * @author yole
@@ -40,13 +37,7 @@ public class PyTypeProviderBase implements PyTypeProvider {
     .map(pyClass -> PyPsiFacade.getInstance(pyClass.getProject()).createClassType(pyClass, false))
     .orElse(null);
 
-  @SuppressWarnings({"MismatchedQueryAndUpdateOfCollection"})
-  private final Map<String, ReturnTypeDescriptor> myMethodToReturnTypeMap = new FactoryMap<String, ReturnTypeDescriptor>() {
-    @Override
-    protected ReturnTypeDescriptor create(String key) {
-      return new ReturnTypeDescriptor();
-    }
-  };
+  private final Map<String, ReturnTypeDescriptor> myMethodToReturnTypeMap = FactoryMap.create(key -> new ReturnTypeDescriptor());
 
   @Nullable
   @Override
@@ -55,7 +46,7 @@ public class PyTypeProviderBase implements PyTypeProvider {
   }
 
   @Override
-  public PyType getReferenceType(@NotNull PsiElement referenceTarget, TypeEvalContext context, @Nullable PsiElement anchor) {
+  public Ref<PyType> getReferenceType(@NotNull PsiElement referenceTarget, @NotNull TypeEvalContext context, @Nullable PsiElement anchor) {
     return null;
   }
 
@@ -73,7 +64,7 @@ public class PyTypeProviderBase implements PyTypeProvider {
 
   @Nullable
   @Override
-  public Ref<PyType> getCallType(@NotNull PyFunction function, @Nullable PyCallSiteExpression callSite, @NotNull TypeEvalContext context) {
+  public Ref<PyType> getCallType(@NotNull PyFunction function, @NotNull PyCallSiteExpression callSite, @NotNull TypeEvalContext context) {
     final ReturnTypeDescriptor descriptor;
     synchronized (myMethodToReturnTypeMap) {
       descriptor = myMethodToReturnTypeMap.get(function.getName());
@@ -94,6 +85,18 @@ public class PyTypeProviderBase implements PyTypeProvider {
   @Override
   public PyType getCallableType(@NotNull PyCallable callable, @NotNull TypeEvalContext context) {
     return null;
+  }
+
+  @Nullable
+  @Override
+  public PyType getGenericType(@NotNull PyClass cls, @NotNull TypeEvalContext context) {
+    return null;
+  }
+
+  @NotNull
+  @Override
+  public Map<PyType, PyType> getGenericSubstitutions(@NotNull PyClass cls, @NotNull TypeEvalContext context) {
+    return Collections.emptyMap();
   }
 
   protected void registerSelfReturnType(@NotNull String classQualifiedName, @NotNull Collection<String> methods) {

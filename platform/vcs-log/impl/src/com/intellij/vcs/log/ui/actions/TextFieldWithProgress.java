@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,24 +16,23 @@
 package com.intellij.vcs.log.ui.actions;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.util.textCompletion.TextCompletionProvider;
 import com.intellij.util.textCompletion.TextFieldWithCompletion;
 import com.intellij.util.ui.AsyncProcessIcon;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.KeyEvent;
 
-public abstract class TextFieldWithProgress extends JPanel {
+public class TextFieldWithProgress extends JPanel {
   @NotNull private final TextFieldWithCompletion myTextField;
   @NotNull private final AsyncProcessIcon myProgressIcon;
 
   public TextFieldWithProgress(@NotNull Project project,
                                @NotNull TextCompletionProvider completionProvider) {
     super(new BorderLayout());
-    setBorder(IdeBorderFactory.createEmptyBorder(3));
 
     myProgressIcon = new AsyncProcessIcon("Loading commits");
     myTextField = new TextFieldWithCompletion(project, completionProvider, "", true, true, false) {
@@ -52,7 +51,7 @@ public abstract class TextFieldWithProgress extends JPanel {
         return false;
       }
     };
-    myTextField.setBorder(IdeBorderFactory.createEmptyBorder());
+    myTextField.setBorder(JBUI.Borders.empty());
 
     myProgressIcon.setOpaque(true);
     myProgressIcon.setBackground(myTextField.getBackground());
@@ -81,5 +80,6 @@ public abstract class TextFieldWithProgress extends JPanel {
     return myTextField.getText();
   }
 
-  public abstract void onOk();
+  public void onOk() {
+  }
 }

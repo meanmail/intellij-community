@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,6 +42,7 @@ public class FileContentUtil extends FileContentUtilCore {
   /**
    * @deprecated to be removed after IDEA 15. Use {@link VfsUtil#saveText(VirtualFile, String)} instead.
    */
+  @Deprecated
   public static void setFileText(@Nullable Project project, final VirtualFile virtualFile, final String text) throws IOException {
     if (project == null) {
       project = ProjectUtil.guessProjectForFile(virtualFile);
@@ -61,21 +62,17 @@ public class FileContentUtil extends FileContentUtilCore {
     virtualFile.refresh(false, false);
   }
 
-  public static void reparseFiles(@NotNull final Project project, @NotNull final Collection<VirtualFile> files, final boolean includeOpenFiles) {
+  public static void reparseFiles(@NotNull final Project project, @NotNull final Collection<? extends VirtualFile> files, final boolean includeOpenFiles) {
     LinkedHashSet<VirtualFile> fileSet = new LinkedHashSet<>(files);
     if (includeOpenFiles) {
-      for (VirtualFile open : FileEditorManager.getInstance(project).getOpenFiles()) {
-        if (!fileSet.contains(open)) {
-          fileSet.add(open);
-        }
-      }
+      Collections.addAll(fileSet, FileEditorManager.getInstance(project).getOpenFiles());
     }
     FileContentUtilCore.reparseFiles(fileSet);
   }
 
   public static void reparseOpenedFiles() {
     for (Project project : ProjectManager.getInstance().getOpenProjects()) {
-      reparseFiles(project, Collections.<VirtualFile>emptyList(), true);
+      reparseFiles(project, Collections.emptyList(), true);
     }
   }
 }

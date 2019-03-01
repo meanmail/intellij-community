@@ -16,7 +16,8 @@
 package com.intellij.openapi.roots;
 
 /**
- * @author nik
- */
+ * @deprecated Please useModuleRootListener
+*/
+@Deprecated
 public abstract class ModuleRootAdapter implements ModuleRootListener {
 }

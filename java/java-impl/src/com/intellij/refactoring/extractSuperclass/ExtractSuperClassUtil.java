@@ -38,9 +38,8 @@ import com.intellij.refactoring.ui.ConflictsDialog;
 import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.RefactoringUtil;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
-import com.intellij.util.Function;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.containers.HashMap;
+import java.util.HashMap;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.Nullable;
@@ -129,7 +128,7 @@ public class ExtractSuperClassUtil {
   }
 
   private static void createConstructorsByPattern(Project project, final PsiClass superclass, PsiMethod[] patternConstructors) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
     CodeStyleManager styleManager = CodeStyleManager.getInstance(project);
     for (PsiMethod baseConstructor : patternConstructors) {
       PsiMethod constructor = (PsiMethod)superclass.add(factory.createConstructor());
@@ -182,7 +181,7 @@ public class ExtractSuperClassUtil {
         }
       }
     }
-    return baseConstructors.toArray(new PsiMethod[baseConstructors.size()]);
+    return baseConstructors.toArray(PsiMethod.EMPTY_ARRAY);
   }
 
   private static void clearPsiReferenceList(PsiReferenceList refList) throws IncorrectOperationException {
@@ -204,7 +203,7 @@ public class ExtractSuperClassUtil {
                                                                       final PsiClass derivedClass,
                                                                       final MemberInfo[] selectedMembers) throws IncorrectOperationException {
     final PsiManager manager = derivedClass.getManager();
-    Set<PsiElement> movedElements = new com.intellij.util.containers.HashSet<>();
+    Set<PsiElement> movedElements = new HashSet<>();
     for (final MemberInfo info : selectedMembers) {
       movedElements.add(info.getMember());
     }
@@ -213,7 +212,7 @@ public class ExtractSuperClassUtil {
     final PsiTypeParameterList originalTypeParameterList = superClass.getTypeParameterList();
     assert originalTypeParameterList != null;
     final PsiTypeParameterList newList = typeParameterList != null ? (PsiTypeParameterList)originalTypeParameterList.replace(typeParameterList) : originalTypeParameterList;
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     Map<PsiTypeParameter, PsiType> substitutionMap = new HashMap<>();
     for (final PsiTypeParameter parameter : newList.getTypeParameters()) {
       final PsiTypeParameter parameterInDerived = findTypeParameterInDerived(derivedClass, parameter.getName());

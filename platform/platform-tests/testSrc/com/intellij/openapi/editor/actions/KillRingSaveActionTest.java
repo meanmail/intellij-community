@@ -23,11 +23,11 @@ import java.awt.datatransfer.DataFlavor;
 
 /**
  * @author Denis Zhdanov
- * @since 4/19/11 6:15 PM
  */
 public class KillRingSaveActionTest extends AbstractRegionToKillRingTest {
 
-  protected void doTest(@NotNull String text) throws Exception {
+  @Override
+  protected void doTest(@NotNull String text) {
     configureFromFileText(getTestName(false) + ".txt", text);
     Pair<String,String> parseResult = parse();
     String textBefore = myEditor.getDocument().getText();

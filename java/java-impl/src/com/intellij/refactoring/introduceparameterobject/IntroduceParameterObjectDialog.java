@@ -1,23 +1,8 @@
-/*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduceparameterobject;
 
 import com.intellij.ide.util.TreeJavaClassChooserDialog;
 import com.intellij.openapi.editor.Document;
-import com.intellij.openapi.help.HelpManager;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.roots.ProjectRootManager;
@@ -51,7 +36,6 @@ import java.awt.event.ActionListener;
 import java.util.ArrayList;
 import java.util.List;
 
-@SuppressWarnings({"OverridableMethodCallInConstructor"})
 public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterObjectDialog<PsiMethod, ParameterInfoImpl, JavaIntroduceParameterObjectClassDescriptor, VariableData> {
 
 
@@ -79,7 +63,8 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
   public IntroduceParameterObjectDialog(PsiMethod sourceMethod) {
     super(sourceMethod);
     final DocumentListener docListener = new DocumentAdapter() {
-      protected void textChanged(final DocumentEvent e) {
+      @Override
+      protected void textChanged(@NotNull final DocumentEvent e) {
         validateButtons();
       }
     };
@@ -135,14 +120,17 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
     enableGenerateAccessors();
   }
 
+  @Override
   protected String getDimensionServiceKey() {
     return "RefactorJ.IntroduceParameterObject";
   }
 
+  @Override
   protected String getSourceMethodPresentation() {
     return PsiFormatUtil.formatMethod(mySourceMethod, PsiSubstitutor.EMPTY, PsiFormatUtil.SHOW_CONTAINING_CLASS | PsiFormatUtil.SHOW_NAME, 0);
   }
 
+  @Override
   protected ParameterTablePanel createParametersPanel() {
     final PsiParameterList parameterList = mySourceMethod.getParameterList();
     final PsiParameter[] parameters = parameterList.getParameters();
@@ -153,10 +141,13 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
       parameterInfo[i].passAsParameter = true;
     }
     return new ParameterTablePanel(myProject, parameterInfo) {
+      @Override
       protected void updateSignature() {}
 
+      @Override
       protected void doEnterAction() {}
 
+      @Override
       protected void doCancelAction() {
         IntroduceParameterObjectDialog.this.doCancelAction();
       }
@@ -198,7 +189,7 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
         parameters.add(new ParameterInfoImpl(parameterList.getParameterIndex((PsiParameter)data.variable), data.name, data.type));
       }
     }
-    final ParameterInfoImpl[] infos = parameters.toArray(new ParameterInfoImpl[parameters.size()]);
+    final ParameterInfoImpl[] infos = parameters.toArray(new ParameterInfoImpl[0]);
     return new JavaIntroduceParameterObjectClassDescriptor(className, packageName, moveDestination, useExistingClass, createInnerClass,
                                                            newVisibility, infos, mySourceMethod,
                                                            myGenerateAccessorsCheckBox.isSelected());
@@ -235,6 +226,7 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
     }
   }
 
+  @NotNull
   private String getInnerClassName() {
     return  myInnerClassNameTextField.getText().trim();
   }
@@ -254,13 +246,14 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
     return classNameField.getText().trim();
   }
 
+  @Override
   public JComponent getPreferredFocusedComponent() {
     return classNameField;
   }
 
-  protected void doHelpAction() {
-    final HelpManager helpManager = HelpManager.getInstance();
-    helpManager.invokeHelp(HelpID.IntroduceParameterObject);
+  @Override
+  protected String getHelpId() {
+    return HelpID.IntroduceParameterObject;
   }
 
   public boolean useExistingClass() {
@@ -272,14 +265,16 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
     packageTextField =
           new PackageNameReferenceEditorCombo(file instanceof PsiJavaFile ? ((PsiJavaFile)file).getPackageName() : "", myProject, RECENTS_KEY, RefactoringBundle.message("choose.destination.package"));
         final Document document = packageTextField.getChildComponent().getDocument();
-    final com.intellij.openapi.editor.event.DocumentAdapter adapter = new com.intellij.openapi.editor.event.DocumentAdapter() {
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+    final com.intellij.openapi.editor.event.DocumentListener adapter = new com.intellij.openapi.editor.event.DocumentListener() {
+      @Override
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         validateButtons();
       }
     };
     document.addDocumentListener(adapter);
 
     existingClassField = new ReferenceEditorComboWithBrowseButton(new ActionListener() {
+      @Override
       public void actionPerformed(ActionEvent e) {
         final Project project = mySourceMethod.getProject();
         final GlobalSearchScope scope = GlobalSearchScope.allScope(project);
@@ -300,9 +295,9 @@ public class IntroduceParameterObjectDialog extends AbstractIntroduceParameterOb
       }
     }, "", myProject, true, EXISTING_KEY);
 
-    existingClassField.getChildComponent().getDocument().addDocumentListener(new com.intellij.openapi.editor.event.DocumentAdapter() {
+    existingClassField.getChildComponent().getDocument().addDocumentListener(new com.intellij.openapi.editor.event.DocumentListener() {
       @Override
-      public void documentChanged(com.intellij.openapi.editor.event.DocumentEvent e) {
+      public void documentChanged(@NotNull com.intellij.openapi.editor.event.DocumentEvent e) {
         validateButtons();
         enableGenerateAccessors();
       }

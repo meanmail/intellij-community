@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,17 +21,18 @@ import com.intellij.idea.Main;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.JBColor;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.util.MemoryDumpHelper;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.TimeoutUtil;
+import com.intellij.util.ui.JBUI;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.io.File;
+import java.util.Locale;
 
 public class OutOfMemoryDialog extends DialogWrapper {
   private final MemoryKind myMemoryKind;
@@ -43,10 +44,10 @@ public class OutOfMemoryDialog extends DialogWrapper {
   private JTextField myHeapSizeField;
   private JBLabel myHeapUnitsLabel;
   private JBLabel myHeapCurrentValueLabel;
-  private JBLabel myPermGenSizeLabel;
-  private JTextField myPermGenSizeField;
-  private JBLabel myPermGenUnitsLabel;
-  private JBLabel myPermGenCurrentValueLabel;
+  private JBLabel myMetaspaceSizeLabel;
+  private JTextField myMetaspaceSizeField;
+  private JBLabel myMetaspaceUnitsLabel;
+  private JBLabel myMetaspaceCurrentValueLabel;
   private JBLabel myCodeCacheSizeLabel;
   private JTextField myCodeCacheSizeField;
   private JBLabel myCodeCacheUnitsLabel;
@@ -64,17 +65,17 @@ public class OutOfMemoryDialog extends DialogWrapper {
 
     myIconLabel.setIcon(Messages.getErrorIcon());
     myMessageLabel.setText(DiagnosticBundle.message("diagnostic.out.of.memory.error", memoryKind.optionName));
-    myMessageLabel.setBorder(IdeBorderFactory.createEmptyBorder(0, 0, 10, 0));
+    myMessageLabel.setBorder(JBUI.Borders.emptyBottom(10));
 
     File file = VMOptions.getWriteFile();
     if (file != null) {
       mySettingsFileHintLabel.setText(DiagnosticBundle.message("diagnostic.out.of.memory.willBeSavedTo", file.getPath()));
-      mySettingsFileHintLabel.setBorder(IdeBorderFactory.createEmptyBorder(10, 0, 0, 0));
+      mySettingsFileHintLabel.setBorder(JBUI.Borders.emptyTop(10));
     }
     else {
       mySettingsFileHintLabel.setVisible(false);
       myHeapSizeField.setEnabled(false);
-      myPermGenSizeField.setEnabled(false);
+      myMetaspaceSizeField.setEnabled(false);
       myCodeCacheSizeField.setEnabled(false);
     }
 
@@ -104,7 +105,7 @@ public class OutOfMemoryDialog extends DialogWrapper {
     };
 
     configControls(MemoryKind.HEAP, myHeapSizeLabel, myHeapSizeField, myHeapUnitsLabel, myHeapCurrentValueLabel);
-    configControls(MemoryKind.PERM_GEN, myPermGenSizeLabel, myPermGenSizeField, myPermGenUnitsLabel, myPermGenCurrentValueLabel);
+    configControls(MemoryKind.METASPACE, myMetaspaceSizeLabel, myMetaspaceSizeField, myMetaspaceUnitsLabel, myMetaspaceCurrentValueLabel);
     configControls(MemoryKind.CODE_CACHE, myCodeCacheSizeLabel, myCodeCacheSizeField, myCodeCacheUnitsLabel, myCodeCacheCurrentValueLabel);
 
     init();
@@ -134,19 +135,19 @@ public class OutOfMemoryDialog extends DialogWrapper {
   private void save() {
     try {
       int heapSize = Integer.parseInt(myHeapSizeField.getText());
-      VMOptions.writeXmx(heapSize);
+      VMOptions.writeOption(MemoryKind.HEAP, heapSize);
     }
     catch (NumberFormatException ignored) { }
 
     try {
-      int permGenSize = Integer.parseInt(myPermGenSizeField.getText());
-      VMOptions.writeMaxPermGen(permGenSize);
+      int codeCacheSize = Integer.parseInt(myMetaspaceSizeField.getText());
+      VMOptions.writeOption(MemoryKind.METASPACE, codeCacheSize);
     }
     catch (NumberFormatException ignored) { }
 
     try {
       int codeCacheSize = Integer.parseInt(myCodeCacheSizeField.getText());
-      VMOptions.writeCodeCache(codeCacheSize);
+      VMOptions.writeOption(MemoryKind.CODE_CACHE, codeCacheSize);
     }
     catch (NumberFormatException ignored) { }
   }
@@ -161,7 +162,7 @@ public class OutOfMemoryDialog extends DialogWrapper {
       TimeoutUtil.sleep(250);  // to give UI chance to update
       String message = "";
       try {
-        String name = ApplicationNamesInfo.getInstance().getLowercaseProductName();
+        String name = ApplicationNamesInfo.getInstance().getFullProductName().replace(' ', '-').toLowerCase(Locale.US);
         String path = SystemProperties.getUserHome() + File.separator + "heapDump-" + name + '-' + System.currentTimeMillis() + ".hprof.zip";
         MemoryDumpHelper.captureMemoryDumpZipped(path);
         message = "Dumped to " + path;
@@ -180,10 +181,9 @@ public class OutOfMemoryDialog extends DialogWrapper {
     new Thread(task, "OOME Heap Dump").start();
   }
 
-  @SuppressWarnings("Duplicates")
   private void enableControls(boolean enabled) {
     myHeapSizeField.setEnabled(enabled);
-    myPermGenSizeField.setEnabled(enabled);
+    myMetaspaceSizeField.setEnabled(enabled);
     myCodeCacheSizeField.setEnabled(enabled);
     myShutdownAction.setEnabled(enabled);
     myContinueAction.setEnabled(enabled);
@@ -204,7 +204,7 @@ public class OutOfMemoryDialog extends DialogWrapper {
 
   @Override
   public JComponent getPreferredFocusedComponent() {
-    return myMemoryKind == MemoryKind.PERM_GEN ? myPermGenSizeField :
+    return myMemoryKind == MemoryKind.METASPACE ? myMetaspaceSizeField :
            myMemoryKind == MemoryKind.CODE_CACHE ? myCodeCacheSizeField :
            myHeapSizeField;
   }

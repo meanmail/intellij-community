@@ -28,7 +28,6 @@ import org.junit.runner.Description;
 
 /**
 * @author Vladislav.Soroka
-* @since 11/27/2014
 */
 public class VersionMatcherRule extends TestWatcher {
 
@@ -36,8 +35,8 @@ public class VersionMatcherRule extends TestWatcher {
   private CustomMatcher myMatcher;
 
   @NotNull
-  public Matcher getMatcher() {
-    return myMatcher != null ? myMatcher : CoreMatchers.anything();
+  public Matcher<String> getMatcher() {
+    return myMatcher != null ? myMatcher : CoreMatchers.any(String.class);
   }
 
   @Override

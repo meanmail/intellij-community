@@ -16,20 +16,19 @@
 package com.jetbrains.python.remote;
 
 import com.google.common.base.Function;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.intellij.execution.ExecutionException;
 import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.configurations.ParamsGroup;
 import com.intellij.execution.process.ProcessHandler;
-import com.intellij.execution.process.ProcessOutput;
 import com.intellij.openapi.extensions.ExtensionPointName;
-import com.intellij.openapi.module.Module;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.projectRoots.SdkAdditionalData;
 import com.intellij.openapi.projectRoots.SdkModificator;
 import com.intellij.openapi.util.Key;
+import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.io.FileUtil;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.remote.*;
 import com.intellij.util.NullableConsumer;
 import com.intellij.util.PathMapper;
@@ -44,15 +43,17 @@ import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import javax.swing.*;
 import java.awt.*;
 import java.nio.charset.Charset;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * @author traff
  */
-public abstract class PythonRemoteInterpreterManager {
+public abstract class PythonRemoteInterpreterManager implements PyRemoteFilesChooser {
   public final static ExtensionPointName<PythonRemoteInterpreterManager> EP_NAME =
     ExtensionPointName.create("Pythonid.remoteInterpreterManager");
   public static final String WEB_DEPLOYMENT_PLUGIN_IS_DISABLED =
@@ -73,50 +74,9 @@ public abstract class PythonRemoteInterpreterManager {
                                                     @NotNull PyRemotePathMapper pathMapper)
     throws RemoteSdkException;
 
-  /**
-   * @deprecated use {@link com.jetbrains.python.run.PyRemoteProcessStarterManager#startRemoteProcess(Project, GeneralCommandLine, PythonRemoteInterpreterManager, PyRemoteSdkAdditionalDataBase, PyRemotePathMapper)}
-   */
-  @Deprecated
-  public abstract PyRemoteProcessHandlerBase startRemoteProcessWithPid(@Nullable Project project,
-                                                                       @NotNull PyRemoteSdkCredentials data,
-                                                                       @NotNull GeneralCommandLine commandLine,
-                                                                       @NotNull PyRemotePathMapper pathMapper)
-    throws RemoteSdkException;
-
   public abstract void addRemoteSdk(Project project, Component parentComponent, Collection<Sdk> existingSdks,
                                     NullableConsumer<Sdk> sdkCallback);
 
-
-  /**
-   * @deprecated use {@link com.jetbrains.python.run.PyRemoteProcessStarterManager#executeRemoteProcess(Project, String[], String, PythonRemoteInterpreterManager, PyRemoteSdkAdditionalDataBase, PyRemotePathMapper, boolean)}
-   */
-  @Deprecated
-  public abstract ProcessOutput runRemoteProcess(@Nullable Project project,
-                                                 RemoteSdkCredentials data,
-                                                 @NotNull PyRemotePathMapper pathMapper,
-                                                 String[] command,
-                                                 @Nullable String workingDir,
-                                                 boolean askForSudo)
-    throws RemoteSdkException;
-
-  /**
-   * @deprecated use {@link com.jetbrains.python.run.PyRemoteProcessStarterManager#executeRemoteProcess(Project, String[], String, PythonRemoteInterpreterManager, PyRemoteSdkAdditionalDataBase, PyRemotePathMapper, boolean)}
-   */
-  @Deprecated
-  public abstract ProcessOutput runRemoteProcess(@Nullable Project project,
-                                                 RemoteSdkCredentials data,
-                                                 @NotNull PyRemotePathMapper pathMapper,
-                                                 String[] command,
-                                                 @Nullable String workingDir,
-                                                 boolean askForSudo, String sdkHomePath)
-    throws RemoteSdkException;
-
-  @NotNull
-  public abstract RemoteSshProcess createRemoteProcess(@Nullable Project project,
-                                                       @NotNull PyRemoteSdkCredentials data,
-                                                       @NotNull PyRemotePathMapper pathMapper,
-                                                       @NotNull GeneralCommandLine commandLine, boolean allocatePty)
-    throws RemoteSdkException;
 
   public abstract boolean editSdk(@NotNull Project project, @NotNull SdkModificator sdkModificator, Collection<Sdk> existingSdks);
 
@@ -125,26 +85,57 @@ public abstract class PythonRemoteInterpreterManager {
                                                                     @NotNull Sdk sdk,
                                                                     String path) throws ExecutionException;
 
-  public abstract boolean ensureCanWrite(@Nullable Object projectOrComponent, RemoteSdkCredentials data, String path);
-
-  @Nullable
-  public abstract RemoteProjectSettings showRemoteProjectSettingsDialog(VirtualFile baseDir, RemoteSdkCredentials data);
-
-  public abstract void createDeployment(Project project,
-                                        VirtualFile projectDir,
-                                        RemoteProjectSettings settings,
-                                        RemoteSdkCredentials data);
+  public abstract boolean ensureCanWrite(RemoteSdkCredentials data, String path);
 
   /**
-   * Prepares project (i.e. sets appropriate mappings) if sdk is remote.
-   * Do not call this method if sdk is not remote: id does nothing
+   * @param sdk current sdk
+   * @return project synchronizer for this sdk. See {@link PyProjectSynchronizer} for more info
+   * @see PyProjectSynchronizer
    */
-  public abstract void prepareRemoteSettingsIfNeeded(@NotNull final Module module,
-                                                     @NotNull final Sdk sdk);
+  @Nullable
+  public abstract PyProjectSynchronizer getSynchronizer(@NotNull final Sdk sdk);
 
   public abstract void copyFromRemote(Sdk sdk, @NotNull Project project,
                                       RemoteSdkCredentials data,
                                       List<PathMappingSettings.PathMapping> mappings);
+
+  /**
+   * Creates form to browse remote box.
+   * You need to show it to user using dialog.
+   *
+   * @return null if remote sdk can't be browsed.
+   * First argument is consumer to get path, chosen by user.
+   * Second is panel to display to user
+   * @throws ExecutionException   credentials can't be obtained due to remote server error
+   * @throws InterruptedException credentials can't be obtained due to remote server error
+   */
+  @Nullable
+  public abstract Pair<Supplier<String>, JPanel> createServerBrowserForm(@NotNull final Sdk remoteSdk)
+    throws ExecutionException, InterruptedException;
+
+
+  public abstract ListenableFuture<?> uploadHelpersAsync(@Nullable Sdk sdk,
+                                                               @Nullable Project project,
+                                                               @Nullable Component component,
+                                                               @NotNull RemoteSdkCredentials credentials, boolean uploadOnSnapshot);
+
+
+  /**
+   * Short-cut to get {@link PyProjectSynchronizer} for sdk or null if sdk does not have any
+   */
+  @Nullable
+  public static PyProjectSynchronizer getSynchronizerInstance(@NotNull final Sdk sdk) {
+    final PythonRemoteInterpreterManager remoteManager = getInstance();
+    if (remoteManager == null) {
+      return null;
+    }
+    final PyProjectSynchronizer synchronizer = remoteManager.getSynchronizer(sdk);
+    if (synchronizer == null) {
+      return null;
+    }
+    return synchronizer;
+  }
+
 
   @Nullable
   public static PythonRemoteInterpreterManager getInstance() {
@@ -179,9 +170,10 @@ public abstract class PythonRemoteInterpreterManager {
                                                    @NotNull PyRemoteSdkAdditionalDataBase data,
                                                    @Nullable PyRemotePathMapper pathMapper);
 
+  @NotNull
   public abstract SdkAdditionalData loadRemoteSdkData(Sdk sdk, Element additional);
 
-  public abstract PyConsoleProcessHandler createConsoleProcessHandler(RemoteProcess process,
+  public abstract PyConsoleProcessHandler createConsoleProcessHandler(@NotNull Process process,
                                                                       PythonConsoleView view,
                                                                       PydevConsoleCommunication consoleCommunication,
                                                                       String commandLine,
@@ -195,7 +187,9 @@ public abstract class PythonRemoteInterpreterManager {
 
   public abstract String getInterpreterVersion(@Nullable Project project, PyRemoteSdkAdditionalDataBase data) throws RemoteSdkException;
 
-  public abstract String[] chooseRemoteFiles(Project project, @NotNull PyRemoteSdkAdditionalDataBase data, boolean foldersOnly)
+  @Override
+  @NotNull
+  public abstract String[] chooseRemoteFiles(@NotNull Project project, @NotNull PyRemoteSdkAdditionalDataBase data, boolean foldersOnly)
     throws ExecutionException, InterruptedException;
 
   public static class PyRemoteInterpreterExecutionException extends ExecutionException {
@@ -213,4 +207,13 @@ public abstract class PythonRemoteInterpreterManager {
   }
 
   public abstract void runVagrant(@NotNull String vagrantFolder, @Nullable String machineName) throws ExecutionException;
+
+  /**
+   * @author traff
+   */
+  public static class PyHelpersNotReadyException extends RuntimeException {
+    public PyHelpersNotReadyException(Throwable cause) {
+      super("Python helpers are not copied yet to the remote host. Please wait until remote interpreter initialization finishes.", cause);
+    }
+  }
 }

@@ -29,7 +29,6 @@ import static com.intellij.psi.codeStyle.CodeStyleSettingsCustomizable.*;
 
 /**
  * @author Roman.Shein
- * @since 15.09.2015.
  */
 public class CodeStyleSettingPresentation {
 
@@ -104,7 +103,7 @@ public class CodeStyleSettingPresentation {
   protected static void putGroupTop(@NotNull Map<CodeStyleSettingPresentation.SettingsGroup, List<CodeStyleSettingPresentation>> result,
                                     @NotNull String fieldName,
                                     @NotNull String uiName, int[] values, String[] valueUiNames) {
-    result.put(new SettingsGroup(null), ContainerUtil.<CodeStyleSettingPresentation>immutableList(
+    result.put(new SettingsGroup(null), ContainerUtil.immutableList(
       new CodeStyleSelectSettingPresentation(fieldName, uiName, values, valueUiNames)
     ));
   }
@@ -123,7 +122,9 @@ public class CodeStyleSettingPresentation {
                                        ApplicationBundle.message("editbox.keep.blanklines.in.declarations")),
       new CodeStyleSettingPresentation("KEEP_BLANK_LINES_IN_CODE", ApplicationBundle.message("editbox.keep.blanklines.in.code")),
       new CodeStyleSettingPresentation("KEEP_BLANK_LINES_BEFORE_RBRACE",
-                                       ApplicationBundle.message("editbox.keep.blanklines.before.rbrace"))
+                                       ApplicationBundle.message("editbox.keep.blanklines.before.rbrace")),
+      new CodeStyleSettingPresentation("KEEP_BLANK_LINES_BETWEEN_PACKAGE_DECLARATION_AND_HEADER",
+                                       ApplicationBundle.message("editbox.keep.blanklines.between.header.and.package"))
     ));
 
     result.put(new SettingsGroup(BLANK_LINES), ContainerUtil.immutableList(
@@ -136,6 +137,7 @@ public class CodeStyleSettingPresentation {
       new CodeStyleSettingPresentation("BLANK_LINES_AROUND_CLASS", ApplicationBundle.message("editbox.blanklines.around.class")),
       new CodeStyleSettingPresentation("BLANK_LINES_AFTER_CLASS_HEADER",
                                        ApplicationBundle.message("editbox.blanklines.after.class.header")),
+      new CodeStyleSettingPresentation("BLANK_LINES_BEFORE_CLASS_END", ApplicationBundle.message("editbox.blanklines.before.class.end")),
       new CodeStyleSettingPresentation("BLANK_LINES_AFTER_ANONYMOUS_CLASS_HEADER",
                                        ApplicationBundle.message("editbox.blanklines.after.anonymous.class.header")),
       new CodeStyleSettingPresentation("BLANK_LINES_AROUND_FIELD_IN_INTERFACE", "Around field in interface:"),
@@ -272,7 +274,7 @@ public class CodeStyleSettingPresentation {
       new CodeStyleSettingPresentation("SPACE_BEFORE_TYPE_PARAMETER_LIST", ApplicationBundle.message("checkbox.spaces.before.opening.angle.bracket"))
     ));
 
-    result.put(new SettingsGroup(SPACES_IN_TYPE_PARAMETERS), ContainerUtil.<CodeStyleSettingPresentation>immutableList());
+    result.put(new SettingsGroup(SPACES_IN_TYPE_PARAMETERS), ContainerUtil.immutableList());
 
     result.put(new SettingsGroup(SPACES_OTHER), ContainerUtil.immutableList(
       new CodeStyleSettingPresentation("SPACE_BEFORE_COMMA", ApplicationBundle.message("checkbox.spaces.before.comma")),
@@ -286,14 +288,14 @@ public class CodeStyleSettingPresentation {
     //-----------------------------------WRAPPING_AND_BRACES_SETTINGS-----------------------------------------------------
 
     result = ContainerUtil.newLinkedHashMap();
-    result.put(new SettingsGroup(null), ContainerUtil.<CodeStyleSettingPresentation>immutableList(
+    result.put(new SettingsGroup(null), ContainerUtil.immutableList(
       new CodeStyleBoundedIntegerSettingPresentation("RIGHT_MARGIN", ApplicationBundle.message("editbox.right.margin.columns"), 0, 999,
                                                      -1,
-                                                     ApplicationBundle.message("settings.code.style.default.general"))
+                                                     ApplicationBundle.message("settings.code.style.default.general")),
+      new CodeStyleSelectSettingPresentation("WRAP_ON_TYPING", ApplicationBundle.message("wrapping.wrap.on.typing"), WRAP_ON_TYPING_VALUES,
+                                             WRAP_ON_TYPING_OPTIONS),
+      new CodeStyleSoftMarginsPresentation()
     ));
-
-    putGroupTop(result, "WRAP_ON_TYPING", ApplicationBundle.message("wrapping.wrap.on.typing"), WRAP_ON_TYPING_VALUES,
-                WRAP_ON_TYPING_OPTIONS);
 
     result.put(new SettingsGroup(WRAPPING_KEEP), ContainerUtil.immutableList(
       new CodeStyleSettingPresentation("KEEP_LINE_BREAKS", ApplicationBundle.message("wrapping.keep.line.breaks")),
@@ -321,16 +323,17 @@ public class CodeStyleSettingPresentation {
       new CodeStyleSettingPresentation("WRAP_COMMENTS", ApplicationBundle.message("wrapping.comments.wrap.at.right.margin"))
     ));
 
-    result.put(new SettingsGroup(WRAPPING_BRACES), ContainerUtil.<CodeStyleSettingPresentation>immutableList(
+    result.put(new SettingsGroup(WRAPPING_BRACES), ContainerUtil.immutableList(
       new CodeStyleSelectSettingPresentation("CLASS_BRACE_STYLE",
                                              ApplicationBundle.message("wrapping.brace.placement.class.declaration"),
                                              BRACE_PLACEMENT_VALUES, BRACE_PLACEMENT_OPTIONS),
       new CodeStyleSelectSettingPresentation("METHOD_BRACE_STYLE",
                                              ApplicationBundle.message("wrapping.brace.placement.method.declaration"),
                                              BRACE_PLACEMENT_VALUES, BRACE_PLACEMENT_OPTIONS),
+      new CodeStyleSelectSettingPresentation("LAMBDA_BRACE_STYLE", ApplicationBundle.message("wrapping.brace.placement.lambda"),
+                                             BRACE_PLACEMENT_VALUES, BRACE_PLACEMENT_OPTIONS),
       new CodeStyleSelectSettingPresentation("BRACE_STYLE", ApplicationBundle.message("wrapping.brace.placement.other"),
                                              BRACE_PLACEMENT_VALUES, BRACE_PLACEMENT_OPTIONS)
-
     ));
 
     putGroupTop(result, "EXTENDS_LIST_WRAP", WRAPPING_EXTENDS_LIST, WRAP_VALUES, WRAP_OPTIONS);
@@ -397,7 +400,7 @@ public class CodeStyleSettingPresentation {
                                              BRACE_OPTIONS)
     ));
 
-    result.put(new SettingsGroup(WRAPPING_WHILE_STATEMENT), ContainerUtil.<CodeStyleSettingPresentation>immutableList(
+    result.put(new SettingsGroup(WRAPPING_WHILE_STATEMENT), ContainerUtil.immutableList(
       new CodeStyleSelectSettingPresentation("WHILE_BRACE_FORCE", ApplicationBundle.message("wrapping.force.braces"), BRACE_VALUES,
                                              BRACE_OPTIONS)
     ));
@@ -410,7 +413,8 @@ public class CodeStyleSettingPresentation {
 
     result.put(new SettingsGroup(WRAPPING_SWITCH_STATEMENT), ContainerUtil.immutableList(
       new CodeStyleSettingPresentation("INDENT_CASE_FROM_SWITCH", ApplicationBundle.message("wrapping.indent.case.from.switch")),
-      new CodeStyleSettingPresentation("INDENT_BREAK_FROM_CASE", ApplicationBundle.message("wrapping.indent.break.from.case"))
+      new CodeStyleSettingPresentation("INDENT_BREAK_FROM_CASE", ApplicationBundle.message("wrapping.indent.break.from.case")),
+      new CodeStyleSettingPresentation("CASE_STATEMENT_ON_NEW_LINE", ApplicationBundle.message("wrapping.case.statements.on.one.line"))
     ));
 
     putGroupTop(result, "RESOURCE_LIST_WRAP", WRAPPING_TRY_RESOURCE_LIST, WRAP_VALUES, WRAP_OPTIONS);
@@ -451,6 +455,8 @@ public class CodeStyleSettingPresentation {
                                        ApplicationBundle.message("wrapping.align.fields.in.columns")),
       new CodeStyleSettingPresentation("ALIGN_CONSECUTIVE_VARIABLE_DECLARATIONS",
                                        ApplicationBundle.message("wrapping.align.variables.in.columns")),
+      new CodeStyleSettingPresentation("ALIGN_CONSECUTIVE_ASSIGNMENTS",
+                                       ApplicationBundle.message("wrapping.align.assignments.in.columns")),
       new CodeStyleSettingPresentation("ALIGN_SUBSEQUENT_SIMPLE_METHODS",
                                        ApplicationBundle.message("wrapping.align.simple.methods.in.columns"))
     ));

@@ -16,11 +16,12 @@
 package com.intellij.openapi.diff.impl.highlighting;
 
 import com.intellij.util.ArrayUtil;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 
 class BufferedStringList {
-  private final ArrayList<String> myStrings = new ArrayList<String>();
+  private final ArrayList<String> myStrings = new ArrayList<>();
   private final StringBuffer myLast = new StringBuffer();
 
   public void add(String string) {
@@ -39,6 +40,7 @@ class BufferedStringList {
     }
   }
 
+  @NotNull
   public String[] toArray() {
     flushLast();
     return ArrayUtil.toStringArray(myStrings);

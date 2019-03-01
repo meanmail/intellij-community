@@ -22,7 +22,6 @@ import static junit.framework.Assert.assertEquals;
 
 /**
  * @author Vladislav.Soroka
- * @since 4/7/14
  */
 public class MessageCounterTest {
 
@@ -31,7 +30,7 @@ public class MessageCounterTest {
   private static final ProjectSystemId OTHER_BUILD_SYSTEM = new ProjectSystemId("SomeOtherBuildSystem");
 
   @Test
-  public void testIncrement() throws Exception {
+  public void testIncrement() {
     MessageCounter counter = new MessageCounter();
     counter.increment(GROUP1, NotificationSource.PROJECT_SYNC, NotificationCategory.ERROR, OTHER_BUILD_SYSTEM);
     assertEquals(counter.toString(), 1, counter.getCount(GROUP1, NotificationSource.PROJECT_SYNC, NotificationCategory.ERROR, OTHER_BUILD_SYSTEM));

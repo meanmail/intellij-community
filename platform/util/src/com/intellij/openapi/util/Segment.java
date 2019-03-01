@@ -15,11 +15,13 @@
  */
 package com.intellij.openapi.util;
 
-/**
- * User: cdr
- */
+import java.util.Comparator;
+
 public interface Segment {
   Segment[] EMPTY_ARRAY = new Segment[0];
   int getStartOffset();
   int getEndOffset();
+
+  Comparator<Segment> BY_START_OFFSET_THEN_END_OFFSET =
+    Comparator.comparingInt(Segment::getStartOffset).thenComparingInt(Segment::getEndOffset);
 }

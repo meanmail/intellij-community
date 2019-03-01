@@ -31,7 +31,7 @@ public class CoreProjectJdkTable extends ProjectJdkTable {
   private final List<Sdk> mySdks = new ArrayList<>();
 
   @Override
-  public Sdk findJdk(String name) {
+  public Sdk findJdk(@NotNull String name) {
     synchronized (mySdks) {
       for (Sdk jdk : mySdks) {
         if (Comparing.strEqual(name, jdk.getName())) {
@@ -43,19 +43,21 @@ public class CoreProjectJdkTable extends ProjectJdkTable {
   }
 
   @Override
-  public Sdk findJdk(String name, String type) {
+  public Sdk findJdk(@NotNull String name, @NotNull String type) {
     return findJdk(name);
   }
 
+  @NotNull
   @Override
   public Sdk[] getAllJdks() {
     synchronized (mySdks) {
-      return mySdks.toArray(new Sdk[mySdks.size()]);
+      return mySdks.toArray(new Sdk[0]);
     }
   }
 
+  @NotNull
   @Override
-  public List<Sdk> getSdksOfType(SdkTypeId type) {
+  public List<Sdk> getSdksOfType(@NotNull SdkTypeId type) {
     List<Sdk> result = new ArrayList<>();
     synchronized (mySdks) {
       for (Sdk sdk : mySdks) {
@@ -68,44 +70,47 @@ public class CoreProjectJdkTable extends ProjectJdkTable {
   }
 
   @Override
-  public void addJdk(Sdk jdk) {
+  public void addJdk(@NotNull Sdk jdk) {
     synchronized (mySdks) {
       mySdks.add(jdk);
     }
   }
 
   @Override
-  public void removeJdk(Sdk jdk) {
+  public void removeJdk(@NotNull Sdk jdk) {
     synchronized (mySdks) {
       mySdks.remove(jdk);
     }
   }
 
   @Override
-  public void updateJdk(Sdk originalJdk, Sdk modifiedJdk) {
+  public void updateJdk(@NotNull Sdk originalJdk, @NotNull Sdk modifiedJdk) {
     throw new UnsupportedOperationException();
   }
 
   @Override
-  public void addListener(Listener listener) {
+  public void addListener(@NotNull Listener listener) {
   }
 
   @Override
-  public void removeListener(Listener listener) {
+  public void removeListener(@NotNull Listener listener) {
   }
 
   @Override
+  @NotNull
   public SdkTypeId getDefaultSdkType() {
     return CoreSdkType.INSTANCE;
   }
 
   @Override
+  @NotNull
   public SdkTypeId getSdkTypeByName(@NotNull String name) {
     return CoreSdkType.INSTANCE;
   }
 
+  @NotNull
   @Override
-  public Sdk createSdk(String name, SdkTypeId sdkType) {
+  public Sdk createSdk(@NotNull String name, @NotNull SdkTypeId sdkType) {
     throw new UnsupportedOperationException();
   }
 }

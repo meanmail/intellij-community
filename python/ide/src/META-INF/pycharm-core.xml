@@ -1,4 +1,4 @@
-<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude" version="2">
+<idea-plugin xmlns:xi="http://www.w3.org/2001/XInclude">
   <!-- Components and extensions declared in this file work ONLY in PyCharm, not in Python plugin.
        Both Community and Professional editions. -->
 
@@ -18,7 +18,7 @@
 
   <application-components>
     <component>
-      <implementation-class>com.intellij.internal.statistic.updater.SendStatisticsComponent</implementation-class>
+      <implementation-class>com.intellij.internal.statistic.updater.StatisticsJobsScheduler</implementation-class>
     </component>
   </application-components>
 
@@ -33,6 +33,9 @@
       <implementation-class>com.jetbrains.python.console.PythonConsoleToolWindow</implementation-class>
     </component>
   </project-components>
+
+
+
 
   <module value="com.intellij.modules.xml"/>
 
@@ -55,10 +58,12 @@
     <directoryProjectConfigurator implementation="com.intellij.platform.PlatformInspectionProfileConfigurator"/>
 
     <applicationService serviceInterface="com.intellij.openapi.module.ModuleTypeManager"
-                        serviceImplementation="com.jetbrains.python.PythonModuleTypeManager"/>
+                        serviceImplementation="com.jetbrains.python.PythonModuleTypeManager"
+                        overrides="true"/>
 
     <fileStructureGroupRuleProvider implementation="com.intellij.usages.impl.rules.FileGroupingRuleProvider" order="first"/>
-    <fileStructureGroupRuleProvider implementation="com.jetbrains.python.findUsages.PyClassGroupingRuleProvider" order="before py-function"/>
+    <fileStructureGroupRuleProvider implementation="com.jetbrains.python.findUsages.PyClassGroupingRuleProvider"
+                                    order="before py-function"/>
     <diffPreviewProvider implementation="com.jetbrains.python.configuration.PyDiffPreviewProvider"/>
 
     <applicationService serviceInterface="com.jetbrains.python.run.PyCommonOptionsFormFactory"
@@ -80,23 +85,23 @@
     <renameHandler implementation="com.intellij.platform.renameProject.ProjectFolderRenameHandler"/>
 
     <!-- Console -->
-    <toolWindow id="Python Console" anchor="bottom" icon="PythonIcons.Python.PythonConsoleToolWindow"
+
+    <toolWindow id="Python Console" anchor="bottom" icon="PythonIcons.Python.PythonConsoleToolWindow" canCloseContents="true"
                 factoryClass="com.jetbrains.python.console.PythonConsoleToolWindowFactory" secondary="false"/>
 
     <directoryIndexExcludePolicy implementation="com.jetbrains.python.PyDirectoryIndexExcludePolicy"/>
+
   </extensions>
 
   <actions>
     <group id="PlatformOpenProjectGroup">
       <action id="NewDirectoryProject" class="com.jetbrains.python.newProject.PyCharmNewProjectAction"/>
+      <action id="NewElement" class="com.intellij.ide.actions.NewElementAction" />
+      <reference ref="NewScratchFile" />
       <add-to-group group-id="FileOpenGroup" anchor="first"/>
     </group>
 
-    <action id="NewElement" class="com.intellij.ide.actions.NewElementAction">
-      <add-to-group group-id="PlatformOpenProjectGroup" anchor="after" relative-to-action="NewDirectoryProject"/>
-    </action>
-
-    <action id="SaveAs" class="com.intellij.ide.actions.SaveAsAction" text="Save As.." >
+    <action id="SaveAs" class="com.intellij.ide.actions.SaveAsAction" text="Save As...">
       <add-to-group group-id="FileOpenGroup" anchor="after" relative-to-action="OpenFile"/>
     </action>
 
@@ -104,25 +109,25 @@
             icon="AllIcons.RunConfigurations.RerunFailedTests"/>
 
     <group id="WelcomeScreen.Platform.NewProject">
-      <action id="WelcomeScreen.CreateDirectoryProject" class="com.jetbrains.python.newProject.actions.PyCharmNewProjectStep" icon="AllIcons.Welcome.CreateNewProject"/>
-      <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction" icon="AllIcons.General.OpenProject"/>
+      <action id="WelcomeScreen.CreateDirectoryProject" class="com.jetbrains.python.newProject.steps.PyCharmNewProjectStep"
+              icon="AllIcons.Welcome.CreateNewProject"/>
+      <action id="WelcomeScreen.OpenDirectoryProject" class="com.intellij.ide.actions.OpenFileAction" icon="AllIcons.Actions.Menu_open"/>
 
       <add-to-group group-id="WelcomeScreen.QuickStart" anchor="first"/>
     </group>
 
-    <action id="MarkSourceRoot" class="com.intellij.ide.projectView.actions.MarkJavaSourceRootAction">
+    <group>
+      <action id="MarkSourceRoot" class="com.intellij.ide.projectView.actions.MarkJavaSourceRootAction"/>
+      <action id="MarkExcludeRoot" class="com.intellij.ide.projectView.actions.MarkExcludeRootAction"/>
+      <action id="MarkAsContentRoot" class="com.intellij.ide.projectView.actions.MarkAsContentRootAction"/>
+      <action id="UnmarkRoot" class="com.intellij.ide.projectView.actions.UnmarkRootAction"/>
       <add-to-group group-id="MarkRootGroup"/>
-    </action>
-    <action id="MarkExcludeRoot" class="com.intellij.ide.projectView.actions.MarkExcludeRootAction" icon="AllIcons.Modules.ExcludeRoot">
-      <add-to-group group-id="MarkRootGroup"/>
-    </action>
-    <action id="UnmarkRoot" class="com.intellij.ide.projectView.actions.UnmarkRootAction">
-      <add-to-group group-id="MarkRootGroup"/>
-    </action>
+    </group>
 
     <action overrides="true" id="ForceStepInto" class="com.intellij.openapi.actionSystem.EmptyAction"/>
 
-    <group id="TypeHierarchyPopupMenu">
-    </group>
+    <action id="RenameProject" class="com.intellij.platform.renameProject.RenameProjectAction">
+      <add-to-group group-id="FileOpenGroup" anchor="after" relative-to-action="RenameFile"/>
+    </action>
   </actions>
 </idea-plugin>

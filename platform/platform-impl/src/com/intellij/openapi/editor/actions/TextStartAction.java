@@ -23,10 +23,10 @@ import com.intellij.openapi.editor.ScrollingModel;
 import com.intellij.openapi.editor.actionSystem.EditorActionHandler;
 import com.intellij.openapi.fileEditor.ex.IdeDocumentHistory;
 import com.intellij.openapi.project.Project;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * @author max
- * @since May 14, 2002
  */
 public class TextStartAction extends TextComponentEditorAction {
   public TextStartAction() {
@@ -35,7 +35,7 @@ public class TextStartAction extends TextComponentEditorAction {
 
   private static class Handler extends EditorActionHandler {
     @Override
-    public void execute(Editor editor, DataContext dataContext) {
+    public void execute(@NotNull Editor editor, DataContext dataContext) {
       editor.getCaretModel().removeSecondaryCarets();
       editor.getCaretModel().moveToOffset(0);
       editor.getSelectionModel().removeSelection();

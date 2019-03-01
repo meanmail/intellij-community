@@ -17,7 +17,6 @@ package com.intellij.codeInsight.completion.impl;
 
 import com.intellij.codeInsight.completion.CompletionSorter;
 import com.intellij.codeInsight.lookup.*;
-import com.intellij.openapi.util.Condition;
 import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 
@@ -89,12 +88,7 @@ public class CompletionSorterImpl extends CompletionSorter {
 
 
   private int idIndex(final String id) {
-    return ContainerUtil.indexOf(myMembers, new Condition<ClassifierFactory<LookupElement>>() {
-      @Override
-      public boolean value(ClassifierFactory<LookupElement> factory) {
-        return id.equals(factory.getId());
-      }
-    });
+    return ContainerUtil.indexOf(myMembers, factory -> id.equals(factory.getId()));
   }
 
   @Override

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,9 +20,6 @@ import com.intellij.codeInspection.ex.InspectionToolWrapper;
 import com.intellij.openapi.application.ApplicationStarter;
 import com.intellij.openapi.application.PathManager;
 import com.intellij.openapi.util.text.StringUtil;
-import com.intellij.profile.Profile;
-import com.intellij.profile.codeInspection.InspectionProfileManager;
-import com.intellij.util.TimeoutUtil;
 import org.w3c.dom.CDATASection;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -30,17 +27,19 @@ import org.w3c.dom.Element;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
-import javax.xml.transform.*;
+import javax.xml.transform.OutputKeys;
+import javax.xml.transform.Transformer;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import java.io.File;
-import java.io.IOException;
 import java.util.List;
 
 public class InspectionDump implements ApplicationStarter {
   @Override
   public String getCommandName() {
-    return "inspection-dump";
+    return "inspections";
   }
 
   @Override
@@ -59,6 +58,7 @@ public class InspectionDump implements ApplicationStarter {
       List<InspectionToolWrapper> tools = InspectionToolRegistrar.getInstance().createTools();
       for (InspectionToolWrapper tool : tools) {
         Element inspection = document.createElement("Inspection");
+        inspection.setAttribute("groupPath", StringUtil.join(tool.getGroupPath(), ";"));
         inspection.setAttribute("group", tool.getGroupDisplayName());
         inspection.setAttribute("name", tool.getDisplayName());
         inspection.setAttribute("level", tool.getDefaultLevel().getName());
@@ -81,14 +81,10 @@ public class InspectionDump implements ApplicationStarter {
 
       System.exit(0);
     }
-    catch (ParserConfigurationException e) {
+    catch (ParserConfigurationException | TransformerException e) {
+      // noinspection CallToPrintStackTrace
       e.printStackTrace();
-    }
-    catch (TransformerConfigurationException e) {
-      e.printStackTrace();
-    }
-    catch (TransformerException e) {
-      e.printStackTrace();
+      System.exit(1);
     }
   }
 

@@ -18,7 +18,6 @@ package org.testng;
 import com.intellij.rt.execution.testFrameworks.ForkedByModuleSplitter;
 
 import java.io.File;
-import java.io.PrintStream;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,8 +26,8 @@ import java.util.Map;
 public class TestNGForkedSplitter extends ForkedByModuleSplitter {
 
 
-  public TestNGForkedSplitter(String workingDirsPath, PrintStream out, PrintStream err, List newArgs) {
-    super(workingDirsPath, "none", out, err, newArgs);
+  public TestNGForkedSplitter(String workingDirsPath, List newArgs) {
+    super(workingDirsPath, "none", newArgs);
   }
 
   @Override
@@ -48,7 +47,7 @@ public class TestNGForkedSplitter extends ForkedByModuleSplitter {
                                    String packageName,
                                    String workingDir,
                                    String classpath,
-                                   String repeatCount, int result) throws Exception {
+                                   String repeatCount, int result, final String filters) throws Exception {
     final LinkedHashMap<String, Map<String, List<String>>> classes = new LinkedHashMap<String, Map<String, List<String>>>();
     for (Object className : classNames) {
       classes.put((String)className, null);

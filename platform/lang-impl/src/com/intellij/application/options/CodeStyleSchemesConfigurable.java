@@ -1,61 +1,74 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.application.options;
 
-import com.intellij.application.options.codeStyle.*;
-import com.intellij.openapi.editor.EditorFactory;
-import com.intellij.openapi.extensions.Extensions;
+import com.intellij.ConfigurableFactory;
+import com.intellij.application.options.codeStyle.CodeStyleSchemesModel;
+import com.intellij.application.options.codeStyle.CodeStyleSchemesModelListener;
+import com.intellij.application.options.codeStyle.CodeStyleSchemesPanel;
+import com.intellij.application.options.codeStyle.group.CodeStyleGroupProvider;
+import com.intellij.application.options.codeStyle.group.CodeStyleGroupProviderFactory;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.options.SearchableConfigurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.codeStyle.CodeStyleScheme;
-import com.intellij.psi.codeStyle.CodeStyleSettings;
+import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
 import com.intellij.psi.codeStyle.CodeStyleSettingsProvider;
-import com.intellij.psi.impl.source.codeStyle.CodeStyleSchemeImpl;
-import org.jetbrains.annotations.Nls;
+import com.intellij.psi.codeStyle.LanguageCodeStyleSettingsProvider;
+import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.Abstract
-  implements OptionsContainingConfigurable, Configurable.NoMargin, Configurable.NoScroll, Configurable.VariableProjectAppLevel {
+  implements Configurable.NoMargin, Configurable.NoScroll, Configurable.VariableProjectAppLevel {
 
   private CodeStyleSchemesPanel myRootSchemesPanel;
-  private CodeStyleSchemesModel myModel;
-  private List<CodeStyleConfigurableWrapper> myPanels;
+  private @NotNull final CodeStyleSchemesModel myModel;
+  private List<Configurable> myPanels;
   private boolean myResetCompleted = false;
   private boolean myInitResetInvoked = false;
   private boolean myRevertCompleted = false;
 
-  private boolean myApplyCompleted = false;
   private final Project myProject;
 
   public CodeStyleSchemesConfigurable(Project project) {
     myProject = project;
+    myModel = new CodeStyleSchemesModel(project);
   }
 
   @Override
   public JComponent createComponent() {
-    myModel = ensureModel();
-
+    initSchemesPanel(myModel);
     return myPanels == null || myPanels.isEmpty() ? null : myPanels.get(0).createComponent();
+  }
+
+  private void initSchemesPanel(@NotNull final CodeStyleSchemesModel model) {
+    myRootSchemesPanel = new CodeStyleSchemesPanel(model, 0);
+
+    model.addListener(new CodeStyleSchemesModelListener() {
+      @Override
+      public void currentSchemeChanged(final Object source) {
+        if (source != myRootSchemesPanel) {
+          myRootSchemesPanel.onSelectedSchemeChanged();
+        }
+      }
+
+      @Override
+      public void schemeListChanged() {
+        myRootSchemesPanel.resetSchemesCombo();
+      }
+
+      @Override
+      public void schemeChanged(final CodeStyleScheme scheme) {
+        if (scheme == model.getSelectedScheme()) myRootSchemesPanel.onSelectedSchemeChanged();
+      }
+    });
   }
 
   @Override
@@ -68,17 +81,15 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
     if (myPanels != null) {
       try {
         super.disposeUIResources();
-        for (CodeStyleConfigurableWrapper panel : myPanels) {
+        for (Configurable panel : myPanels) {
           panel.disposeUIResources();
         }
       }
       finally {
         myPanels = null;
-        myModel = null;
         myRootSchemesPanel = null;
         myResetCompleted = false;
         myRevertCompleted = false;
-        myApplyCompleted = false;
         myInitResetInvoked = false;
       }
     }
@@ -104,17 +115,19 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
     else {
       revert();
     }
-
   }
 
   private void resetImpl() {
-    if (myModel != null) {
-      myModel.reset();
-    }
+    myModel.reset();
 
     if (myPanels != null) {
-      for (CodeStyleConfigurableWrapper panel : myPanels) {
-        panel.resetPanel();
+      for (Configurable panel : myPanels) {
+        if (panel instanceof CodeStyleConfigurableWrapper) {
+          ((CodeStyleConfigurableWrapper)panel).resetPanel();
+        }
+        else {
+          panel.reset();
+        }
       }
     }
   }
@@ -146,8 +159,10 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
 
   private boolean isSomeSchemeModified() {
     if (myPanels != null) {
-      for (CodeStyleConfigurableWrapper panel : myPanels) {
-        if (panel.isPanelModified()) return true;
+      for (Configurable panel : myPanels) {
+        if (panel instanceof CodeStyleConfigurableWrapper) {
+          if (((CodeStyleConfigurableWrapper)panel).isPanelModified()) return true;
+        }
       }
     }
 
@@ -156,58 +171,32 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
 
   @Override
   public void apply() throws ConfigurationException {
-    if (!myApplyCompleted) {
-      try {
-        super.apply();
+    super.apply();
+    myModel.apply();
 
-        for (CodeStyleScheme scheme : new ArrayList<>(myModel.getSchemes())) {
-          final boolean isDefaultModified = CodeStyleSchemesModel.cannotBeModified(scheme) && isSchemeModified(scheme);
-          if (isDefaultModified) {
-            CodeStyleScheme newscheme = myModel.createNewScheme(null, scheme);
-            CodeStyleSettings settingsWillBeModified = scheme.getCodeStyleSettings();
-            CodeStyleSettings notModifiedSettings = settingsWillBeModified.clone();
-            ((CodeStyleSchemeImpl)scheme).setCodeStyleSettings(notModifiedSettings);
-            ((CodeStyleSchemeImpl)newscheme).setCodeStyleSettings(settingsWillBeModified);
-            myModel.addScheme(newscheme, false);
-
-            if (myModel.getSelectedScheme() == scheme) {
-              myModel.selectScheme(newscheme, this);
-            }
-
-          }
-        }
-
-        for (CodeStyleConfigurableWrapper panel : myPanels) {
-          panel.applyPanel();
-        }
-
-        myModel.apply();
-        EditorFactory.getInstance().refreshAllEditors();
+    for (Configurable panel : myPanels) {
+      if (panel instanceof CodeStyleConfigurableWrapper) {
+        ((CodeStyleConfigurableWrapper)panel).applyPanel();
       }
-      finally {
-        myApplyCompleted = true;
-      }
-
-    }
-
-  }
-
-  private boolean isSchemeModified(final CodeStyleScheme scheme) {
-    for (CodeStyleConfigurableWrapper panel : myPanels) {
-      if (panel.isPanelModified(scheme)) {
-        return true;
+      else {
+        panel.apply();
       }
     }
-    return false;
+
+    CodeStyleSettingsManager.getInstance(myProject).fireCodeStyleSettingsChanged(null);
   }
 
   @Override
   protected Configurable[] buildConfigurables() {
+    CodeStyleGroupProviderFactory groupProviderFactory = new CodeStyleGroupProviderFactory(getModel(), this);
     myPanels = new ArrayList<>();
+    Set<CodeStyleGroupProvider> addedGroupProviders = ContainerUtil.newHashSet();
 
-    final List<CodeStyleSettingsProvider> providers =
-      Arrays.asList(Extensions.getExtensions(CodeStyleSettingsProvider.EXTENSION_POINT_NAME));
-    Collections.sort(providers, (p1, p2) -> {
+    final List<CodeStyleSettingsProvider> providers = ContainerUtil.newArrayList();
+    providers.addAll(CodeStyleSettingsProvider.EXTENSION_POINT_NAME.getExtensionList());
+    providers.addAll(LanguageCodeStyleSettingsProvider.getSettingsPagesProviders());
+
+    providers.sort((p1, p2) -> {
       if (!p1.getPriority().equals(p2.getPriority())) {
         return p1.getPriority().compareTo(p2.getPriority());
       }
@@ -219,13 +208,20 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
     });
 
     for (final CodeStyleSettingsProvider provider : providers) {
-      if (provider.hasSettingsPage()) {
-        myPanels.add(new CodeStyleConfigurableWrapper(provider, new CodeStyleSettingsPanelFactory() {
-          @Override
-          public NewCodeStyleSettingsPanel createPanel(final CodeStyleScheme scheme) {
-            return new NewCodeStyleSettingsPanel(provider.createSettingsPage(scheme.getCodeStyleSettings(), ensureModel().getCloneSettings(scheme)));
-          }
-        }));
+      if (provider.getGroup() != null) {
+        CodeStyleGroupProvider groupProvider = groupProviderFactory.getGroupProvider(provider.getGroup());
+        if (!addedGroupProviders.contains(groupProvider)) {
+          myPanels.add(groupProvider.createConfigurable());
+          addedGroupProviders.add(groupProvider);
+        }
+        groupProvider.addChildProvider(provider);
+      }
+      else {
+        if (provider.hasSettingsPage()) {
+          CodeStyleConfigurableWrapper e =
+            ConfigurableFactory.Companion.getInstance().createCodeStyleConfigurable(provider, getModel(), this);
+          myPanels.add(e);
+        }
       }
     }
 
@@ -237,40 +233,12 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
     return result;
   }
 
-  private CodeStyleSchemesModel ensureModel() {
-    if (myModel == null) {
-      myModel = new CodeStyleSchemesModel(myProject);
-      myRootSchemesPanel = new CodeStyleSchemesPanel(myModel);
+  void resetCompleted() {
+    myRevertCompleted = false;
+  }
 
-      myModel.addListener(new CodeStyleSettingsListener(){
-        @Override
-        public void currentSchemeChanged(final Object source) {
-          if (source != myRootSchemesPanel) {
-            myRootSchemesPanel.onSelectedSchemeChanged();
-          }
-        }
-
-        @Override
-        public void schemeListChanged() {
-          myRootSchemesPanel.resetSchemesCombo();
-        }
-
-        @Override
-        public void currentSettingsChanged() {
-
-        }
-
-        @Override
-        public void usePerProjectSettingsOptionChanged() {
-          myRootSchemesPanel.usePerProjectSettingsOptionChanged();
-        }
-
-        @Override
-        public void schemeChanged(final CodeStyleScheme scheme) {
-          if (scheme == myModel.getSelectedScheme()) myRootSchemesPanel.onSelectedSchemeChanged();
-        }
-      });
-    }
+  @NotNull
+  CodeStyleSchemesModel getModel() {
     return myModel;
   }
 
@@ -284,26 +252,17 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
     return "reference.settingsdialog.IDE.globalcodestyle";
   }
 
-  public void selectPage(Class pageToSelect) {
-    //TODO lesya
-    //getActivePanel().selectTab(pageToSelect);
-  }
-
   @Override
   public boolean isModified() {
-    if (myModel != null) {
-      if (myPanels != null && myPanels.size() > 0 && myPanels.get(0).isModified()) {
-        return true;
-      }
-      boolean schemeListModified = myModel.isSchemeListModified();
-      if (schemeListModified) {
-        myApplyCompleted = false;
-        myRevertCompleted = false;
-      }
-      return schemeListModified;
+    if (myModel.containsModifiedCodeStyleSettings()) return true;
+    for (Configurable panel : myPanels) {
+      if (panel.isModified()) return true;
     }
-
-    return false;
+    boolean schemeListModified = myModel.isSchemeListModified();
+    if (schemeListModified) {
+      myRevertCompleted = false;
+    }
+    return schemeListModified;
   }
 
   @Override
@@ -313,138 +272,25 @@ public class CodeStyleSchemesConfigurable extends SearchableConfigurable.Parent.
   }
 
   @Override
-  public Set<String> processListOptions() {
-    HashSet<String> result = new HashSet<>();
-    for (CodeStyleConfigurableWrapper panel : myPanels) {
-      result.addAll(panel.processListOptions());
-    }
-    return result;
-  }
-
-  @Override
   public boolean isProjectLevel() {
-    return myModel != null && myModel.isUsePerProjectSettings();
+    return myModel.isUsePerProjectSettings();
   }
 
   @Nullable
-  public SearchableConfigurable findSubConfigurable(final String name) {
-    if (myPanels == null) {
-      buildConfigurables();
-    }
-    return myPanels.stream().filter(panel -> panel.getDisplayName().equals(name)).findFirst().orElse(null);
+  public SearchableConfigurable findSubConfigurable(@NotNull final String name) {
+    return findSubConfigurable(this, name);
   }
 
-  private class CodeStyleConfigurableWrapper implements SearchableConfigurable, NoMargin, NoScroll, OptionsContainingConfigurable {
-    private boolean myInitialResetInvoked;
-    private CodeStyleMainPanel myPanel;
-    private final CodeStyleSettingsProvider myProvider;
-    private final CodeStyleSettingsPanelFactory myFactory;
-
-    public CodeStyleConfigurableWrapper(@NotNull CodeStyleSettingsProvider provider, @NotNull CodeStyleSettingsPanelFactory factory) {
-      myProvider = provider;
-      myFactory = factory;
-      myInitialResetInvoked = false;
-    }
-
-    @Override
-    @Nls
-    public String getDisplayName() {
-      String displayName = myProvider.getConfigurableDisplayName();
-      if (displayName != null) return displayName;
-      
-      return myPanel != null ? myPanel.getDisplayName() : null;  // fallback for 8.0 API compatibility
-    }
-
-    @Override
-    public String getHelpTopic() {
-      return myPanel != null ? myPanel.getHelpTopic() : null;
-    }
-
-    @Override
-    public JComponent createComponent() {
-      if (myPanel == null) {
-        myPanel = new CodeStyleMainPanel(ensureModel(), myFactory);
-      }
-      return myPanel;
-    }
-
-    @Override
-    public boolean isModified() {
-      if (myPanel != null) {
-        boolean someSchemeModified = myPanel.isModified();
-        if (someSchemeModified) {
-          myApplyCompleted = false;
-          myRevertCompleted = false;
-        }
-        return someSchemeModified;
-      }
-      return false;
-    }
-
-    @Override
-    public void apply() throws ConfigurationException {
-      CodeStyleSchemesConfigurable.this.apply();
-    }
-
-    public void resetPanel() {
-      if (myPanel != null) {
-        myPanel.reset();
-      }
-    }
-
-    @Override
-    public String toString() {
-      return myProvider.getClass().getName();
-    }
-
-    @Override
-    public void reset() {
-      if (!myInitialResetInvoked) {
-        try {
-          resetFromChild();
-        }
-        finally {
-          myInitialResetInvoked = true;
+  private static SearchableConfigurable findSubConfigurable(SearchableConfigurable.Parent topConfigurable, @NotNull final String name) {
+    for (Configurable configurable : topConfigurable.getConfigurables()) {
+      if (configurable instanceof SearchableConfigurable) {
+        if (name.equals(configurable.getDisplayName())) return (SearchableConfigurable)configurable;
+        if (configurable instanceof SearchableConfigurable.Parent) {
+          SearchableConfigurable child = findSubConfigurable((Parent)configurable, name);
+          if (child != null) return child;
         }
       }
-      else {
-        revert();
-      }
     }
-
-    @Override
-    @NotNull
-    public String getId() {
-      return "preferences.sourceCode." + getDisplayName();
-    }
-
-    @Override
-    public void disposeUIResources() {
-      if (myPanel != null) {
-        myPanel.disposeUIResources();
-      }
-    }
-
-    public boolean isPanelModified(CodeStyleScheme scheme) {
-      return myPanel != null && myPanel.isModified(scheme);
-    }
-
-    public boolean isPanelModified() {
-      return myPanel != null && myPanel.isModified();
-    }
-
-    public void applyPanel() throws ConfigurationException {
-      if (myPanel != null) {
-        myPanel.apply();
-      }
-    }
-
-    @Override
-    public Set<String> processListOptions() {
-      if (myPanel == null) {
-        myPanel = new CodeStyleMainPanel(ensureModel(), myFactory);
-      }
-      return myPanel.processListOptions();
-    }
+    return null;
   }
 }

@@ -17,6 +17,7 @@ package com.intellij.openapi.module;
 
 import com.intellij.icons.AllIcons;
 import com.intellij.ide.util.projectWizard.*;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.projectRoots.Sdk;
 import com.intellij.openapi.roots.ModuleRootManager;
@@ -67,11 +68,6 @@ public class JavaModuleType extends ModuleType<JavaModuleBuilder> {
   }
 
   @Override
-  public Icon getBigIcon() {
-    return getJavaModuleIcon();
-  }
-
-  @Override
   public Icon getNodeIcon(boolean isOpened) {
     return getJavaModuleNodeIconClosed();
   }
@@ -81,10 +77,6 @@ public class JavaModuleType extends ModuleType<JavaModuleBuilder> {
   public ModuleWizardStep modifyProjectTypeStep(@NotNull SettingsStep settingsStep, @NotNull final ModuleBuilder moduleBuilder) {
     return ProjectWizardStepFactory.getInstance().createJavaSettingsStep(settingsStep, moduleBuilder,
                                                                          moduleBuilder::isSuitableSdkType);
-  }
-
-  private static Icon getJavaModuleIcon() {
-    return AllIcons.Modules.Types.JavaModule;
   }
 
   private static Icon getJavaModuleNodeIconClosed() {
@@ -98,7 +90,7 @@ public class JavaModuleType extends ModuleType<JavaModuleBuilder> {
 
   public static boolean isValidJavaSdk(@NotNull Module module) {
     if (ModuleRootManager.getInstance(module).getSourceRoots(JavaModuleSourceRootTypes.SOURCES).isEmpty()) return true;
-    return JavaPsiFacade.getInstance(module.getProject()).findClass(CommonClassNames.JAVA_LANG_OBJECT,
-                                                                    module.getModuleWithLibrariesScope()) != null;
+    JavaPsiFacade psiFacade = JavaPsiFacade.getInstance(module.getProject());
+    return ReadAction.compute(() -> psiFacade.findClass(CommonClassNames.JAVA_LANG_OBJECT, module.getModuleWithLibrariesScope())) != null;
   }
 }

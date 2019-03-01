@@ -1,23 +1,11 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.inspections;
 
 import com.intellij.codeInspection.LocalInspectionToolSession;
 import com.intellij.codeInspection.ProblemsHolder;
+import com.intellij.openapi.util.Condition;
 import com.intellij.psi.PsiElementVisitor;
+import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.hash.HashMap;
 import com.jetbrains.python.PyBundle;
 import com.jetbrains.python.inspections.quickfix.PyRemoveAssignmentQuickFix;
@@ -28,8 +16,8 @@ import com.jetbrains.python.psi.types.PyType;
 import com.jetbrains.python.sdk.PySdkUtil;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -59,7 +47,7 @@ public class PyNoneFunctionAssignmentInspection extends PyInspection {
   private static class Visitor extends PyInspectionVisitor {
     private final Map<PyFunction, Boolean> myHasInheritors = new HashMap<>();
 
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    private Visitor(@NotNull ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -68,22 +56,17 @@ public class PyNoneFunctionAssignmentInspection extends PyInspection {
       final PyExpression value = node.getAssignedValue();
       if (value instanceof PyCallExpression) {
         final PyType type = myTypeEvalContext.getType(value);
-        final PyCallExpression callExpr = (PyCallExpression)value;
-        final PyExpression callee = callExpr.getCallee();
+        final PyCallExpression call = (PyCallExpression)value;
+        final PyExpression callee = call.getCallee();
 
         if (type instanceof PyNoneType && callee != null) {
-          final PyCallable callable = callExpr.resolveCalleeFunction(getResolveContext());
-          if (callable != null) {
-            if (PySdkUtil.isElementInSkeletons(callable)) {
-              return;
-            }
-            if (callable instanceof PyFunction) {
-              final PyFunction function = (PyFunction)callable;
-              // Currently we don't infer types returned by decorators
-              if (hasInheritors(function) || PyUtil.hasCustomDecorators(function)) {
-                return;
-              }
-            }
+          final Condition<PyCallable> ignoredCallable =
+            callable -> myTypeEvalContext.getReturnType(callable) != PyNoneType.INSTANCE ||
+                        PySdkUtil.isElementInSkeletons(callable) ||
+                        callable instanceof PyFunction && hasInheritors((PyFunction)callable);
+
+          final List<PyCallable> callables = call.multiResolveCalleeFunction(getResolveContext());
+          if (!callables.isEmpty() && !ContainerUtil.exists(callables, ignoredCallable)) {
             registerProblem(node, PyBundle.message("INSP.none.function.assignment", callee.getName()), new PyRemoveAssignmentQuickFix());
           }
         }

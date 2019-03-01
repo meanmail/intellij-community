@@ -1,25 +1,12 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Copyright 2000-2017 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
  */
 package com.intellij.codeInspection.i18n.inconsistentResourceBundle;
 
-import com.intellij.codeHighlighting.HighlightDisplayLevel;
 import com.intellij.codeInspection.*;
 import com.intellij.codeInspection.ui.MultipleCheckboxOptionsPanel;
 import com.intellij.codeInspection.ui.OptionAccessor;
-import com.intellij.lang.properties.*;
+import com.intellij.lang.properties.PropertiesUtil;
 import com.intellij.lang.properties.ResourceBundle;
 import com.intellij.lang.properties.psi.PropertiesFile;
 import com.intellij.openapi.util.*;
@@ -35,11 +22,11 @@ import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
 
 import javax.swing.*;
-import java.util.*;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
-/**
- * @author max
- */
 public class InconsistentResourceBundleInspection extends GlobalSimpleInspectionTool {
   private static final Key<Set<ResourceBundle>> VISITED_BUNDLES_KEY = Key.create("VISITED_BUNDLES_KEY");
 
@@ -61,12 +48,6 @@ public class InconsistentResourceBundleInspection extends GlobalSimpleInspection
 
   @Override
   @NotNull
-  public String getGroupDisplayName() {
-    return PropertiesBundle.message("properties.files.inspection.group.display.name");
-  }
-
-  @Override
-  @NotNull
   public String getDisplayName() {
     return InspectionsBundle.message("inconsistent.resource.bundle.display.name");
   }
@@ -75,12 +56,6 @@ public class InconsistentResourceBundleInspection extends GlobalSimpleInspection
   @NotNull
   public String getShortName() {
     return "InconsistentResourceBundle";
-  }
-
-  @Override
-  @NotNull
-  public HighlightDisplayLevel getDefaultLevel() {
-    return HighlightDisplayLevel.ERROR;
   }
 
   @Override
@@ -132,7 +107,7 @@ public class InconsistentResourceBundleInspection extends GlobalSimpleInspection
   public void inspectionStarted(@NotNull InspectionManager manager,
                                 @NotNull GlobalInspectionContext globalContext,
                                 @NotNull ProblemDescriptionsProcessor problemDescriptionsProcessor) {
-    globalContext.putUserData(VISITED_BUNDLES_KEY, new THashSet<>());
+    globalContext.putUserData(VISITED_BUNDLES_KEY, ContainerUtil.newConcurrentSet());
   }
 
   @Override
@@ -156,13 +131,7 @@ public class InconsistentResourceBundleInspection extends GlobalSimpleInspection
         parents.put(f, parent);
       }
     }
-    final FactoryMap<PropertiesFile, Map<String,String>> propertiesFilesNamesMaps = new FactoryMap<PropertiesFile, Map<String, String>>() {
-      @Nullable
-      @Override
-      protected Map<String, String> create(PropertiesFile key) {
-        return key.getNamesMap();
-      }
-    };
+    final Map<PropertiesFile, Map<String, String>> propertiesFilesNamesMaps = FactoryMap.create(key -> key.getNamesMap());
     Map<PropertiesFile, Set<String>> keysUpToParent = new THashMap<>();
     for (PropertiesFile f : files) {
       Set<String> keys = new THashSet<>(propertiesFilesNamesMaps.get(f).keySet());
@@ -185,8 +154,9 @@ public class InconsistentResourceBundleInspection extends GlobalSimpleInspection
     return ContainerUtil.getOrElse(mySettings, providerName, true);
   }
 
+  @SafeVarargs
   @TestOnly
-  public void enableProviders(final Class<? extends InconsistentResourceBundleInspectionProvider>... providerClasses) {
+  public final void enableProviders(final Class<? extends InconsistentResourceBundleInspectionProvider>... providerClasses) {
     Set<Class<? extends InconsistentResourceBundleInspectionProvider>> providersToEnable = ContainerUtil.newHashSet(providerClasses);
     for (InconsistentResourceBundleInspectionProvider inspectionProvider : myInspectionProviders.getValue()) {
       if (providersToEnable.contains(inspectionProvider.getClass())) {

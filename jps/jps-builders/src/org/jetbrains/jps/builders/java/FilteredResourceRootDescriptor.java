@@ -28,7 +28,6 @@ import java.util.Set;
 
 /**
 * @author Eugene Zhuravlev
-*         Date: 1/3/12
 */
 public final class FilteredResourceRootDescriptor extends ResourceRootDescriptor {
   public FilteredResourceRootDescriptor(@NotNull File root, @NotNull ResourcesTarget target, @NotNull String packagePrefix,
@@ -42,11 +41,6 @@ public final class FilteredResourceRootDescriptor extends ResourceRootDescriptor
     final JpsProject project = getTarget().getModule().getProject();
     final JpsJavaCompilerConfiguration configuration = JpsJavaExtensionService.getInstance().getOrCreateCompilerConfiguration(project);
     final JpsCompilerExcludes excludes = configuration.getCompilerExcludes();
-    return new FileFilter() {
-      @Override
-      public boolean accept(File file) {
-        return !excludes.isExcluded(file) && configuration.isResourceFile(file, getRootFile());
-      }
-    };
+    return file -> !excludes.isExcluded(file) && configuration.isResourceFile(file, getRootFile());
   }
 }

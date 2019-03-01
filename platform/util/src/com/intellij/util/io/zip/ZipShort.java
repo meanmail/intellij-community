@@ -28,13 +28,12 @@ public final class ZipShort implements Cloneable {
   private static final int BYTE_1_MASK = 0xFF00;
   private static final int BYTE_1_SHIFT = 8;
 
-  private int value;
+  private final int value;
 
   /**
    * Create instance from a number.
    *
    * @param value the int to store as a ZipShort
-   * @since 1.1
    */
   public ZipShort(int value) {
     this.value = value;
@@ -44,7 +43,6 @@ public final class ZipShort implements Cloneable {
    * Create instance from bytes.
    *
    * @param bytes the bytes to store as a ZipShort
-   * @since 1.1
    */
   public ZipShort(byte[] bytes) {
     this(bytes, 0);
@@ -55,7 +53,6 @@ public final class ZipShort implements Cloneable {
    *
    * @param bytes  the bytes to store as a ZipShort
    * @param offset the offset to start
-   * @since 1.1
    */
   public ZipShort(byte[] bytes, int offset) {
     value = getValue(bytes, offset);
@@ -65,7 +62,6 @@ public final class ZipShort implements Cloneable {
    * Get value as two bytes in big endian byte order.
    *
    * @return the value as a a two byte array in big endian byte order
-   * @since 1.1
    */
   public byte[] getBytes() {
     byte[] result = new byte[2];
@@ -78,7 +74,6 @@ public final class ZipShort implements Cloneable {
    * Get value as Java int.
    *
    * @return value as a Java int
-   * @since 1.1
    */
   public int getValue() {
     return value;
@@ -125,10 +120,9 @@ public final class ZipShort implements Cloneable {
    *
    * @param o an object to compare
    * @return true if the objects are equal
-   * @since 1.1
    */
   public boolean equals(Object o) {
-    if (o == null || !(o instanceof ZipShort)) {
+    if (!(o instanceof ZipShort)) {
       return false;
     }
     return value == ((ZipShort)o).getValue();
@@ -138,7 +132,6 @@ public final class ZipShort implements Cloneable {
    * Override to make two instances with same value equal.
    *
    * @return the value stored in the ZipShort
-   * @since 1.1
    */
   public int hashCode() {
     return value;

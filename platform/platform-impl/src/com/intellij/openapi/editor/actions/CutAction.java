@@ -14,19 +14,10 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: May 13, 2002
- * Time: 6:41:17 PM
- * To change template for new class use 
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.openapi.editor.actions;
 
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.editor.Caret;
-import com.intellij.openapi.editor.CaretAction;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorModificationUtil;
 import com.intellij.openapi.editor.actionSystem.EditorWriteActionHandler;
@@ -45,12 +36,7 @@ public class CutAction extends TextComponentEditorAction {
         if (Registry.is(CopyAction.SKIP_COPY_AND_CUT_FOR_EMPTY_SELECTION_KEY)) {
           return;
         }
-        editor.getCaretModel().runForEachCaret(new CaretAction() {
-          @Override
-          public void perform(Caret caret) {
-            editor.getSelectionModel().selectLineAtCaret();
-          }
-        });
+        editor.getCaretModel().runForEachCaret(__ -> editor.getSelectionModel().selectLineAtCaret());
       }
       editor.getSelectionModel().copySelectionToClipboard();
       EditorModificationUtil.deleteSelectedTextForAllCarets(editor);

@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,23 +17,22 @@ package com.intellij.codeInspection;
 
 import com.intellij.codeInsight.daemon.impl.AnnotationHolderImpl;
 import com.intellij.codeInsight.intention.IntentionAction;
-import com.intellij.lang.annotation.Annotation;
 import com.intellij.lang.annotation.AnnotationSession;
 import com.intellij.lang.annotation.ExternalAnnotator;
-import com.intellij.lang.annotation.HighlightSeverity;
+import com.intellij.openapi.application.ReadAction;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Iconable;
 import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiFile;
-import com.intellij.util.containers.ContainerUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class ExternalAnnotatorInspectionVisitor extends PsiElementVisitor {
   private static final Logger LOG = Logger.getInstance(ExternalAnnotatorInspectionVisitor.class);
@@ -58,85 +57,27 @@ public class ExternalAnnotatorInspectionVisitor extends PsiElementVisitor {
   public static <Init,Result> ProblemDescriptor[] checkFileWithExternalAnnotator(@NotNull PsiFile file,
                                                                                  @NotNull InspectionManager manager,
                                                                                  boolean isOnTheFly,
-                                                                                 @NotNull ExternalAnnotator<Init,Result> annotator) {
+                                                                                 @NotNull ExternalAnnotator<Init, Result> annotator) {
     if (isOnTheFly) {
       // ExternalAnnotator does this work
       return ProblemDescriptor.EMPTY_ARRAY;
     }
 
-    Init info = annotator.collectInformation(file);
+    Init info = ReadAction.compute(() -> annotator.collectInformation(file));
     if (info != null) {
       Result annotationResult = annotator.doAnnotate(info);
       if (annotationResult == null) {
         return ProblemDescriptor.EMPTY_ARRAY;
       }
-      AnnotationHolderImpl annotationHolder = new AnnotationHolderImpl(new AnnotationSession(file));
-      annotator.apply(file, annotationResult, annotationHolder);
-      return convertToProblemDescriptors(annotationHolder, manager, file);
+      return ReadAction.compute(() -> {
+        AnnotationHolderImpl annotationHolder = new AnnotationHolderImpl(new AnnotationSession(file), true);
+        annotator.apply(file, annotationResult, annotationHolder);
+        return ProblemDescriptorUtil.convertToProblemDescriptors(annotationHolder, file);
+      });
     }
     return ProblemDescriptor.EMPTY_ARRAY;
   }
 
-  @NotNull
-  private static ProblemDescriptor[] convertToProblemDescriptors(@NotNull final List<Annotation> annotations,
-                                                                 @NotNull final InspectionManager manager,
-                                                                 @NotNull final PsiFile file) {
-    if (annotations.isEmpty()) {
-      return ProblemDescriptor.EMPTY_ARRAY;
-    }
-
-    List<ProblemDescriptor> problems = ContainerUtil.newArrayListWithCapacity(annotations.size());
-    IdentityHashMap<IntentionAction, LocalQuickFix> quickFixMappingCache = ContainerUtil.newIdentityHashMap();
-    for (Annotation annotation : annotations) {
-      if (annotation.getSeverity() == HighlightSeverity.INFORMATION ||
-          annotation.getStartOffset() == annotation.getEndOffset()) {
-        continue;
-      }
-
-      final PsiElement startElement = file.findElementAt(annotation.getStartOffset());
-      final PsiElement endElement = file.findElementAt(annotation.getEndOffset() - 1);
-      if (startElement == null || endElement == null) {
-        continue;
-      }
-
-      LocalQuickFix[] quickFixes = toLocalQuickFixes(annotation.getQuickFixes(), quickFixMappingCache);
-      ProblemDescriptor descriptor = manager.createProblemDescriptor(startElement,
-                                                                     endElement,
-                                                                     annotation.getMessage(),
-                                                                     ProblemHighlightType.GENERIC_ERROR_OR_WARNING,
-                                                                     false,
-                                                                     quickFixes);
-      problems.add(descriptor);
-    }
-    return problems.toArray(new ProblemDescriptor[problems.size()]);
-  }
-
-  @NotNull
-  private static LocalQuickFix[] toLocalQuickFixes(@Nullable List<Annotation.QuickFixInfo> fixInfos,
-                                                   @NotNull IdentityHashMap<IntentionAction, LocalQuickFix> quickFixMappingCache) {
-    if (fixInfos == null || fixInfos.isEmpty()) {
-      return LocalQuickFix.EMPTY_ARRAY;
-    }
-    LocalQuickFix[] result = new LocalQuickFix[fixInfos.size()];
-    int i = 0;
-    for (Annotation.QuickFixInfo fixInfo : fixInfos) {
-      IntentionAction intentionAction = fixInfo.quickFix;
-      final LocalQuickFix fix;
-      if (intentionAction instanceof LocalQuickFix) {
-        fix = (LocalQuickFix) intentionAction;
-      }
-      else {
-        LocalQuickFix lqf = quickFixMappingCache.get(intentionAction);
-        if (lqf == null) {
-          lqf = new LocalQuickFixBackedByIntentionAction(intentionAction);
-          quickFixMappingCache.put(intentionAction, lqf);
-        }
-        fix = lqf;
-      }
-      result[i++] = fix;
-    }
-    return result;
-  }
 
   private void addDescriptors(@NotNull ProblemDescriptor[] descriptors) {
     for (ProblemDescriptor descriptor : descriptors) {
@@ -167,6 +108,12 @@ public class ExternalAnnotatorInspectionVisitor extends PsiElementVisitor {
     @Override
     public void applyFix(@NotNull Project project, @NotNull ProblemDescriptor descriptor) {
       myAction.invoke(project, null, getPsiFile(descriptor));
+    }
+
+    @Nullable
+    @Override
+    public PsiElement getElementToMakeWritable(@NotNull PsiFile file) {
+      return myAction.getElementToMakeWritable(file);
     }
 
     @Nullable

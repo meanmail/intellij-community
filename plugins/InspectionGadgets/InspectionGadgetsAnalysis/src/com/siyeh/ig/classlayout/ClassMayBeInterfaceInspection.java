@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2015 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2018 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ package com.siyeh.ig.classlayout;
 import com.intellij.codeInsight.FileModificationService;
 import com.intellij.codeInspection.ProblemDescriptor;
 import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.WriteExternalException;
 import com.intellij.psi.*;
@@ -31,6 +32,7 @@ import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.memory.InnerClassReferenceVisitor;
 import com.siyeh.ig.psiutils.ClassUtils;
+import com.siyeh.ig.psiutils.MethodUtils;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -79,17 +81,12 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
 
     @Override
     @NotNull
-    public String getName() {
-      return InspectionGadgetsBundle.message("class.may.be.interface.convert.quickfix");
-    }
-    @Override
-    @NotNull
     public String getFamilyName() {
-      return getName();
+      return InspectionGadgetsBundle.message("class.may.be.interface.convert.quickfix");
     }
 
     @Override
-    protected boolean prepareForWriting() {
+    public boolean startInWriteAction() {
       return false;
     }
 
@@ -98,7 +95,7 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
       final PsiIdentifier classNameIdentifier = (PsiIdentifier)descriptor.getPsiElement();
       final PsiClass interfaceClass = (PsiClass)classNameIdentifier.getParent();
       final SearchScope searchScope = interfaceClass.getUseScope();
-      final List<PsiClass> elements = new ArrayList();
+      final List<PsiClass> elements = new ArrayList<>();
       elements.add(interfaceClass);
       for (final PsiClass inheritor : ClassInheritorsSearch.search(interfaceClass, searchScope, false)) {
         elements.add(inheritor);
@@ -106,15 +103,25 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
       if (!FileModificationService.getInstance().preparePsiElementsForWrite(elements)) {
         return;
       }
-      moveSubClassExtendsToImplements(elements);
-      changeClassToInterface(interfaceClass);
-      moveImplementsToExtends(interfaceClass);
+      WriteAction.run(() -> {
+        moveSubClassExtendsToImplements(elements);
+        changeClassToInterface(interfaceClass);
+        moveImplementsToExtends(interfaceClass);
+      });
     }
 
     private static void changeClassToInterface(PsiClass aClass) {
       for (PsiMethod method : aClass.getMethods()) {
+        if (isEmptyConstructor(method)) {
+          method.delete();
+          continue;
+        }
         PsiUtil.setModifierProperty(method, PsiModifier.PUBLIC, false);
-        if (method.hasModifierProperty(PsiModifier.STATIC) || method.hasModifierProperty(PsiModifier.ABSTRACT)) {
+        if (method.hasModifierProperty(PsiModifier.STATIC)) {
+          continue;
+        }
+        else if (method.hasModifierProperty(PsiModifier.ABSTRACT)) {
+          PsiUtil.setModifierProperty(method, PsiModifier.ABSTRACT, false); // redundant modifier
           continue;
         }
         PsiUtil.setModifierProperty(method, PsiModifier.DEFAULT, true);
@@ -132,8 +139,7 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
         return;
       }
       final PsiKeyword classKeyword = PsiTreeUtil.getPrevSiblingOfType(nameIdentifier, PsiKeyword.class);
-      final PsiManager manager = aClass.getManager();
-      final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+      final PsiElementFactory factory = JavaPsiFacade.getElementFactory(aClass.getProject());
       final PsiKeyword interfaceKeyword = factory.createKeyword(PsiKeyword.INTERFACE);
       if (classKeyword == null) {
         return;
@@ -161,7 +167,7 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
 
     private static void moveSubClassExtendsToImplements(List<PsiClass> inheritors) {
       final PsiClass oldClass = inheritors.get(0);
-      final PsiElementFactory elementFactory = JavaPsiFacade.getInstance(oldClass.getProject()).getElementFactory();
+      final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(oldClass.getProject());
       final PsiJavaCodeReferenceElement classReference = elementFactory.createClassReferenceElement(oldClass);
       for (int i = 1; i < inheritors.size(); i++) {
         final PsiClass inheritor = inheritors.get(i);
@@ -193,6 +199,10 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
   @Override
   public BaseInspectionVisitor buildVisitor() {
     return new ClassMayBeInterfaceVisitor();
+  }
+
+  static boolean isEmptyConstructor(@NotNull PsiMethod method) {
+    return method.isConstructor() && MethodUtils.isTrivial(method, false);
   }
 
   private class ClassMayBeInterfaceVisitor extends BaseInspectionVisitor {
@@ -252,11 +262,19 @@ public class ClassMayBeInterfaceInspection extends BaseInspection {
     private boolean allMethodsPublicAbstract(PsiClass aClass) {
       final PsiMethod[] methods = aClass.getMethods();
       for (final PsiMethod method : methods) {
-        if (!method.hasModifierProperty(PsiModifier.ABSTRACT) &&
-            (!reportClassesWithNonAbstractMethods || !PsiUtil.isLanguageLevel8OrHigher(aClass))) {
-          return false;
+        if (isEmptyConstructor(method)) {
+          continue;
         }
-        else if (!method.hasModifierProperty(PsiModifier.PUBLIC) || method.hasModifierProperty(PsiModifier.FINAL)) {
+        if (!method.hasModifierProperty(PsiModifier.ABSTRACT)) {
+          if (MethodUtils.isToString(method) || MethodUtils.isHashCode(method) || MethodUtils.isEquals(method)) {
+            // can't have default methods overriding Object methods.
+            return false;
+          }
+          if (!reportClassesWithNonAbstractMethods || !PsiUtil.isLanguageLevel8OrHigher(aClass)) {
+            return false;
+          }
+        }
+        if (!method.hasModifierProperty(PsiModifier.PUBLIC) || method.hasModifierProperty(PsiModifier.FINAL)) {
           return false;
         }
       }

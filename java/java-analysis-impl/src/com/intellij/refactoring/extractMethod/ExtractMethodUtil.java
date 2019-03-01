@@ -24,10 +24,9 @@ import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.RedundantCastUtil;
 import com.intellij.util.IncorrectOperationException;
-import com.intellij.util.Processor;
-import com.intellij.util.containers.HashMap;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -46,7 +45,7 @@ public class ExtractMethodUtil {
     final Map<PsiMethodCallExpression, PsiMethod> ret = new HashMap<>();
     encodeInClass(targetClass, overloadName, extractedFragment, ret);
 
-    ClassInheritorsSearch.search(targetClass, processConflictsScope, true).forEach(inheritor -> {
+    ClassInheritorsSearch.search(targetClass, processConflictsScope, true).allowParallelProcessing().forEach(inheritor -> {
       encodeInClass(inheritor, overloadName, extractedFragment, ret);
       return true;
     });
@@ -113,12 +112,12 @@ public class ExtractMethodUtil {
     throws IncorrectOperationException {
     final PsiMethod newTarget = call.resolveMethod();
     final PsiManager manager = oldTarget.getManager();
-    final PsiElementFactory factory = JavaPsiFacade.getInstance(manager.getProject()).getElementFactory();
+    final PsiElementFactory factory = JavaPsiFacade.getElementFactory(manager.getProject());
     if (!manager.areElementsEquivalent(oldTarget, newTarget)) {
       final PsiParameter[] oldParameters = oldTarget.getParameterList().getParameters();
       if (oldParameters.length > 0) {
         final PsiMethodCallExpression copy = (PsiMethodCallExpression)call.copy();
-        final PsiExpression[] args = copy.getArgumentList().getExpressions();
+        PsiExpression[] args = copy.getArgumentList().getExpressions();
         for (int i = 0; i < args.length; i++) {
           PsiExpression arg = args[i];
           PsiType paramType = i < oldParameters.length ? oldParameters[i].getType() : oldParameters[oldParameters.length - 1].getType();
@@ -132,11 +131,13 @@ public class ExtractMethodUtil {
           arg.replace(cast);
         }
 
-        for (int i = 0; i < copy.getArgumentList().getExpressions().length; i++) {
-          PsiExpression oldarg = call.getArgumentList().getExpressions()[i];
-          PsiTypeCastExpression cast = (PsiTypeCastExpression)copy.getArgumentList().getExpressions()[i];
+        args = copy.getArgumentList().getExpressions();
+        PsiExpression[] oldArgs = call.getArgumentList().getExpressions();
+        for (int i = 0; i < args.length; i++) {
+          PsiExpression oldArg = oldArgs[i];
+          PsiTypeCastExpression cast = (PsiTypeCastExpression)args[i];
           if (!RedundantCastUtil.isCastRedundant(cast)) {
-            oldarg.replace(cast);
+            oldArg.replace(cast);
           }
         }
       }

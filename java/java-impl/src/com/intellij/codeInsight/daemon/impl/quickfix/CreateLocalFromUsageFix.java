@@ -28,12 +28,13 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
-import com.intellij.psi.codeStyle.CodeStyleSettingsManager;
+import com.intellij.psi.codeStyle.JavaCodeStyleSettings;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.introduceParameter.AbstractJavaInplaceIntroducer;
 import com.intellij.refactoring.ui.TypeSelectorManagerImpl;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * @author Mike
@@ -55,22 +56,27 @@ public class CreateLocalFromUsageFix extends CreateVarFromUsageFix {
   protected boolean isAvailableImpl(int offset) {
     if (!super.isAvailableImpl(offset)) return false;
     if(myReferenceExpression.isQualified()) return false;
-    PsiElement scope = PsiTreeUtil.getParentOfType(myReferenceExpression, PsiModifierListOwner.class);
-    if (scope instanceof PsiAnonymousClass) {
-      scope = PsiTreeUtil.getParentOfType(scope, PsiModifierListOwner.class, true);
+    PsiStatement anchor = getAnchor(myReferenceExpression);
+    if (anchor == null) return false;
+    if (anchor instanceof PsiExpressionStatement) {
+      PsiExpression expression = ((PsiExpressionStatement)anchor).getExpression();
+      if (expression instanceof PsiMethodCallExpression) {
+        PsiMethod method = ((PsiMethodCallExpression)expression).resolveMethod();
+        if (method != null && method.isConstructor()) { //this or super call
+          return false;
+        }
+      }
     }
-    return scope instanceof PsiMethod || scope instanceof PsiClassInitializer ||
-           scope instanceof PsiLocalVariable;
+    return true;
   }
 
   @Override
   protected void invokeImpl(final PsiClass targetClass) {
-    if (CreateFromUsageUtils.isValidReference(myReferenceExpression, false)) {
-      return;
-    }
+    String varName = myReferenceExpression.getReferenceName();
+    if (CreateFromUsageUtils.isValidReference(myReferenceExpression, false) || varName == null) return;
 
     final Project project = myReferenceExpression.getProject();
-    PsiElementFactory factory = JavaPsiFacade.getInstance(project).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(project);
 
     final PsiFile targetFile = targetClass.getContainingFile();
 
@@ -82,11 +88,15 @@ public class CreateLocalFromUsageFix extends CreateVarFromUsageFix {
       type = PsiType.getJavaLangObject(myReferenceExpression.getManager(), targetClass.getResolveScope());
     }
 
-    String varName = myReferenceExpression.getReferenceName();
     PsiExpression initializer = null;
     boolean isInline = false;
     PsiExpression[] expressions = CreateFromUsageUtils.collectExpressions(myReferenceExpression, PsiMember.class, PsiFile.class);
     PsiStatement anchor = getAnchor(expressions);
+    if (anchor == null) {
+      expressions = new PsiExpression[]{myReferenceExpression};
+      anchor = getAnchor(expressions);
+      if (anchor == null) return;
+    }
     if (anchor instanceof PsiExpressionStatement &&
         ((PsiExpressionStatement)anchor).getExpression() instanceof PsiAssignmentExpression) {
       PsiAssignmentExpression assignment = (PsiAssignmentExpression)((PsiExpressionStatement)anchor).getExpression();
@@ -117,7 +127,8 @@ public class CreateLocalFromUsageFix extends CreateVarFromUsageFix {
 
     PsiVariable var = (PsiVariable)decl.getDeclaredElements()[0];
     boolean isFinal =
-      CodeStyleSettingsManager.getSettings(project).GENERATE_FINAL_LOCALS && !CreateFromUsageUtils.isAccessedForWriting(expressions);
+      JavaCodeStyleSettings.getInstance(targetFile).GENERATE_FINAL_LOCALS &&
+      !CreateFromUsageUtils.isAccessedForWriting(expressions);
     PsiUtil.setModifierProperty(var, PsiModifier.FINAL, isFinal);
 
     var = CodeInsightUtilCore.forcePsiPostprocessAndRestoreElement(var);
@@ -137,7 +148,7 @@ public class CreateLocalFromUsageFix extends CreateVarFromUsageFix {
 
     startTemplate(newEditor, template, project, new TemplateEditingAdapter() {
       @Override
-      public void templateFinished(Template template, boolean brokenOff) {
+      public void templateFinished(@NotNull Template template, boolean brokenOff) {
         PsiDocumentManager.getInstance(project).commitDocument(newEditor.getDocument());
         final int offset = newEditor.getCaretModel().getOffset();
         final PsiLocalVariable localVariable = PsiTreeUtil.findElementOfClassAtOffset(targetFile, offset, PsiLocalVariable.class, false);
@@ -157,17 +168,28 @@ public class CreateLocalFromUsageFix extends CreateVarFromUsageFix {
     return false;
   }
 
-  private static PsiStatement getAnchor(PsiExpression[] expressionOccurences) {
-    PsiElement parent = expressionOccurences[0];
-    int minOffset = expressionOccurences[0].getTextRange().getStartOffset();
-    for (int i = 1; i < expressionOccurences.length; i++) {
-      parent = PsiTreeUtil.findCommonParent(parent, expressionOccurences[i]);
+  @Nullable
+  private static PsiStatement getAnchor(PsiExpression... expressionOccurrences) {
+    PsiElement parent = expressionOccurrences[0];
+    int minOffset = expressionOccurrences[0].getTextRange().getStartOffset();
+    for (int i = 1; i < expressionOccurrences.length; i++) {
+      parent = PsiTreeUtil.findCommonParent(parent, expressionOccurrences[i]);
       LOG.assertTrue(parent != null);
-      minOffset = Math.min(minOffset, expressionOccurences[i].getTextRange().getStartOffset());
+      minOffset = Math.min(minOffset, expressionOccurrences[i].getTextRange().getStartOffset());
     }
 
-    final PsiCodeBlock block = PsiTreeUtil.getParentOfType(parent, PsiCodeBlock.class, false);
-    LOG.assertTrue(block != null && block.getStatements().length > 0, "block: " + block +"; parent: " + parent);
+    PsiCodeBlock block = null;
+    while (parent != null) {
+      if (parent instanceof PsiCodeBlock) {
+        block = (PsiCodeBlock)parent;
+        break;
+      } else if (parent instanceof PsiSwitchLabeledRuleStatement) {
+        parent = ((PsiSwitchLabeledRuleStatement)parent).getEnclosingSwitchBlock();
+      } else {
+        parent = parent.getParent();
+      }
+    }
+    if (block == null) return null;
     PsiStatement[] statements = block.getStatements();
     for (int i = 1; i < statements.length; i++) {
       if (statements[i].getTextRange().getStartOffset() > minOffset) return statements[i-1];

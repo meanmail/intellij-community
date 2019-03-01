@@ -54,7 +54,7 @@ public class FadeInFadeOut extends JComponent {
     myRatio = myFadeIn ? 0 : 1;
     myIcon = icon;
 
-    myComponentImage = UIUtil.createImage(myComponent.getWidth(), myComponent.getHeight(), BufferedImage.TYPE_INT_ARGB);
+    myComponentImage = UIUtil.createImage(myComponent, myComponent.getWidth(), myComponent.getHeight(), BufferedImage.TYPE_INT_ARGB);
     Graphics2D graphics = myComponentImage.createGraphics();
     myComponent.paint(graphics);
     graphics.dispose();
@@ -98,6 +98,7 @@ public class FadeInFadeOut extends JComponent {
     myAnimator.resume();
   }
 
+  @Override
   public final void paint(final Graphics g_) {
     int x = (int)(myIconBounds.x * (1 - myRatio) + myComponentBounds.x * myRatio);
     int y = (int)(myIconBounds.y * (1 - myRatio) + myComponentBounds.y * myRatio);

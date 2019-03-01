@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiElementVisitor;
 import com.intellij.psi.PsiNameIdentifierOwner;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.jetbrains.python.PyNames;
 import com.jetbrains.python.codeInsight.controlflow.ControlFlowCache;
 import com.jetbrains.python.codeInsight.controlflow.ScopeOwner;
 import com.jetbrains.python.codeInsight.dataflow.scope.Scope;
@@ -32,6 +33,8 @@ import com.jetbrains.python.psi.resolve.PyResolveProcessor;
 import com.jetbrains.python.psi.resolve.PyResolveUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Arrays;
 
 /**
  * Warns about shadowing names defined in outer scopes.
@@ -54,7 +57,7 @@ public class PyShadowingNamesInspection extends PyInspection {
   }
 
   private static class Visitor extends PyInspectionVisitor {
-    public Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
+    Visitor(@Nullable ProblemsHolder holder, @NotNull LocalInspectionToolSession session) {
       super(holder, session);
     }
 
@@ -92,7 +95,7 @@ public class PyShadowingNamesInspection extends PyInspection {
       if (name != null) {
         final PsiElement identifier = element.getNameIdentifier();
         final PsiElement problemElement = identifier != null ? identifier : element;
-        if ("_".equals(name)) {
+        if (PyNames.UNDERSCORE.equals(name) || name.startsWith(PyNames.UNDERSCORE) && element instanceof PyParameter) {
           return;
         }
         if (owner != null) {
@@ -110,8 +113,12 @@ public class PyShadowingNamesInspection extends PyInspection {
                 if (scope.isGlobal(name) || scope.isNonlocal(name)) {
                   return;
                 }
+                if (Arrays.stream(PyInspectionExtension.EP_NAME.getExtensions())
+                          .anyMatch(o -> o.ignoreShadowed(resolved))) {
+                  return;
+                }
                 registerProblem(problemElement, String.format("Shadows name '%s' from outer scope", name),
-                                ProblemHighlightType.WEAK_WARNING, null, new PyRenameElementQuickFix());
+                                ProblemHighlightType.WEAK_WARNING, null, new PyRenameElementQuickFix(problemElement));
                 return;
               }
             }

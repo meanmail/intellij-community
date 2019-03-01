@@ -16,24 +16,27 @@
 package com.intellij.openapi.editor.markup;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.util.InvalidDataException;
 import org.intellij.lang.annotations.JdkConstants;
 import org.jdom.Element;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.awt.*;
+import java.util.Collections;
+import java.util.Map;
+import java.util.function.BiConsumer;
 
 /**
  * Defines the visual representation (colors and effects) of text.
  */
 public class TextAttributes implements Cloneable {
   private static final Logger LOG = Logger.getInstance("#com.intellij.openapi.editor.markup.TextAttributes");
+  private static final AttributesFlyweight DEFAULT_FLYWEIGHT = AttributesFlyweight
+    .create(null, null, Font.PLAIN, null, EffectType.BOXED, Collections.emptyMap(), null);
 
   public static final TextAttributes ERASE_MARKER = new TextAttributes();
-
-  private boolean myEnforceEmpty;
 
   @SuppressWarnings("NullableProblems")
   @NotNull
@@ -47,7 +50,7 @@ public class TextAttributes implements Cloneable {
    * @return Merged attributes instance.
    */
   @Contract("!null, !null -> !null")
-  public static TextAttributes merge(TextAttributes under, TextAttributes above) {
+  public static TextAttributes merge(@Nullable TextAttributes under, @Nullable TextAttributes above) {
     if (under == null) return above;
     if (above == null) return under;
 
@@ -60,20 +63,17 @@ public class TextAttributes implements Cloneable {
     }
     attrs.setFontType(above.getFontType() | under.getFontType());
 
-    if (above.getEffectColor() != null){
-      attrs.setEffectColor(above.getEffectColor());
-      attrs.setEffectType(above.getEffectType());
-    }
+    TextAttributesEffectsBuilder.create(under).coverWith(above).applyTo(attrs);
+
     return attrs;
   }
 
   public TextAttributes() {
-    this(null, null, null, EffectType.BOXED, Font.PLAIN);
+    this(DEFAULT_FLYWEIGHT);
   }
 
-  private TextAttributes(@NotNull AttributesFlyweight attributesFlyweight, boolean enforced) {
+  private TextAttributes(@NotNull AttributesFlyweight attributesFlyweight) {
     myAttrs = attributesFlyweight;
-    myEnforceEmpty = enforced;
   }
 
   public TextAttributes(@NotNull Element element) {
@@ -84,32 +84,33 @@ public class TextAttributes implements Cloneable {
     setAttributes(foregroundColor, backgroundColor, effectColor, null, effectType, fontType);
   }
 
+  public void copyFrom(@NotNull TextAttributes other) {
+    myAttrs = other.myAttrs;
+  }
+
   public void setAttributes(Color foregroundColor,
                             Color backgroundColor,
                             Color effectColor,
                             Color errorStripeColor,
                             EffectType effectType,
                             @JdkConstants.FontStyle int fontType) {
-    myAttrs = AttributesFlyweight.create(foregroundColor, backgroundColor, fontType, effectColor, effectType, errorStripeColor);
+    setAttributes(foregroundColor, backgroundColor, effectColor, errorStripeColor, effectType, Collections.emptyMap(), fontType);
+  }
+
+  @ApiStatus.Experimental
+  public void setAttributes(Color foregroundColor,
+                            Color backgroundColor,
+                            Color effectColor,
+                            Color errorStripeColor,
+                            EffectType effectType,
+                            @NotNull Map<EffectType, Color> additionalEffects,
+                            @JdkConstants.FontStyle int fontType) {
+    myAttrs = AttributesFlyweight
+      .create(foregroundColor, backgroundColor, fontType, effectColor, effectType, additionalEffects, errorStripeColor);
   }
 
   public boolean isEmpty(){
     return getForegroundColor() == null && getBackgroundColor() == null && getEffectColor() == null && getFontType() == Font.PLAIN;
-  }
-
-  public boolean isFallbackEnabled() {
-    return isEmpty() && !myEnforceEmpty;
-  }
-
-  public boolean containsValue() {
-    return !isEmpty() || myEnforceEmpty;
-  }
-
-  public void reset() {
-    setForegroundColor(null);
-    setBackgroundColor(null);
-    setEffectColor(null);
-    setFontType(Font.PLAIN);
   }
 
   @NotNull
@@ -119,9 +120,7 @@ public class TextAttributes implements Cloneable {
 
   @NotNull
   public static TextAttributes fromFlyweight(@NotNull AttributesFlyweight flyweight) {
-    TextAttributes f = new TextAttributes();
-    f.myAttrs = flyweight;
-    return f;
+    return new TextAttributes(flyweight);
   }
 
   public Color getForegroundColor() {
@@ -156,8 +155,60 @@ public class TextAttributes implements Cloneable {
     myAttrs = myAttrs.withErrorStripeColor(color);
   }
 
+  /**
+   * @return true iff there are effects to draw in this attributes
+   */
+  @ApiStatus.Experimental
+  public boolean hasEffects() {
+    return myAttrs.hasEffects();
+  }
+
+  /**
+   * Sets additional effects to paint
+   * @param effectsMap map of effect types and colors to use.
+   */
+  @ApiStatus.Experimental
+  public void setAdditionalEffects(@NotNull Map<EffectType, Color> effectsMap) {
+    myAttrs = myAttrs.withAdditionalEffects(effectsMap);
+  }
+
+  /**
+   * Appends additional effect to paint with specific color
+   *
+   * @see TextAttributes#setAdditionalEffects(java.util.Map)
+   */
+  @ApiStatus.Experimental
+  public void withAdditionalEffect(@NotNull EffectType effectType, @NotNull Color color) {
+    withAdditionalEffects(Collections.singletonMap(effectType, color));
+  }
+
+  /**
+   * Appends additional effects to paint with specific colors. New effects may supersede old ones
+   * @see TextAttributes#setAdditionalEffects(java.util.Map)
+   * @see TextAttributesEffectsBuilder
+   */
+  @ApiStatus.Experimental
+  public void withAdditionalEffects(@NotNull Map<EffectType, Color> effectsMap) {
+    if (effectsMap.isEmpty()) {
+      return;
+    }
+    TextAttributesEffectsBuilder effectsBuilder = TextAttributesEffectsBuilder.create(this);
+    effectsMap.forEach(effectsBuilder::coverWith);
+    effectsBuilder.applyTo(this);
+  }
+
   public EffectType getEffectType() {
     return myAttrs.getEffectType();
+  }
+
+  @ApiStatus.Experimental
+  public void forEachAdditionalEffect(@NotNull BiConsumer<EffectType, Color> consumer) {
+    myAttrs.getAdditionalEffects().forEach(consumer);
+  }
+
+  @ApiStatus.Experimental
+  public void forEachEffect(@NotNull BiConsumer<EffectType, Color> consumer) {
+    myAttrs.getAllEffects().forEach(consumer);
   }
 
   public void setEffectType(EffectType effectType) {
@@ -177,9 +228,10 @@ public class TextAttributes implements Cloneable {
     myAttrs = myAttrs.withFontType(type);
   }
 
+  /** @noinspection MethodDoesntCallSuperMethod*/
   @Override
   public TextAttributes clone() {
-    return new TextAttributes(myAttrs, myEnforceEmpty);
+    return new TextAttributes(myAttrs);
   }
 
   public boolean equals(Object obj) {
@@ -194,17 +246,8 @@ public class TextAttributes implements Cloneable {
     return myAttrs.hashCode();
   }
 
-  public void readExternal(Element element) {
-    try {
-      myAttrs = AttributesFlyweight.create(element);
-    }
-    catch (InvalidDataException e) {
-      throw new RuntimeException(e);
-    }
-
-    if (isEmpty()) {
-      myEnforceEmpty = true;
-    }
+  public void readExternal(@NotNull Element element) {
+    myAttrs = AttributesFlyweight.create(element);
   }
 
   public void writeExternal(Element element) {
@@ -213,20 +256,7 @@ public class TextAttributes implements Cloneable {
 
   @Override
   public String toString() {
-    return "[" + getForegroundColor() + "," + getBackgroundColor() + "," + getFontType() + "," + getEffectType() + "," +
-           getEffectColor() + "," + getErrorStripeColor() + "]";
-  }
-
-  /**
-   * Enforces empty attributes instead of treating empty values as undefined.
-   *
-   * @param enforceEmpty True if empty values should be used as is (fallback is disabled).
-   */
-  public void setEnforceEmpty(boolean enforceEmpty) {
-    myEnforceEmpty = enforceEmpty;
-  }
-
-  public boolean isEnforceEmpty() {
-    return myEnforceEmpty;
+    return "[" + getForegroundColor() + "," + getBackgroundColor() + "," + getFontType() + "," + getEffectType() + "," + getEffectColor()
+           + "," + myAttrs.getAdditionalEffects() + "," + getErrorStripeColor() + "]";
   }
 }

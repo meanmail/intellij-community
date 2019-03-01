@@ -1,22 +1,7 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.ide.util.newProjectWizard;
 
-import com.intellij.CommonBundle;
 import com.intellij.facet.impl.ui.libraries.LibraryCompositionSettings;
 import com.intellij.facet.impl.ui.libraries.LibraryOptionsPanel;
 import com.intellij.facet.ui.FacetBasedFrameworkSupportProvider;
@@ -33,8 +18,6 @@ import com.intellij.ide.util.newProjectWizard.impl.FrameworkSupportModelBase;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.module.Module;
-import com.intellij.openapi.project.DumbModePermission;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.ProjectBundle;
 import com.intellij.openapi.roots.IdeaModifiableModelsProvider;
 import com.intellij.openapi.roots.ModifiableRootModel;
@@ -43,10 +26,8 @@ import com.intellij.openapi.roots.ui.configuration.projectRoot.LibrariesContaine
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.ui.Splitter;
 import com.intellij.openapi.util.Comparing;
-import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.ui.CheckedTreeNode;
-import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.ScrollPaneFactory;
 import com.intellij.util.Function;
 import com.intellij.util.containers.ContainerUtil;
@@ -61,8 +42,8 @@ import javax.swing.event.TreeSelectionEvent;
 import javax.swing.event.TreeSelectionListener;
 import javax.swing.tree.DefaultTreeModel;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
 /**
  * @author nik
@@ -121,6 +102,7 @@ public class AddSupportForFrameworksPanel implements Disposable {
     }, this);
 
     myFrameworksTree.addTreeSelectionListener(new TreeSelectionListener() {
+      @Override
       public void valueChanged(TreeSelectionEvent e) {
         onSelectionChanged();
       }
@@ -143,7 +125,7 @@ public class AddSupportForFrameworksPanel implements Disposable {
   }
 
   public void setProviders(List<FrameworkSupportInModuleProvider> providers) {
-    setProviders(providers, Collections.<String>emptySet(), Collections.<String>emptySet());
+    setProviders(providers, Collections.emptySet(), Collections.emptySet());
   }
 
   public void setProviders(List<FrameworkSupportInModuleProvider> providers, Set<String> associated, Set<String> preselected) {
@@ -188,7 +170,7 @@ public class AddSupportForFrameworksPanel implements Disposable {
     if (!myFrameworksTree.isProcessingMouseEventOnCheckbox()) {
       updateOptionsPanel();
     }
-    
+
     final FrameworkSupportNodeBase selectedNode = getSelectedNode();
     if (!Comparing.equal(selectedNode, myLastSelectedNode)) {
       applyLibraryOptionsForSelected();
@@ -276,7 +258,7 @@ public class AddSupportForFrameworksPanel implements Disposable {
   private static JScrollPane wrapInScrollPane(JPanel panel) {
     JPanel wrapper = new JPanel(new BorderLayout());
     wrapper.add(panel);
-    wrapper.setBorder(IdeBorderFactory.createEmptyBorder(5));
+    wrapper.setBorder(JBUI.Borders.empty(5));
     return ScrollPaneFactory.createScrollPane(wrapper, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
                                               ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER);
   }
@@ -302,7 +284,7 @@ public class AddSupportForFrameworksPanel implements Disposable {
 
   private Collection<FrameworkSupportNodeBase> createNodes(List<FrameworkSupportInModuleProvider> providers,
                                                            Set<String> associated,
-                                                           final Set<String> preselected) {
+                                                           final Collection<String> preselected) {
     Map<String, FrameworkSupportNode> nodes = new HashMap<>();
     Map<FrameworkGroup<?>, FrameworkGroupNode> groups = new HashMap<>();
     List<FrameworkSupportNodeBase> roots = new ArrayList<>();
@@ -402,26 +384,16 @@ public class AddSupportForFrameworksPanel implements Disposable {
   }
 
   public boolean downloadLibraries(@NotNull final JComponent parentComponent) {
-    final Ref<Boolean> result = Ref.create(true);
-    DumbService.allowStartingDumbModeInside(DumbModePermission.MAY_START_BACKGROUND, () -> {
-      applyLibraryOptionsForSelected();
-      List<LibraryCompositionSettings> list = getLibrariesCompositionSettingsList();
-      for (LibraryCompositionSettings compositionSettings : list) {
-        if (!compositionSettings.downloadFiles(parentComponent)) {
-          result.set(false);
-          return;
-        }
-      }
-    });
-
-    if (!result.get()) {
-      int answer = Messages.showYesNoDialog(parentComponent,
-                                            ProjectBundle.message("warning.message.some.required.libraries.wasn.t.downloaded"),
-                                            CommonBundle.getWarningTitle(), Messages.getWarningIcon());
-      if (answer != Messages.YES) {
-        return false;
+    applyLibraryOptionsForSelected();
+    for (LibraryCompositionSettings compositionSettings : getLibrariesCompositionSettingsList()) {
+      if (!compositionSettings.downloadFiles(parentComponent)) {
+        int answer = Messages.showYesNoDialog(parentComponent,
+                                              ProjectBundle.message("warning.message.some.required.libraries.wasn.t.downloaded"),
+                                              "Libraries Are Required", Messages.getWarningIcon());
+        return answer == Messages.YES;
       }
     }
+
     return true;
   }
 

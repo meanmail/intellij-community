@@ -35,7 +35,7 @@ import org.jetbrains.annotations.NotNull;
  * </table>
  * <br>
  * 
- * In order to check whether a dependency should be included in a classpath use one of <code>isFor</code>
+ * In order to check whether a dependency should be included in a classpath use one of {@code isFor}
  * methods instead of direct comparison with the enum constants
  *
  * @author yole
@@ -45,6 +45,7 @@ public enum DependencyScope {
   TEST("Test", false, false, true, true),
   RUNTIME("Runtime", false, true, false, true),
   PROVIDED("Provided", true, false, true, true);
+  @NotNull
   private final String myDisplayName;
   private final boolean myForProductionCompile;
   private final boolean myForProductionRuntime;
@@ -53,7 +54,7 @@ public enum DependencyScope {
 
   public static final String SCOPE_ATTR = "scope";
 
-  DependencyScope(String displayName,
+  DependencyScope(@NotNull String displayName,
                   boolean forProductionCompile,
                   boolean forProductionRuntime,
                   boolean forTestCompile,
@@ -87,6 +88,7 @@ public enum DependencyScope {
     }
   }
 
+  @NotNull
   public String getDisplayName() {
     return myDisplayName;
   }

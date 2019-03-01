@@ -27,7 +27,6 @@ import java.util.Set;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Apr 22, 2010
  */
 public class AntStringResolver extends PropertyProviderFinder{
   private final PropertyExpander myExpander;
@@ -41,6 +40,7 @@ public class AntStringResolver extends PropertyProviderFinder{
   }
 
 
+  @Override
   public void visitAntDomCustomElement(AntDomCustomElement custom) {
     if (!mySkipCustomTags) {
       super.visitAntDomCustomElement(custom);
@@ -53,7 +53,7 @@ public class AntStringResolver extends PropertyProviderFinder{
     if (!expander.hasPropertiesToExpand()) {
       return valueString;
     }
-    
+
     final Map<String, String> cached = RESOLVED_STRINGS_MAP_KEY.get(context);
     if (cached != null) {
       expander.acceptProvider(new CachedPropertiesProvider(cached));
@@ -61,13 +61,14 @@ public class AntStringResolver extends PropertyProviderFinder{
         return expander.getResult();
       }
     }
-    
+
     expander.setPropertyExpansionListener(new PropertyExpander.PropertyExpansionListener() {
+      @Override
       public void onPropertyExpanded(String propName, String propValue) {
         cacheResult(context, RESOLVED_STRINGS_MAP_KEY, propName, propValue);
       }
     });
-    
+
     AntDomProject project = context.getParentOfType(AntDomProject.class, false);
     if (project == null) {
       return expander.getResult();
@@ -79,6 +80,7 @@ public class AntStringResolver extends PropertyProviderFinder{
     return expander.getResult();
   }
 
+  @Override
   protected void propertyProviderFound(PropertiesProvider propertiesProvider) {
     myExpander.acceptProvider(propertiesProvider);
     if (!myExpander.hasPropertiesToExpand()) {
@@ -90,10 +92,11 @@ public class AntStringResolver extends PropertyProviderFinder{
     Set<String> allNames;
     private final Map<String, String> myCached;
 
-    public CachedPropertiesProvider(Map<String, String> cached) {
+    CachedPropertiesProvider(Map<String, String> cached) {
       myCached = cached;
     }
 
+    @Override
     @NotNull
     public Iterator<String> getNamesIterator() {
       if (allNames == null) {
@@ -102,10 +105,12 @@ public class AntStringResolver extends PropertyProviderFinder{
       return allNames.iterator();
     }
 
+    @Override
     public String getPropertyValue(String propertyName) {
       return myCached.get(propertyName);
     }
 
+    @Override
     public PsiElement getNavigationElement(String propertyName) {
       return null;
     }

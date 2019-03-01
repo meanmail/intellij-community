@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2018 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,20 +15,21 @@
  */
 package com.intellij.ide.bookmarks;
 
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.editor.*;
 import com.intellij.openapi.editor.impl.AbstractEditorTest;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.OpenFileDescriptor;
-import com.intellij.openapi.util.Computable;
 import com.intellij.openapi.vcs.changes.ChangeListManagerImpl;
 import com.intellij.openapi.vfs.VfsUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.testFramework.LeakHunter;
 import com.intellij.testFramework.TestFileType;
+import org.intellij.lang.annotations.Language;
 import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.NotNull;
 import org.picocontainer.ComponentAdapter;
 
 import java.io.IOException;
@@ -38,21 +39,28 @@ import java.util.List;
 
 /**
  * @author Denis Zhdanov
- * @since 12/27/10 1:43 PM
  */
 public class BookmarkManagerTest extends AbstractEditorTest {
   private final List<Bookmark> myBookmarks = new ArrayList<>();
   
   @Override
   protected void tearDown() throws Exception {
-    for (Bookmark bookmark : myBookmarks) {
-      getManager().removeBookmark(bookmark);
+    try {
+      for (Bookmark bookmark : myBookmarks) {
+        getManager().removeBookmark(bookmark);
+      }
+      myBookmarks.clear();
     }
-    myBookmarks.clear();
-    super.tearDown();
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 
-  public void testWholeTextReplace() throws IOException {
+  public void testWholeTextReplace() {
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "    public void test() {\n" +
@@ -65,12 +73,7 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     List<Bookmark> bookmarksBefore = getManager().getValidBookmarks();
     assertEquals(1, bookmarksBefore.size());
 
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        myEditor.getDocument().setText(text);
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> myEditor.getDocument().setText(text));
 
     List<Bookmark> bookmarksAfter = getManager().getValidBookmarks();
     assertEquals(1, bookmarksAfter.size());
@@ -80,13 +83,14 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     }
   }
   
-  public void testBookmarkLineRemove() throws IOException {
+  public void testBookmarkLineRemove() {
     List<ComponentAdapter> adapters = getProject().getPicoContainer().getComponentAdaptersOfType(ChangeListManagerImpl.class);
-    System.out.println(adapters.size() + " adapters:");
+    LOG.debug(adapters.size() + " adapters:");
     for (ComponentAdapter adapter : adapters) {
-      System.out.println(adapter);
+      LOG.debug(String.valueOf(adapter));
     }
 
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "    public void test() {\n" +
@@ -102,7 +106,8 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     assertTrue(getManager().getValidBookmarks().isEmpty());
   }
 
-  public void testTwoBookmarksOnSameLine1() throws  IOException {
+  public void testTwoBookmarksOnSameLine1() {
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "    public void test() {\n" +
@@ -127,7 +132,8 @@ public class BookmarkManagerTest extends AbstractEditorTest {
       checkBookmarkNavigation(bookmark);
     }
   }
-  public void testTwoBookmarksOnSameLine2() throws  IOException {
+  public void testTwoBookmarksOnSameLine2() {
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "    public void test() {\n" +
@@ -158,7 +164,8 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     delete();
   }
   
-  public void testBookmarkIsSavedAfterRemoteChange() throws IOException {
+  public void testBookmarkIsSavedAfterRemoteChange() {
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "    public void test() {\n" +
@@ -168,12 +175,7 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     init(text, TestFileType.TEXT);
     addBookmark(2);
 
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        myEditor.getDocument().setText("111\n222" + text + "333");
-      }
-    }.execute().throwException();
+    WriteCommandAction.writeCommandAction(getProject()).run(() -> myEditor.getDocument().setText("111\n222" + text + "333"));
 
     List<Bookmark> bookmarks = getManager().getValidBookmarks();
     assertEquals(1, bookmarks.size());
@@ -183,39 +185,27 @@ public class BookmarkManagerTest extends AbstractEditorTest {
   }
 
   public void testBookmarkManagerDoesNotHardReferenceDocuments() throws IOException {
+    @Language("JAVA")
     @NonNls String text =
       "public class Test {\n" +
       "}";
 
-    myVFile = ApplicationManager.getApplication().runWriteAction(new Computable<VirtualFile>() {
-      @Override
-      public VirtualFile compute() {
-        try {
-          VirtualFile file = getSourceRoot().createChildData(null, getTestName(false) + ".txt");
-          VfsUtil.saveText(file, text);
-          return file;
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
-        }
-      }
+    myVFile = WriteAction.compute(() -> {
+      VirtualFile file = getSourceRoot().createChildData(null, getTestName(false) + ".txt");
+      VfsUtil.saveText(file, text);
+      return file;
     });
     PsiDocumentManager.getInstance(getProject()).commitAllDocuments();
 
     Bookmark bookmark = getManager().addTextBookmark(myVFile, 1, "xxx");
     assertNotNull(bookmark);
-    LeakHunter.checkLeak(getManager(), Document.class);
+    LeakHunter.checkLeak(getManager(), Document.class, doc -> myVFile.equals(FileDocumentManager.getInstance().getFile(doc)));
 
     Document document = FileDocumentManager.getInstance().getDocument(myVFile);
     assertNotNull(document);
     PsiDocumentManager.getInstance(getProject()).getPsiFile(document); // create psi so that PsiChangeHandler won't leak
 
-    new WriteCommandAction.Simple(getProject()) {
-      @Override
-      protected void run() throws Throwable {
-        document.insertString(0, "line 0\n");
-      }
-    }.execute().throwException();
+    WriteCommandAction.runWriteCommandAction(ourProject, () -> document.insertString(0, "line 0\n"));
 
     assertEquals(2, bookmark.getLine());
 
@@ -223,9 +213,10 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     checkBookmarkNavigation(bookmark);
   }
   
-  private void addBookmark(int line) {
+  private Bookmark addBookmark(int line) {
     Bookmark bookmark = getManager().addTextBookmark(getFile().getVirtualFile(), line, "");
     myBookmarks.add(bookmark);
+    return bookmark;
   }
   
   private static BookmarkManager getManager() {
@@ -233,7 +224,7 @@ public class BookmarkManagerTest extends AbstractEditorTest {
   }
 
   @Override
-  public Object getData(String dataId) {
+  public Object getData(@NotNull String dataId) {
     if (dataId.equals(OpenFileDescriptor.NAVIGATE_IN_EDITOR.getName())) {
       return myEditor;
     }
@@ -253,5 +244,28 @@ public class BookmarkManagerTest extends AbstractEditorTest {
     caretModel.moveToLogicalPosition(new LogicalPosition(anotherLine, 0));
     bookmark.navigate(true);
     assertEquals(line, caretModel.getLogicalPosition().line);
+  }
+
+  public void testAddAddDeleteFromMiddleMustMaintainIndicesContinuous() {
+    init("x\nx\nx\nx\n", TestFileType.TEXT);
+    Bookmark b0 = addBookmark(2);
+    assertEquals(0, b0.index);
+    Bookmark b1 = addBookmark(1);
+    assertEquals(0, b1.index);
+    assertEquals(1, b0.index);
+    Bookmark b2 = addBookmark(0);
+    assertEquals(0, b2.index);
+    assertEquals(1, b1.index);
+    assertEquals(2, b0.index);
+
+    getManager().removeBookmark(b1);
+    assertFalse(b1.isValid());
+    assertEquals(0, b2.index);
+    assertEquals(1, b0.index);
+
+    List<Bookmark> list = getManager().getValidBookmarks();
+    assertEquals(2, list.size());
+    assertEquals(0, list.get(0).index);
+    assertEquals(1, list.get(1).index);
   }
 }

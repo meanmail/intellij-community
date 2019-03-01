@@ -21,7 +21,7 @@ import org.jetbrains.annotations.NotNull;
  * Represents a Java code fragment the contents of which is a reference to a Java type.
  *
  * @author dsl
- * @see PsiElementFactory#createTypeCodeFragment(String, PsiElement, boolean)
+ * @see JavaCodeFragmentFactory#createTypeCodeFragment(String, PsiElement, boolean)
  */
 public interface PsiTypeCodeFragment extends JavaCodeFragment {
   /**
@@ -36,10 +36,10 @@ public interface PsiTypeCodeFragment extends JavaCodeFragment {
     throws TypeSyntaxException, NoTypeException;
 
   /**
-   * Checks if <code>void</code> is treated as a valid type for the contents of
+   * Checks if {@code void} is treated as a valid type for the contents of
    * the code fragment.
    *
-   * @return true if <code>void</code> is a valid type, false otherwise.
+   * @return true if {@code void} is a valid type, false otherwise.
    */
   boolean isVoidValid();
 

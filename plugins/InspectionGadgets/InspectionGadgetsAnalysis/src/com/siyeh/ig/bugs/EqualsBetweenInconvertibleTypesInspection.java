@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2014 Dave Griffith, Bas Leijdekkers
+ * Copyright 2003-2017 Dave Griffith, Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,17 +15,24 @@
  */
 package com.siyeh.ig.bugs;
 
+import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.tree.IElementType;
+import com.intellij.psi.util.TypeConversionUtil;
 import com.siyeh.InspectionGadgetsBundle;
 import com.siyeh.ig.BaseInspection;
 import com.siyeh.ig.BaseInspectionVisitor;
-import com.siyeh.ig.psiutils.MethodCallUtils;
 import com.siyeh.ig.psiutils.TypeUtils;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
-public class EqualsBetweenInconvertibleTypesInspection
-  extends BaseInspection {
+import javax.swing.*;
+import java.util.HashMap;
+
+public class EqualsBetweenInconvertibleTypesInspection extends BaseInspection {
+
+  @SuppressWarnings("PublicField")
+  public boolean WARN_IF_NO_MUTUAL_SUBCLASS_FOUND = true;
 
   @Override
   @NotNull
@@ -34,15 +41,31 @@ public class EqualsBetweenInconvertibleTypesInspection
       "equals.between.inconvertible.types.display.name");
   }
 
+  @Nullable
+  @Override
+  public JComponent createOptionsPanel() {
+    return new SingleCheckboxOptionsPanel(InspectionGadgetsBundle.message("equals.between.inconvertible.types.mutual.subclass.option"),
+                                          this, "WARN_IF_NO_MUTUAL_SUBCLASS_FOUND");
+  }
+
   @Override
   @NotNull
   public String buildErrorString(Object... infos) {
     final PsiType comparedType = (PsiType)infos[0];
     final PsiType comparisonType = (PsiType)infos[1];
-    return InspectionGadgetsBundle.message(
-      "equals.between.inconvertible.types.problem.descriptor",
-      comparedType.getPresentableText(),
-      comparisonType.getPresentableText());
+    final boolean convertible = (boolean)infos[2];
+    if (convertible) {
+      return InspectionGadgetsBundle.message(
+        "equals.between.inconvertible.types.no.mutual.subclass.problem.descriptor",
+        comparedType.getPresentableText(),
+        comparisonType.getPresentableText());
+    }
+    else {
+      return InspectionGadgetsBundle.message(
+        "equals.between.inconvertible.types.problem.descriptor",
+        comparedType.getPresentableText(),
+        comparisonType.getPresentableText());
+    }
   }
 
   @Override
@@ -55,76 +78,45 @@ public class EqualsBetweenInconvertibleTypesInspection
     return new EqualsBetweenInconvertibleTypesVisitor();
   }
 
-  private static class EqualsBetweenInconvertibleTypesVisitor
-    extends BaseInspectionVisitor {
+  private class EqualsBetweenInconvertibleTypesVisitor extends BaseEqualsVisitor {
 
     @Override
-    public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
-      super.visitMethodCallExpression(expression);
-      final PsiReferenceExpression methodExpression = expression.getMethodExpression();
-      final boolean staticEqualsCall;
-      if (MethodCallUtils.isEqualsCall(expression)) {
-        staticEqualsCall = false;
+    public void visitBinaryExpression(PsiBinaryExpression expression) {
+      super.visitBinaryExpression(expression);
+      final IElementType tokenType = expression.getOperationTokenType();
+      if (!tokenType.equals(JavaTokenType.EQEQ) && !tokenType.equals(JavaTokenType.NE)) {
+        return;
       }
-      else {
-        final String name = methodExpression.getReferenceName();
-        if (!"equals".equals(name) && !"equal".equals(name)) {
-          return;
-        }
-        final PsiMethod method = expression.resolveMethod();
-        if (method == null) {
-          return;
-        }
-        final PsiClass aClass = method.getContainingClass();
-        if (aClass == null) {
-          return;
-        }
-        final String qualifiedName = aClass.getQualifiedName();
-        if (!"java.util.Objects".equals(qualifiedName) && !"com.google.common.base.Objects".equals(qualifiedName)) {
-          return;
-        }
-        staticEqualsCall = true;
+      final PsiExpression lhs = expression.getLOperand();
+      final PsiType lhsType = lhs.getType();
+      final PsiExpression rhs = expression.getROperand();
+      if (rhs == null) {
+        return;
       }
-      final PsiExpressionList argumentList = expression.getArgumentList();
-      final PsiExpression[] arguments = argumentList.getExpressions();
-      final PsiExpression expression1;
-      final PsiExpression expression2;
-      if (staticEqualsCall) {
-        if (arguments.length != 2) {
-          return;
-        }
-        expression1 = arguments[0];
-        expression2 = arguments[1];
+      final PsiType rhsType = rhs.getType();
+      if (lhsType == null || rhsType == null ||
+          TypeConversionUtil.isPrimitiveAndNotNull(lhsType) || TypeConversionUtil.isPrimitiveAndNotNull(rhsType) ||
+          !TypeUtils.areConvertible(lhsType, rhsType) /* red code */) {
+        return;
       }
-      else {
-        if (arguments.length != 1) {
-          return;
-        }
-        expression1 = arguments[0];
-        expression2 = methodExpression.getQualifierExpression();
-      }
+      createInconvertibleTypesChecker().deepCheck(lhsType, rhsType, expression.getOperationSign(), new HashMap<>(), WARN_IF_NO_MUTUAL_SUBCLASS_FOUND, isOnTheFly());
+    }
 
-      final PsiType comparisonType;
-      if (expression2 == null) {
-        final PsiClass aClass = PsiTreeUtil.getParentOfType(expression, PsiClass.class);
-        if (aClass == null) {
-          return;
+    @Override
+    public void checkTypes(@NotNull PsiReferenceExpression expression, @NotNull PsiType leftType, @NotNull PsiType rightType) {
+      createInconvertibleTypesChecker().checkTypes(expression, leftType, rightType, WARN_IF_NO_MUTUAL_SUBCLASS_FOUND, isOnTheFly());
+    }
+
+    private InconvertibleTypesChecker createInconvertibleTypesChecker() {
+      return new InconvertibleTypesChecker() {
+        @Override
+        protected void registerEqualsError(PsiElement highlightLocation,
+                                           @NotNull PsiType leftType,
+                                           @NotNull PsiType rightType,
+                                           boolean convertible) {
+          registerError(highlightLocation, leftType, rightType, convertible);
         }
-        comparisonType = TypeUtils.getType(aClass);
-      } else {
-        comparisonType = expression2.getType();
-      }
-      if (comparisonType == null) {
-        return;
-      }
-      final PsiType comparedType = expression1.getType();
-      if (comparedType == null) {
-        return;
-      }
-      if (TypeUtils.areConvertible(comparedType, comparisonType)) {
-        return;
-      }
-      registerMethodCallError(expression, comparedType, comparisonType);
+      };
     }
   }
 }

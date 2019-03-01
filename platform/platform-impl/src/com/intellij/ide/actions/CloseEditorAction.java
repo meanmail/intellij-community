@@ -24,17 +24,18 @@ import com.intellij.openapi.fileEditor.impl.EditorWindow;
 import com.intellij.openapi.project.DumbAware;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.vfs.VirtualFile;
+import org.jetbrains.annotations.NotNull;
 
 public class CloseEditorAction extends AnAction implements DumbAware {
   @Override
-  public void actionPerformed(AnActionEvent e) {
+  public void actionPerformed(@NotNull AnActionEvent e) {
     final Project project = e.getData(CommonDataKeys.PROJECT);
 
     FileEditorManagerEx editorManager = getEditorManager(project);
     EditorWindow window = e.getData(EditorWindow.DATA_KEY);
     VirtualFile file = null;
     if (window == null) {
-      window = editorManager.getActiveWindow().getResult();
+      window = editorManager.getCurrentWindow();
       if (window != null) {
         file = window.getSelectedFile();
       }
@@ -52,7 +53,7 @@ public class CloseEditorAction extends AnAction implements DumbAware {
   }
 
   @Override
-  public void update(final AnActionEvent event){
+  public void update(@NotNull final AnActionEvent event){
     final Presentation presentation = event.getPresentation();
     final Project project = event.getData(CommonDataKeys.PROJECT);
     if (project == null) {
@@ -64,7 +65,7 @@ public class CloseEditorAction extends AnAction implements DumbAware {
     }
     EditorWindow window = event.getData(EditorWindow.DATA_KEY);
     if (window == null) {
-      window = getEditorManager(project).getActiveWindow().getResult();
+      window = getEditorManager(project).getCurrentWindow();
     }
     presentation.setEnabled(window != null && window.getTabCount() > 0);
   }

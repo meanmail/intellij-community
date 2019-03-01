@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2016 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,6 +19,7 @@ package org.intellij.plugins.intelliLang.inject.groovy;
 import com.intellij.lang.Language;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.Ref;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.light.LightElement;
 import com.intellij.psi.tree.IElementType;
@@ -76,6 +77,14 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
     return new Class[] {GroovyPatterns.class};
   }
 
+  @Nullable
+  @Override
+  public BaseInjection findCommentInjection(@NotNull PsiElement host, @Nullable Ref<PsiElement> commentRef) {
+    PsiFile containingFile = host.getContainingFile();
+    boolean compiled = containingFile != null && containingFile.getOriginalFile() instanceof PsiCompiledFile;
+    return compiled ? null : super.findCommentInjection(host, commentRef);
+  }
+
   @Override
   public boolean isApplicableTo(PsiLanguageInjectionHost host) {
     return host instanceof GroovyPsiElement;
@@ -121,7 +130,7 @@ public class GroovyLanguageInjectionSupport extends AbstractLanguageInjectionSup
                                                                          newInjection.setPlaceEnabled(placeText, false);
                                                                          return InjectorUtils.canBeRemoved(newInjection) ? null : newInjection;
                                                                        });
-    configuration.replaceInjectionsWithUndo(project, newInjections, originalInjections, annotations);
+    configuration.replaceInjectionsWithUndo(project, psiElement.getContainingFile(), newInjections, originalInjections, annotations);
     return true;
   }
 

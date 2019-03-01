@@ -1,23 +1,10 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diagnostic
 
 import com.intellij.CommonBundle
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.Credentials
+import com.intellij.credentialStore.RememberCheckBoxState
 import com.intellij.ide.BrowserUtil
 import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.openapi.project.Project
@@ -26,30 +13,94 @@ import com.intellij.ui.components.CheckBox
 import com.intellij.ui.components.dialog
 import com.intellij.ui.layout.*
 import com.intellij.util.io.encodeUrlQueryParameter
+import com.intellij.util.text.nullize
+import org.jetbrains.annotations.ApiStatus
 import java.awt.Component
 import javax.swing.JPasswordField
 import javax.swing.JTextField
 
+@JvmOverloads
+fun askJBAccountCredentials(parent: Component, project: Project?, authFailed: Boolean = false): Credentials? {
+  val credentials = ErrorReportConfigurable.getCredentials()
+  val remember = if (credentials?.userName == null) PasswordSafe.instance.isRememberPasswordByDefault  // EA credentials were never stored
+                 else !credentials.password.isNullOrEmpty()  // a password was stored already
+
+  val prompt = if (authFailed) DiagnosticBundle.message("error.report.auth.failed")
+               else DiagnosticBundle.message("error.report.auth.prompt")
+  val userField = JTextField(credentials?.userName)
+  val passwordField = JPasswordField(credentials?.password?.toString())
+  val rememberCheckBox = CheckBox(CommonBundle.message("checkbox.remember.password"), remember)
+
+  val panel = panel {
+    noteRow(prompt)
+    row(DiagnosticBundle.message("error.report.auth.user")) { userField(growPolicy = GrowPolicy.SHORT_TEXT) }
+    row(DiagnosticBundle.message("error.report.auth.pass")) { passwordField() }
+    row {
+      rememberCheckBox()
+      right {
+        link(DiagnosticBundle.message("error.report.auth.restore")) {
+          val userName = userField.text.trim().encodeUrlQueryParameter()
+          BrowserUtil.browse("https://account.jetbrains.com/forgot-password?username=$userName")
+        }
+      }
+    }
+    noteRow(DiagnosticBundle.message("error.report.auth.enlist", "https://account.jetbrains.com/login?signup"))
+  }
+
+  val dialog = dialog(
+    title = DiagnosticBundle.message("error.report.title"),
+    panel = panel,
+    focusedComponent = if (credentials?.userName == null) userField else passwordField,
+    project = project,
+    parent = if (parent.isShowing) parent else null)
+
+  if (!dialog.showAndGet()) {
+    return null
+  }
+
+  val userName = userField.text.nullize(true)
+  val password = passwordField.password
+  val passwordToRemember = if (rememberCheckBox.isSelected) password else null
+  RememberCheckBoxState.update(rememberCheckBox)
+  PasswordSafe.instance.set(CredentialAttributes(ErrorReportConfigurable.SERVICE_NAME, userName), Credentials(userName, passwordToRemember))
+  return Credentials(userName, password)
+}
+
+//<editor-fold desc="Deprecated stuff.">
+@Deprecated("use #askJBAccountCredentials()")
+@ApiStatus.ScheduledForRemoval(inVersion = "2020")
 @JvmOverloads
 fun showJetBrainsAccountDialog(parent: Component, project: Project? = null): DialogWrapper {
   val credentials = ErrorReportConfigurable.getCredentials()
   val userField = JTextField(credentials?.userName)
   val passwordField = JPasswordField(credentials?.password?.toString())
 
-  // if no user name - never stored and so, defaults to remember. if user name set, but no password, so, previously was stored without password
-  val rememberCheckBox = CheckBox(CommonBundle.message("checkbox.remember.password"), selected = credentials?.userName == null || !credentials?.password.isNullOrEmpty())
+  val passwordSafe = PasswordSafe.instance
+  val isSelected = if (credentials?.userName == null) {
+    // if no user name - never stored and so, defaults
+    passwordSafe.isRememberPasswordByDefault
+  }
+  else {
+    // if user name set, but no password, so, previously was stored without password
+    !credentials.password.isNullOrEmpty()
+  }
+  val rememberCheckBox = CheckBox(CommonBundle.message("checkbox.remember.password"), isSelected)
 
   val panel = panel {
-    noteRow("Login to JetBrains Account to get notified when the submitted\nexceptions are fixed.")
-    row("Username:") { userField() }
+    noteRow("Use JetBrains Account to be notified\nwhen reported exceptions are fixed.\n" +
+            "Clear user name to submit reports anonymously.")
+    row("Username:") { userField(growPolicy = GrowPolicy.SHORT_TEXT) }
     row("Password:") { passwordField() }
     row {
       rememberCheckBox()
       right {
-        link("Forgot password?") { BrowserUtil.browse("https://account.jetbrains.com/forgot-password?username=${userField.text.trim().encodeUrlQueryParameter()}") }
+        link("Forgot password?") {
+          val userName = userField.text.trim().encodeUrlQueryParameter()
+          BrowserUtil.browse("https://account.jetbrains.com/forgot-password?username=$userName")
+        }
       }
     }
-    noteRow("""Do not have an account? <a href="https://account.jetbrains.com/login">Sign Up</a>""")
+    noteRow("""Do not have an account yet? <a href="https://account.jetbrains.com/login?signup">Sign Up</a>""")
   }
 
   return dialog(
@@ -58,9 +109,11 @@ fun showJetBrainsAccountDialog(parent: Component, project: Project? = null): Dia
       focusedComponent = if (credentials?.userName == null) userField else passwordField,
       project = project,
       parent = if (parent.isShowing) parent else null) {
-    val userName = userField.text
-    if (!userName.isNullOrBlank()) {
-      PasswordSafe.getInstance().set(CredentialAttributes(ErrorReportConfigurable.SERVICE_NAME, userName), Credentials(userName, if (rememberCheckBox.isSelected) passwordField.password else null))
-    }
+    val userName = userField.text.nullize(true)
+    val password = if (rememberCheckBox.isSelected) passwordField.password else null
+    RememberCheckBoxState.update(rememberCheckBox)
+    passwordSafe.set(CredentialAttributes(ErrorReportConfigurable.SERVICE_NAME, userName), Credentials(userName, password))
+    return@dialog null
   }
 }
+//</editor-fold>

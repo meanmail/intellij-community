@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.DialogWrapper;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.util.ui.JBDimension;
 import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -30,14 +31,6 @@ public class CertificateWarningDialog extends DialogWrapper {
     throw new UnsupportedOperationException("Not supported");
   }
 
-  public static CertificateWarningDialog createHostnameMismatchWarning(@NotNull X509Certificate certificate,
-                                                                       @NotNull String hostname) {
-    String message = String.format("Server's certificate common name doesn't match hostname in URL: '%s' != '%s'",
-                                   new CertificateWrapper(certificate).getSubjectField(CertificateWrapper.CommonField.COMMON_NAME),
-                                   hostname);
-    return new CertificateWarningDialog(certificate, "Invalid hostname", message);
-  }
-
   private JPanel myRootPanel;
   private JLabel myWarningSign;
   private JPanel myCertificateInfoPanel;
@@ -47,6 +40,10 @@ public class CertificateWarningDialog extends DialogWrapper {
 
   public CertificateWarningDialog(@NotNull X509Certificate certificate, @NotNull String title, @NotNull String message) {
     super((Project)null, false);
+
+    myRootPanel.setPreferredSize(new JBDimension(550, 650));
+    myNoticePane.setEditorKit(UIUtil.getHTMLEditorKit());
+    myMessagePane.setEditorKit(UIUtil.getHTMLEditorKit());
 
     myCertificate = certificate;
 

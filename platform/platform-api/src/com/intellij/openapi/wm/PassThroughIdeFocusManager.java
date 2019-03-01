@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,8 +16,8 @@
 package com.intellij.openapi.wm;
 
 import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.application.ModalityState;
 import com.intellij.openapi.util.ActionCallback;
-import com.intellij.openapi.util.Expirable;
 import com.intellij.openapi.util.ExpirableRunnable;
 import org.jetbrains.annotations.NotNull;
 
@@ -33,22 +33,25 @@ public class PassThroughIdeFocusManager extends IdeFocusManager {
     return ourInstance;
   }
 
+  @Override
   @NotNull
   public ActionCallback requestFocus(@NotNull Component c, boolean forced) {
     c.requestFocus();
     return ActionCallback.DONE;
   }
 
-  @NotNull
-  public ActionCallback requestFocus(@NotNull FocusCommand command, boolean forced) {
-    return command.run();
-  }
-
+  @Override
   public JComponent getFocusTargetFor(@NotNull JComponent comp) {
     return comp;
   }
 
+  @Override
   public void doWhenFocusSettlesDown(@NotNull Runnable runnable) {
+    runnable.run();
+  }
+
+  @Override
+  public void doWhenFocusSettlesDown(@NotNull Runnable runnable, @NotNull ModalityState modality) {
     runnable.run();
   }
 
@@ -59,6 +62,7 @@ public class PassThroughIdeFocusManager extends IdeFocusManager {
     }
   }
 
+  @Override
   public Component getFocusedDescendantFor(Component comp) {
     final Component focused = KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
     if (focused == null) return null;
@@ -73,9 +77,6 @@ public class PassThroughIdeFocusManager extends IdeFocusManager {
   }
 
   @Override
-  public void typeAheadUntil(ActionCallback done) {
-  }
-
   @NotNull
   public ActionCallback requestDefaultFocus(boolean forced) {
     return ActionCallback.DONE;
@@ -84,27 +85,6 @@ public class PassThroughIdeFocusManager extends IdeFocusManager {
   @Override
   public boolean isFocusTransferEnabled() {
     return true;
-  }
-
-  @NotNull
-  @Override
-  public Expirable getTimestamp(boolean trackOnlyForcedCommands) {
-    return new Expirable() {
-      public boolean isExpired() {
-        return false;
-      }
-    };
-  }
-
-  @NotNull
-  @Override
-  public FocusRequestor getFurtherRequestor() {
-    return this;
-  }
-
-  @Override
-  public void revalidateFocus(@NotNull ExpirableRunnable runnable) {
-
   }
 
   @Override
@@ -133,11 +113,6 @@ public class PassThroughIdeFocusManager extends IdeFocusManager {
 
   @Override
   public void toFront(JComponent c) {
-  }
-
-  @Override
-  public boolean isFocusBeingTransferred() {
-    return false;
   }
 
   @Override

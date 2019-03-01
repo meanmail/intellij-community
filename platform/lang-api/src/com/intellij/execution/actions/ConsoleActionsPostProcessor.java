@@ -24,7 +24,6 @@ import org.jetbrains.annotations.NotNull;
  * Defines contract for the {@link ConsoleView#createConsoleActions() console actions} customization.
  * 
  * @author Denis Zhdanov
- * @since 4/25/11 1:16 PM
  */
 public abstract class ConsoleActionsPostProcessor {
 
@@ -33,7 +32,7 @@ public abstract class ConsoleActionsPostProcessor {
   /**
    * Allows to adjust actions to use within the given console instance.
    * <p/>
-   * <code>'Adjust'</code> here stands for 'add', 'remove', 'change order' etc.
+   * {@code 'Adjust'} here stands for 'add', 'remove', 'change order' etc.
    *
    * @param console     console instance which actions are being post-processed
    * @param actions     console actions that will be used by default

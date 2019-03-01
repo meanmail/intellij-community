@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2009 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -96,6 +96,7 @@ public class FacetTypeEditor extends UnnamedConfigurableGroup {
     super.disposeUIResources();
   }
 
+  @Override
   public JComponent createComponent() {
     MultipleFacetSettingsEditor allFacetsEditor = createAllFacetsEditor();
     if (myAllFacetsEditor != null) {
@@ -138,32 +139,35 @@ public class FacetTypeEditor extends UnnamedConfigurableGroup {
   private static class AllFacetsConfigurable implements Configurable {
     private final MultipleFacetSettingsEditor myEditor;
 
-    public AllFacetsConfigurable(final MultipleFacetSettingsEditor editor) {
+    AllFacetsConfigurable(final MultipleFacetSettingsEditor editor) {
       myEditor = editor;
     }
 
+    @Override
     public String getDisplayName() {
       return ProjectBundle.message("tab.name.all.facets");
     }
 
+    @Override
     public String getHelpTopic() {
       return myEditor.getHelpTopic();
     }
 
+    @Override
     public JComponent createComponent() {
       return myEditor.createComponent();
     }
 
+    @Override
     public boolean isModified() {
       return false;
     }
 
+    @Override
     public void apply() throws ConfigurationException {
     }
 
-    public void reset() {
-    }
-
+    @Override
     public void disposeUIResources() {
       myEditor.disposeUIResources();
     }

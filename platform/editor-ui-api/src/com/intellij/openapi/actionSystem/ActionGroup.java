@@ -48,25 +48,25 @@ public abstract class ActionGroup extends AnAction {
   /**
    * The actual value is a Boolean.
    */
-  @NonNls public static final String PROP_POPUP = "popup";
+  @NonNls private static final String PROP_POPUP = "popup";
 
   private Boolean myDumbAware;
 
   /**
-   * Creates a new <code>ActionGroup</code> with shortName set to <code>null</code> and
+   * Creates a new {@code ActionGroup} with shortName set to {@code null} and
    * popup set to false.
    */
   public ActionGroup(){
-    this(null, false);
+    // avoid eagerly creating template presentation
   }
 
   /**
-   * Creates a new <code>ActionGroup</code> with the specified shortName
+   * Creates a new {@code ActionGroup} with the specified shortName
    * and popup.
    *
    * @param shortName Text that represents a short name for this action group
    *
-   * @param popup <code>true</code> if this group is a popup, <code>false</code>
+   * @param popup {@code true} if this group is a popup, {@code false}
    *  otherwise
    */
   public ActionGroup(String shortName, boolean popup){
@@ -82,20 +82,20 @@ public abstract class ActionGroup extends AnAction {
    * This method can be called in popup menus if {@link #canBePerformed(DataContext)} is true
    */
   @Override
-  public void actionPerformed(AnActionEvent e){
+  public void actionPerformed(@NotNull AnActionEvent e){
   }
 
   /**
    * @return true if {@link #actionPerformed(AnActionEvent)} should be called
    */
-  public boolean canBePerformed(DataContext context) {
+  public boolean canBePerformed(@NotNull DataContext context) {
     return false;
   }
 
   /**
    * Returns the type of the group.
    *
-   * @return <code>true</code> if the group is a popup, <code>false</code> otherwise
+   * @return {@code true} if the group is a popup, {@code false} otherwise
    */
   public boolean isPopup(){
     return myPopup;
@@ -104,19 +104,19 @@ public abstract class ActionGroup extends AnAction {
   /**
    * Sets the type of the group.
    *
-   * @param popup If <code>true</code> the group will be shown as a popup in menus
+   * @param popup If {@code true} the group will be shown as a popup in menus
    */
   public final void setPopup(boolean popup){
     boolean oldPopup = myPopup;
     myPopup = popup;
-    firePropertyChange(PROP_POPUP, oldPopup?Boolean.TRUE:Boolean.FALSE, myPopup?Boolean.TRUE:Boolean.FALSE);
+    firePropertyChange(PROP_POPUP, oldPopup, myPopup);
   }
 
-  public final void addPropertyChangeListener(PropertyChangeListener l){
+  public final void addPropertyChangeListener(@NotNull PropertyChangeListener l){
     myChangeSupport.addPropertyChangeListener(l);
   }
 
-  public final void removePropertyChangeListener(PropertyChangeListener l){
+  public final void removePropertyChangeListener(@NotNull PropertyChangeListener l){
     myChangeSupport.removePropertyChangeListener(l);
   }
 
@@ -127,12 +127,12 @@ public abstract class ActionGroup extends AnAction {
   /**
    * Returns the children of the group.
    *
-   * @return An array representing children of this group. All returned children must be not <code>null</code>.
+   * @return An array representing children of this group. All returned children must be not {@code null}.
    */
   @NotNull
   public abstract AnAction[] getChildren(@Nullable AnActionEvent e);
 
-  final void setAsPrimary(AnAction action, boolean isPrimary) {
+  final void setAsPrimary(@NotNull AnAction action, boolean isPrimary) {
     if (isPrimary) {
       if (mySecondaryActions != null) {
         mySecondaryActions.remove(action);
@@ -146,11 +146,11 @@ public abstract class ActionGroup extends AnAction {
     }
   }
 
-  public final boolean isPrimary(AnAction action) {
+  public final boolean isPrimary(@NotNull AnAction action) {
     return mySecondaryActions == null || !mySecondaryActions.contains(action);
   }
 
-  protected final void replace(AnAction originalAction, AnAction newAction) {
+  protected final void replace(@NotNull AnAction originalAction, @NotNull AnAction newAction) {
     if (mySecondaryActions != null) {
       if (mySecondaryActions.contains(originalAction)) {
         mySecondaryActions.remove(originalAction);

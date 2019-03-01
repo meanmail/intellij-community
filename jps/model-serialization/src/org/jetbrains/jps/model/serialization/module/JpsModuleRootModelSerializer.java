@@ -21,10 +21,7 @@ import com.intellij.util.text.UniqueNameGenerator;
 import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import org.jetbrains.jps.model.JpsCompositeElement;
-import org.jetbrains.jps.model.JpsElement;
-import org.jetbrains.jps.model.JpsElementFactory;
-import org.jetbrains.jps.model.JpsElementReference;
+import org.jetbrains.jps.model.*;
 import org.jetbrains.jps.model.java.JpsJavaSdkType;
 import org.jetbrains.jps.model.java.JpsJavaSdkTypeWrapper;
 import org.jetbrains.jps.model.library.JpsLibrary;
@@ -33,6 +30,7 @@ import org.jetbrains.jps.model.library.sdk.JpsSdkReference;
 import org.jetbrains.jps.model.library.sdk.JpsSdkType;
 import org.jetbrains.jps.model.module.*;
 import org.jetbrains.jps.model.serialization.JpsModelSerializerExtension;
+import org.jetbrains.jps.model.serialization.impl.JpsSerializationFormatException;
 import org.jetbrains.jps.model.serialization.java.JpsJavaModelSerializerExtension;
 import org.jetbrains.jps.model.serialization.library.JpsLibraryTableSerializer;
 import org.jetbrains.jps.model.serialization.library.JpsSdkTableSerializer;
@@ -54,6 +52,8 @@ public class JpsModuleRootModelSerializer {
   public static final String PACKAGE_PREFIX_ATTRIBUTE = "packagePrefix";
   public static final String IS_TEST_SOURCE_ATTRIBUTE = "isTestSource";
   public static final String EXCLUDE_FOLDER_TAG = "excludeFolder";
+  public static final String EXCLUDE_PATTERN_TAG = "excludePattern";
+  public static final String EXCLUDE_PATTERN_ATTRIBUTE = "pattern";
   public static final String ORDER_ENTRY_TAG = "orderEntry";
   public static final String TYPE_ATTRIBUTE = "type";
   public static final String SOURCE_FOLDER_TYPE = "sourceFolder";
@@ -77,13 +77,16 @@ public class JpsModuleRootModelSerializer {
     if (rootModelComponent == null) return;
 
     for (Element contentElement : getChildren(rootModelComponent, CONTENT_TAG)) {
-      final String url = contentElement.getAttributeValue(URL_ATTRIBUTE);
+      final String url = getRequiredAttribute(contentElement, URL_ATTRIBUTE);
       module.getContentRootsList().addUrl(url);
       for (Element sourceElement : getChildren(contentElement, SOURCE_FOLDER_TAG)) {
         module.addSourceRoot(loadSourceRoot(sourceElement));
       }
       for (Element excludeElement : getChildren(contentElement, EXCLUDE_FOLDER_TAG)) {
-        module.getExcludeRootsList().addUrl(excludeElement.getAttributeValue(URL_ATTRIBUTE));
+        module.getExcludeRootsList().addUrl(getRequiredAttribute(excludeElement, URL_ATTRIBUTE));
+      }
+      for (Element excludePatternElement : getChildren(contentElement, EXCLUDE_PATTERN_TAG)) {
+        module.addExcludePattern(url, getRequiredAttribute(excludePatternElement, EXCLUDE_PATTERN_ATTRIBUTE));
       }
     }
 
@@ -99,7 +102,7 @@ public class JpsModuleRootModelSerializer {
         moduleSourceAdded = true;
       }
       else if (JDK_TYPE.equals(type)) {
-        String sdkName = orderEntry.getAttributeValue(JDK_NAME_ATTRIBUTE);
+        String sdkName = getRequiredAttribute(orderEntry, JDK_NAME_ATTRIBUTE);
         String sdkTypeId = orderEntry.getAttributeValue(JDK_TYPE_ATTRIBUTE);
         final JpsSdkType<?> sdkType = JpsSdkTableSerializer.getSdkType(sdkTypeId);
         dependenciesList.addSdkDependency(sdkType);
@@ -116,28 +119,29 @@ public class JpsModuleRootModelSerializer {
         }
       }
       else if (LIBRARY_TYPE.equals(type)) {
-        String name = orderEntry.getAttributeValue(NAME_ATTRIBUTE);
-        String level = orderEntry.getAttributeValue(LEVEL_ATTRIBUTE);
-        final JpsLibraryDependency dependency =
-          dependenciesList.addLibraryDependency(elementFactory.createLibraryReference(name, JpsLibraryTableSerializer
-            .createLibraryTableReference(level)));
+        String name = getRequiredAttribute(orderEntry, NAME_ATTRIBUTE);
+        String level = getRequiredAttribute(orderEntry, LEVEL_ATTRIBUTE);
+        JpsElementReference<? extends JpsCompositeElement> ref = JpsLibraryTableSerializer.createLibraryTableReference(level);
+        final JpsLibraryDependency dependency = dependenciesList.addLibraryDependency(elementFactory.createLibraryReference(name, ref));
         loadModuleDependencyProperties(dependency, orderEntry);
       }
       else if (MODULE_LIBRARY_TYPE.equals(type)) {
         final Element moduleLibraryElement = orderEntry.getChild(LIBRARY_TAG);
-        String name = moduleLibraryElement.getAttributeValue(NAME_ATTRIBUTE);
-        if (name == null) {
-          name = GENERATED_LIBRARY_NAME_PREFIX;
-        }
-        String uniqueName = nameGenerator.generateUniqueName(name);
-        final JpsLibrary library = JpsLibraryTableSerializer.loadLibrary(moduleLibraryElement, uniqueName);
-        module.addModuleLibrary(library);
+        if (moduleLibraryElement != null) {
+          String name = moduleLibraryElement.getAttributeValue(NAME_ATTRIBUTE);
+          if (name == null) {
+            name = GENERATED_LIBRARY_NAME_PREFIX;
+          }
+          String uniqueName = nameGenerator.generateUniqueName(name);
+          final JpsLibrary library = JpsLibraryTableSerializer.loadLibrary(moduleLibraryElement, uniqueName);
+          module.addModuleLibrary(library);
 
-        final JpsLibraryDependency dependency = dependenciesList.addLibraryDependency(library);
-        loadModuleDependencyProperties(dependency, orderEntry);
+          final JpsLibraryDependency dependency = dependenciesList.addLibraryDependency(library);
+          loadModuleDependencyProperties(dependency, orderEntry);
+        }
       }
       else if (MODULE_TYPE.equals(type)) {
-        String name = orderEntry.getAttributeValue(MODULE_NAME_ATTRIBUTE);
+        String name = getRequiredAttribute(orderEntry, MODULE_NAME_ATTRIBUTE);
         final JpsModuleDependency dependency = dependenciesList.addModuleDependency(elementFactory.createModuleReference(name));
         loadModuleDependencyProperties(dependency, orderEntry);
       }
@@ -152,8 +156,17 @@ public class JpsModuleRootModelSerializer {
   }
 
   @NotNull
+  private static String getRequiredAttribute(Element element, String attribute) {
+    final String url = element.getAttributeValue(attribute);
+    if (url == null) {
+      throw new JpsSerializationFormatException("'" + attribute + "' attribute is missing in '" + element.getName() + "' tag");
+    }
+    return url;
+  }
+
+  @NotNull
   public static JpsModuleSourceRoot loadSourceRoot(Element sourceElement) {
-    final String sourceUrl = sourceElement.getAttributeValue(URL_ATTRIBUTE);
+    final String sourceUrl = getRequiredAttribute(sourceElement, URL_ATTRIBUTE);
     JpsModuleSourceRootPropertiesSerializer<?> serializer = getSourceRootPropertiesSerializer(sourceElement);
     return createSourceRoot(sourceUrl, serializer, sourceElement);
   }
@@ -198,6 +211,11 @@ public class JpsModuleRootModelSerializer {
         if (FileUtil.startsWith(excludedUrl, url)) {
           Element element = new Element(EXCLUDE_FOLDER_TAG).setAttribute(URL_ATTRIBUTE, excludedUrl);
           contentElement.addContent(element);
+        }
+      }
+      for (JpsExcludePattern pattern : module.getExcludePatterns()) {
+        if (pattern.getBaseDirUrl().equals(url)) {
+          contentElement.addContent(new Element(EXCLUDE_PATTERN_TAG).setAttribute(EXCLUDE_PATTERN_ATTRIBUTE, pattern.getPattern()));
         }
       }
     }
@@ -291,7 +309,7 @@ public class JpsModuleRootModelSerializer {
   }
 
   private static List<String> getSortedList(final List<String> list) {
-    List<String> strings = new ArrayList<String>(list);
+    List<String> strings = new ArrayList<>(list);
     Collections.sort(strings);
     return strings;
   }

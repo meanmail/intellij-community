@@ -1,27 +1,21 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.execution.configurations;
 
+import com.intellij.execution.BeforeRunTask;
+import com.intellij.execution.runners.ExecutionEnvironment;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.openapi.actionSystem.DataKey;
 import com.intellij.openapi.options.SettingsEditor;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.JDOMExternalizable;
+import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.util.PlatformUtils;
+import com.intellij.util.xmlb.annotations.Transient;
+import org.jdom.Element;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * Interface for run configurations which can be managed by a user and displayed in the UI.
@@ -35,28 +29,27 @@ import org.jetbrains.annotations.Nullable;
  *
  * @see RefactoringListenerProvider
  */
-public interface RunConfiguration extends RunProfile, JDOMExternalizable, Cloneable {
+public interface RunConfiguration extends RunProfile, Cloneable {
   DataKey<RunConfiguration> DATA_KEY = DataKey.create("runtimeConfiguration");
 
   /**
    * Returns the type of the run configuration.
-   *
-   * @return the configuration type.
    */
   @NotNull
-  ConfigurationType getType();
+  default ConfigurationType getType() {
+    ConfigurationFactory factory = getFactory();
+    return factory == null ? UnknownConfigurationType.getInstance() : factory.getType();
+  }
 
   /**
    * Returns the factory that has created the run configuration.
-   *
-   * @return the factory instance.
    */
+  @Nullable
   ConfigurationFactory getFactory();
 
+  // do not annotate as Nullable because in this case Kotlin compiler will forbid field style access (because of different nullability for getter and setter).
   /**
    * Sets the name of the configuration.
-   *
-   * @param name the new name of the configuration.
    */
   void setName(String name);
 
@@ -73,8 +66,6 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
 
   /**
    * Returns the project in which the run configuration exists.
-   *
-   * @return the project instance.
    */
   Project getProject();
 
@@ -86,7 +77,9 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @return the per-runner settings.
    */
   @Nullable
-  ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider);
+  default ConfigurationPerRunnerSettings createRunnerSettings(ConfigurationInfoProvider provider) {
+    return null;
+  }
 
   /**
    * Creates a UI control for editing the settings for a specific {@link ProgramRunner}. Can return null if the configuration has no
@@ -96,7 +89,9 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @return the editor for the per-runner settings.
    */
   @Nullable
-  SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner);
+  default SettingsEditor<ConfigurationPerRunnerSettings> getRunnerSettingsEditor(ProgramRunner runner) {
+    return null;
+  }
 
   /**
    * Clones the run configuration.
@@ -111,7 +106,36 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @return the unique ID of the configuration.
    */
   @Deprecated
-  int getUniqueID();
+  default int getUniqueID() {
+    return System.identityHashCode(this);
+  }
+
+  /**
+   * Returns the unique identifier of the run configuration. Return null if not applicable.
+   * Used only for non-managed RC type.
+   */
+  @Nullable
+  default String getId() {
+    return null;
+  }
+
+  @NotNull
+  @Transient
+  default String getPresentableType() {
+    if (PlatformUtils.isPhpStorm()) {
+      return " (" + StringUtil.first(getType().getDisplayName(), 10, true) + ")";
+    }
+    return "";
+  }
+
+  /**
+   * If this method returns true, disabled executor buttons (e.g. Run) will be hidden when this configuration is selected.
+   * Note that this will lead to UI flickering when switching between this configuration and others for which this property
+   * is false, so you should avoid overriding this method unless you're really sure of what you're doing.
+   */
+  default boolean hideDisabledExecutorButtons() {
+    return false;
+  }
 
   /**
    * Checks whether the run configuration settings are valid.
@@ -122,5 +146,50 @@ public interface RunConfiguration extends RunProfile, JDOMExternalizable, Clonea
    * @throws RuntimeConfigurationError     if the configuration settings contain a fatal problem which makes it impossible
    *                                       to execute the run configuration.
    */
-  void checkConfiguration() throws RuntimeConfigurationException;
+  default void checkConfiguration() throws RuntimeConfigurationException {
+  }
+
+  default void readExternal(@NotNull Element element) {
+  }
+
+  default void writeExternal(@NotNull Element element) {
+  }
+
+  @NotNull
+  default List<BeforeRunTask<?>> getBeforeRunTasks() {
+    return Collections.emptyList();
+  }
+
+  default void setBeforeRunTasks(@NotNull List<BeforeRunTask<?>> value) {
+  }
+
+  default boolean isAllowRunningInParallel() {
+    return false;
+  }
+
+  default void setAllowRunningInParallel(boolean value) {
+  }
+
+  /**
+   * Allows to customize handling when restart the run configuration not allowing running in parallel.
+   *
+   * @return the further actions.
+   */
+  default RestartSingletonResult restartSingleton(@NotNull ExecutionEnvironment environment) {
+    return RestartSingletonResult.ASK_AND_RESTART;
+  }
+
+  /**
+   * Further actions to restart the run configuration not allowing running in parallel.
+   *
+   * @see RunConfiguration#restartSingleton
+   */
+  enum RestartSingletonResult {
+    /** Ask user to stop and restart the run configuration. */
+    ASK_AND_RESTART,
+    /** Stop and restart the run configuration without additional interaction with user. */
+    RESTART,
+    /** No further action is needed. */
+    NO_FURTHER_ACTION
+  }
 }

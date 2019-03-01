@@ -21,6 +21,7 @@ import com.intellij.openapi.util.text.StringUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.jps.incremental.CompileContext;
+import org.jetbrains.jps.incremental.FSOperations;
 import org.jetbrains.jps.incremental.messages.BuildMessage;
 import org.jetbrains.jps.incremental.messages.CompilerMessage;
 import org.jetbrains.jps.maven.model.impl.MavenModuleResourceConfiguration;
@@ -77,7 +78,7 @@ public class MavenResourceFileProcessor {
       copyWithFiltering(file, targetFile);
     }
     else {
-      FileUtil.copyContent(file, targetFile);
+      FSOperations.copy(file, targetFile);
     }
   }
 
@@ -88,7 +89,10 @@ public class MavenResourceFileProcessor {
       writer = encoding != null ? new PrintWriter(outputFile, encoding) : new PrintWriter(outputFile);
     }
     catch (FileNotFoundException e) {
-      FileUtil.createIfDoesntExist(outputFile);
+      final File parentFile = outputFile.getParentFile();
+      if (parentFile == null || !parentFile.mkdirs() && !outputFile.setWritable(true)) {
+        throw e; // all possible problem resolutions failed, so rethrow the error
+      }
       writer = encoding != null ? new PrintWriter(outputFile, encoding) : new PrintWriter(outputFile);
     }
     try {
@@ -142,7 +146,7 @@ public class MavenResourceFileProcessor {
       assert propertyName != null;
 
       if (resolvedProperties == null) {
-        resolvedProperties = new HashMap<String, String>();
+        resolvedProperties = new HashMap<>();
       }
 
       String propertyValue = resolvedProperties.get(propertyName);
@@ -196,7 +200,7 @@ public class MavenResourceFileProcessor {
   private Map<String, String> getProperties() {
     Map<String, String> props = myProperties;
     if (props == null) {
-      props = new HashMap<String, String>(myModuleConfiguration.properties);
+      props = new HashMap<>(myModuleConfiguration.properties);
       String timestampFormat = props.get(MAVEN_BUILD_TIMESTAMP_FORMAT_PROPERTY);
       if (timestampFormat == null) {
         timestampFormat = "yyyyMMdd-HHmm"; // See ModelInterpolator.DEFAULT_BUILD_TIMESTAMP_FORMAT

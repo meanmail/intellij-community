@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -42,9 +42,12 @@ public class SettingsEditorGroup<T> extends SettingsEditor<T> {
     return myEditors;
   }
 
-  public void resetEditorFrom(T t) {}
-  public void applyEditorTo(T t) throws ConfigurationException {}
+  @Override
+  public void resetEditorFrom(@NotNull T t) {}
+  @Override
+  public void applyEditorTo(@NotNull T t) throws ConfigurationException {}
 
+  @Override
   @NotNull
   public JComponent createEditor() {
     throw new UnsupportedOperationException("This method should never be called!");

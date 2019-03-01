@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,10 +21,10 @@ import com.intellij.openapi.ui.popup.JBPopup;
 import com.intellij.openapi.ui.popup.JBPopupFactory;
 import com.intellij.openapi.ui.popup.PopupChooserBuilder;
 import com.intellij.openapi.util.Ref;
+import com.intellij.openapi.wm.IdeFocusManager;
 import com.intellij.ui.TreeSpeedSearch;
 import com.intellij.ui.treeStructure.Tree;
 import com.intellij.util.Consumer;
-import com.intellij.util.containers.Convertor;
 import icons.MavenIcons;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -59,7 +59,7 @@ public class MavenSelectProjectPopup {
       if (focusAfterSelection != null) {
         ApplicationManager.getApplication().invokeLater(() -> {
           if (workingDirectoryField.hasFocus()) {
-            focusAfterSelection.requestFocus();
+            IdeFocusManager.getGlobalInstance().doWhenFocusSettlesDown(() -> IdeFocusManager.getGlobalInstance().requestFocus(focusAfterSelection, true));
           }
         });
       }
@@ -80,7 +80,7 @@ public class MavenSelectProjectPopup {
 
   public static void attachToButton(@NotNull final MavenProjectsManager projectsManager,
                                     @NotNull final JButton button,
-                                    @NotNull final Consumer<MavenProject> callback) {
+                                    @NotNull final Consumer<? super MavenProject> callback) {
     button.addActionListener(new ActionListener() {
       @Override
       public void actionPerformed(ActionEvent e) {
@@ -98,7 +98,7 @@ public class MavenSelectProjectPopup {
         projectTree.setRootVisible(false);
         projectTree.setCellRenderer(new NodeRenderer() {
           @Override
-          public void customizeCellRenderer(JTree tree,
+          public void customizeCellRenderer(@NotNull JTree tree,
                                             Object value,
                                             boolean selected,
                                             boolean expanded,
@@ -115,17 +115,14 @@ public class MavenSelectProjectPopup {
           }
         });
 
-        new TreeSpeedSearch(projectTree, new Convertor<TreePath, String>() {
-          @Override
-          public String convert(TreePath o) {
-            Object lastPathComponent = o.getLastPathComponent();
-            if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return null;
+        new TreeSpeedSearch(projectTree, o -> {
+          Object lastPathComponent = o.getLastPathComponent();
+          if (!(lastPathComponent instanceof DefaultMutableTreeNode)) return null;
 
-            Object userObject = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
+          Object userObject = ((DefaultMutableTreeNode)lastPathComponent).getUserObject();
 
-            //noinspection SuspiciousMethodCalls
-            return projectsNameMap.get(userObject);
-          }
+          //noinspection SuspiciousMethodCalls
+          return projectsNameMap.get(userObject);
         });
 
         final Ref<JBPopup> popupRef = new Ref<>();
@@ -168,7 +165,7 @@ public class MavenSelectProjectPopup {
       }
 
       private DefaultMutableTreeNode buildTree(List<MavenProject> projectList) {
-        MavenProject[] projects = projectList.toArray(new MavenProject[projectList.size()]);
+        MavenProject[] projects = projectList.toArray(new MavenProject[0]);
         Arrays.sort(projects, new MavenProjectNamer.MavenProjectComparator());
 
         Map<MavenProject, DefaultMutableTreeNode> projectsToNode = new HashMap<>();

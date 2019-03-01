@@ -80,7 +80,7 @@ public class BuildTargetConfiguration {
         synchronized (MODULES_WITH_TARGET_CONFIG_CHANGED_KEY) {
           Set<JpsModule> modules = MODULES_WITH_TARGET_CONFIG_CHANGED_KEY.get(context);
           if (modules == null) {
-            MODULES_WITH_TARGET_CONFIG_CHANGED_KEY.set(context, modules = new THashSet<JpsModule>());
+            MODULES_WITH_TARGET_CONFIG_CHANGED_KEY.set(context, modules = new THashSet<>());
           }
           modules.add(module);
         }
@@ -91,17 +91,20 @@ public class BuildTargetConfiguration {
   }
 
   public void save(CompileContext context) {
+    persist(getCurrentState(context));
+  }
+
+  public void invalidate() {
+    persist("$dirty_mark$");
+  }
+
+  private void persist(final String data) {
     try {
       File configFile = getConfigFile();
       FileUtil.createParentDirs(configFile);
-      Writer out = new BufferedWriter(new FileWriter(configFile));
-      try {
-        String current = getCurrentState(context);
-        out.write(current);
-        myConfiguration = current;
-      }
-      finally {
-        out.close();
+      try (Writer out = new BufferedWriter(new FileWriter(configFile))) {
+        out.write(data);
+        myConfiguration = data;
       }
     }
     catch (IOException e) {
@@ -127,14 +130,13 @@ public class BuildTargetConfiguration {
 
   private String saveToString(CompileContext context) {
     StringWriter out = new StringWriter();
-    //noinspection IOResourceOpenedButNotSafelyClosed
     myTarget.writeConfiguration(context.getProjectDescriptor(), new PrintWriter(out));
     return out.toString();
   }
 
   public void storeNonexistentOutputRoots(CompileContext context) throws IOException {
     Collection<File> outputRoots = myTarget.getOutputRoots(context);
-    List<String> nonexistentOutputRoots = new SmartList<String>();
+    List<String> nonexistentOutputRoots = new SmartList<>();
     for (File root : outputRoots) {
       if (!root.exists()) {
         nonexistentOutputRoots.add(root.getAbsolutePath());
@@ -150,7 +152,7 @@ public class BuildTargetConfiguration {
   }
 
   public boolean outputRootWasDeleted(CompileContext context) throws IOException {
-    List<String> nonexistentOutputRoots = new SmartList<String>();
+    List<String> nonexistentOutputRoots = new SmartList<>();
 
     final Collection<File> targetRoots = myTarget.getOutputRoots(context);
     synchronized (ALL_DELETED_ROOTS_KEY) {
@@ -161,7 +163,7 @@ public class BuildTargetConfiguration {
           wasDeleted = !outputRoot.exists();
           if (wasDeleted) {
             if (allDeletedRoots == null) { // lazy init
-              allDeletedRoots = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
+              allDeletedRoots = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
               ALL_DELETED_ROOTS_KEY.set(context, allDeletedRoots);
             }
             allDeletedRoots.add(outputRoot);
@@ -184,7 +186,7 @@ public class BuildTargetConfiguration {
     }
     else {
       List<String> lines = StringUtil.split(FileUtil.loadFile(file), "\n");
-      storedNonExistentOutputs = new THashSet<String>(lines, FileUtil.PATH_HASHING_STRATEGY);
+      storedNonExistentOutputs = new THashSet<>(lines, FileUtil.PATH_HASHING_STRATEGY);
     }
     return !storedNonExistentOutputs.containsAll(nonexistentOutputRoots);
   }

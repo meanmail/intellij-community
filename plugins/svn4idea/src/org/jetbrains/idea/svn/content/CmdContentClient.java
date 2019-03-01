@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.content;
 
 import com.intellij.openapi.diagnostic.Logger;
@@ -8,19 +9,16 @@ import com.intellij.util.ArrayUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.idea.svn.api.BaseSvnClient;
+import org.jetbrains.idea.svn.api.Revision;
+import org.jetbrains.idea.svn.api.Target;
 import org.jetbrains.idea.svn.commandLine.CommandExecutor;
 import org.jetbrains.idea.svn.commandLine.CommandUtil;
 import org.jetbrains.idea.svn.commandLine.SvnBindException;
 import org.jetbrains.idea.svn.commandLine.SvnCommandName;
-import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * @author Konstantin Kolosovsky.
- */
 public class CmdContentClient extends BaseSvnClient implements ContentClient {
 
   private static final Logger LOG = Logger.getInstance(CmdContentClient.class);
@@ -28,14 +26,13 @@ public class CmdContentClient extends BaseSvnClient implements ContentClient {
   private static final String NO_PRISTINE_VERSION_FOR_FILE = "has no pristine version until it is committed";
 
   @Override
-  public byte[] getContent(@NotNull SvnTarget target, @Nullable SVNRevision revision, @Nullable SVNRevision pegRevision)
-    throws VcsException, FileTooBigRuntimeException {
+  public byte[] getContent(@NotNull Target target, @Nullable Revision revision, @Nullable Revision pegRevision) throws VcsException {
     // TODO: rewrite this to provide output as Stream
     // TODO: Also implement max size constraint like in SvnKitContentClient
     // NOTE: Export could not be used to get content of scheduled for deletion file
 
     List<String> parameters = new ArrayList<>();
-    CommandUtil.put(parameters, target.getPathOrUrlString(), pegRevision);
+    CommandUtil.put(parameters, target.getPath(), pegRevision);
     CommandUtil.put(parameters, revision);
 
     CommandExecutor command = null;
@@ -53,7 +50,7 @@ public class CmdContentClient extends BaseSvnClient implements ContentClient {
     }
 
     byte[] bytes = command != null ? command.getBinaryOutput().toByteArray() : ArrayUtil.EMPTY_BYTE_ARRAY;
-    ContentRevisionCache.checkContentsSize(target.getPathOrUrlString(), bytes.length);
+    ContentRevisionCache.checkContentsSize(target.getPath(), bytes.length);
 
     return bytes;
   }

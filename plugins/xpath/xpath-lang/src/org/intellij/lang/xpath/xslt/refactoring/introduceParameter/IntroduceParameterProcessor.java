@@ -48,11 +48,11 @@ class IntroduceParameterProcessor extends BaseRefactoringProcessor {
 
     private final XsltTemplate myTemplate;
 
-    public IntroduceParameterProcessor(Project project, XPathExpression expression, Set<XPathExpression> otherExpressions, IntroduceParameterOptions settings) {
+    IntroduceParameterProcessor(Project project, XPathExpression expression, Set<XPathExpression> otherExpressions, IntroduceParameterOptions settings) {
         super(project);
         mySettings = settings;
         myExpression = expression;
-        myOtherExpressions = settings.isReplaceAll() ? otherExpressions : Collections.<XPathExpression>emptySet();
+        myOtherExpressions = settings.isReplaceAll() ? otherExpressions : Collections.emptySet();
 
         final XmlTag templateTag = XsltCodeInsightUtil.getTemplateTag(myExpression, true, true);
         myTemplate = templateTag != null ? XsltElementFactory.getInstance().wrapElement(templateTag, XsltTemplate.class) : null;
@@ -61,11 +61,13 @@ class IntroduceParameterProcessor extends BaseRefactoringProcessor {
     }
 
 
+    @Override
     @NotNull
     protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usageInfos) {
         return new MyUsageViewDescriptorAdapter();
     }
 
+    @Override
     @NotNull
     protected UsageInfo[] findUsages() {
         int usageCount = myOtherExpressions.size() + 1;
@@ -85,8 +87,7 @@ class IntroduceParameterProcessor extends BaseRefactoringProcessor {
             }
             usageCount += callsToUpdate.size();
         } else {
-            //noinspection unchecked
-            callsToUpdate = Collections.emptyList();
+          callsToUpdate = Collections.emptyList();
         }
 
         final UsageInfo[] usageInfos = new UsageInfo[usageCount];
@@ -102,11 +103,8 @@ class IntroduceParameterProcessor extends BaseRefactoringProcessor {
         return usageInfos;
     }
 
-    protected void refreshElements(@NotNull PsiElement[] psiElements) {
-        // TODO When's that called? What should it do?
-    }
-
-    protected void performRefactoring(@NotNull UsageInfo[] usageInfos) {
+  @Override
+  protected void performRefactoring(@NotNull UsageInfo[] usageInfos) {
         XmlTag tag;
         if (myTemplate != null) {
             tag = myTemplate.getTag();
@@ -163,17 +161,21 @@ class IntroduceParameterProcessor extends BaseRefactoringProcessor {
         }
     }
 
+    @Override
+    @NotNull
     protected String getCommandName() {
         return XsltIntroduceParameterAction.COMMAND_NAME;
     }
 
     private class MyUsageViewDescriptorAdapter extends UsageViewDescriptorAdapter {
 
+        @Override
         @NotNull
         public PsiElement[] getElements() {
             return new PsiElement[]{ myTemplate };
         }
 
+        @Override
         public String getProcessedElementsHeader() {
             return "Adding parameter to template";
         }

@@ -53,19 +53,6 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
   public boolean ignoreObscureOperators = false;
 
   @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return ASSIGNMENT_ISSUES;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "Assignment replaceable with operator assignment";
-  }
-
-  @Override
   @NotNull
   public String buildErrorString(Object... infos) {
     final GrAssignmentExpression assignmentExpression =
@@ -136,6 +123,13 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
       m_name = "Replace '=' with '" + signText + "='";
     }
 
+    @Nls
+    @NotNull
+    @Override
+    public String getFamilyName() {
+      return "Simplify";
+    }
+
     @Override
     @NotNull
     public String getName() {
@@ -164,8 +158,7 @@ public class GroovyAssignmentCanBeOperatorAssignmentInspection
     @Override
     public void visitAssignmentExpression(@NotNull GrAssignmentExpression assignment) {
       super.visitAssignmentExpression(assignment);
-      final IElementType assignmentTokenType = assignment.getOperationTokenType();
-      if (!assignmentTokenType.equals(GroovyTokenTypes.mASSIGN)) {
+      if (assignment.isOperatorAssignment()) {
         return;
       }
       final GrExpression lhs = assignment.getLValue();

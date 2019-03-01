@@ -53,16 +53,20 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
     myNewSignature = newSignature;
   }
 
+  @Override
   protected void refreshElements(@NotNull PsiElement[] elements) {
     LOG.assertTrue(elements.length == 1);
     LOG.assertTrue(elements[0] instanceof PsiClass);
     myClass = (PsiClass)elements[0];
   }
 
+  @Override
+  @NotNull
   protected String getCommandName() {
     return ChangeClassSignatureDialog.REFACTORING_NAME;
   }
 
+  @Override
   @NotNull
   protected UsageViewDescriptor createUsageViewDescriptor(@NotNull UsageInfo[] usages) {
     return new ChangeClassSigntaureViewDescriptor(myClass);
@@ -85,6 +89,7 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
     return showConflicts(conflicts, refUsages.get());
   }
 
+  @Override
   @NotNull
   protected UsageInfo[] findUsages() {
     GlobalSearchScope projectScope = GlobalSearchScope.projectScope(myProject);
@@ -110,9 +115,10 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
         }
       }
     }
-    return result.toArray(new UsageInfo[result.size()]);
+    return result.toArray(UsageInfo.EMPTY_ARRAY);
   }
 
+  @Override
   protected void performRefactoring(@NotNull UsageInfo[] usages) {
     LocalHistoryAction a = LocalHistory.getInstance().startAction(getCommandName());
     try {
@@ -201,7 +207,7 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
   }
 
   private void processUsage(UsageInfo usage, PsiTypeParameter[] original, boolean[] toRemove) throws IncorrectOperationException {
-    PsiElementFactory factory = JavaPsiFacade.getInstance(myClass.getProject()).getElementFactory();
+    PsiElementFactory factory = JavaPsiFacade.getElementFactory(myClass.getProject());
     PsiJavaCodeReferenceElement referenceElement = (PsiJavaCodeReferenceElement)usage.getElement();
     assert referenceElement != null : usage;
     PsiSubstitutor usageSubstitutor = determineUsageSubstitutor(referenceElement);
@@ -241,6 +247,7 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
   private static class ReferenceParameterList implements ChangeSignatureUtil.ChildrenGenerator<PsiReferenceParameterList, PsiTypeElement> {
     private static final ReferenceParameterList INSTANCE = new ReferenceParameterList();
 
+    @Override
     public List<PsiTypeElement> getChildren(PsiReferenceParameterList list) {
       return Arrays.asList(list.getTypeParameterElements());
     }
@@ -249,6 +256,7 @@ public class ChangeClassSignatureProcessor extends BaseRefactoringProcessor {
   private static class TypeParameterList implements ChangeSignatureUtil.ChildrenGenerator<PsiTypeParameterList, PsiTypeParameter> {
     private static final TypeParameterList INSTANCE = new TypeParameterList();
 
+    @Override
     public List<PsiTypeParameter> getChildren(PsiTypeParameterList psiTypeParameterList) {
       return Arrays.asList(psiTypeParameterList.getTypeParameters());
     }

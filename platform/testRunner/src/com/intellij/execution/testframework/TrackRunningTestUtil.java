@@ -30,15 +30,11 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseEvent;
 
-/**
- * User: anna
- * Date: 10/19/11
- */
 public class TrackRunningTestUtil {
   private TrackRunningTestUtil() {
   }
 
-  public static void installStopListeners(final JTree tree, final Disposable parentDisposable, final Pass<AbstractTestProxy> setSelection) {
+  public static void installStopListeners(final JTree tree, final Disposable parentDisposable, final Pass<? super AbstractTestProxy> setSelection) {
     final ClickListener userSelectionListener = new ClickListener() {
       @Override
       public boolean onClick(@NotNull MouseEvent e, int clickCount) {

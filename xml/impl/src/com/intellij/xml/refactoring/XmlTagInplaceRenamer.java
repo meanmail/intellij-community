@@ -14,12 +14,6 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: spleaner
- * Date: Aug 8, 2007
- * Time: 2:20:33 PM
- */
 package com.intellij.xml.refactoring;
 
 import com.intellij.codeInsight.daemon.impl.quickfix.EmptyExpression;
@@ -40,7 +34,6 @@ import com.intellij.psi.xml.XmlChildRole;
 import com.intellij.psi.xml.XmlTag;
 import com.intellij.refactoring.RefactoringBundle;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
-import com.intellij.util.PairProcessor;
 import com.intellij.util.containers.Stack;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
@@ -97,7 +90,7 @@ public class XmlTagInplaceRenamer {
         final Template t = buildTemplate(tag, pair);
         TemplateManager.getInstance(project).startTemplate(myEditor, t, new TemplateEditingAdapter() {
           @Override
-          public void templateFinished(final Template template, boolean brokenOff) {
+          public void templateFinished(@NotNull final Template template, boolean brokenOff) {
             finish();
           }
 
@@ -150,7 +143,7 @@ public class XmlTagInplaceRenamer {
     return Pair.create(selected, other);
   }
 
-  private static Template buildTemplate(@NotNull final XmlTag tag, @NotNull final Pair<ASTNode, ASTNode> pair) {
+  private static Template buildTemplate(@NotNull final XmlTag tag, @NotNull final Pair<? extends ASTNode, ? extends ASTNode> pair) {
     final TemplateBuilderImpl builder = new TemplateBuilderImpl(tag);
 
     final ASTNode selected = pair.first;
@@ -175,7 +168,7 @@ public class XmlTagInplaceRenamer {
     return builder.buildInlineTemplate();
   }
 
-  private static void addHighlights(List<TextRange> ranges, Editor editor, ArrayList<RangeHighlighter> highlighters) {
+  private static void addHighlights(List<? extends TextRange> ranges, Editor editor, ArrayList<RangeHighlighter> highlighters) {
     EditorColorsManager colorsManager = EditorColorsManager.getInstance();
     final TextAttributes attributes = colorsManager.getGlobalScheme().getAttributes(EditorColors.WRITE_SEARCH_RESULT_ATTRIBUTES);
 

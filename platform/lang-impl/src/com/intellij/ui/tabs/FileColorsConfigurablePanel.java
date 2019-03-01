@@ -26,6 +26,7 @@ import com.intellij.ui.AnActionButton;
 import com.intellij.ui.IdeBorderFactory;
 import com.intellij.ui.ToolbarDecorator;
 import com.intellij.util.ui.JBUI;
+import com.intellij.util.ui.UIUtil;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -57,10 +58,12 @@ public class FileColorsConfigurablePanel extends JPanel implements Disposable {
     myEnabledCheckBox = new JCheckBox("Enable File Colors");
     myEnabledCheckBox.setMnemonic('F');
     topPanel.add(myEnabledCheckBox);
+    topPanel.add(Box.createRigidArea(JBUI.size(UIUtil.DEFAULT_HGAP, 0)));
 
     myTabsEnabledCheckBox = new JCheckBox("Use in Editor Tabs");
     myTabsEnabledCheckBox.setMnemonic('T');
     topPanel.add(myTabsEnabledCheckBox);
+    topPanel.add(Box.createRigidArea(JBUI.size(UIUtil.DEFAULT_HGAP, 0)));
 
     myProjectViewEnabledCheckBox = new JCheckBox("Use in Project View");
     myProjectViewEnabledCheckBox.setMnemonic('P');
@@ -92,7 +95,7 @@ public class FileColorsConfigurablePanel extends JPanel implements Disposable {
     final JPanel panel = ToolbarDecorator.createDecorator(myLocalTable)
       .addExtraAction(new AnActionButton("Share", AllIcons.Actions.Share) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           share();
         }
 
@@ -128,7 +131,7 @@ public class FileColorsConfigurablePanel extends JPanel implements Disposable {
     final JPanel shared = ToolbarDecorator.createDecorator(mySharedTable)
       .addExtraAction(new AnActionButton("Unshare", AllIcons.Actions.Unshare) {
         @Override
-        public void actionPerformed(AnActionEvent e) {
+        public void actionPerformed(@NotNull AnActionEvent e) {
           unshare();
         }
 

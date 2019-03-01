@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.jps.gradle.model.impl;
 
 import com.intellij.openapi.util.io.FileUtil;
@@ -32,11 +18,10 @@ import java.util.regex.Pattern;
 
 /**
  * @author Vladislav.Soroka
- * @since 7/10/2014
  */
 public class GradleResourceFileFilter implements FileFilter {
-  private FilePattern myFilePattern;
-  private File myRoot;
+  private final FilePattern myFilePattern;
+  private final File myRoot;
   private final Spec<RelativePath> myFileFilterSpec;
 
   public GradleResourceFileFilter(@NotNull File rootFile, @NotNull FilePattern filePattern) {
@@ -45,6 +30,7 @@ public class GradleResourceFileFilter implements FileFilter {
     myFileFilterSpec = getAsSpec();
   }
 
+  @Override
   public boolean accept(@NotNull File file) {
     final String relPath = FileUtil.getRelativePath(myRoot, file);
     return relPath != null && isIncluded(relPath);
@@ -56,25 +42,28 @@ public class GradleResourceFileFilter implements FileFilter {
   }
 
   private Spec<RelativePath> getAsSpec() {
-    return Specs.and(getAsIncludeSpec(true), Specs.not(getAsExcludeSpec(true)));
+    return Specs.intersect(getAsIncludeSpec(true), Specs.negate(getAsExcludeSpec(true)));
   }
 
   private Spec<RelativePath> getAsExcludeSpec(boolean caseSensitive) {
-    Collection<String> allExcludes = new LinkedHashSet<String>(myFilePattern.excludes);
-    List<Spec<RelativePath>> matchers = new ArrayList<Spec<RelativePath>>();
+    Collection<String> allExcludes = new LinkedHashSet<>(myFilePattern.excludes);
+    List<Spec<RelativePath>> matchers = new ArrayList<>();
     for (String exclude : allExcludes) {
       Spec<RelativePath> patternMatcher = PatternMatcherFactory.getPatternMatcher(false, caseSensitive, exclude);
       matchers.add(patternMatcher);
     }
-    return Specs.or(false, matchers);
+    if (matchers.isEmpty()) {
+      return Specs.satisfyNone();
+    }
+    return Specs.union(matchers);
   }
 
   private Spec<RelativePath> getAsIncludeSpec(boolean caseSensitive) {
-    List<Spec<RelativePath>> matchers = new ArrayList<Spec<RelativePath>>();
+    List<Spec<RelativePath>> matchers = new ArrayList<>();
     for (String include : myFilePattern.includes) {
       Spec<RelativePath> patternMatcher = PatternMatcherFactory.getPatternMatcher(true, caseSensitive, include);
       matchers.add(patternMatcher);
     }
-    return Specs.or(true, matchers);
+    return Specs.union(matchers);
   }
 }

@@ -17,7 +17,10 @@
 package com.intellij.psi.impl.source;
 
 import com.intellij.lang.Language;
-import com.intellij.openapi.fileTypes.*;
+import com.intellij.openapi.fileTypes.FileType;
+import com.intellij.openapi.fileTypes.LanguageFileType;
+import com.intellij.openapi.fileTypes.PlainTextFileType;
+import com.intellij.openapi.fileTypes.PlainTextLanguage;
 import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.FileElement;
 import com.intellij.psi.impl.source.tree.SharedImplUtil;
@@ -31,7 +34,6 @@ public class DummyHolder extends PsiFileImpl {
   private final CharTable myTable;
   private final Boolean myExplicitlyValid;
   private final Language myLanguage;
-  private volatile FileElement myFileElement;
   @SuppressWarnings("EmptyClass") private static class DummyHolderTreeLock {}
   private final DummyHolderTreeLock myTreeElementLock = new DummyHolderTreeLock();
 
@@ -66,11 +68,11 @@ public class DummyHolder extends PsiFileImpl {
     myLanguage = language;
     ((DummyHolderViewProvider)getViewProvider()).setDummyHolder(this);
     myContext = context;
-    myTable = table != null ? table : IdentityCharTable.INSTANCE;
+    myTable = table != null ? table : new CharTableImpl();
     if (contentElement instanceof FileElement) {
-      myFileElement = (FileElement)contentElement;
-      myFileElement.setPsi(this);
-      myFileElement.setCharTable(myTable);
+      ((FileElement)contentElement).setPsi(this);
+      ((FileElement)contentElement).setCharTable(myTable);
+      setTreeElementPointer((FileElement)contentElement);
     }
     else if (contentElement != null) {
       getTreeElement().rawAddChildren(contentElement);
@@ -107,7 +109,7 @@ public class DummyHolder extends PsiFileImpl {
     visitor.visitFile(this);
   }
 
-  @SuppressWarnings({"HardCodedStringLiteral"})
+  @Override
   public String toString() {
     return "DummyHolder";
   }
@@ -127,16 +129,16 @@ public class DummyHolder extends PsiFileImpl {
   @Override
   @NotNull
   public FileElement getTreeElement() {
-    FileElement fileElement = myFileElement;
+    FileElement fileElement = super.derefTreeElement();
     if (fileElement != null) return fileElement;
 
     synchronized (myTreeElementLock) {
-      fileElement = myFileElement;
+      fileElement = super.derefTreeElement();
       if (fileElement == null) {
         fileElement = new FileElement(TokenType.DUMMY_HOLDER, null);
         fileElement.setPsi(this);
         if (myTable != null) fileElement.setCharTable(myTable);
-        myFileElement = fileElement;
+        setTreeElementPointer(fileElement);
         clearCaches();
       }
       return fileElement;
@@ -150,16 +152,13 @@ public class DummyHolder extends PsiFileImpl {
   }
 
   @Override
-  @SuppressWarnings({"CloneDoesntDeclareCloneNotSupportedException"})
+  @SuppressWarnings({"MethodDoesntCallSuperMethod"})
   protected PsiFileImpl clone() {
-    final PsiFileImpl psiClone = cloneImpl(myFileElement);
-    final DummyHolderViewProvider dummyHolderViewProvider = new DummyHolderViewProvider(getManager());
-    myViewProvider = dummyHolderViewProvider;
-    dummyHolderViewProvider.setDummyHolder((DummyHolder)psiClone);
-    final FileElement treeClone = (FileElement)calcTreeElement().clone();
-    psiClone.setTreeElementPointer(treeClone); // should not use setTreeElement here because cloned file still have VirtualFile (SCR17963)
+    DummyHolder psiClone = (DummyHolder)cloneImpl((FileElement)calcTreeElement().clone());
+    DummyHolderViewProvider dummyHolderViewProvider = new DummyHolderViewProvider(getManager());
+    psiClone.myViewProvider = dummyHolderViewProvider;
+    dummyHolderViewProvider.setDummyHolder(psiClone);
     psiClone.myOriginalFile = isPhysical() ? this : myOriginalFile;
-    treeClone.setPsi(psiClone);
     return psiClone;
   }
 
@@ -172,8 +171,4 @@ public class DummyHolder extends PsiFileImpl {
     return super.getViewProvider();
   }
 
-  @Override
-  public boolean useStrongRefs() {
-    return true;
-  }
 }

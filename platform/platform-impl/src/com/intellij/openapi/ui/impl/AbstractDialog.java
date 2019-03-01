@@ -17,7 +17,6 @@ package com.intellij.openapi.ui.impl;
 
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.wm.IdeFocusManager;
-import com.intellij.ui.FocusTrackback;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
@@ -99,7 +98,7 @@ interface AbstractDialog extends Disposable {
 
   void show();
 
+  @NotNull
   IdeFocusManager getFocusManager();
 
-  FocusTrackback getFocusTrackback();
 }

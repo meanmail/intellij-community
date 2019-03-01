@@ -1,9 +1,9 @@
-// "Convert to local" "true"
+// "Convert field to local variable in constructor" "true"
 import java.util.ArrayList;
 
 class ITest {
 
-  private ArrayList<String> may<caret>BeLocal = new ArrayList<String>();
+  private ArrayList<String> may<caret>BeLocal = new ArrayList<String>(); //my comment to keep in code
 
   public IntelliJBugConvertToLocal(int x, int z) {
 

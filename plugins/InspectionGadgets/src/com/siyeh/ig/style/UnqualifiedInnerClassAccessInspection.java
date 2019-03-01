@@ -1,5 +1,5 @@
 /*
- * Copyright 2010-2014 Bas Leijdekkers
+ * Copyright 2010-2018 Bas Leijdekkers
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,18 +21,24 @@ import com.intellij.codeInspection.ui.SingleCheckboxOptionsPanel;
 import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.util.IncorrectOperationException;
+import com.intellij.psi.util.PsiTreeUtil;
 import com.siyeh.InspectionGadgetsBundle;
+import com.siyeh.ig.BaseInspection;
+import com.siyeh.ig.BaseInspectionVisitor;
 import com.siyeh.ig.InspectionGadgetsFix;
 import com.siyeh.ig.psiutils.ClassUtils;
 import com.siyeh.ig.psiutils.HighlightUtils;
 import com.siyeh.ig.psiutils.ImportUtils;
+import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.util.*;
 
-public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClassAccessInspectionBase implements CleanupLocalInspectionTool{
+public class UnqualifiedInnerClassAccessInspection extends BaseInspection implements CleanupLocalInspectionTool{
+
+  @SuppressWarnings({"PublicField"})
+  public boolean ignoreReferencesToLocalInnerClasses = false;
 
   @Override
   public JComponent createOptionsPanel() {
@@ -45,22 +51,35 @@ public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClass
     return new UnqualifiedInnerClassAccessFix();
   }
 
+  @Nls
+  @NotNull
+  @Override
+  public String getDisplayName() {
+    return InspectionGadgetsBundle.message("unqualified.inner.class.access.display.name");
+  }
+
+  @NotNull
+  @Override
+  protected String buildErrorString(Object... infos) {
+    return InspectionGadgetsBundle.message("unqualified.inner.class.access.problem.descriptor");
+  }
+
+  @Override
+  public BaseInspectionVisitor buildVisitor() {
+    return new UnqualifiedInnerClassAccessVisitor();
+  }
+
   private static class UnqualifiedInnerClassAccessFix extends InspectionGadgetsFix {
-    @Override
-    @NotNull
-    public String getFamilyName() {
-      return getName();
-    }
 
     @Override
     @NotNull
-    public String getName() {
+    public String getFamilyName() {
       return InspectionGadgetsBundle.message(
         "unqualified.inner.class.access.quickfix");
     }
 
     @Override
-    protected void doFix(Project project, ProblemDescriptor descriptor) throws IncorrectOperationException {
+    protected void doFix(Project project, ProblemDescriptor descriptor) {
       final PsiElement element = descriptor.getPsiElement();
       if (!(element instanceof PsiJavaCodeReferenceElement)) {
         return;
@@ -113,17 +132,9 @@ public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClass
           }
         }
       }
-      final ReferenceCollector referenceCollector;
-      if (onDemand) {
-        referenceCollector = new ReferenceCollector(qualifiedName, true);
-      }
-      else {
-        referenceCollector = new ReferenceCollector(innerClassName, false);
-      }
-      final PsiClass[] classes = javaFile.getClasses();
-      for (PsiClass psiClass : classes) {
-        psiClass.accept(referenceCollector);
-      }
+      final ReferenceCollector referenceCollector = new ReferenceCollector(onDemand ? qualifiedName : innerClassName, onDemand);
+      javaFile.accept(referenceCollector);
+
       final Collection<PsiJavaCodeReferenceElement> references = referenceCollector.getReferences();
       final SmartPointerManager pointerManager = SmartPointerManager.getInstance(project);
       final List<SmartPsiElementPointer> pointers = new ArrayList<>();
@@ -153,7 +164,9 @@ public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClass
             elements.add(psiElement);
           }
         }
-        HighlightUtils.highlightElements(elements);
+        if (isOnTheFly()) {
+          HighlightUtils.highlightElements(elements);
+        }
       }
     }
 
@@ -218,6 +231,9 @@ public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClass
     }
 
     @Override
+    public void visitImportList(PsiImportList list) { }
+
+    @Override
     public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
       super.visitReferenceElement(reference);
       if (reference.isQualified()) {
@@ -252,6 +268,44 @@ public class UnqualifiedInnerClassAccessInspection extends UnqualifiedInnerClass
 
     public Collection<PsiJavaCodeReferenceElement> getReferences() {
       return references;
+    }
+  }
+
+  private class UnqualifiedInnerClassAccessVisitor extends BaseInspectionVisitor {
+
+    @Override
+    public void visitReferenceElement(PsiJavaCodeReferenceElement reference) {
+      super.visitReferenceElement(reference);
+      if (reference.isQualified()) {
+        return;
+      }
+      final PsiElement target = reference.resolve();
+      if (!(target instanceof PsiClass)) {
+        return;
+      }
+      final PsiClass aClass = (PsiClass)target;
+      if (!aClass.hasModifierProperty(PsiModifier.STATIC) && reference.getParent() instanceof PsiNewExpression) {
+          return;
+      }
+      final PsiClass containingClass = aClass.getContainingClass();
+      if (containingClass == null) {
+        return;
+      }
+      if (ignoreReferencesToLocalInnerClasses) {
+        if (PsiTreeUtil.isAncestor(containingClass, reference, true)) {
+          return;
+        }
+        final PsiClass referenceClass = PsiTreeUtil.getParentOfType(reference, PsiClass.class);
+        if (referenceClass != null && referenceClass.isInheritor(containingClass, true)) {
+          return;
+        }
+      }
+      registerError(reference, containingClass.getName());
+    }
+
+    @Override
+    public void visitReferenceExpression(PsiReferenceExpression expression) {
+      visitReferenceElement(expression);
     }
   }
 }

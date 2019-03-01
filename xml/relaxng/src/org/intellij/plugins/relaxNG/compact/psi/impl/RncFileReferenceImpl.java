@@ -34,19 +34,13 @@ import org.intellij.plugins.relaxNG.references.FileReferenceUtil;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * Created by IntelliJ IDEA.
- * User: sweinreuter
- * Date: 29.08.2007
- */
 abstract class RncFileReferenceImpl extends RncElementImpl implements RncFileReference {
-  public RncFileReferenceImpl(ASTNode node) {
+  RncFileReferenceImpl(ASTNode node) {
     super(node);
   }
 
   @NotNull
   @Override
-  @SuppressWarnings({ "SSBasedInspection" })
   public PsiReference[] getReferences() {
     final ASTNode literal = getNode().findChildByType(RncTokenTypes.LITERAL);
     if (literal == null) return PsiReference.EMPTY_ARRAY;

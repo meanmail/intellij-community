@@ -41,7 +41,7 @@ import java.io.File;
  */
 public class ColorBlindnessInternalAction extends DumbAwareAction {
   @Override
-  public void actionPerformed(AnActionEvent event) {
+  public void actionPerformed(@NotNull AnActionEvent event) {
     new ColorDialog(event).show();
   }
 
@@ -164,7 +164,7 @@ public class ColorBlindnessInternalAction extends DumbAwareAction {
   private static final class FilterItem {
     private final ImageFilter myFilter;
 
-    public FilterItem(ImageFilter filter) {
+    FilterItem(ImageFilter filter) {
       myFilter = filter;
     }
 
@@ -235,7 +235,7 @@ public class ColorBlindnessInternalAction extends DumbAwareAction {
             array[i] = Color.HSBtoRGB(w / width, saturation, brightness);
           }
         }
-        BufferedImage image = UIUtil.createImage(bounds.width, bounds.height, BufferedImage.TYPE_INT_RGB);
+        BufferedImage image = UIUtil.createImage(g, bounds.width, bounds.height, BufferedImage.TYPE_INT_RGB);
         image.setRGB(0, 0, bounds.width, bounds.height, array, 0, bounds.width);
         myImage = ImageUtil.filter(image, myFilter);
       }

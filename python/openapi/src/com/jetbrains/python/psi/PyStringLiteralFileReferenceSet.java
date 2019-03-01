@@ -58,10 +58,9 @@ public class PyStringLiteralFileReferenceSet extends RootFileReferenceSet {
 
   @Override
   protected void reparse() {
-    //noinspection ConstantConditions
     if (myStringLiteralExpression != null) {
       final List<FileReference> references = getFileReferences(myStringLiteralExpression);
-      myReferences = references.toArray(new FileReference[references.size()]);
+      myReferences = references.toArray(FileReference.EMPTY);
     }
   }
 

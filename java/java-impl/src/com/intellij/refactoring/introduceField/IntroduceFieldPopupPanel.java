@@ -32,10 +32,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemListener;
 
-/**
- * User: anna
- * Date: 4/8/11
- */
 public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
   private @Nullable JComboBox myInitializerCombo;
   private JComboBox myVisibilityCombo;
@@ -55,6 +51,7 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
           occurrences, allowInitInMethod, allowInitInMethodIfAll, typeSelectorManager);
   }
 
+  @Override
   protected void initializeInitializerPlace(PsiExpression initializerExpression,
                                             BaseExpressionToFieldHandler.InitializationPlace ourLastInitializerPlace) {
     if (initializerExpression != null) {
@@ -68,12 +65,12 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
 
     final PsiMethod setUpMethod = TestFrameworks.getInstance().findSetUpMethod(myParentClass);
     final boolean setupEnabled = hasSetUpChoice();
-    if (ourLastInitializerPlace == BaseExpressionToFieldHandler.InitializationPlace.IN_SETUP_METHOD && 
+    if (ourLastInitializerPlace == BaseExpressionToFieldHandler.InitializationPlace.IN_SETUP_METHOD &&
         setupEnabled && (myInitializerExpression != null && PsiTreeUtil.isAncestor(setUpMethod, myInitializerExpression, false) ||
                          TestFrameworks.getInstance().isTestClass(myParentClass))) {
       myInitialisersPlaceModel.setSelectedItem(BaseExpressionToFieldHandler.InitializationPlace.IN_SETUP_METHOD);
     }
-    else if (ourLastInitializerPlace == BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR && 
+    else if (ourLastInitializerPlace == BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR &&
              myInitialisersPlaceModel.getIndexOf(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR) > -1 && myParentClass.getConstructors().length > 0) {
       myInitialisersPlaceModel.setSelectedItem(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR);
     }
@@ -108,6 +105,7 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
     }
   }
 
+  @Override
   public BaseExpressionToFieldHandler.InitializationPlace getInitializerPlace() {
     if (myInitializerCombo != null) {
       return (BaseExpressionToFieldHandler.InitializationPlace)myInitializerCombo.getSelectedItem();
@@ -115,6 +113,7 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
     return (BaseExpressionToFieldHandler.InitializationPlace)myInitialisersPlaceModel.getElementAt(0);
   }
 
+  @Override
   public String getFieldVisibility() {
     String visibility = JavaRefactoringSettings.getInstance().INTRODUCE_FIELD_VISIBILITY;
     if (visibility == null) {
@@ -123,6 +122,7 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
     return visibility;
   }
 
+  @Override
   protected JComponent createInitializerPlacePanel(final ItemListener itemListener, final ItemListener finalUpdater) {
 
    JPanel groupPanel = new JPanel(new GridBagLayout());
@@ -188,8 +188,10 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
   }
 
   @Override
-  protected boolean updateInitializationPlaceModel(boolean initializedInSetup, boolean initializedInConstructor) {
-    myInitialisersPlaceModel.removeElement(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION);
+  protected boolean updateInitializationPlaceModel(boolean initializedInSetup, boolean initializedInConstructor, boolean locals) {
+    if (locals) {
+      myInitialisersPlaceModel.removeElement(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION);
+    }
     if (!initializedInConstructor) {
       myInitialisersPlaceModel.removeElement(BaseExpressionToFieldHandler.InitializationPlace.IN_CONSTRUCTOR);
     }
@@ -206,11 +208,13 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
     return myInitialisersPlaceModel.getIndexOf(BaseExpressionToFieldHandler.InitializationPlace.IN_SETUP_METHOD) > -1;
   }
 
+  @Override
   public void setInitializeInFieldDeclaration() {
     LOG.assertTrue(myInitializerCombo != null);
     myInitializerCombo.setSelectedItem(BaseExpressionToFieldHandler.InitializationPlace.IN_FIELD_DECLARATION);
   }
 
+  @Override
   public void setVisibility(String visibility) {
     myVisibilityCombo.setSelectedItem(visibility);
   }
@@ -255,6 +259,7 @@ public class IntroduceFieldPopupPanel extends IntroduceFieldCentralPanel {
     return panel;
   }
 
+  @Override
   protected JPanel composeWholePanel(JComponent initializerPlacePanel, JPanel checkboxPanel) {
     final JPanel panel = new JPanel(new GridBagLayout());
     final GridBagConstraints constraints =

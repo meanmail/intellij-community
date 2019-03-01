@@ -43,7 +43,13 @@ import java.io.IOException;
 public class JavaLanguageLevelPusher implements FilePropertyPusher<LanguageLevel> {
 
   public static void pushLanguageLevel(@NotNull final Project project) {
-    PushedFilePropertiesUpdater.getInstance(project).pushAll(new JavaLanguageLevelPusher());
+    PushedFilePropertiesUpdater instance = PushedFilePropertiesUpdater.getInstance(project);
+    FilePropertyPusher[] extensions = EP_NAME.getExtensions();
+    for (FilePropertyPusher pusher : extensions) {
+      if (pusher instanceof JavaLanguageLevelPusher) {
+        instance.pushAll(pusher);
+      }
+    }
   }
 
   @Override
@@ -92,20 +98,21 @@ public class JavaLanguageLevelPusher implements FilePropertyPusher<LanguageLevel
 
   @Override
   public void persistAttribute(@NotNull Project project, @NotNull VirtualFile fileOrDir, @NotNull LanguageLevel level) throws IOException {
-    final DataInputStream iStream = PERSISTENCE.readAttribute(fileOrDir);
-    if (iStream != null) {
-      try {
+    try (DataInputStream iStream = PERSISTENCE.readAttribute(fileOrDir)) {
+      if (iStream != null) {
         final int oldLevelOrdinal = DataInputOutputUtil.readINT(iStream);
         if (oldLevelOrdinal == level.ordinal()) return;
       }
-      finally {
-        iStream.close();
-      }
     }
 
-    final DataOutputStream oStream = PERSISTENCE.writeAttribute(fileOrDir);
-    DataInputOutputUtil.writeINT(oStream, level.ordinal());
-    oStream.close();
+    try (DataOutputStream oStream = PERSISTENCE.writeAttribute(fileOrDir)) {
+      DataInputOutputUtil.writeINT(oStream, level.ordinal());
+    }
+
+    // Todo: GwtLanguageLevelPusher changes java language level for single files without firing filePropertiesChanged
+    // so code below doesn't work.
+    // Uncomment it and remove older code once the problem is fixed
+    //PushedFilePropertiesUpdater.getInstance(project).filePropertiesChanged(fileOrDir, f -> isJavaLike(f.getFileType()));
 
     for (VirtualFile child : fileOrDir.getChildren()) {
       if (!child.isDirectory() && isJavaLike(child.getFileType())) {

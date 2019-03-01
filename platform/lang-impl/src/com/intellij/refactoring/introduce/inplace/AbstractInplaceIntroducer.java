@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.refactoring.introduce.inplace;
 
 import com.intellij.codeInsight.highlighting.HighlightManager;
@@ -20,22 +6,22 @@ import com.intellij.codeInsight.template.TextResult;
 import com.intellij.codeInsight.template.impl.TemplateManagerImpl;
 import com.intellij.codeInsight.template.impl.TemplateState;
 import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.application.Result;
 import com.intellij.openapi.command.CommandProcessor;
 import com.intellij.openapi.command.WriteCommandAction;
 import com.intellij.openapi.command.impl.StartMarkAction;
-import com.intellij.openapi.command.undo.UndoUtil;
-import com.intellij.openapi.editor.*;
+import com.intellij.openapi.editor.Editor;
+import com.intellij.openapi.editor.EditorFactory;
+import com.intellij.openapi.editor.RangeMarker;
+import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.colors.EditorColors;
 import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.event.DocumentAdapter;
 import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.util.Ref;
@@ -45,26 +31,21 @@ import com.intellij.psi.*;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.intellij.psi.util.PsiUtilCore;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.listeners.RefactoringEventData;
 import com.intellij.refactoring.listeners.RefactoringEventListener;
 import com.intellij.refactoring.rename.inplace.InplaceRefactoring;
-import com.intellij.ui.DottedBorder;
 import com.intellij.util.ui.PositionTracker;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.LineBorder;
 import java.awt.*;
-import java.util.*;
 import java.util.List;
+import java.util.*;
 
-/**
- * User: anna
- * Date: 3/15/11
- */
 public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner, E extends PsiElement> extends
                                                                                                         InplaceVariableIntroducer<E> {
   protected V myLocalVariable;
@@ -78,7 +59,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
   private EditorEx myPreview;
   private final JComponent myPreviewComponent;
 
-  private DocumentAdapter myDocumentAdapter;
+  private DocumentListener myDocumentAdapter;
   protected final JPanel myWholePanel;
   protected boolean myFinished = false;
 
@@ -103,28 +84,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
     myExprText = getExpressionText(expr);
     myLocalName = localVariable != null ? localVariable.getName() : null;
 
-    Document document = EditorFactory.getInstance().createDocument("");
-    UndoUtil.disableUndoFor(document);
-    myPreview = (EditorEx)EditorFactory.getInstance().createEditor(document, project, languageFileType, true);
-    myPreview.setOneLineMode(true);
-    final EditorSettings settings = myPreview.getSettings();
-    settings.setAdditionalLinesCount(0);
-    settings.setAdditionalColumnsCount(1);
-    settings.setRightMarginShown(false);
-    settings.setFoldingOutlineShown(false);
-    settings.setLineNumbersShown(false);
-    settings.setLineMarkerAreaShown(false);
-    settings.setIndentGuidesShown(false);
-    settings.setVirtualSpace(false);
-    myPreview.setHorizontalScrollbarVisible(false);
-    myPreview.setVerticalScrollbarVisible(false);
-    myPreview.setCaretEnabled(false);
-    settings.setLineCursorWidth(1);
-
-    final Color bg = myPreview.getColorsScheme().getColor(EditorColors.CARET_ROW_COLOR);
-    myPreview.setBackgroundColor(bg);
-    myPreview.setBorder(BorderFactory.createCompoundBorder(new DottedBorder(Color.gray), new LineBorder(bg, 2)));
-
+    myPreview = createPreviewComponent(project, languageFileType);
     myPreviewComponent = new JPanel(new BorderLayout());
     myPreviewComponent.add(myPreview.getComponent(), BorderLayout.CENTER);
     myPreviewComponent.setBorder(new EmptyBorder(2, 2, 6, 2));
@@ -228,10 +188,9 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
         updateTitle(getVariable());
         started = super.performInplaceRefactoring(nameSuggestions);
         if (started) {
-          onRenameTemplateStarted();
-          myDocumentAdapter = new DocumentAdapter() {
+          myDocumentAdapter = new DocumentListener() {
             @Override
-            public void documentChanged(DocumentEvent e) {
+            public void documentChanged(@NotNull DocumentEvent e) {
               if (myPreview == null) return;
               final TemplateState templateState = TemplateManagerImpl.getTemplateState(myEditor);
               if (templateState != null) {
@@ -256,8 +215,6 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
     }, getCommandName(), getCommandName());
     return result.get();
   }
-
-  protected void onRenameTemplateStarted() {}
 
   protected int getCaretOffset() {
     RangeMarker r;
@@ -357,10 +314,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
   @Override
   public void finish(boolean success) {
     myFinished = true;
-    final TemplateState templateState = TemplateManagerImpl.getTemplateState(myEditor);
-    if (templateState != null) {
-      myEditor.putUserData(ACTIVE_INTRODUCE, null);
-    }
+    myEditor.putUserData(ACTIVE_INTRODUCE, null);
     if (myDocumentAdapter != null) {
       myEditor.getDocument().removeDocumentListener(myDocumentAdapter);
     }
@@ -400,17 +354,17 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
   }
 
   @Override
-  protected void collectAdditionalElementsToRename(List<Pair<PsiElement, TextRange>> stringUsages) {
+  protected void collectAdditionalElementsToRename(@NotNull List<Pair<PsiElement, TextRange>> stringUsages) {
     if (isReplaceAllOccurrences()) {
       for (E expression : getOccurrences()) {
-        LOG.assertTrue(expression.isValid(), expression.getText());
-        stringUsages.add(Pair.<PsiElement, TextRange>create(expression, new TextRange(0, expression.getTextLength())));
+        PsiUtilCore.ensureValid(expression);
+        stringUsages.add(Pair.create(expression, new TextRange(0, expression.getTextLength())));
       }
     }  else if (getExpr() != null) {
       correctExpression();
       final E expr = getExpr();
-      LOG.assertTrue(expr.isValid(), expr.getText());
-      stringUsages.add(Pair.<PsiElement, TextRange>create(expr, new TextRange(0, expr.getTextLength())));
+      PsiUtilCore.ensureValid(expr);
+      stringUsages.add(Pair.create(expr, new TextRange(0, expr.getTextLength())));
     }
 
     final V localVariable = getLocalVariable();
@@ -418,7 +372,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
       final PsiElement nameIdentifier = localVariable.getNameIdentifier();
       if (nameIdentifier != null) {
         int length = nameIdentifier.getTextLength();
-        stringUsages.add(Pair.<PsiElement, TextRange>create(nameIdentifier, new TextRange(0, length)));
+        stringUsages.add(Pair.create(nameIdentifier, new TextRange(0, length)));
       }
     }
   }
@@ -483,7 +437,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
         }
       }
       final List<RangeMarker> occurrenceMarkers = getOccurrenceMarkers();
-      for (int i = 0, occurrenceMarkersSize = occurrenceMarkers.size(); i < occurrenceMarkersSize; i++) {
+      for (int i = 0; i < occurrenceMarkers.size(); i++) {
         RangeMarker marker = occurrenceMarkers.get(i);
         if (getExprMarker() != null && marker.getStartOffset() == getExprMarker().getStartOffset() && myExpr != null) {
           myOccurrences[i] = myExpr;
@@ -554,12 +508,7 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
       return false;
     }
     if (getLocalVariable() != null) {
-      new WriteCommandAction(myProject, getCommandName(), getCommandName()) {
-        @Override
-        protected void run(@NotNull Result result) throws Throwable {
-          getLocalVariable().setName(myLocalName);
-        }
-      }.execute();
+      WriteCommandAction.writeCommandAction(myProject).withName(getCommandName()).withGroupId(getCommandName()).run(() -> getLocalVariable().setName(myLocalName));
     }
 
     if (!isIdentifier(newName, myExpr != null ? myExpr.getLanguage() : getLocalVariable().getLanguage())) return false;
@@ -622,20 +571,6 @@ public abstract class AbstractInplaceIntroducer<V extends PsiNameIdentifierOwner
 
     }
     return myLocalVariable;
-  }
-
-  public void stopIntroduce(Editor editor) {
-    final TemplateState templateState = TemplateManagerImpl.getTemplateState(editor);
-    if (templateState != null) {
-      final Runnable runnable = () -> templateState.gotoEnd(true);
-      CommandProcessor.getInstance().executeCommand(myProject, runnable, getCommandName(), getCommandName());
-    }
-  }
-
-  @Override
-  protected void navigateToAlreadyStarted(Document oldDocument, int exitCode) {
-    finish(true);
-    super.navigateToAlreadyStarted(oldDocument, exitCode);
   }
 
   @Override

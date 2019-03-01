@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2013 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -22,24 +22,22 @@ import com.intellij.psi.*;
 import com.intellij.psi.util.ClassUtil;
 import com.intellij.psi.util.PsiTreeUtil;
 import com.intellij.spi.SPIFileType;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-/**
- * User: anna
- */
 public class SPIPackageOrClassReferenceElement extends ASTWrapperPsiElement implements PsiReference {
   public SPIPackageOrClassReferenceElement(@NotNull ASTNode node) {
     super(node);
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return this;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     final PsiElement last = PsiTreeUtil.getDeepestLast(this);
@@ -53,11 +51,12 @@ public class SPIPackageOrClassReferenceElement extends ASTWrapperPsiElement impl
   }
 
   @Override
-  public PsiElement handleElementRename(String newElementName) throws IncorrectOperationException {
+  public PsiElement handleElementRename(@NotNull String newElementName) throws IncorrectOperationException {
     final SPIClassProvidersElementList firstChild =
       (SPIClassProvidersElementList)PsiFileFactory.getInstance(getProject())
         .createFileFromText("spi_dummy", SPIFileType.INSTANCE, newElementName).getFirstChild();
-    return replace(firstChild.getElements().get(0));
+    PsiTreeUtil.getDeepestLast(this).replace(PsiTreeUtil.getDeepestLast(firstChild.getElements().get(0)));
+    return this;
   }
 
   @Nullable
@@ -72,17 +71,27 @@ public class SPIPackageOrClassReferenceElement extends ASTWrapperPsiElement impl
 
   @Override
   public PsiElement bindToElement(@NotNull PsiElement element) throws IncorrectOperationException {
+    String newElementName;
     if (element instanceof PsiPackage) {
-      return handleElementRename(((PsiPackage)element).getQualifiedName());
-    } else if (element instanceof PsiClass) {
-      final String className = ClassUtil.getJVMClassName((PsiClass)element);
-      return className != null ? handleElementRename(className) : null;
+      newElementName = ((PsiPackage)element).getQualifiedName();
+    }
+    else if (element instanceof PsiClass) {
+      newElementName = ClassUtil.getJVMClassName((PsiClass)element);
+    }
+    else {
+      return null;
+    }
+    if (newElementName != null) {
+      final SPIClassProvidersElementList firstChild =
+        (SPIClassProvidersElementList)PsiFileFactory.getInstance(getProject())
+          .createFileFromText("spi_dummy", SPIFileType.INSTANCE, newElementName).getFirstChild();
+      return replace(firstChild.getElements().get(0));
     }
     return null;
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     if (element instanceof PsiPackage) {
       return getText().equals(((PsiPackage)element).getQualifiedName());
     } else if (element instanceof PsiClass) {
@@ -99,11 +108,5 @@ public class SPIPackageOrClassReferenceElement extends ASTWrapperPsiElement impl
   @Override
   public PsiReference getReference() {
     return this;
-  }
-
-  @NotNull
-  @Override
-  public Object[] getVariants() {
-    return ArrayUtil.EMPTY_OBJECT_ARRAY;
   }
 }

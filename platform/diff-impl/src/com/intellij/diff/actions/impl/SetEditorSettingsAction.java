@@ -1,23 +1,9 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.diff.actions.impl;
 
 import com.intellij.diff.tools.util.SyncScrollSupport;
 import com.intellij.diff.tools.util.base.HighlightingLevel;
-import com.intellij.diff.tools.util.base.TextDiffSettingsHolder;
+import com.intellij.diff.tools.util.base.TextDiffSettingsHolder.TextDiffSettings;
 import com.intellij.icons.AllIcons;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.actionSystem.ex.ActionUtil;
@@ -34,15 +20,15 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
-  @NotNull private final TextDiffSettingsHolder.TextDiffSettings myTextSettings;
+  @NotNull private final TextDiffSettings myTextSettings;
   @NotNull private final List<? extends Editor> myEditors;
   @Nullable private SyncScrollSupport.Support mySyncScrollSupport;
 
   @NotNull private final AnAction[] myActions;
 
-  public SetEditorSettingsAction(@NotNull TextDiffSettingsHolder.TextDiffSettings settings,
+  public SetEditorSettingsAction(@NotNull TextDiffSettings settings,
                                  @NotNull List<? extends Editor> editors) {
-    super("Editor Settings", null, AllIcons.General.SecondaryGroup);
+    super("Editor Settings", null, AllIcons.General.GearPlain);
     setPopup(true);
     myTextSettings = settings;
     myEditors = editors;
@@ -60,7 +46,7 @@ public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
 
         @Override
         public void setSelected(boolean state) {
-          myTextSettings.setShowWhiteSpaces(state);
+          myTextSettings.setShowWhitespaces(state);
         }
 
         @Override
@@ -163,25 +149,44 @@ public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
   @NotNull
   @Override
   public AnAction[] getChildren(@Nullable AnActionEvent e) {
-    List<AnAction> result = new ArrayList<>();
-    ContainerUtil.addAll(result, myActions);
+    AnAction editorSettingsGroup = ActionManager.getInstance().getAction("Diff.EditorGutterPopupMenu.EditorSettings");
+
+    List<AnAction> actions = new ArrayList<>();
+    ContainerUtil.addAll(actions, myActions);
+    actions.add(editorSettingsGroup);
+    actions.add(Separator.getInstance());
+
+    if (e != null && ActionPlaces.DIFF_TOOLBAR.equals(e.getPlace())) {
+      return actions.toArray(AnAction.EMPTY_ARRAY);
+    }
+
+    ActionGroup gutterGroup = (ActionGroup)ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_GUTTER_POPUP);
+    List<AnAction> result = ContainerUtil.newArrayList(gutterGroup.getChildren(e));
     result.add(Separator.getInstance());
-    result.add(ActionManager.getInstance().getAction(IdeActions.GROUP_DIFF_EDITOR_GUTTER_POPUP));
-    return ContainerUtil.toArray(result, new AnAction[result.size()]);
+    replaceOrAppend(result, editorSettingsGroup, new DefaultActionGroup(actions));
+    return result.toArray(AnAction.EMPTY_ARRAY);
+  }
+
+  private static <T> void replaceOrAppend(List<T> list, T from, T to) {
+    int index = list.indexOf(from);
+    if (index == -1) index = list.size();
+    list.remove(from);
+    list.add(index, to);
   }
 
   private abstract class EditorSettingToggleAction extends ToggleAction implements DumbAware, EditorSettingAction {
     private EditorSettingToggleAction(@NotNull String actionId) {
       ActionUtil.copyFrom(this, actionId);
+      getTemplatePresentation().setIcon(null);
     }
 
     @Override
-    public boolean isSelected(AnActionEvent e) {
+    public boolean isSelected(@NotNull AnActionEvent e) {
       return isSelected();
     }
 
     @Override
-    public void setSelected(AnActionEvent e, boolean state) {
+    public void setSelected(@NotNull AnActionEvent e, boolean state) {
       setSelected(state);
       for (Editor editor : myEditors) {
         apply(editor, state);
@@ -194,6 +199,7 @@ public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
 
     public abstract void apply(@NotNull Editor editor, boolean value);
 
+    @Override
     public void applyDefaults(@NotNull List<? extends Editor> editors) {
       for (Editor editor : editors) {
         apply(editor, isSelected());
@@ -201,10 +207,10 @@ public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
     }
   }
 
-  private class EditorHighlightingLayerAction extends ActionGroup implements EditorSettingAction {
+  private class EditorHighlightingLayerAction extends ActionGroup implements EditorSettingAction, DumbAware {
     private final AnAction[] myOptions;
 
-    public EditorHighlightingLayerAction() {
+    EditorHighlightingLayerAction() {
       super("Highlighting Level", true);
       myOptions = ContainerUtil.map(HighlightingLevel.values(), level -> new OptionAction(level), AnAction.EMPTY_ARRAY);
     }
@@ -229,18 +235,18 @@ public class SetEditorSettingsAction extends ActionGroup implements DumbAware {
     private class OptionAction extends ToggleAction implements DumbAware {
       @NotNull private final HighlightingLevel myLayer;
 
-      public OptionAction(@NotNull HighlightingLevel layer) {
+      OptionAction(@NotNull HighlightingLevel layer) {
         super(layer.getText(), null, layer.getIcon());
         myLayer = layer;
       }
 
       @Override
-      public boolean isSelected(AnActionEvent e) {
+      public boolean isSelected(@NotNull AnActionEvent e) {
         return myTextSettings.getHighlightingLevel() == myLayer;
       }
 
       @Override
-      public void setSelected(AnActionEvent e, boolean state) {
+      public void setSelected(@NotNull AnActionEvent e, boolean state) {
         myTextSettings.setHighlightingLevel(myLayer);
         apply(myLayer);
       }

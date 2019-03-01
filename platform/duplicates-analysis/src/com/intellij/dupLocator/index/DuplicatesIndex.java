@@ -26,7 +26,6 @@ import com.intellij.lang.LighterAST;
 import com.intellij.lang.LighterASTNode;
 import com.intellij.openapi.fileTypes.FileType;
 import com.intellij.openapi.fileTypes.LanguageFileType;
-import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.util.SystemProperties;
 import com.intellij.util.indexing.*;
 import com.intellij.util.io.DataExternalizer;
@@ -47,7 +46,7 @@ import java.util.Collections;
 import java.util.Map;
 
 /**
- * @by Maxim.Mossienko on 12/11/13.
+ * @author Maxim.Mossienko on 12/11/13.
  */
 public class DuplicatesIndex extends FileBasedIndexExtension<Integer, TIntArrayList> implements PsiDependentIndex {
   static boolean ourEnabled = SystemProperties.getBooleanProperty("idea.enable.duplicates.online.calculation",
@@ -58,14 +57,17 @@ public class DuplicatesIndex extends FileBasedIndexExtension<Integer, TIntArrayL
   @NonNls public static final ID<Integer, TIntArrayList> NAME = ID.create("DuplicatesIndex");
   private static final int myBaseVersion = 25;
 
-  private final FileBasedIndex.InputFilter myInputFilter = new FileBasedIndex.InputFilter() {
-    @Override
-    public boolean acceptInput(@NotNull final VirtualFile file) {
-      return ourEnabled &&
-             findDuplicatesProfile(file.getFileType()) != null &&
-             file.isInLocalFileSystem() // skip library sources
-        ;
+  private final FileBasedIndex.InputFilter myInputFilter = file -> {
+    if (!ourEnabled ||
+        !file.isInLocalFileSystem()  // skip library sources
+       ) {
+      return false;
     }
+    DuplicatesProfile duplicatesProfile = findDuplicatesProfile(file.getFileType());
+    if (duplicatesProfile instanceof LightDuplicateProfile) {
+      return ((LightDuplicateProfile)duplicatesProfile).acceptsFile(file);
+    }
+    return duplicatesProfile != null;
   };
 
   private final DataExternalizer<TIntArrayList> myValueExternalizer = new DataExternalizer<TIntArrayList>() {
@@ -163,7 +165,7 @@ public class DuplicatesIndex extends FileBasedIndexExtension<Integer, TIntArrayL
 
   @Override
   public int getVersion() {
-    return myBaseVersion + (ourEnabled ? 0xFF : 0) + (ourEnabledLightProfiles ? 0x7F : 0) + (ourEnabledOldProfiles ? 0x21 : 0);
+    return myBaseVersion + (ourEnabled ? 0xFF : 0) + (ourEnabledLightProfiles ? 0x80 : 0) + (ourEnabledOldProfiles ? 0x21 : 0);
   }
 
   @Override
@@ -209,7 +211,7 @@ public class DuplicatesIndex extends FileBasedIndexExtension<Integer, TIntArrayL
     private final DuplicatesProfile myProfile;
     private final DuplocatorState myDuplocatorState;
 
-    public MyFragmentsCollector(DuplicatesProfile profile, Language language) {
+    MyFragmentsCollector(DuplicatesProfile profile, Language language) {
       myProfile = profile;
       myDuplocatorState = profile.getDuplocatorState(language);
     }

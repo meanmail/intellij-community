@@ -27,11 +27,14 @@ import com.intellij.util.IncorrectOperationException;
 import com.siyeh.ig.style.UnnecessarilyQualifiedStaticUsageInspection;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Arrays;
+import java.util.Objects;
+
 /**
  * @author anna
- *         Date: 08-Aug-2008
  */
 public class RootTypeConversionRule extends TypeConversionRule {
+  @Override
   public TypeConversionDescriptorBase findConversion(final PsiType from,
                                                      final PsiType to,
                                                      final PsiMember member,
@@ -65,7 +68,7 @@ public class RootTypeConversionRule extends TypeConversionRule {
                 if (Comparing.equal(functionalInterfaceType, to) && method.isEquivalentTo(LambdaUtil.getFunctionalInterfaceMethod(from))) {
                   return new TypeConversionDescriptorBase() {
                     @Override
-                    public PsiExpression replace(PsiExpression expression, TypeEvaluator evaluator) throws IncorrectOperationException {
+                    public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) throws IncorrectOperationException {
                       final PsiMethodReferenceExpression methodReferenceExpression = (PsiMethodReferenceExpression)expression;
                       final PsiExpression qualifierExpression = methodReferenceExpression.getQualifierExpression();
                       if (qualifierExpression != null) {
@@ -118,8 +121,10 @@ public class RootTypeConversionRule extends TypeConversionRule {
                   }
 
                   final PsiType migrationType = methodTypeParamsSubstitutor.substitute(type);
-                  if (!originalType.equals(migrationType) &&
-                      !TypeConversionUtil.areTypesAssignmentCompatible(migrationType, actualParams[i])) {
+                  if (!originalType.equals(migrationType) && !areParametersAssignable(migrationType, i, actualParams)) {
+                    if (migrationType instanceof PsiEllipsisType && actualParams.length != migrationParams.length) {
+                      return null;
+                    }
                     labeler.migrateExpressionType(actualParams[i], migrationType, context, false, true);
                   }
                 }
@@ -139,15 +144,43 @@ public class RootTypeConversionRule extends TypeConversionRule {
     return null;
   }
 
+  private static boolean areParametersAssignable(PsiType migrationType, int paramId, PsiExpression[] actualParams) {
+    if (migrationType instanceof PsiEllipsisType) {
+      if (actualParams.length == paramId) {
+        // no arguments for ellipsis
+        return true;
+      }
+      else if (actualParams.length == paramId + 1) {
+        // only one argument for ellipsis
+        return TypeConversionUtil.areTypesAssignmentCompatible(migrationType, actualParams[paramId]) ||
+               TypeConversionUtil.areTypesAssignmentCompatible(((PsiEllipsisType)migrationType).getComponentType(), actualParams[paramId]);
+      }
+      else if (actualParams.length > paramId + 1) {
+        // few arguments
+        PsiType componentType = ((PsiEllipsisType)migrationType).getComponentType();
+        for (int i = paramId; i < actualParams.length; i++) {
+          if (!TypeConversionUtil.areTypesAssignmentCompatible(componentType, actualParams[i])) {
+            return false;
+          }
+        }
+        return true;
+      }
+      throw new AssertionError(" migrationType: " + migrationType + ", paramId: " + paramId + ", actualParameters: " + Arrays.toString(actualParams));
+    } else {
+      if (paramId >= actualParams.length) return true;
+      return TypeConversionUtil.areTypesAssignmentCompatible(migrationType, actualParams[paramId]);
+    }
+  }
+
   private static class MyStaticMethodConversionDescriptor extends TypeConversionDescriptorBase {
     private final @NotNull String myTargetClassQName;
 
     private MyStaticMethodConversionDescriptor(PsiClass replacer) {
-      myTargetClassQName = replacer.getQualifiedName();
+      myTargetClassQName = Objects.requireNonNull(replacer.getQualifiedName());
     }
 
     @Override
-    public PsiExpression replace(PsiExpression expression, TypeEvaluator evaluator) throws IncorrectOperationException {
+    public PsiExpression replace(PsiExpression expression, @NotNull TypeEvaluator evaluator) throws IncorrectOperationException {
       final PsiMethodCallExpression methodCallExpression = (PsiMethodCallExpression)expression;
       final PsiExpression qualifierExpression = methodCallExpression.getMethodExpression().getQualifierExpression();
       final PsiElementFactory elementFactory = JavaPsiFacade.getElementFactory(expression.getProject());
@@ -162,7 +195,7 @@ public class RootTypeConversionRule extends TypeConversionRule {
           elementFactory.createExpressionFromText(myTargetClassQName + "." + expression.getText(), expression));
       }
       if (UnnecessarilyQualifiedStaticUsageInspection.isUnnecessarilyQualifiedAccess(newMethodCall.getMethodExpression(), false, false, false)) {
-        newMethodCall.getMethodExpression().getQualifierExpression().delete();
+        Objects.requireNonNull(newMethodCall.getMethodExpression().getQualifierExpression()).delete();
       }
       return newMethodCall;
     }

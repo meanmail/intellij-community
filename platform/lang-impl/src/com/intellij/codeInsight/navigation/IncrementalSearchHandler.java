@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 
 package com.intellij.codeInsight.navigation;
 
@@ -33,7 +19,10 @@ import com.intellij.openapi.editor.actionSystem.EditorActionManager;
 import com.intellij.openapi.editor.actionSystem.TypedAction;
 import com.intellij.openapi.editor.actionSystem.TypedActionHandler;
 import com.intellij.openapi.editor.colors.EditorColors;
-import com.intellij.openapi.editor.event.*;
+import com.intellij.openapi.editor.event.CaretEvent;
+import com.intellij.openapi.editor.event.CaretListener;
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.markup.HighlighterLayer;
 import com.intellij.openapi.editor.markup.HighlighterTargetArea;
 import com.intellij.openapi.editor.markup.RangeHighlighter;
@@ -71,7 +60,7 @@ public class IncrementalSearchHandler {
     RangeHighlighter segmentHighlighter;
     boolean ignoreCaretMove = false;
 
-    public PerHintSearchData(Project project, JLabel label) {
+    PerHintSearchData(Project project, JLabel label) {
       this.project = project;
       this.label = label;
     }
@@ -162,18 +151,18 @@ public class IncrementalSearchHandler {
       }
     };
 
-    documentListener[0] = new DocumentAdapter() {
+    documentListener[0] = new DocumentListener() {
       @Override
-      public void documentChanged(DocumentEvent e) {
+      public void documentChanged(@NotNull DocumentEvent e) {
         if (!hint.isVisible()) return;
         hint.hide();
       }
     };
     document.addDocumentListener(documentListener[0]);
 
-    caretListener[0] = new CaretAdapter() {
+    caretListener[0] = new CaretListener() {
       @Override
-      public void caretPositionChanged(CaretEvent e) {
+      public void caretPositionChanged(@NotNull CaretEvent e) {
         PerHintSearchData data = hint.getUserData(SEARCH_DATA_IN_HINT_KEY);
         if (data != null && data.ignoreCaretMove) return;
         if (!hint.isVisible()) return;
@@ -197,7 +186,7 @@ public class IncrementalSearchHandler {
     data.hint = hint;
     editor.putUserData(SEARCH_DATA_IN_EDITOR_VIEW_KEY, data);
 
-    if (hintData.label.getText().length() > 0) {
+    if (!hintData.label.getText().isEmpty()) {
       updatePosition(editor, hintData, true, false);
     }
   }
@@ -206,8 +195,8 @@ public class IncrementalSearchHandler {
     final int len = pattern.length();
 
     for(int i=0;i<len;++i) {
-      switch(pattern.charAt(i)) {
-        case '*': return true;
+      if (pattern.charAt(i) == '*') {
+        return true;
       }
     }
 
@@ -229,7 +218,7 @@ public class IncrementalSearchHandler {
       final boolean caseSensitive = detectSmartCaseSensitive(prefix);
 
       if (acceptableRegExp(prefix)) {
-        @NonNls final StringBuffer buf = new StringBuffer(prefix.length());
+        @NonNls final StringBuilder buf = new StringBuilder(prefix.length());
         final int len = prefix.length();
 
         for (int i = 0; i < len; ++i) {
@@ -326,9 +315,9 @@ public class IncrementalSearchHandler {
   }
 
   private static class MyLabel extends JLabel {
-    public MyLabel(String text) {
+    MyLabel(String text) {
       super(text);
-      this.setBackground(HintUtil.INFORMATION_COLOR);
+      this.setBackground(HintUtil.getInformationColor());
       this.setForeground(JBColor.foreground());
       this.setOpaque(true);
     }
@@ -337,7 +326,7 @@ public class IncrementalSearchHandler {
   private static class MyPanel extends JPanel{
     private final Component myLeft;
 
-    public MyPanel(Component left) {
+    MyPanel(Component left) {
       super(new BorderLayout());
       myLeft = left;
     }
@@ -390,7 +379,7 @@ public class IncrementalSearchHandler {
     }
 
     @Override
-    public void doExecute(Editor editor, Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, Caret caret, DataContext dataContext) {
       PerEditorSearchData data = editor.getUserData(SEARCH_DATA_IN_EDITOR_VIEW_KEY);
       if (data == null || data.hint == null){
         myOriginalHandler.execute(editor, caret, dataContext);
@@ -399,7 +388,7 @@ public class IncrementalSearchHandler {
         LightweightHint hint = data.hint;
         PerHintSearchData hintData = hint.getUserData(SEARCH_DATA_IN_HINT_KEY);
         String text = hintData.label.getText();
-        if (text.length() > 0){
+        if (!text.isEmpty()){
           text = text.substring(0, text.length() - 1);
         }
         hintData.label.setText(text);
@@ -416,7 +405,7 @@ public class IncrementalSearchHandler {
     }
 
     @Override
-    public void doExecute(Editor editor, Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, Caret caret, DataContext dataContext) {
       PerEditorSearchData data = editor.getUserData(SEARCH_DATA_IN_EDITOR_VIEW_KEY);
       if (data == null || data.hint == null){
         myOriginalHandler.execute(editor, caret, dataContext);
@@ -449,7 +438,7 @@ public class IncrementalSearchHandler {
     }
 
     @Override
-    public void doExecute(Editor editor, Caret caret, DataContext dataContext) {
+    public void doExecute(@NotNull Editor editor, Caret caret, DataContext dataContext) {
       PerEditorSearchData data = editor.getUserData(SEARCH_DATA_IN_EDITOR_VIEW_KEY);
       if (data == null || data.hint == null){
         myOriginalHandler.execute(editor, caret, dataContext);

@@ -16,82 +16,78 @@
 package com.intellij.util.xml;
 
 import com.intellij.lang.xml.XMLLanguage;
-import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiFileFactory;
 import com.intellij.psi.xml.XmlFile;
 import com.intellij.testFramework.fixtures.LightPlatformCodeInsightFixtureTestCase;
 import org.jetbrains.annotations.Nullable;
-import org.xml.sax.SAXException;
-
-import java.io.IOException;
 
 /**
  * @author peter
  */
 public class DomSaxParserTest extends LightPlatformCodeInsightFixtureTestCase {
 
-  public void testGetRootTagNameWithoutNamespace() throws Throwable {
+  public void testGetRootTagNameWithoutNamespace() {
     assertData("<root>", "root", null, null, null);
   }
 
-  public void testGetRootTagNameWithNamespaceWithEmptyPrefix() throws Throwable {
+  public void testGetRootTagNameWithNamespaceWithEmptyPrefix() {
     assertData("<root xmlns=\"foo\">", "root", "foo", null, null);
   }
 
-  public void testGetRootTagNameWithUnfinishedAttribute() throws Throwable {
+  public void testGetRootTagNameWithUnfinishedAttribute() {
     XmlFile file = createXmlFile("<root xmlns=\"foo\" aaa>");
     ensureParsed(file);
     final XmlFileHeader header = DomService.getInstance().getXmlFileHeader(file);
     assertEquals(new XmlFileHeader("root", "foo", null, null), header);
   }
 
-  public void testGetRootTagNameWithNamespaceWithNonEmptyPrefix() throws Throwable {
+  public void testGetRootTagNameWithNamespaceWithNonEmptyPrefix() {
     assertData("<bar:root xmlns=\"foo\" xmlns:bar=\"b\">", "root", "b", null, null);
   }
 
-  public void testGetRootTagNameWithDtdNamespace() throws Throwable {
+  public void testGetRootTagNameWithDtdNamespace() {
     assertData("<!DOCTYPE ejb-jar PUBLIC\n" +
                "\"-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN\"\n" +
                "\"http://java.sun.com/dtd/ejb-jar_2_0.dtd\"><root>", "root", null, "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN", "http://java.sun.com/dtd/ejb-jar_2_0.dtd");
   }
 
-  public void testGetRootTagNameWithDtdNamespace2() throws Throwable {
+  public void testGetRootTagNameWithDtdNamespace2() {
     assertData("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
                "<!DOCTYPE ejb-jar PUBLIC\n" +
                "\"-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN\"\n" +
                "\"http://java.sun.com/dtd/ejb-jar_2_0.dtd\"><root>", "root", null, "-//Sun Microsystems, Inc.//DTD Enterprise JavaBeans 2.0//EN", "http://java.sun.com/dtd/ejb-jar_2_0.dtd");
   }
 
-  public void testNoTag() throws Throwable {
+  public void testNoTag() {
     assertData("aaaaaaaaaaaaaaaaaaaaa", null, null, null, null);
   }
 
-  public void testEmptyFile() throws Throwable {
+  public void testEmptyFile() {
     assertData("", null, null, null, null);
   }
 
-  public void testInvalidContent() throws Throwable {
+  public void testInvalidContent() {
     assertData("<?xmlmas8v6708986><OKHD POH:&*$%*&*I8yo9", null, null, null, null);
   }
 
-  public void testInvalidContent2() throws Throwable {
+  public void testInvalidContent2() {
     assertData("?xmlmas8v6708986><OKHD POH:&*$%*&*I8yo9", null, null, null, null);
   }
 
-  private static PsiElement ensureParsed(PsiFile file) {
-    return file.findElementAt(2);
+  private static void ensureParsed(PsiFile file) {
+    file.getNode().getFirstChildNode();
   }
 
-  public void testInvalidContent3() throws Throwable {
+  public void testInvalidContent3() {
     assertData("<?xmlmas8v67089", null, null, null, null);
   }
 
-  public void testSubtag() throws Throwable {
+  public void testSubtag() {
     assertData("<root><foo/>", "root", null, null, null);
   }
 
-  public void testSpring() throws Throwable {
+  public void testSpring() {
     assertData("<?xml version=\"1.0\" encoding=\"gbk\"?>\n" + "\n" + "\n" +
                "<beans xmlns=\"http://www.springframework.org/schema/beans\"\n" +
                "       xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n" +
@@ -103,7 +99,7 @@ public class DomSaxParserTest extends LightPlatformCodeInsightFixtureTestCase {
                "</beans>", "beans", "http://www.springframework.org/schema/beans", null, null);
   }
 
-  public void testInternalDtd() throws Throwable {
+  public void testInternalDtd() {
     assertData("<?xml version=\"1.0\"?>\n" +
                "<!DOCTYPE \n" + 
                "        hibernate-mapping SYSTEM\n" +

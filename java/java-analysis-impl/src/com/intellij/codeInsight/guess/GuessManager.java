@@ -21,23 +21,30 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.TextRange;
 import com.intellij.psi.PsiExpression;
 import com.intellij.psi.PsiType;
+import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.Map;
+import java.util.List;
 
 public abstract class GuessManager {
   public static GuessManager getInstance(Project project) {
     return ServiceManager.getService(project, GuessManager.class);
   }
 
+  @NotNull
   public abstract PsiType[] guessContainerElementType(PsiExpression containerExpr, TextRange rangeToIgnore);
 
+  @NotNull
   public abstract PsiType[] guessTypeToCast(PsiExpression expr);
 
   @NotNull 
-  public abstract Map<PsiExpression, PsiType> getControlFlowExpressionTypes(@NotNull PsiExpression forPlace);
+  public abstract MultiMap<PsiExpression, PsiType> getControlFlowExpressionTypes(@NotNull PsiExpression forPlace, boolean honorAssignments);
 
-  @Nullable
-  public abstract PsiType getControlFlowExpressionType(@NotNull PsiExpression expr);
+  @NotNull
+  public List<PsiType> getControlFlowExpressionTypeConjuncts(@NotNull PsiExpression expr) {
+    return getControlFlowExpressionTypeConjuncts(expr, true);
+  }
+
+  @NotNull
+  public abstract List<PsiType> getControlFlowExpressionTypeConjuncts(@NotNull PsiExpression expr, boolean honorAssignments);
 }

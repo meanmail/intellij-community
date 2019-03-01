@@ -1,828 +1,510 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.jsonSchema.impl;
 
-import com.google.gson.TypeAdapter;
-import com.google.gson.stream.JsonReader;
-import com.google.gson.stream.JsonToken;
-import com.google.gson.stream.JsonWriter;
+
 import com.intellij.notification.NotificationGroup;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.util.Pair;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.util.Consumer;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiFile;
+import com.intellij.psi.PsiManager;
+import com.intellij.util.AstLoadingFilter;
+import com.intellij.util.PairConsumer;
+import com.intellij.util.containers.ContainerUtil;
+import com.jetbrains.jsonSchema.extension.JsonLikePsiWalker;
+import com.jetbrains.jsonSchema.extension.adapters.JsonArrayValueAdapter;
+import com.jetbrains.jsonSchema.extension.adapters.JsonObjectValueAdapter;
+import com.jetbrains.jsonSchema.extension.adapters.JsonPropertyAdapter;
+import com.jetbrains.jsonSchema.extension.adapters.JsonValueAdapter;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.io.IOException;
-import java.io.Reader;
 import java.util.*;
-import java.util.function.BiFunction;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
- * @author Irina.Chernushina on 8/27/2015.
+ * @author Irina.Chernushina on 1/13/2017.
  */
 public class JsonSchemaReader {
-  public static final Logger LOG = Logger.getInstance("#com.jetbrains.jsonSchema.impl.JsonSchemaReader");
+  private static final int MAX_SCHEMA_LENGTH = FileUtilRt.MEGABYTE;
+  public static final Logger LOG = Logger.getInstance(JsonSchemaReader.class);
   public static final NotificationGroup ERRORS_NOTIFICATION = NotificationGroup.logOnlyGroup("JSON Schema");
 
-  @Nullable private final VirtualFile myKey;
+  private final Map<String, JsonSchemaObject> myIds = new HashMap<>();
+  private final ArrayDeque<Pair<JsonSchemaObject, JsonValueAdapter>> myQueue;
 
-  public JsonSchemaReader(@Nullable final VirtualFile key) {
-    myKey = key;
+  private static final Map<String, MyReader> READERS_MAP = new HashMap<>();
+  static {
+    fillMap();
   }
 
-  public JsonSchemaObject read(@NotNull final Reader reader, @Nullable JsonSchemaExportedDefinitions definitions) throws IOException {
-    final JsonReader in = new JsonReader(reader);
-    in.setLenient(true);
+  @Nullable private final VirtualFile myFile;
 
-    in.beginObject();
-    final JsonSchemaObject object = new JsonSchemaObject();
-    final JsonSchemaGeneralObjectTypeAdapter adapter = new JsonSchemaGeneralObjectTypeAdapter();
+  public JsonSchemaReader(@Nullable VirtualFile file) {
+    myFile = file;
+    myQueue = new ArrayDeque<>();
+  }
 
-    while (in.peek() == JsonToken.NAME) {
-      final String name = in.nextName();
-      adapter.readSomeProperty(in, name, object);
+  @NotNull
+  public static JsonSchemaObject readFromFile(@NotNull Project project, @NotNull VirtualFile file) throws Exception {
+    if (!file.isValid()) {
+      throw new Exception(String.format("Can not load JSON Schema file '%s'", file.getName()));
     }
 
-    processReferences(object, adapter.getAllObjects(), definitions);
-    final ArrayList<JsonSchemaObject> withoutDefinitions = new ArrayList<>(adapter.getAllObjects());
-    removeDefinitions(object, withoutDefinitions);
+    final PsiFile psiFile = PsiManager.getInstance(project).findFile(file);
+    JsonSchemaObject object = psiFile == null ? null : new JsonSchemaReader(file).read(psiFile);
+    if (object == null) {
+      throw new Exception(String.format("Can not load code model for JSON Schema file '%s'", file.getName()));
+    }
     return object;
   }
 
-  public static boolean isJsonSchema(@NotNull JsonSchemaExportedDefinitions definitions,
-                                     @NotNull VirtualFile key,
-                                     @NotNull final String string,
-                                     Consumer<String> errorConsumer) throws IOException {
-    final JsonSchemaReader reader = new JsonSchemaReader(key);
-    java.io.StringReader stringReader = new java.io.StringReader(string);
+  @Nullable
+  public static String checkIfValidJsonSchema(@NotNull final Project project, @NotNull final VirtualFile file) {
+    final long length = file.getLength();
+    final String fileName = file.getName();
+    if (length > MAX_SCHEMA_LENGTH) {
+      return String.format("JSON schema was not loaded from '%s' because it's too large (file size is %d bytes).", fileName, length);
+    }
+    if (length == 0) {
+      return String.format("JSON schema was not loaded from '%s'. File is empty.", fileName);
+    }
     try {
-      reader.read(stringReader, null);
+      readFromFile(project, file);
     } catch (Exception e) {
-      LOG.info(e);
-      errorConsumer.consume(e.getMessage());
-      return false;
-    }
-    // have two stages so that just syntax errors do not clear cache
-    stringReader = new java.io.StringReader(string);
-    try {
-      reader.read(stringReader, definitions);
-    }
-    catch (Exception e) {
-      LOG.info(e);
-      errorConsumer.consume(e.getMessage());
-      throw e;
-    }
-    return true;
-  }
-
-  public static void registerObjectsExportedDefinitions(@NotNull VirtualFile key,
-                                                        @NotNull final JsonSchemaExportedDefinitions definitionsObject,
-                                                        @NotNull final JsonSchemaObject object) {
-    String id = object.getId();
-    if (!StringUtil.isEmptyOrSpaces(id)) {
-      id = id.endsWith("#") ? id.substring(0, id.length() - 1) : id;
-      final BiFunction<String, Map<String, JsonSchemaObject>, Map<String, JsonSchemaObject>> convertor =
-        (s, map) -> {
-          final Map<String, JsonSchemaObject> converted = new HashMap<>();
-          for (Map.Entry<String, JsonSchemaObject> entry : map.entrySet()) {
-            String key1 = entry.getKey();
-            key1 = key1.startsWith("/") ? key1.substring(1) : key1;
-            converted.put(s + key1, entry.getValue());
-          }
-          return converted;
-        };
-
-      final HashMap<String, JsonSchemaObject> map = new HashMap<>();
-      map.put("", object);
-      final Map<String, JsonSchemaObject> definitions = object.getDefinitions();
-      if (definitions != null && !definitions.isEmpty()) {
-        map.putAll(convertor.apply("#/definitions/", definitions));
-      }
-      final Map<String, JsonSchemaObject> properties = object.getProperties();
-      if (properties != null && !properties.isEmpty()) {
-        map.putAll(convertor.apply("#/properties/", properties));
-      }
-      definitionsObject.register(key, id, map);
-    }
-  }
-
-  private static void removeDefinitions(JsonSchemaObject root, ArrayList<JsonSchemaObject> objects) {
-    final List<JsonSchemaObject> queue = new ArrayList<>(objects.size() + 1);
-    queue.addAll(objects);
-    queue.add(root);
-
-    for (JsonSchemaObject object : queue) {
-      final Map<String, JsonSchemaObject> definitions = object.getDefinitions();
-      if (definitions != null) {
-        objects.removeAll(definitions.values());
-      }
-    }
-  }
-
-  private void processReferences(JsonSchemaObject root,
-                                 Set<JsonSchemaObject> objects,
-                                 @Nullable JsonSchemaExportedDefinitions definitions) {
-    final ArrayDeque<JsonSchemaObject> queue = new ArrayDeque<>();
-    queue.addAll(objects);
-    int control = 10000;
-
-    while (!queue.isEmpty()) {
-      if (--control == 0) throw new RuntimeException("cyclic definitions search");
-
-      final JsonSchemaObject current = queue.removeFirst();
-      if ("#".equals(current.getRef())) continue;
-      if (current.getRef() != null) {
-        final JsonSchemaObject definition = findDefinition(myKey, current.getRef(), root, definitions);
-        if (definition == null) {
-          if (definitions == null) {
-            // just skip current item
-            current.setRef(null);
-            continue;
-          }
-          throw new RuntimeException("Can not find definition: " + current.getRef());
-        }
-        if (definition.getRef() != null && !"#".equals(definition.getRef())) {
-          queue.addFirst(current);
-          queue.addFirst(definition);
-          continue;
-        }
-
-        final JsonSchemaObject copy = new JsonSchemaObject();
-        copy.setDefinitionAddress(current.getRef());
-        copy.mergeValues(definition);
-        copy.mergeValues(current);
-        current.copyValues(copy);
-        current.setRef(null);
-      }
-    }
-  }
-
-  private static JsonSchemaObject findAbsoluteDefinition(@Nullable VirtualFile key,
-                                                         @NotNull String ref,
-                                                         @Nullable JsonSchemaExportedDefinitions definitions) {
-    if (definitions == null || key == null) return null;
-
-    final SchemaUrlSplitter splitter = new SchemaUrlSplitter(ref);
-    if (splitter.isAbsolute()) {
-      //noinspection ConstantConditions
-      return definitions.findDefinition(key, splitter.getSchemaId(), splitter.getRelativePath());
+      final String message = String.format("JSON Schema not found or contain error in '%s': %s", fileName, e.getMessage());
+      LOG.info(message);
+      return message;
     }
     return null;
   }
 
-  public static class SchemaUrlSplitter {
-    @Nullable
-    private final String mySchemaId;
-    @NotNull
-    private final String myRelativePath;
+  private static JsonSchemaObject enqueue(@NotNull Collection<Pair<JsonSchemaObject, JsonValueAdapter>> queue,
+                                          @NotNull JsonSchemaObject schemaObject,
+                                          @NotNull JsonValueAdapter container) {
+    queue.add(Pair.create(schemaObject, container));
+    return schemaObject;
+  }
 
-    public SchemaUrlSplitter(@NotNull final String ref) {
-      if (!ref.startsWith("#/")) {
-        int idx = ref.indexOf("#/");
-        if (idx == -1) {
-          mySchemaId = ref.endsWith("#") ? ref.substring(0, ref.length() - 1) : ref;
-          myRelativePath = "";
-        } else {
-          mySchemaId = ref.substring(0, idx);
-          myRelativePath = ref.substring(idx);
+  @Nullable
+  public JsonSchemaObject read(@NotNull PsiFile file) {
+    JsonLikePsiWalker walker = JsonLikePsiWalker.getWalker(file, JsonSchemaObject.NULL_OBJ);
+    if (walker == null) return null;
+    PsiElement root = AstLoadingFilter.forceAllowTreeLoading(file, () -> walker.getRoot(file));
+    return root == null ? null : read(root, walker);
+  }
+
+  @Nullable
+  private JsonSchemaObject read(@NotNull final PsiElement object, @NotNull JsonLikePsiWalker walker) {
+    final JsonSchemaObject root = new JsonSchemaObject(myFile, "/");
+    JsonValueAdapter rootAdapter = walker.createValueAdapter(object);
+    if (rootAdapter == null) return null;
+    enqueue(myQueue, root, rootAdapter);
+    while (!myQueue.isEmpty()) {
+      final Pair<JsonSchemaObject, JsonValueAdapter> currentItem = myQueue.removeFirst();
+
+      JsonSchemaObject currentSchema = currentItem.first;
+      String pointer = currentSchema.getPointer();
+      JsonValueAdapter adapter = currentItem.second;
+
+      if (adapter instanceof JsonObjectValueAdapter) {
+        final List<JsonPropertyAdapter> list = ((JsonObjectValueAdapter)adapter).getPropertyList();
+        for (JsonPropertyAdapter property : list) {
+          Collection<JsonValueAdapter> values = property.getValues();
+          if (values.size() != 1) continue;
+          String name = property.getName();
+          if (name == null) continue;
+          final MyReader reader = READERS_MAP.get(name);
+          JsonValueAdapter value = values.iterator().next();
+          if (reader != null) {
+            reader.read(value, currentSchema, myQueue, myFile);
+          }
+          else {
+            readSingleDefinition(name, value, currentSchema, pointer);
+          }
         }
-      } else {
-        mySchemaId = null;
-        myRelativePath = ref;
       }
-    }
+      else if (adapter instanceof JsonArrayValueAdapter) {
+        List<JsonValueAdapter> values = ((JsonArrayValueAdapter)adapter).getElements();
+        for (int i = 0; i < values.size(); i++) {
+          readSingleDefinition(String.valueOf(i), values.get(i), currentSchema, pointer);
+        }
+      }
 
-    public boolean isAbsolute() {
-      return mySchemaId != null;
+      if (currentSchema.getId() != null) myIds.put(currentSchema.getId(), currentSchema);
+      currentSchema.completeInitialization(adapter);
     }
+    return root;
+  }
 
-    @Nullable
-    public String getSchemaId() {
-      return mySchemaId;
-    }
+  public Map<String, JsonSchemaObject> getIds() {
+    return myIds;
+  }
 
-    @NotNull
-    public String getRelativePath() {
-      return myRelativePath;
+  private void readSingleDefinition(@NotNull String name,
+                                    @NotNull JsonValueAdapter value,
+                                    @NotNull JsonSchemaObject schema,
+                                    String pointer) {
+    String nextPointer = getNewPointer(name, pointer);
+    final JsonSchemaObject defined = enqueue(myQueue, new JsonSchemaObject(myFile, nextPointer), value);
+    Map<String, JsonSchemaObject> definitions = schema.getDefinitionsMap();
+    if (definitions == null) schema.setDefinitionsMap(definitions = new HashMap<>());
+    definitions.put(name, defined);
+  }
+
+  @NotNull
+  private static String getNewPointer(@NotNull String name, String oldPointer) {
+    return oldPointer.equals("/") ? oldPointer + name : oldPointer + "/" + name;
+  }
+
+  private static void fillMap() {
+    READERS_MAP.put("$id", createFromStringValue((object, s) -> object.setId(s)));
+    READERS_MAP.put("id", createFromStringValue((object, s) -> object.setId(s)));
+    READERS_MAP.put("$schema", createFromStringValue((object, s) -> object.setSchema(s)));
+    READERS_MAP.put("description", createFromStringValue((object, s) -> object.setDescription(s)));
+    // non-standard deprecation property used by VSCode
+    READERS_MAP.put("deprecationMessage", createFromStringValue((object, s) -> object.setDeprecationMessage(s)));
+    READERS_MAP.put(JsonSchemaObject.X_INTELLIJ_HTML_DESCRIPTION, createFromStringValue((object, s) -> object.setHtmlDescription(s)));
+    READERS_MAP.put("title", createFromStringValue((object, s) -> object.setTitle(s)));
+    READERS_MAP.put("$ref", createFromStringValue((object, s) -> object.setRef(s)));
+    READERS_MAP.put("default", createDefault());
+    READERS_MAP.put("format", createFromStringValue((object, s) -> object.setFormat(s)));
+    READERS_MAP.put(JsonSchemaObject.DEFINITIONS, createDefinitionsConsumer());
+    READERS_MAP.put(JsonSchemaObject.PROPERTIES, createPropertiesConsumer());
+    READERS_MAP.put("multipleOf", createFromNumber((object, i) -> object.setMultipleOf(i)));
+    READERS_MAP.put("maximum", createFromNumber((object, i) -> object.setMaximum(i)));
+    READERS_MAP.put("minimum", createFromNumber((object, i) -> object.setMinimum(i)));
+    READERS_MAP.put("exclusiveMaximum", (element, object, queue, virtualFile) -> {
+      if (element.isBooleanLiteral()) object.setExclusiveMaximum(getBoolean(element));
+      else if (element.isNumberLiteral()) object.setExclusiveMaximumNumber(getNumber(element));
+    });
+    READERS_MAP.put("exclusiveMinimum", (element, object, queue, virtualFile) -> {
+      if (element.isBooleanLiteral()) object.setExclusiveMinimum(getBoolean(element));
+      else if (element.isNumberLiteral()) object.setExclusiveMinimumNumber(getNumber(element));
+    });
+    READERS_MAP.put("maxLength", createFromInteger((object, i) -> object.setMaxLength(i)));
+    READERS_MAP.put("minLength", createFromInteger((object, i) -> object.setMinLength(i)));
+    READERS_MAP.put("pattern", createFromStringValue((object, s) -> object.setPattern(s)));
+    READERS_MAP.put(JsonSchemaObject.ADDITIONAL_ITEMS, createAdditionalItems());
+    READERS_MAP.put(JsonSchemaObject.ITEMS, createItems());
+    READERS_MAP.put("contains", createContains());
+    READERS_MAP.put("maxItems", createFromInteger((object, i) -> object.setMaxItems(i)));
+    READERS_MAP.put("minItems", createFromInteger((object, i) -> object.setMinItems(i)));
+    READERS_MAP.put("uniqueItems", (element, object, queue, virtualFile) -> {
+      if (element.isBooleanLiteral()) object.setUniqueItems(getBoolean(element));
+    });
+    READERS_MAP.put("maxProperties", createFromInteger((object, i) -> object.setMaxProperties(i)));
+    READERS_MAP.put("minProperties", createFromInteger((object, i) -> object.setMinProperties(i)));
+    READERS_MAP.put("required", createRequired());
+    READERS_MAP.put("additionalProperties", createAdditionalProperties());
+    READERS_MAP.put("propertyNames", createFromObject("propertyNames", (object, schema) -> object.setPropertyNamesSchema(schema)));
+    READERS_MAP.put("patternProperties", createPatternProperties());
+    READERS_MAP.put("dependencies", createDependencies());
+    READERS_MAP.put("enum", createEnum());
+    READERS_MAP.put("const", (element, object, queue, virtualFile) -> object.setEnum(ContainerUtil.createMaybeSingletonList(readEnumValue(element))));
+    READERS_MAP.put("type", createType());
+    READERS_MAP.put("allOf", createContainer((object, members) -> object.setAllOf(members)));
+    READERS_MAP.put("anyOf", createContainer((object, members) -> object.setAnyOf(members)));
+    READERS_MAP.put("oneOf", createContainer((object, members) -> object.setOneOf(members)));
+    READERS_MAP.put("not", createFromObject("not", (object, schema1) -> object.setNot(schema1)));
+    READERS_MAP.put("if", createFromObject("if", (object, schema) -> object.setIf(schema)));
+    READERS_MAP.put("then", createFromObject("then", (object, schema) -> object.setThen(schema)));
+    READERS_MAP.put("else", createFromObject("else", (object, schema) -> object.setElse(schema)));
+    READERS_MAP.put("instanceof", ((element, object, queue, virtualFile) -> object.setShouldValidateAgainstJSType()));
+    READERS_MAP.put("typeof", ((element, object, queue, virtualFile) -> object.setShouldValidateAgainstJSType()));
+  }
+
+  private static MyReader createFromStringValue(PairConsumer<JsonSchemaObject, String> propertySetter) {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isStringLiteral()) {
+        propertySetter.consume(object, StringUtil.unquoteString(element.getDelegate().getText()));
+      }
+    };
+  }
+
+  private static MyReader createFromInteger(PairConsumer<JsonSchemaObject, Integer> propertySetter) {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isNumberLiteral()) {
+        propertySetter.consume(object, (int)getNumber(element));
+      }
+    };
+  }
+
+  private static MyReader createFromNumber(PairConsumer<JsonSchemaObject, Number> propertySetter) {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isNumberLiteral()) {
+        propertySetter.consume(object, getNumber(element));
+      }
+    };
+  }
+
+  private static MyReader createFromObject(String prop, PairConsumer<JsonSchemaObject, JsonSchemaObject> propertySetter) {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        propertySetter.consume(object, enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer(prop, object.getPointer())), element));
+      }
+    };
+  }
+
+  private static MyReader createContainer(@NotNull final PairConsumer<JsonSchemaObject, List<JsonSchemaObject>> delegate) {
+    return (element, object, queue, virtualFile) -> {
+      if (element instanceof JsonArrayValueAdapter) {
+        final List<JsonValueAdapter> list = ((JsonArrayValueAdapter)element).getElements();
+        final List<JsonSchemaObject> members = ContainerUtil.newArrayListWithCapacity(list.size());
+        for (int i = 0; i < list.size(); i++) {
+          JsonValueAdapter value = list.get(i);
+          if (!(value.isObject())) continue;
+          members.add(enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer(String.valueOf(i), object.getPointer())), value));
+        }
+        delegate.consume(object, members);
+      }
+    };
+  }
+
+  private static MyReader createType() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isStringLiteral()) {
+        final JsonSchemaType type = parseType(StringUtil.unquoteString(element.getDelegate().getText()));
+        if (type != null) object.setType(type);
+      } else if (element instanceof JsonArrayValueAdapter) {
+        final Set<JsonSchemaType> typeList = ((JsonArrayValueAdapter)element).getElements().stream()
+          .filter(notEmptyString()).map(el -> parseType(StringUtil.unquoteString(el.getDelegate().getText())))
+          .filter(el -> el != null).collect(Collectors.toSet());
+        if (!typeList.isEmpty()) object.setTypeVariants(typeList);
+      }
+    };
+  }
+
+  @Nullable
+  private static JsonSchemaType parseType(@NotNull final String typeString) {
+    try {
+      return JsonSchemaType.valueOf("_" + typeString);
+    } catch (IllegalArgumentException e) {
+      return null;
     }
   }
 
   @Nullable
-  private static JsonSchemaObject findDefinition(@Nullable VirtualFile key,
-                                                @NotNull String ref,
-                                                @NotNull final JsonSchemaObject root,
-                                                @Nullable JsonSchemaExportedDefinitions definitions) {
-    if ("#".equals(ref)) {
-      return root;
+  private static Object readEnumValue(JsonValueAdapter value) {
+    if (value.isStringLiteral()) {
+      return "\"" + StringUtil.unquoteString(value.getDelegate().getText()) + "\"";
+    } else if (value.isNumberLiteral()) {
+      return getNumber(value);
+    } else if (value.isBooleanLiteral()) {
+      return getBoolean(value);
+    } else if (value.isNull()) {
+      return "null";
+    } else if (value instanceof JsonArrayValueAdapter) {
+      return new EnumArrayValueWrapper(((JsonArrayValueAdapter)value).getElements().stream().map(v -> readEnumValue(v)).filter(v -> v != null).toArray());
+    } else if (value instanceof JsonObjectValueAdapter) {
+      return new EnumObjectValueWrapper(((JsonObjectValueAdapter)value).getPropertyList().stream()
+        .filter(p -> p.getValues().size() == 1)
+        .map(p -> Pair.create(p.getName(), readEnumValue(p.getValues().iterator().next())))
+        .filter(p -> p.second != null)
+        .collect(Collectors.toMap(p -> p.first, p -> p.second)));
     }
-    if (!ref.startsWith("#/")) {
-      return findAbsoluteDefinition(key, ref, definitions);
-    }
-    return findRelativeDefinition(ref, root);
+    return null;
+  }
+
+  private static MyReader createEnum() {
+    return (element, object, queue, virtualFile) -> {
+      if (element instanceof JsonArrayValueAdapter) {
+        final List<Object> objects = new ArrayList<>();
+        final List<JsonValueAdapter> list = ((JsonArrayValueAdapter)element).getElements();
+        for (JsonValueAdapter value : list) {
+          Object enumValue = readEnumValue(value);
+          if (enumValue == null) return; // don't validate if we have unsupported entity kinds
+          objects.add(enumValue);
+        }
+        object.setEnum(objects);
+      }
+    };
+  }
+
+  private static boolean getBoolean(@NotNull JsonValueAdapter value) {
+    return Boolean.parseBoolean(value.getDelegate().getText());
   }
 
   @NotNull
-  public static JsonSchemaObject findRelativeDefinition(@NotNull String ref, @NotNull JsonSchemaObject root) {
-    if ("#".equals(ref)) {
-      return root;
-    }
-    if (!ref.startsWith("#/")) throw new RuntimeException("Non-relative or erroneous reference: " + ref);
-    ref = ref.substring(2);
-    final String[] parts = ref.split("/");
-    JsonSchemaObject current = root;
-    for (int i = 0; i < parts.length; i++) {
-      if (current == null) throw new RuntimeException("Incorrect reference: " + ref);
-      final String part = parts[i];
-      if ("definitions".equals(part)) {
-        if (i == (parts.length - 1)) throw new RuntimeException("Incorrect definition reference: " + ref);
-        //noinspection AssignmentToForLoopParameter
-        current = current.getDefinitions().get(parts[++i]);
-        continue;
+  private static Number getNumber(@NotNull JsonValueAdapter value) {
+    Number numberValue;
+    try {
+      numberValue = Integer.parseInt(value.getDelegate().getText());
+    } catch (NumberFormatException e) {
+      try {
+        numberValue = Double.parseDouble(value.getDelegate().getText());
       }
-      if ("properties".equals(part)) {
-        if (i == (parts.length - 1)) throw new RuntimeException("Incorrect properties reference: " + ref);
-        //noinspection AssignmentToForLoopParameter
-        current = current.getProperties().get(parts[++i]);
-        continue;
+      catch (NumberFormatException e2) {
+        return -1;
       }
-
-      current = current.getDefinitions().get(part);
     }
-    if (current == null) throw new RuntimeException("Incorrect reference: " + ref);
-    return current;
+    return numberValue;
   }
 
-  private static class JsonSchemaGeneralObjectTypeAdapter extends TypeAdapter<JsonSchemaObject> {
-    private final Set<JsonSchemaObject> myAllObjects = new HashSet<>();
-    private final Map<String, JsonSchemaObject> myIds = new HashMap<>();
-
-    private final Map<String, ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException>> myMap;
-
-    public JsonSchemaGeneralObjectTypeAdapter() {
-      myMap = new HashMap<>();
-      myMap.put("id", new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setId(s);
-        }
-      });
-      myMap.put("$schema", new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setSchema(s);
-        }
-      });
-      myMap.put("description", new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setDescription(s);
-        }
-      });
-      myMap.put("title", new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setTitle(s);
-        }
-      });
-      myMap.put("$ref", createRef());
-      myMap.put("default", createDefault());
-      myMap.put("format", createFormat());
-      myMap.put("definitions", createDefinitionsConsumer());
-      myMap.put("properties", createPropertiesConsumer());
-      myMap.put("multipleOf", createMultipleOf());
-      myMap.put("maximum", createMaximum());
-      myMap.put("minimum", createMinimum());
-      myMap.put("exclusiveMaximum", createExclusiveMaximum());
-      myMap.put("exclusiveMinimum", createExclusiveMinimum());
-      myMap.put("maxLength", createMaxLength());
-      myMap.put("minLength", createMinLength());
-      myMap.put("pattern", createPattern());
-      myMap.put("additionalItems", createAdditionalItems());
-      myMap.put("items", createItems());
-      myMap.put("maxItems", createMaxItems());
-      myMap.put("minItems", createMinItems());
-      myMap.put("uniqueItems", createUniqueItems());
-      myMap.put("maxProperties", createMaxProperties());
-      myMap.put("minProperties", createMinProperties());
-      myMap.put("required", createRequired());
-      myMap.put("additionalProperties", createAdditionalProperties());
-      myMap.put("patternProperties", createPatternProperties());
-      myMap.put("dependencies", createDependencies());
-      myMap.put("enum", createEnum());
-      myMap.put("type", createType());
-      myMap.put("allOf", new SchemaArrayConsumer() {
-        @Override
-        protected void assign(ArrayList<JsonSchemaObject> list, JsonSchemaObject object) {
-          object.setAllOf(list);
-        }
-      });
-      myMap.put("anyOf", new SchemaArrayConsumer() {
-        @Override
-        protected void assign(ArrayList<JsonSchemaObject> list, JsonSchemaObject object) {
-          object.setAnyOf(list);
-        }
-      });
-      myMap.put("oneOf", new SchemaArrayConsumer() {
-        @Override
-        protected void assign(ArrayList<JsonSchemaObject> list, JsonSchemaObject object) {
-          object.setOneOf(list);
-        }
-      });
-      myMap.put("not", createNot());
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createFormat() {
-      return new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setFormat(s);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createDefault() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BEGIN_OBJECT) {
-          object.setDefault(readInnerObject(in));
-        } else if (in.peek() == JsonToken.NUMBER) {
-          object.setDefault(in.nextDouble());
-        } else if (in.peek() == JsonToken.STRING) {
-          object.setDefault(in.nextString());
-        } else if (in.peek() == JsonToken.BOOLEAN) {
-          object.setDefault(in.nextBoolean());
-        } else in.skipValue();
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createRef() {
-      return new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setRef(s);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createNot() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BEGIN_OBJECT) {
-          object.setNot(readInnerObject(in));
-        } else in.skipValue();
-      };
-    }
-
-    private abstract class SchemaArrayConsumer implements ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> {
-      @Override
-      public void consume(JsonReader in, JsonSchemaObject object) throws IOException {
-        if (in.peek() == JsonToken.BEGIN_ARRAY) {
-          in.beginArray();
-          final ArrayList<JsonSchemaObject> list = new ArrayList<>();
-          while (in.peek() != JsonToken.END_ARRAY) {
-            if (in.peek() == JsonToken.BEGIN_OBJECT) {
-              list.add(readInnerObject(in));
-            } else in.skipValue();
-          }
-          assign(list, object);
-          in.endArray();
-        } else in.skipValue();
-      }
-
-      protected abstract void assign(ArrayList<JsonSchemaObject> list, JsonSchemaObject object);
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createType() {
-      return new ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException>() {
-        @Override
-        public void consume(JsonReader in, JsonSchemaObject object) throws IOException {
-          if (in.peek() == JsonToken.STRING) {
-            object.setType(parseType(in));
-          } else if (in.peek() == JsonToken.BEGIN_ARRAY) {
-            final ArrayList<JsonSchemaType> variants = new ArrayList<>();
-            in.beginArray();
-            while (in.peek() != JsonToken.END_ARRAY) {
-              if (in.peek() == JsonToken.STRING) {
-                variants.add(parseType(in));
-              } else in.skipValue();
-            }
-            in.endArray();
-            object.setTypeVariants(variants);
-          } else in.skipValue();
-        }
-
-        private JsonSchemaType parseType(JsonReader in) throws IOException {
-          final String typeString = in.nextString();
-          try {
-            return JsonSchemaType.valueOf("_" + typeString);
-          } catch (IllegalArgumentException e) {
-            throw new IOException("Wrong type value: " + typeString + "\"");
-          }
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createEnum() {
-      return (in, object) -> {
-        if (in.peek() != JsonToken.BEGIN_ARRAY) {
-          in.skipValue();
-          return;
-        }
-        final ArrayList<Object> objects = new ArrayList<>();
-        in.beginArray();
-        while (in.peek() != JsonToken.END_ARRAY) {
-          if (in.peek() == JsonToken.STRING) objects.add("\"" + in.nextString() + "\"");
-          else if (in.peek() == JsonToken.NUMBER) objects.add(in.nextInt());  // parse as integer here makes much more sense
-          else if (in.peek() == JsonToken.BOOLEAN) objects.add(in.nextBoolean());
-          else in.skipValue();
-        }
-        in.endArray();
-        object.setEnum(objects);
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createDependencies() {
-      return (in, object) -> {
-        if (in.peek() != JsonToken.BEGIN_OBJECT) {
-          in.skipValue();
-          return;
-        }
+  private static MyReader createDependencies() {
+    return (element, object, queue, virtualFile) -> {
+      if (element instanceof JsonObjectValueAdapter) {
         final HashMap<String, List<String>> propertyDependencies = new HashMap<>();
         final HashMap<String, JsonSchemaObject> schemaDependencies = new HashMap<>();
-        in.beginObject();
-        while (in.peek() != JsonToken.END_OBJECT) {
-          if (in.peek() != JsonToken.NAME) {
-            in.skipValue();
-            continue;
+
+        final List<JsonPropertyAdapter> list = ((JsonObjectValueAdapter)element).getPropertyList();
+        for (JsonPropertyAdapter property : list) {
+          Collection<JsonValueAdapter> values = property.getValues();
+          if (values.size() != 1) continue;
+          JsonValueAdapter value = values.iterator().next();
+          if (value == null) continue;
+          if (value instanceof JsonArrayValueAdapter) {
+            final List<String> dependencies = ((JsonArrayValueAdapter)value).getElements().stream()
+              .filter(notEmptyString())
+              .map(el -> StringUtil.unquoteString(el.getDelegate().getText())).collect(Collectors.toList());
+            if (!dependencies.isEmpty()) propertyDependencies.put(property.getName(), dependencies);
+          } else if (value.isObject()) {
+            String newPointer = getNewPointer("dependencies/" + property.getName(), object.getPointer());
+            schemaDependencies.put(property.getName(), enqueue(queue, new JsonSchemaObject(virtualFile, newPointer), value));
           }
-          final String name = in.nextName();
-          if (in.peek() == JsonToken.BEGIN_ARRAY) {
-            final List<String> members = new ArrayList<>();
-            in.beginArray();
-            while (in.peek() != JsonToken.END_ARRAY) {
-              if (in.peek() == JsonToken.STRING) {
-                members.add(in.nextString());
-              } else in.skipValue();
-            }
-            in.endArray();
-            propertyDependencies.put(name, members);
-          } else if (in.peek() == JsonToken.BEGIN_OBJECT) {
-            schemaDependencies.put(name, readInnerObject(in));
-          } else in.skipValue();
         }
-        in.endObject();
-        if (! propertyDependencies.isEmpty()) {
-          object.setPropertyDependencies(propertyDependencies);
-        }
-        if (! schemaDependencies.isEmpty()) {
-          object.setSchemaDependencies(schemaDependencies);
-        }
-      };
-    }
 
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createPatternProperties() {
-      return (in, object) -> {
-        if (in.peek() != JsonToken.BEGIN_OBJECT) {
-          in.skipValue();
-          return;
-        }
-        in.beginObject();
-        final HashMap<String, JsonSchemaObject> properties = new HashMap<>();
-        while (in.peek() != JsonToken.END_OBJECT) {
-          if (in.peek() == JsonToken.NAME) {
-            final String name = in.nextName();
-            if (in.peek() == JsonToken.BEGIN_OBJECT) {
-              properties.put(name, readInnerObject(in));
-            } else in.skipValue();
-          } else in.skipValue();
-        }
-        object.setPatternProperties(properties);
-        in.endObject();
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createAdditionalProperties() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BOOLEAN) {
-          object.setAdditionalPropertiesAllowed(in.nextBoolean());
-        } else if (in.peek() == JsonToken.BEGIN_OBJECT) {
-          object.setAdditionalPropertiesSchema(readInnerObject(in));
-        } else {
-          in.skipValue();
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createRequired() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BEGIN_ARRAY) {
-          final ArrayList<String> required = new ArrayList<>();
-          in.beginArray();
-          while (in.peek() != JsonToken.END_ARRAY) {
-            if (in.peek() == JsonToken.STRING) {
-              required.add(in.nextString());
-            } else {
-              in.skipValue();
-            }
-          }
-          in.endArray();
-          object.setRequired(required);
-        } else {
-          in.skipValue();
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMinProperties() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMinProperties(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMaxProperties() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMaxProperties(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createUniqueItems() {
-      return new BooleanReader() {
-        @Override
-        protected void assign(boolean b, JsonSchemaObject object) throws IOException {
-          object.setUniqueItems(b);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMinItems() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMinItems(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMaxItems() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMaxItems(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createItems() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BEGIN_OBJECT) {
-          object.setItemsSchema(readInnerObject(in));
-        } else if (in.peek() == JsonToken.BEGIN_ARRAY) {
-          in.beginArray();
-          final List<JsonSchemaObject> list = new ArrayList<>();
-          while (in.peek() != JsonToken.END_ARRAY) {
-            if (in.peek() == JsonToken.BEGIN_OBJECT) {
-              list.add(readInnerObject(in));
-            } else in.skipValue();
-          }
-          in.endArray();
-          object.setItemsSchemaList(list);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createAdditionalItems() {
-      return (in, object) -> {
-        if (in.peek() == JsonToken.BOOLEAN) {
-          object.setAdditionalItemsAllowed(in.nextBoolean());
-        } else if (in.peek() == JsonToken.BEGIN_OBJECT) {
-          object.setAdditionalItemsSchema(readInnerObject(in));
-        } else {
-          in.skipValue();
-        }
-      };
-    }
-
-    private JsonSchemaObject readInnerObject(JsonReader in) throws IOException {
-      return read(in);
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createPattern() {
-      return new StringReader() {
-        @Override
-        protected void assign(String s, JsonSchemaObject object) throws IOException {
-          object.setPattern(s);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMinLength() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMinLength(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMaxLength() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMaxLength(in.nextInt());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createExclusiveMinimum() {
-      return new BooleanReader() {
-        @Override
-        protected void assign(boolean b, JsonSchemaObject object) throws IOException {
-          object.setExclusiveMinimum(b);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createExclusiveMaximum() {
-      return new BooleanReader() {
-        @Override
-        protected void assign(boolean b, JsonSchemaObject object) throws IOException {
-          object.setExclusiveMaximum(b);
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMinimum() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMinimum(in.nextDouble());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMaximum() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMaximum(in.nextDouble());
-        }
-      };
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createMultipleOf() {
-      return new NumberReader() {
-        @Override
-        protected void readNumber(JsonReader in, JsonSchemaObject object) throws IOException {
-          object.setMultipleOf(in.nextDouble());
-        }
-      };
-    }
-
-    private abstract class StringReader implements ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> {
-      @Override
-      public void consume(JsonReader in, JsonSchemaObject object) throws IOException {
-        if (in.peek() == JsonToken.STRING) {
-          assign(in.nextString(), object);
-        } else {
-          in.skipValue();
-        }
+        object.setPropertyDependencies(propertyDependencies);
+        object.setSchemaDependencies(schemaDependencies);
       }
-
-      protected abstract void assign(String s, JsonSchemaObject object) throws IOException;
-    }
-
-    private abstract class BooleanReader implements ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> {
-      @Override
-      public void consume(JsonReader in, JsonSchemaObject object) throws IOException {
-        if (in.peek() == JsonToken.BOOLEAN) {
-          assign(in.nextBoolean(), object);
-        } else {
-          in.skipValue();
-        }
-      }
-
-      protected abstract void assign(boolean b, JsonSchemaObject object) throws IOException;
-    }
-
-    private abstract class NumberReader implements ThrowablePairConsumer<JsonReader,JsonSchemaObject,IOException> {
-      @Override
-      public void consume(JsonReader in, JsonSchemaObject object) throws IOException {
-        if (in.peek() == JsonToken.NUMBER) {
-          readNumber(in, object);
-        } else {
-          in.skipValue();
-        }
-      }
-
-      protected abstract void readNumber(JsonReader in, JsonSchemaObject object) throws IOException;
-    }
-
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createPropertiesConsumer() {
-      return (in, object) -> {
-        in.beginObject();
-        while (in.peek() == JsonToken.NAME) {
-          final String name = in.nextName();
-          object.getProperties().put(name, readInnerObject(in));
-        }
-        in.endObject();
-      };
-    }
-
-    @NotNull
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> createDefinitionsConsumer() {
-      return (in, object) -> {
-        final Map<String, JsonSchemaObject> map = new HashMap<>();
-        in.beginObject();
-        while (in.peek() == JsonToken.NAME) {
-          final String name = in.nextName();
-          map.put(name, readInnerObject(in));
-        }
-        in.endObject();
-        if (! map.isEmpty()) {
-          object.setDefinitions(map);
-        }
-      };
-    }
-
-    @Nullable
-    private ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> getPropertyConsumer(final String name) {
-      return myMap.get(name);
-    }
-
-    @Override
-    public void write(JsonWriter out, JsonSchemaObject value) throws IOException {
-      throw new IllegalStateException(" no intention to implement writing");
-    }
-
-    @Override
-    public JsonSchemaObject read(JsonReader in) throws IOException {
-      in.beginObject();
-      final JsonSchemaObject object = new JsonSchemaObject();
-      while (in.peek() == JsonToken.NAME) {
-        final String name = in.nextName();
-        readSomeProperty(in, name, object);
-      }
-      in.endObject();
-      myAllObjects.add(object);
-      if (object.getId() != null) {
-        myIds.put(object.getId(), object);
-      }
-      return object;
-    }
-
-    void readSomeProperty(JsonReader in, String name, JsonSchemaObject object) throws IOException {
-      final ThrowablePairConsumer<JsonReader, JsonSchemaObject, IOException> consumer = myMap.get(name);
-      if (consumer != null) {
-        consumer.consume(in, object);
-      }
-      else {
-        readSingleDefinition(in, name, object);
-      }
-    }
-
-    void readSingleDefinition(JsonReader in, String name, JsonSchemaObject object) throws IOException {
-      if (in.peek() != JsonToken.BEGIN_OBJECT) {
-        in.skipValue();  // if unknown property has non-object value, than it is not a definition, lets ignore it
-        return;
-      }
-      final JsonSchemaObject defined = read(in);
-      if (defined == null) return;
-      Map<String, JsonSchemaObject> definitions = object.getDefinitions();
-      if (definitions == null) {
-        object.setDefinitions(definitions = new HashMap<>());
-      }
-      definitions.put(name, defined);
-    }
-
-    public Set<JsonSchemaObject> getAllObjects() {
-      return myAllObjects;
-    }
-
-    public Map<String, JsonSchemaObject> getIds() {
-      return myIds;
-    }
+    };
   }
 
-  private interface ThrowablePairConsumer<P,S,T extends Throwable> {
-    void consume(P p, S s) throws T;
+  @NotNull
+  private static Predicate<JsonValueAdapter> notEmptyString() {
+    return el -> el.isStringLiteral() && !StringUtil.isEmptyOrSpaces(el.getDelegate().getText());
+  }
+
+  private static MyReader createPatternProperties() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setPatternProperties(readInnerObject(getNewPointer("patternProperties", object.getPointer()), element, queue, virtualFile));
+      }
+    };
+  }
+
+  private static MyReader createAdditionalProperties() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isBooleanLiteral()) {
+        object.setAdditionalPropertiesAllowed(getBoolean(element));
+      } else if (element.isObject()) {
+        object.setAdditionalPropertiesSchema(enqueue(queue, new JsonSchemaObject(virtualFile,
+                                                                                 getNewPointer("additionalProperties", object.getPointer())),
+                                                     element));
+      }
+    };
+  }
+
+  private static MyReader createRequired() {
+    return (element, object, queue, virtualFile) -> {
+      if (element instanceof JsonArrayValueAdapter) {
+        object.setRequired(ContainerUtil.newLinkedHashSet(((JsonArrayValueAdapter)element).getElements().stream()
+                             .filter(notEmptyString())
+                             .map(el -> StringUtil.unquoteString(el.getDelegate().getText())).collect(Collectors.toList())));
+      }
+    };
+  }
+
+  private static MyReader createItems() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setItemsSchema(enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer("items", object.getPointer())), element));
+      } else if (element instanceof JsonArrayValueAdapter) {
+        final List<JsonSchemaObject> list = new ArrayList<>();
+        final List<JsonValueAdapter> values = ((JsonArrayValueAdapter)element).getElements();
+        for (int i = 0; i < values.size(); i++) {
+          JsonValueAdapter value = values.get(i);
+          if (value.isObject()) {
+            list.add(enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer("items/"+i, object.getPointer())), value));
+          }
+        }
+        object.setItemsSchemaList(list);
+      }
+    };
+  }
+
+  private static MyReader createDefinitionsConsumer() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setDefinitionsMap(readInnerObject(getNewPointer("definitions", object.getPointer()), element, queue, virtualFile));
+      }
+    };
+  }
+
+  private static MyReader createContains() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setContainsSchema(enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer("contains", object.getPointer())), element));
+      }
+    };
+  }
+
+  private static MyReader createAdditionalItems() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isBooleanLiteral()) {
+        object.setAdditionalItemsAllowed(getBoolean(element));
+      } else if (element.isObject()) {
+        object.setAdditionalItemsSchema(enqueue(queue, new JsonSchemaObject(virtualFile,
+                                                                            getNewPointer("additionalItems", object.getPointer())), element));
+      }
+    };
+  }
+
+  private static MyReader createPropertiesConsumer() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setProperties(readInnerObject(getNewPointer("properties", object.getPointer()), element, queue, virtualFile));
+      }
+    };
+  }
+
+  @NotNull
+  private static Map<String, JsonSchemaObject> readInnerObject(String parentPointer, @NotNull JsonValueAdapter element,
+                                                               @NotNull Collection<Pair<JsonSchemaObject, JsonValueAdapter>> queue,
+                                                               VirtualFile virtualFile) {
+    final Map<String, JsonSchemaObject> map = new HashMap<>();
+    if (!(element instanceof JsonObjectValueAdapter)) return map;
+    final List<JsonPropertyAdapter> properties = ((JsonObjectValueAdapter)element).getPropertyList();
+    for (JsonPropertyAdapter property : properties) {
+      Collection<JsonValueAdapter> values = property.getValues();
+      if (values.size() != 1) continue;
+      JsonValueAdapter value = values.iterator().next();
+      String propertyName = property.getName();
+      if (propertyName == null) continue;
+      if (value.isBooleanLiteral()) {
+        // schema v7: `propName: true` is equivalent to `propName: {}`
+        map.put(propertyName, new JsonSchemaObject(virtualFile, getNewPointer(propertyName, parentPointer)));
+        continue;
+      }
+      if (!value.isObject()) continue;
+      map.put(propertyName, enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer(propertyName, parentPointer)), value));
+    }
+    return map;
+  }
+
+  private static MyReader createDefault() {
+    return (element, object, queue, virtualFile) -> {
+      if (element.isObject()) {
+        object.setDefault(enqueue(queue, new JsonSchemaObject(virtualFile, getNewPointer("default", object.getPointer())), element));
+      } else if (element.isStringLiteral()) {
+        object.setDefault(StringUtil.unquoteString(element.getDelegate().getText()));
+      } else if (element.isNumberLiteral()) {
+        object.setDefault(getNumber(element));
+      } else if (element.isBooleanLiteral()) {
+        object.setDefault(getBoolean(element));
+      }
+    };
+  }
+
+  private interface MyReader {
+    void read(@NotNull JsonValueAdapter source,
+              @NotNull JsonSchemaObject target,
+              @NotNull Collection<Pair<JsonSchemaObject, JsonValueAdapter>> processingQueue,
+              @Nullable VirtualFile file);
   }
 }

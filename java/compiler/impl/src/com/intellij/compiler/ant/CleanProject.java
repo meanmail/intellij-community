@@ -29,7 +29,6 @@ import java.util.List;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 24, 2004
  */
 public class CleanProject extends Generator {
   private final Target myTarget;
@@ -48,6 +47,7 @@ public class CleanProject extends Generator {
                           CompilerBundle.message("generated.ant.build.clean.all.task.comment"), null);
   }
 
+  @Override
   public void generate(PrintWriter out) throws IOException {
     myTarget.generate(out);
   }

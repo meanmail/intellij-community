@@ -19,6 +19,7 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiReference;
 import com.intellij.psi.PsiReferenceProvider;
 import com.intellij.util.ProcessingContext;
+import com.intellij.util.containers.ContainerUtil;
 import com.jetbrains.python.inspections.PyStringFormatParser;
 import com.jetbrains.python.psi.PyStringLiteralExpression;
 import org.jetbrains.annotations.NotNull;
@@ -37,27 +38,21 @@ public class PythonFormattedStringReferenceProvider extends PsiReferenceProvider
     }
   }
 
-  private static PsiReference[] getReferencesFromFormatString(@NotNull final PyStringLiteralExpression element) {
+  private static PySubstitutionChunkReference[] getReferencesFromFormatString(@NotNull final PyStringLiteralExpression element) {
     final List<PyStringFormatParser.SubstitutionChunk> chunks = PyStringFormatParser.filterSubstitutions(
       PyStringFormatParser.parseNewStyleFormat(element.getText()));
-    return getReferencesFromChunks(element, chunks, false);
+    return getReferencesFromChunks(element, chunks);
   }
 
-  private static PsiReference[] getReferencesFromPercentString(@NotNull final PyStringLiteralExpression element) {
+  private static PySubstitutionChunkReference[] getReferencesFromPercentString(@NotNull final PyStringLiteralExpression element) {
     final List<PyStringFormatParser.SubstitutionChunk>
       chunks = PyStringFormatParser.filterSubstitutions(PyStringFormatParser.parsePercentFormat(element.getText()));
-    return getReferencesFromChunks(element, chunks, true);
+    return getReferencesFromChunks(element, chunks);
   }
 
   @NotNull
-  private static PsiReference[] getReferencesFromChunks(@NotNull final PyStringLiteralExpression element,
-                                                        @NotNull final List<PyStringFormatParser.SubstitutionChunk> chunks,
-                                                        boolean isPercent) {
-    final PsiReference[] result = new PsiReference[chunks.size()];
-      for (int i = 0; i < chunks.size(); i++) {
-        final PyStringFormatParser.SubstitutionChunk chunk = chunks.get(i);
-        result[i] = new PySubstitutionChunkReference(element, chunk, i, isPercent);
-      }
-    return result;
+  public static PySubstitutionChunkReference[] getReferencesFromChunks(@NotNull final PyStringLiteralExpression element,
+                                                                       @NotNull final List<? extends PyStringFormatParser.SubstitutionChunk> chunks) {
+    return ContainerUtil.map2Array(chunks, PySubstitutionChunkReference.class, chunk -> new PySubstitutionChunkReference(element, chunk));
   }
 }

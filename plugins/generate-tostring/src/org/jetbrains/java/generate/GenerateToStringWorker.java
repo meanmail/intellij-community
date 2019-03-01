@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,7 +24,6 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.editor.VisualPosition;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
 import com.intellij.psi.codeStyle.JavaCodeStyleManager;
@@ -43,7 +42,7 @@ import java.util.Map;
 import java.util.StringTokenizer;
 
 public class GenerateToStringWorker {
-  private static final Logger logger = Logger.getInstance("#" + GenerateToStringWorker.class.getName());
+  private static final Logger logger = Logger.getInstance(GenerateToStringWorker.class);
 
   private final Editor editor;
   private final PsiClass clazz;
@@ -58,7 +57,7 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * Creates the <code>toString</code> method.
+   * Creates the {@code toString} method.
    *
    * @param selectedMembers the selected members as both {@link com.intellij.psi.PsiField} and {@link com.intellij.psi.PsiMethod}.
    * @param policy          conflict resolution policy
@@ -74,12 +73,7 @@ public class GenerateToStringWorker {
                                          Map<String, String> params,
                                          TemplateResource template) throws IncorrectOperationException, GenerateCodeException {
     // generate code using velocity
-    String body = GenerationUtil.velocityGenerateCode(clazz, selectedMembers, params, template.getMethodBody(), config.getSortElements(), config.isUseFullyQualifiedName());
-    if (logger.isDebugEnabled()) logger.debug("Method body generated from Velocity:\n" + body);
-
-    // fix weird linebreak problem in IDEA #3296 and later
-    body = StringUtil.convertLineSeparators(body);
-
+    String evaluatedText = GenerationUtil.velocityGenerateCode(clazz, selectedMembers, params, template.getTemplate(), config.getSortElements(), config.isUseFullyQualifiedName());
     // create psi newMethod named toString()
     final JVMElementFactory topLevelFactory = JVMElementFactories.getFactory(clazz.getLanguage(), clazz.getProject());
     if (topLevelFactory == null) {
@@ -87,9 +81,11 @@ public class GenerateToStringWorker {
     }
     PsiMethod newMethod;
     try {
-      newMethod = topLevelFactory.createMethodFromText(template.getMethodSignature() + " { " + body + " }", clazz);
+      newMethod = topLevelFactory.createMethodFromText(evaluatedText, clazz);
       CodeStyleManager.getInstance(clazz.getProject()).reformat(newMethod);
-    } catch (IncorrectOperationException ignore) {
+    }
+    catch (IncorrectOperationException e) {
+      logger.info(e);
       HintManager.getInstance().showErrorHint(editor, "'toString()' method could not be created from template '" +
                                                       template.getFileName() + '\'');
       return null;
@@ -121,9 +117,7 @@ public class GenerateToStringWorker {
     return toStringMethod;
   }
 
-  public void execute(Collection<PsiMember> members, TemplateResource template) throws IncorrectOperationException, GenerateCodeException {
-    // decide what to do if the method already exists
-    ConflictResolutionPolicy resolutionPolicy = exitsMethodDialog(template);
+  public void execute(Collection<PsiMember> members, TemplateResource template, final ConflictResolutionPolicy resolutionPolicy) throws IncorrectOperationException, GenerateCodeException {
     // what insert policy should we use?
     resolutionPolicy.setNewMethodStrategy(getStrategy(config.getInsertNewMethodInitialOption()));
 
@@ -157,7 +151,7 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * This method gets the choice if there is an existing <code>toString</code> method.
+   * This method gets the choice if there is an existing {@code toString} method.
    * <br/> 1) If there is a settings to always override use this.
    * <br/> 2) Prompt a dialog and let the user decide.
    *
@@ -167,9 +161,10 @@ public class GenerateToStringWorker {
   protected ConflictResolutionPolicy exitsMethodDialog(TemplateResource template) {
     final DuplicationPolicy dupPolicy = config.getReplaceDialogInitialOption();
     if (dupPolicy == DuplicationPolicy.ASK) {
-      PsiMethod existingMethod = PsiAdapter.findMethodByName(clazz, template.getTargetMethodName());
+      String targetMethodName = template.getTargetMethodName(clazz);
+      PsiMethod existingMethod = targetMethodName != null ? PsiAdapter.findMethodByName(clazz, targetMethodName) : null;
       if (existingMethod != null) {
-        return MethodExistsDialog.showDialog(template.getTargetMethodName());
+        return MethodExistsDialog.showDialog(targetMethodName);
       }
     }
     else if (dupPolicy == DuplicationPolicy.REPLACE) {
@@ -181,13 +176,15 @@ public class GenerateToStringWorker {
   }
 
   /**
-   * This method is executed just before the <code>toString</code> method is created or updated.
+   * This method is executed just before the {@code toString} method is created or updated.
    *
    * @param params   additional parameters stored with key/value in the map.
    * @param template the template to use
    */
   private void beforeCreateToStringMethod(Map<String, String> params, TemplateResource template) {
-    PsiMethod existingMethod = PsiAdapter.findMethodByName(clazz, template.getTargetMethodName()); // find the existing method
+    String targetMethodName = template.getTargetMethodName(clazz);
+    if (targetMethodName == null) return;
+    PsiMethod existingMethod = PsiAdapter.findMethodByName(clazz, targetMethodName); // find the existing method
     if (existingMethod != null && existingMethod.getDocComment() != null) {
       PsiDocComment doc = existingMethod.getDocComment();
       if (doc != null) {
@@ -198,9 +195,9 @@ public class GenerateToStringWorker {
 
 
   /**
-   * This method is executed just after the <code>toString</code> method is created or updated.
+   * This method is executed just after the {@code toString} method is created or updated.
    *
-   * @param method   the newly created/updated <code>toString</code> method.
+   * @param method   the newly created/updated {@code toString} method.
    * @param params   additional parameters stored with key/value in the map.
    * @param template the template to use
    * @throws IncorrectOperationException is thrown by IDEA

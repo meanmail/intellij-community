@@ -18,7 +18,6 @@ package org.jetbrains.jps.builders;
 import com.intellij.openapi.util.io.FileUtil;
 import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.testFramework.UsefulTestCase;
-import com.intellij.util.Function;
 import com.intellij.util.containers.MultiMap;
 import gnu.trove.THashSet;
 import org.jetbrains.jps.builders.impl.logging.ProjectBuilderLoggerBase;
@@ -34,9 +33,9 @@ import java.util.Set;
  * @author nik
  */
 public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
-  private MultiMap<String, File> myCompiledFiles = new MultiMap<String, File>();
-  private Set<File> myDeletedFiles = new THashSet<File>(FileUtil.FILE_HASHING_STRATEGY);
-  private List<String> myLogLines = new ArrayList<String>();
+  private final MultiMap<String, File> myCompiledFiles = new MultiMap<>();
+  private final Set<File> myDeletedFiles = new THashSet<>(FileUtil.FILE_HASHING_STRATEGY);
+  private final List<String> myLogLines = new ArrayList<>();
   
   @Override
   public void logDeletedFiles(Collection<String> paths) {
@@ -70,7 +69,7 @@ public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
   }
 
   private static void assertRelativePaths(File[] baseDirs, Collection<File> files, String[] expected) {
-    List<String> relativePaths = new ArrayList<String>();
+    List<String> relativePaths = new ArrayList<>();
     for (File file : files) {
       String path = file.getAbsolutePath();
       for (File baseDir : baseDirs) {
@@ -90,19 +89,16 @@ public class TestProjectBuilderLogger extends ProjectBuilderLoggerBase {
   }
 
   public String getFullLog(final File... baseDirs) {
-    return StringUtil.join(myLogLines, new Function<String, String>() {
-      @Override
-      public String fun(String s) {
-        for (File dir : baseDirs) {
-          if (dir != null) {
-            String path = FileUtil.toSystemIndependentName(dir.getAbsolutePath()) + "/";
-            if (s.startsWith(path)) {
-              return s.substring(path.length());
-            }
+    return StringUtil.join(myLogLines, s -> {
+      for (File dir : baseDirs) {
+        if (dir != null) {
+          String path = FileUtil.toSystemIndependentName(dir.getAbsolutePath()) + "/";
+          if (s.startsWith(path)) {
+            return s.substring(path.length());
           }
         }
-        return s;
       }
+      return s;
     }, "\n");
   }
 

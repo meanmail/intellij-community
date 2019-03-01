@@ -18,6 +18,7 @@ package com.intellij.openapi.diff.impl.dir.actions;
 import com.intellij.ide.diff.DirDiffModelHolder;
 import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.diff.impl.dir.DirDiffTableModel;
+import com.intellij.openapi.project.DumbAware;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -29,7 +30,7 @@ import java.util.List;
 /**
  * @author Konstantin Bulenkov
  */
-public class DirDiffToolbarActions extends ActionGroup {
+public class DirDiffToolbarActions extends ActionGroup implements DumbAware {
   private final AnAction[] myActions;  
 
   public DirDiffToolbarActions(DirDiffTableModel model, JComponent panel) {
@@ -42,6 +43,8 @@ public class DirDiffToolbarActions extends ActionGroup {
       new EnableEqual(model),
       new EnableRight(model),
       Separator.getInstance(),
+      ActionManager.getInstance().getAction("DirDiffMenu.CompareNewFilesWithEachOtherAction"),
+      Separator.getInstance(),
       new ChangeCompareModeGroup(model),
       Separator.getInstance()));
 
@@ -50,9 +53,10 @@ public class DirDiffToolbarActions extends ActionGroup {
       actions.add(new SynchronizeDiff(model, false));
     }
 
-    for (AnAction action : model.getSettings().getExtraActions()) {
-      actions.add(action);
-    }
+    actions.addAll(model.getSettings().getExtraActions());
+
+    actions.add(Separator.getInstance());
+    actions.add(ActionManager.getInstance().getAction(IdeActions.DIFF_VIEWER_TOOLBAR));
 
     for (AnAction action : actions) {
       if (action instanceof ShortcutProvider) {
@@ -65,7 +69,7 @@ public class DirDiffToolbarActions extends ActionGroup {
         ((DirDiffModelHolder)action).setModel(model);
       }
     }
-    myActions = actions.toArray(new AnAction[actions.size()]);
+    myActions = actions.toArray(AnAction.EMPTY_ARRAY);
   }
 
   @NotNull

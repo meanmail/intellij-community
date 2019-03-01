@@ -28,7 +28,7 @@ import com.intellij.openapi.externalSystem.ExternalSystemConfigurableAware;
 import com.intellij.openapi.externalSystem.ExternalSystemManager;
 import com.intellij.openapi.externalSystem.model.LocationAwareExternalSystemException;
 import com.intellij.openapi.externalSystem.model.ProjectSystemId;
-import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManager;
+import com.intellij.openapi.externalSystem.service.project.manage.ExternalProjectsManagerImpl;
 import com.intellij.openapi.externalSystem.util.ExternalSystemApiUtil;
 import com.intellij.openapi.externalSystem.util.ExternalSystemBundle;
 import com.intellij.openapi.externalSystem.util.ExternalSystemUtil;
@@ -51,15 +51,21 @@ import com.intellij.ui.content.Content;
 import com.intellij.ui.content.ContentFactory;
 import com.intellij.ui.content.MessageView;
 import com.intellij.util.ObjectUtils;
-import com.intellij.util.concurrency.SequentialTaskExecutor;
+import com.intellij.util.SmartList;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.ui.UIUtil;
+import com.intellij.util.ui.accessibility.ScreenReader;
+import com.intellij.util.ui.update.MergingUpdateQueue;
+import com.intellij.util.ui.update.Update;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.PrintStream;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
 
 /**
  * This class is responsible for ide user by external system integration-specific events.
@@ -70,23 +76,24 @@ import java.util.concurrent.ExecutorService;
  * Thread-safe.
  *
  * @author Denis Zhdanov, Vladislav Soroka
- * @since 3/21/12 4:04 PM
  */
 public class ExternalSystemNotificationManager implements Disposable {
+
   @NotNull private static final Key<Pair<NotificationSource, ProjectSystemId>> CONTENT_ID_KEY = Key.create("CONTENT_ID");
-
-  @NotNull private final ExecutorService myUpdater = SequentialTaskExecutor.createSequentialApplicationPoolExecutor("ExternalSystemNotificationManager pool");
-
-  @NotNull private final Project myProject;
+  @NotNull private final MergingUpdateQueue myUpdateQueue;
+  @Nullable private volatile Project myProject;
   @NotNull private final Set<Notification> myNotifications;
+  @NotNull private final Map<Key, Notification> myUniqueNotifications;
   @NotNull private final Set<ProjectSystemId> initializedExternalSystem;
   @NotNull private final MessageCounter myMessageCounter;
 
   public ExternalSystemNotificationManager(@NotNull final Project project) {
     myProject = project;
     myNotifications = ContainerUtil.newConcurrentSet();
+    myUniqueNotifications = ContainerUtil.newConcurrentMap();
     initializedExternalSystem = ContainerUtil.newConcurrentSet();
     myMessageCounter = new MessageCounter();
+    myUpdateQueue = new MergingUpdateQueue(getClass() + " updates", 500, true, null, this, null, false);
   }
 
   @NotNull
@@ -94,26 +101,41 @@ public class ExternalSystemNotificationManager implements Disposable {
     return ServiceManager.getService(project, ExternalSystemNotificationManager.class);
   }
 
+  /**
+   * @deprecated build tool window should be used to display 'sync' errors
+   */
+  @Deprecated
   public void processExternalProjectRefreshError(@NotNull Throwable error,
                                                  @NotNull String externalProjectName,
                                                  @NotNull ProjectSystemId externalSystemId) {
-    if (myProject.isDisposed() || !myProject.isOpen()) {
+    if (isDisposedOrNotOpen()) {
       return;
     }
+    Project project = myProject;
+    assert project != null;
+
     ExternalSystemManager<?, ?, ?, ?, ?> manager = ExternalSystemApiUtil.getManager(externalSystemId);
     if (!(manager instanceof ExternalSystemConfigurableAware)) {
       return;
     }
+    String title = ExternalSystemBundle.message("notification.project.refresh.fail.title",
+                                                externalSystemId.getReadableName(), externalProjectName);
+    NotificationData notificationData = createNotification(title, error, externalSystemId, project);
+    EditorNotifications.getInstance(project).updateAllNotifications();
+    showNotification(externalSystemId, notificationData);
+  }
 
-    String title =
-      ExternalSystemBundle.message("notification.project.refresh.fail.title", externalSystemId.getReadableName(), externalProjectName);
+  @NotNull
+  public NotificationData createNotification(@NotNull String title,
+                                             @NotNull Throwable error,
+                                             @NotNull ProjectSystemId externalSystemId,
+                                             @NotNull Project project) {
     String message = ExternalSystemApiUtil.buildErrorMessage(error);
     NotificationCategory notificationCategory = NotificationCategory.ERROR;
     String filePath = null;
     Integer line = null;
     Integer column = null;
 
-    //noinspection ThrowableResultOfMethodCallIgnored
     Throwable unwrapped = RemoteUtil.unwrap(error);
     if (unwrapped instanceof LocationAwareExternalSystemException) {
       LocationAwareExternalSystemException locationAwareExternalSystemException = (LocationAwareExternalSystemException)unwrapped;
@@ -127,36 +149,59 @@ public class ExternalSystemNotificationManager implements Disposable {
         title, message, notificationCategory, NotificationSource.PROJECT_SYNC,
         filePath, ObjectUtils.notNull(line, -1), ObjectUtils.notNull(column, -1), false);
 
-    for (ExternalSystemNotificationExtension extension : ExternalSystemNotificationExtension.EP_NAME.getExtensions()) {
+    for (ExternalSystemNotificationExtension extension: ExternalSystemNotificationExtension.EP_NAME.getExtensions()) {
       final ProjectSystemId targetExternalSystemId = extension.getTargetExternalSystemId();
       if (!externalSystemId.equals(targetExternalSystemId) && !targetExternalSystemId.equals(ProjectSystemId.IDE)) {
         continue;
       }
-      extension.customize(notificationData, myProject, error);
+      extension.customize(notificationData, project, error);
     }
+    return notificationData;
+  }
 
-    EditorNotifications.getInstance(myProject).updateAllNotifications();
-    showNotification(externalSystemId, notificationData);
+  public boolean isNotificationActive(@NotNull Key<String> notificationKey) {
+    Notification notification = myUniqueNotifications.get(notificationKey);
+    return notification != null && !notification.isExpired();
   }
 
   public void showNotification(@NotNull final ProjectSystemId externalSystemId, @NotNull final NotificationData notificationData) {
-    myUpdater.submit(() -> {
-      if (myProject.isDisposed()) return;
+    showNotification(externalSystemId, notificationData, null);
+  }
 
-      final Application app = ApplicationManager.getApplication();
+  public void showNotification(@NotNull final ProjectSystemId externalSystemId,
+                               @NotNull final NotificationData notificationData,
+                               @Nullable Key<String> notificationKey) {
+    Disposer.register(this, notificationData);
+    if (ApplicationManager.getApplication().isUnitTestMode()) {
+      @SuppressWarnings("UseOfSystemOutOrSystemErr")
+      PrintStream out = notificationData.getNotificationCategory() == NotificationCategory.INFO ? System.out : System.err;
+      out.println(notificationData.getMessage());
+      return;
+    }
+
+    if (notificationKey != null && isNotificationActive(notificationKey)) return;
+    myUpdateQueue.queue(new Update(new Object()) {
+
+      @Override
+      public void run() {
+        if (isDisposedOrNotOpen()) return;
+        assert myProject != null;
+        Project project = myProject;
+
+        final Application app = ApplicationManager.getApplication();
         Runnable action = () -> {
           if (!initializedExternalSystem.contains(externalSystemId)) {
             app.runWriteAction(() -> {
-              if (myProject.isDisposed()) return;
-              ExternalSystemUtil.ensureToolWindowContentInitialized(myProject, externalSystemId);
+              if (isDisposedOrNotOpen()) return;
+              ExternalSystemUtil.ensureToolWindowContentInitialized(project, externalSystemId);
               initializedExternalSystem.add(externalSystemId);
             });
           }
-          if (myProject.isDisposed()) return;
+          if (isDisposedOrNotOpen()) return;
           NotificationGroup group;
           if (notificationData.getBalloonGroup() == null) {
             ExternalProjectsView externalProjectsView =
-              ExternalProjectsManager.getInstance(myProject).getExternalProjectsView(externalSystemId);
+              ExternalProjectsManagerImpl.getInstance(project).getExternalProjectsView(externalSystemId);
             group = externalProjectsView instanceof ExternalProjectsViewImpl ?
                     ((ExternalProjectsViewImpl)externalProjectsView).getNotificationGroup() : null;
           }
@@ -170,7 +215,15 @@ public class ExternalSystemNotificationManager implements Disposable {
             notificationData.getTitle(), notificationData.getMessage(),
             notificationData.getNotificationCategory().getNotificationType(), notificationData.getListener());
 
-          myNotifications.add(notification);
+          if (notificationKey == null) {
+            myNotifications.add(notification);
+          }
+          else {
+            Notification oldNotification = myUniqueNotifications.put(notificationKey, notification);
+            if (oldNotification != null) {
+              oldNotification.expire();
+            }
+          }
 
           if (notificationData.isBalloonNotification()) {
             applyNotification(notification);
@@ -179,63 +232,91 @@ public class ExternalSystemNotificationManager implements Disposable {
             addMessage(notification, externalSystemId, notificationData);
           }
         };
-      app.invokeLater(action, ModalityState.defaultModalityState(), myProject.getDisposed());
+        app.invokeLater(action, ModalityState.defaultModalityState(), project.getDisposed());
+      }
     });
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public void openMessageView(@NotNull final ProjectSystemId externalSystemId, @NotNull final NotificationSource notificationSource) {
     UIUtil.invokeLaterIfNeeded(() -> prepareMessagesView(externalSystemId, notificationSource, true));
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public void clearNotifications(@NotNull final NotificationSource notificationSource,
                                  @NotNull final ProjectSystemId externalSystemId) {
     clearNotifications(null, notificationSource, externalSystemId);
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public void clearNotifications(@Nullable final String groupName,
                                  @NotNull final NotificationSource notificationSource,
                                  @NotNull final ProjectSystemId externalSystemId) {
     myMessageCounter.remove(groupName, notificationSource, externalSystemId);
-    myUpdater.submit(() -> {
-      if (myProject.isDisposed()) return;
-      for (Iterator<Notification> iterator = myNotifications.iterator(); iterator.hasNext(); ) {
-        Notification notification = iterator.next();
-        if (groupName == null || groupName.equals(notification.getGroupId())) {
-          notification.expire();
-          iterator.remove();
-        }
-      }
+    if (ApplicationManager.getApplication().isUnitTestMode()) return;
 
-      final ToolWindow toolWindow = ToolWindowManager.getInstance(myProject).getToolWindow(ToolWindowId.MESSAGES_WINDOW);
-      if (toolWindow == null) return;
+    final Pair<NotificationSource, ProjectSystemId> contentIdPair = Pair.create(notificationSource, externalSystemId);
+    myUpdateQueue.queue(new Update(new Object()) {
+      @Override
+      public void run() {
+        if (isDisposedOrNotOpen()) return;
+        assert myProject != null;
+        Project project = myProject;
 
-      final Pair<NotificationSource, ProjectSystemId> contentIdPair = Pair.create(notificationSource, externalSystemId);
-      final MessageView messageView = ServiceManager.getService(myProject, MessageView.class);
-      UIUtil.invokeLaterIfNeeded(() -> {
-        if (myProject.isDisposed()) return;
-        for (Content content : messageView.getContentManager().getContents()) {
-          if (!content.isPinned() && contentIdPair.equals(content.getUserData(CONTENT_ID_KEY))) {
-            if (groupName == null) {
-              messageView.getContentManager().removeContent(content, true);
-            }
-            else {
-              assert content.getComponent() instanceof NewEditableErrorTreeViewPanel;
-              NewEditableErrorTreeViewPanel errorTreeView = (NewEditableErrorTreeViewPanel)content.getComponent();
-              ErrorViewStructure errorViewStructure = errorTreeView.getErrorViewStructure();
-              errorViewStructure.removeGroup(groupName);
-            }
+        for (Iterator<Notification> iterator = myNotifications.iterator(); iterator.hasNext(); ) {
+          Notification notification = iterator.next();
+          if (groupName == null || groupName.equals(notification.getGroupId())) {
+            notification.expire();
+            iterator.remove();
           }
         }
-      });
+
+        List<Key> toRemove = new SmartList<>();
+        myUniqueNotifications.forEach((key, notification) -> {
+          if (groupName == null || groupName.equals(notification.getGroupId())) {
+            notification.expire();
+            toRemove.add(key);
+          }
+        });
+        toRemove.forEach(myUniqueNotifications::remove);
+
+        final ToolWindow toolWindow = ToolWindowManager.getInstance(project).getToolWindow(ToolWindowId.MESSAGES_WINDOW);
+        if (toolWindow == null) return;
+
+        final MessageView messageView = ServiceManager.getService(project, MessageView.class);
+        UIUtil.invokeLaterIfNeeded(() -> {
+          if (project.isDisposed()) return;
+          for (Content content: messageView.getContentManager().getContents()) {
+            if (!content.isPinned() && contentIdPair.equals(content.getUserData(CONTENT_ID_KEY))) {
+              if (groupName == null) {
+                messageView.getContentManager().removeContent(content, true);
+              }
+              else {
+                assert content.getComponent() instanceof NewEditableErrorTreeViewPanel;
+                NewEditableErrorTreeViewPanel errorTreeView = (NewEditableErrorTreeViewPanel)content.getComponent();
+                ErrorViewStructure errorViewStructure = errorTreeView.getErrorViewStructure();
+                errorViewStructure.removeGroup(groupName);
+              }
+            }
+          }
+        });
+      }
     });
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public int getMessageCount(@NotNull final NotificationSource notificationSource,
                              @Nullable final NotificationCategory notificationCategory,
                              @NotNull final ProjectSystemId externalSystemId) {
     return getMessageCount(null, notificationSource, notificationCategory, externalSystemId);
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   public int getMessageCount(@Nullable final String groupName,
                              @NotNull final NotificationSource notificationSource,
                              @Nullable final NotificationCategory notificationCategory,
@@ -259,9 +340,14 @@ public class ExternalSystemNotificationManager implements Disposable {
     final int guiLine = line < 0 ? -1 : line + 1;
     final int guiColumn = column < 0 ? 0 : column + 1;
 
+    if (isDisposedOrNotOpen()) return;
+    assert myProject != null;
+    Project project = myProject;
     final Navigatable navigatable = notificationData.getNavigatable() != null
                                     ? notificationData.getNavigatable()
-                                    : virtualFile != null ? new OpenFileDescriptor(myProject, virtualFile, line, column) : NonNavigatable.INSTANCE;
+                                    : virtualFile != null
+                                      ? new OpenFileDescriptor(project, virtualFile, line, column)
+                                      : NonNavigatable.INSTANCE;
 
     final ErrorTreeElementKind kind =
       ErrorTreeElementKind.convertMessageFromCompilerErrorType(notificationData.getNotificationCategory().getMessageCategory());
@@ -277,7 +363,11 @@ public class ExternalSystemNotificationManager implements Disposable {
         prepareMessagesView(externalSystemId, notificationData.getNotificationSource(), activate);
       final GroupingElement groupingElement = errorTreeView.getErrorViewStructure().getGroupingElement(groupName, null, virtualFile);
       final NavigatableMessageElement navigatableMessageElement;
-      if (notificationData.hasLinks()) {
+      // Note: Given that screen readers don't currently support hyperlinks and
+      // that having a cell editor for a panel in a tree view node makes
+      // the user-interaction confusing for keyboard only users,
+      // don't create a editable element if screen reader is active.
+      if (notificationData.hasLinks() && !ScreenReader.isActive()) {
         navigatableMessageElement = new EditableNotificationMessageElement(
           notification,
           kind,
@@ -303,15 +393,17 @@ public class ExternalSystemNotificationManager implements Disposable {
   }
 
   private void applyNotification(@NotNull final Notification notification) {
-    if (!myProject.isDisposed() && myProject.isOpen()) {
+    if (!isDisposedOrNotOpen()) {
       notification.notify(myProject);
     }
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   @NotNull
   public NewErrorTreeViewPanel prepareMessagesView(@NotNull final ProjectSystemId externalSystemId,
-                                                    @NotNull final NotificationSource notificationSource,
-                                                    boolean activateView) {
+                                                   @NotNull final NotificationSource notificationSource,
+                                                   boolean activateView) {
     ApplicationManager.getApplication().assertIsDispatchThread();
 
     final NewErrorTreeViewPanel errorTreeView;
@@ -319,6 +411,7 @@ public class ExternalSystemNotificationManager implements Disposable {
     final Pair<NotificationSource, ProjectSystemId> contentIdPair = Pair.create(notificationSource, externalSystemId);
     Content targetContent = findContent(contentIdPair, contentDisplayName);
 
+    assert myProject != null;
     final MessageView messageView = ServiceManager.getService(myProject, MessageView.class);
     if (targetContent == null || !contentIdPair.equals(targetContent.getUserData(CONTENT_ID_KEY))) {
       errorTreeView = new NewEditableErrorTreeViewPanel(myProject, null, true, true, null);
@@ -344,8 +437,9 @@ public class ExternalSystemNotificationManager implements Disposable {
   @Nullable
   private Content findContent(@NotNull Pair<NotificationSource, ProjectSystemId> contentIdPair, @NotNull String contentDisplayName) {
     Content targetContent = null;
+    assert myProject != null;
     final MessageView messageView = ServiceManager.getService(myProject, MessageView.class);
-    for (Content content : messageView.getContentManager().getContents()) {
+    for (Content content: messageView.getContentManager().getContents()) {
       if (contentIdPair.equals(content.getUserData(CONTENT_ID_KEY))
           && StringUtil.equals(content.getDisplayName(), contentDisplayName) && !content.isPinned()) {
         targetContent = content;
@@ -354,6 +448,8 @@ public class ExternalSystemNotificationManager implements Disposable {
     return targetContent;
   }
 
+  @Deprecated
+  @ApiStatus.ScheduledForRemoval
   @NotNull
   public static String getContentDisplayName(@NotNull final NotificationSource notificationSource,
                                              @NotNull final ProjectSystemId externalSystemId) {
@@ -375,7 +471,13 @@ public class ExternalSystemNotificationManager implements Disposable {
 
   @Override
   public void dispose() {
+    myProject = null;
     myNotifications.clear();
+    myUniqueNotifications.clear();
     initializedExternalSystem.clear();
+  }
+
+  private boolean isDisposedOrNotOpen() {
+    return myProject == null || myProject.isDisposed() || !myProject.isOpen();
   }
 }

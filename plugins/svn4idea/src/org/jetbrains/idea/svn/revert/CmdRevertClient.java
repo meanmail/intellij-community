@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.idea.svn.revert;
 
 import com.intellij.openapi.vcs.VcsException;
@@ -11,16 +12,12 @@ import org.jetbrains.idea.svn.commandLine.Command;
 import org.jetbrains.idea.svn.commandLine.CommandExecutor;
 import org.jetbrains.idea.svn.commandLine.CommandUtil;
 import org.jetbrains.idea.svn.commandLine.SvnCommandName;
-import org.tmatesoft.svn.core.wc2.SvnTarget;
 
 import java.io.File;
 import java.util.Collection;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * @author Konstantin Kolosovsky.
- */
 public class CmdRevertClient extends BaseSvnClient implements RevertClient {
 
   private static final String STATUS = "\\s*(.+?)\\s*";
@@ -39,7 +36,7 @@ public class CmdRevertClient extends BaseSvnClient implements RevertClient {
       // TODO: handler should be called in parallel with command execution, but this will be in other thread
       // TODO: check if that is ok for current handler implementation
       // TODO: add possibility to invoke "handler.checkCancelled" - process should be killed
-      SvnTarget target = SvnTarget.fromFile(ObjectUtils.assertNotNull(ContainerUtil.getFirstItem(paths)));
+      Target target = Target.on(ObjectUtils.assertNotNull(ContainerUtil.getFirstItem(paths)));
       CommandExecutor executor = execute(myVcs, target, CommandUtil.getHomeDirectory(), command, null);
       FileStatusResultParser parser = new FileStatusResultParser(CHANGED_PATH, handler, new RevertStatusConvertor());
       parser.parse(executor.getOutput());
@@ -48,6 +45,7 @@ public class CmdRevertClient extends BaseSvnClient implements RevertClient {
 
   private static class RevertStatusConvertor implements Convertor<Matcher, ProgressEvent> {
 
+    @Override
     public ProgressEvent convert(@NotNull Matcher matcher) {
       String statusMessage = matcher.group(1);
       String path = matcher.group(2);

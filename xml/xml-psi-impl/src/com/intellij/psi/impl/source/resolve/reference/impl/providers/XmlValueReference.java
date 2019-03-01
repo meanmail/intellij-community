@@ -36,11 +36,13 @@ public abstract class XmlValueReference implements PsiReference {
     myRange = ElementManipulators.getValueTextRange(tag);
   }
 
+  @NotNull
   @Override
   public PsiElement getElement() {
     return myTag;
   }
 
+  @NotNull
   @Override
   public TextRange getRangeInElement() {
     return myRange;
@@ -59,7 +61,7 @@ public abstract class XmlValueReference implements PsiReference {
   }
 
   @Override
-  public boolean isReferenceTo(PsiElement element) {
+  public boolean isReferenceTo(@NotNull PsiElement element) {
     return myTag.getManager().areElementsEquivalent(element, resolve());
   }
 

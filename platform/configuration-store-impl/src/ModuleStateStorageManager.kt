@@ -1,34 +1,25 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.configurationStore
 
-import com.intellij.ide.highlighter.ModuleFileType
-import com.intellij.openapi.components.StateStorage
-import com.intellij.openapi.components.StateStorageOperation
-import com.intellij.openapi.components.StoragePathMacros
-import com.intellij.openapi.components.TrackingPathMacroSubstitutor
+import com.intellij.openapi.components.*
 import com.intellij.openapi.module.Module
+import com.intellij.openapi.module.ModuleManager
 import com.intellij.openapi.module.impl.ModuleEx
 import com.intellij.openapi.module.impl.ModuleManagerImpl
-import com.intellij.openapi.util.text.StringUtil
+import com.intellij.openapi.module.impl.getModuleNameByFilePath
+import com.intellij.openapi.project.ProjectBundle
+import com.intellij.openapi.project.isExternalStorageEnabled
+import com.intellij.openapi.util.JDOMUtil
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
-import com.intellij.util.PathUtilRt
+import com.intellij.util.LineSeparator
 import org.jdom.Element
+import java.io.FileNotFoundException
+import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
+import java.nio.file.Path
+import java.nio.file.Paths
 
-class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, module: Module) : StateStorageManagerImpl("module", macroSubstitutor, module) {
+internal class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, module: Module) : StateStorageManagerImpl("module", macroSubstitutor, module) {
   override fun getOldStorageSpec(component: Any, componentName: String, operation: StateStorageOperation) = StoragePathMacros.MODULE_FILE
 
   override fun pathRenamed(oldPath: String, newPath: String, event: VFileEvent?) {
@@ -40,8 +31,8 @@ class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, 
       if (requestor == null || requestor !is StateStorage /* not renamed as result of explicit rename */) {
         val module = componentManager as ModuleEx
         val oldName = module.name
-        module.rename(StringUtil.trimEnd(PathUtilRt.getFileName(newPath), ModuleFileType.DOT_DEFAULT_EXTENSION))
-        ModuleManagerImpl.getInstanceImpl(module.project).fireModuleRenamedByVfsEvent(module, oldName)
+        module.rename(getModuleNameByFilePath(newPath), false)
+        (ModuleManager.getInstance(module.project) as? ModuleManagerImpl)?.fireModuleRenamedByVfsEvent(module, oldName)
       }
     }
   }
@@ -59,19 +50,60 @@ class ModuleStateStorageManager(macroSubstitutor: TrackingPathMacroSubstitutor, 
     element.addContent(optionElement)
   }
 
-  override fun beforeElementSaved(element: Element) {
-    val componentIterator = element.getChildren("component").iterator()
+  override fun beforeElementSaved(elements: MutableList<Element>, rootAttributes: MutableMap<String, String>) {
+    val componentIterator = elements.iterator()
     for (component in componentIterator) {
       if (component.getAttributeValue("name") == "DeprecatedModuleOptionManager") {
         componentIterator.remove()
         for (option in component.getChildren("option")) {
-          element.setAttribute(option.getAttributeValue("key"), option.getAttributeValue("value"))
+          rootAttributes.put(option.getAttributeValue("key"), option.getAttributeValue("value"))
         }
-        break;
+        break
       }
     }
 
     // need be last for compat reasons
-    element.setAttribute(ProjectStateStorageManager.VERSION_OPTION, "4")
+    rootAttributes.put(ProjectStateStorageManager.VERSION_OPTION, "4")
+  }
+
+  override val isExternalSystemStorageEnabled: Boolean
+    get() = (componentManager as Module).project.isExternalStorageEnabled
+
+  override fun createFileBasedStorage(path: String, collapsedPath: String, roamingType: RoamingType, rootTagName: String?): StateStorage
+    = ModuleFileStorage(this, Paths.get(path), collapsedPath, rootTagName, roamingType, getMacroSubstitutor(collapsedPath), if (roamingType == RoamingType.DISABLED) null else compoundStreamProvider)
+
+  private class ModuleFileStorage(storageManager: ModuleStateStorageManager,
+                                  file: Path,
+                                  fileSpec: String,
+                                  rootElementName: String?,
+                                  roamingType: RoamingType,
+                                  pathMacroManager: PathMacroSubstitutor? = null,
+                                  provider: StreamProvider? = null) : MyFileStorage(storageManager, file, fileSpec, rootElementName, roamingType, pathMacroManager, provider) {
+    // use VFS to load module file because it is refreshed and loaded into VFS in any case
+    override fun loadLocalData(): Element? {
+      isBlockSavingTheContent = false
+      val virtualFile = virtualFile
+      if (virtualFile == null || !virtualFile.exists()) {
+        // only on first load
+        if (storageDataRef.get() == null && !storageManager.isExternalSystemStorageEnabled) {
+          throw FileNotFoundException(ProjectBundle.message("module.file.does.not.exist.error", file.toString()))
+        }
+        else {
+          return null
+        }
+      }
+
+      if (virtualFile.length == 0L) {
+        processReadException(null)
+      }
+      else {
+        runAndHandleExceptions {
+          val charBuffer = StandardCharsets.UTF_8.decode(ByteBuffer.wrap(virtualFile.contentsToByteArray()))
+          lineSeparator = detectLineSeparators(charBuffer, if (isUseXmlProlog) null else LineSeparator.LF)
+          return JDOMUtil.load(charBuffer)
+        }
+      }
+      return null
+    }
   }
 }

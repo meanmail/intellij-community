@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2015 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,132 +14,52 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Feb 3, 2002
- * Time: 9:49:29 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.dataFlow;
 
+import com.intellij.codeInsight.Nullability;
 import com.intellij.codeInspection.dataFlow.value.DfaPsiType;
-import com.intellij.codeInspection.dataFlow.value.DfaTypeValue;
 import com.intellij.codeInspection.dataFlow.value.DfaValue;
 import com.intellij.codeInspection.dataFlow.value.DfaVariableValue;
-import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.psi.PsiPrimitiveType;
-import com.intellij.util.containers.ContainerUtil;
-import org.jetbrains.annotations.NonNls;
+import org.jetbrains.annotations.Contract;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.Objects;
 
 class DfaVariableState {
-  @NotNull final Set<DfaPsiType> myInstanceofValues;
-  @NotNull final Set<DfaPsiType> myNotInstanceofValues;
-  @NotNull final Nullness myNullability;
+  @NotNull final DfaFactMap myFactMap;
   private final int myHash;
 
   DfaVariableState(@NotNull DfaVariableValue dfaVar) {
-    this(Collections.<DfaPsiType>emptySet(), Collections.<DfaPsiType>emptySet(), dfaVar.getInherentNullability());
+    this(dfaVar.getInherentFacts());
   }
 
-  DfaVariableState(@NotNull Set<DfaPsiType> instanceofValues,
-                   @NotNull Set<DfaPsiType> notInstanceofValues,
-                   @NotNull Nullness nullability) {
-    myInstanceofValues = instanceofValues;
-    myNotInstanceofValues = notInstanceofValues;
-    myNullability = nullability;
-    myHash = (myInstanceofValues.hashCode() * 31 + myNotInstanceofValues.hashCode()) * 31 + myNullability.hashCode();
+  public boolean isSuperStateOf(DfaVariableState that) {
+    return myFactMap.isSuperStateOf(that.myFactMap);
   }
 
-  public boolean isNullable() {
-    return myNullability == Nullness.NULLABLE;
-  }
-
-  private boolean checkInstanceofValue(@NotNull DfaPsiType dfaType) {
-    if (myInstanceofValues.contains(dfaType)) return true;
-
-    for (DfaPsiType dfaTypeValue : myNotInstanceofValues) {
-      if (dfaTypeValue.isAssignableFrom(dfaType)) return false;
-    }
-
-    for (DfaPsiType dfaTypeValue : myInstanceofValues) {
-      if (!dfaType.isConvertibleFrom(dfaTypeValue)) return false;
-    }
-
-    return true;
+  DfaVariableState(@NotNull DfaFactMap factMap) {
+    myFactMap = factMap.with(DfaFactType.SPECIAL_FIELD_VALUE, null);
+    myHash = myFactMap.hashCode();
   }
 
   @Nullable
-  DfaVariableState withInstanceofValue(@NotNull DfaTypeValue dfaType) {
-    if (dfaType.getDfaType().getPsiType() instanceof PsiPrimitiveType) return this;
-
-    if (checkInstanceofValue(dfaType.getDfaType())) {
-      DfaVariableState result = dfaType.isNullable() ? withNullability(Nullness.NULLABLE) : this;
-      List<DfaPsiType> moreGeneric = ContainerUtil.newArrayList();
-      for (DfaPsiType alreadyInstanceof : myInstanceofValues) {
-        if (dfaType.getDfaType().isAssignableFrom(alreadyInstanceof)) {
-          return result;
-        }
-        if (alreadyInstanceof.isAssignableFrom(dfaType.getDfaType())) {
-          moreGeneric.add(alreadyInstanceof);
-        }
-      }
-
-      HashSet<DfaPsiType> newInstanceof = ContainerUtil.newHashSet(myInstanceofValues);
-      newInstanceof.removeAll(moreGeneric);
-      newInstanceof.add(dfaType.getDfaType());
-      result = createCopy(newInstanceof, myNotInstanceofValues, result.myNullability);
-      return result;
-    }
-
-    return null;
+  DfaVariableState withInstanceofValue(@NotNull DfaPsiType dfaType) {
+    if (dfaType.getPsiType() instanceof PsiPrimitiveType) return this;
+    return withFacts(TypeConstraint.withInstanceOf(myFactMap, dfaType));
   }
 
   @Nullable
-  DfaVariableState withNotInstanceofValue(@NotNull DfaTypeValue dfaType) {
-    if (myNotInstanceofValues.contains(dfaType.getDfaType())) return this;
-
-    for (DfaPsiType dfaTypeValue : myInstanceofValues) {
-      if (dfaType.getDfaType().isAssignableFrom(dfaTypeValue)) return null;
-    }
-
-    List<DfaPsiType> moreSpecific = ContainerUtil.newArrayList();
-    for (DfaPsiType alreadyNotInstanceof : myNotInstanceofValues) {
-      if (alreadyNotInstanceof.isAssignableFrom(dfaType.getDfaType())) {
-        return this;
-      }
-      if (dfaType.getDfaType().isAssignableFrom(alreadyNotInstanceof)) {
-        moreSpecific.add(alreadyNotInstanceof);
-      }
-    }
-
-    HashSet<DfaPsiType> newNotInstanceof = ContainerUtil.newHashSet(myNotInstanceofValues);
-    newNotInstanceof.removeAll(moreSpecific);
-    newNotInstanceof.add(dfaType.getDfaType());
-    return createCopy(myInstanceofValues, newNotInstanceof, myNullability);
+  DfaVariableState withNotInstanceofValue(@NotNull DfaPsiType dfaType) {
+    TypeConstraint typeConstraint = getTypeConstraint();
+    TypeConstraint newTypeConstraint = typeConstraint.withNotInstanceofValue(dfaType);
+    return newTypeConstraint == null ? null : withFact(DfaFactType.TYPE_CONSTRAINT, newTypeConstraint);
   }
 
   @NotNull
   DfaVariableState withoutType(@NotNull DfaPsiType type) {
-    if (myInstanceofValues.contains(type)) {
-      HashSet<DfaPsiType> newInstanceof = ContainerUtil.newHashSet(myInstanceofValues);
-      newInstanceof.remove(type);
-      return createCopy(newInstanceof, myNotInstanceofValues, myNullability);
-    }
-    if (myNotInstanceofValues.contains(type)) {
-      HashSet<DfaPsiType> newNotInstanceof = ContainerUtil.newHashSet(myNotInstanceofValues);
-      newNotInstanceof.remove(type);
-      return createCopy(myInstanceofValues, newNotInstanceof, myNullability);
-    }
-    return this;
+    return withFact(DfaFactType.TYPE_CONSTRAINT, getTypeConstraint().withoutType(type));
   }
 
   public int hashCode() {
@@ -150,48 +70,55 @@ class DfaVariableState {
     if (obj == this) return true;
     if (!(obj instanceof DfaVariableState)) return false;
     DfaVariableState aState = (DfaVariableState) obj;
-    return myHash == aState.myHash &&
-           myNullability == aState.myNullability &&
-           myInstanceofValues.equals(aState.myInstanceofValues) &&
-           myNotInstanceofValues.equals(aState.myNotInstanceofValues);
+    return myHash == aState.myHash && Objects.equals(myFactMap, aState.myFactMap);
   }
 
   @NotNull
-  protected DfaVariableState createCopy(@NotNull Set<DfaPsiType> instanceofValues, @NotNull Set<DfaPsiType> notInstanceofValues, @NotNull Nullness nullability) {
-    return new DfaVariableState(instanceofValues, notInstanceofValues, nullability);
+  protected DfaVariableState createCopy(@NotNull DfaFactMap factMap) {
+    return new DfaVariableState(factMap);
   }
 
   public String toString() {
-    @NonNls StringBuilder buf = new StringBuilder();
-
-    buf.append(myNullability);
-    if (!myInstanceofValues.isEmpty()) {
-      buf.append(" instanceof ").append(StringUtil.join(myInstanceofValues, ","));
-    }
-
-    if (!myNotInstanceofValues.isEmpty()) {
-      buf.append(" not instanceof ").append(StringUtil.join(myNotInstanceofValues, ","));
-    }
-    return buf.toString();
+    return "State: " + myFactMap;
   }
 
   @NotNull
-  Nullness getNullability() {
-    return myNullability;
+  Nullability getNullability() {
+    return DfaNullability.toNullability(myFactMap.get(DfaFactType.NULLABILITY));
   }
 
   public boolean isNotNull() {
-    return myNullability == Nullness.NOT_NULL;
+    return DfaNullability.isNotNull(myFactMap);
   }
 
   @NotNull
-  DfaVariableState withNullability(@NotNull Nullness nullness) {
-    return myNullability == nullness ? this : createCopy(myInstanceofValues, myNotInstanceofValues, nullness);
+  DfaVariableState withNotNull() {
+    return getNullability() == Nullability.NOT_NULL ? this : withoutFact(DfaFactType.NULLABILITY);
   }
 
   @NotNull
-  DfaVariableState withNullable(final boolean nullable) {
-    return myNullability != Nullness.NOT_NULL ? withNullability(nullable ? Nullness.NULLABLE : Nullness.UNKNOWN) : this;
+  <T> DfaVariableState withFact(DfaFactType<T> type, T value) {
+    return withFacts(myFactMap.with(type, value));
+  }
+
+  @NotNull
+  <T> DfaVariableState withoutFact(DfaFactType<T> type) {
+    return withFact(type, null);
+  }
+
+  @Nullable
+  <T> DfaVariableState intersectFact(DfaFactType<T> type, T value) {
+    return withFacts(myFactMap.intersect(type, value));
+  }
+
+  @Nullable
+  DfaVariableState intersectMap(DfaFactMap map) {
+    return withFacts(myFactMap.intersect(map));
+  }
+
+  @Contract("null -> null;!null -> !null")
+  public DfaVariableState withFacts(@Nullable DfaFactMap facts) {
+    return facts == null ? null : facts.equals(myFactMap) ? this : createCopy(facts);
   }
 
   @NotNull
@@ -204,12 +131,14 @@ class DfaVariableState {
     return null;
   }
 
-  public Set<DfaPsiType> getInstanceofValues() {
-    return myInstanceofValues;
+  @NotNull
+  public TypeConstraint getTypeConstraint() {
+    TypeConstraint fact = getFact(DfaFactType.TYPE_CONSTRAINT);
+    return fact == null ? TypeConstraint.empty() : fact;
   }
 
-  public Set<DfaPsiType> getNotInstanceofValues() {
-    return myNotInstanceofValues;
+  @Nullable
+  public <T> T getFact(@NotNull DfaFactType<T> factType) {
+    return myFactMap.get(factType);
   }
-
 }

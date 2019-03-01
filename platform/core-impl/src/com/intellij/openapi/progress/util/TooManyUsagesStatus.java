@@ -65,12 +65,11 @@ public class TooManyUsagesStatus {
     FEW_USAGES, WARNING_DIALOG_SHOWN, USER_RESPONDED
   }
 
-  private final AtomicReference<Status> tooManyUsagesStatus = new AtomicReference<Status>(Status.FEW_USAGES);
+  private final AtomicReference<Status> tooManyUsagesStatus = new AtomicReference<>(Status.FEW_USAGES);
   private final CountDownLatch waitWhileUserClick = new CountDownLatch(1);
 
   public void pauseProcessingIfTooManyUsages() {
     if (tooManyUsagesStatus.get() == Status.WARNING_DIALOG_SHOWN) {
-      //assert ApplicationManager.getApplication().isDispatchThread() || !ApplicationManager.getApplication().isReadAccessAllowed();
       long start = System.currentTimeMillis();
       try {
         while (System.currentTimeMillis() < start + 2000) {

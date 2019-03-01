@@ -47,7 +47,7 @@ public abstract class SubstrateRef {
   }
 
   @Nullable
-  public Stub getGreenStub(int index) {
+  public Stub getGreenStub() {
     return getStub();
   }
 

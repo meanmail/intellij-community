@@ -1,3 +1,4 @@
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package org.jetbrains.settingsRepository.test
 
 import com.intellij.openapi.vcs.merge.MergeSession
@@ -34,13 +35,13 @@ internal abstract class GitTestCase : IcsTestCase() {
       val mergeSession = mergeProvider.createMergeSession(files)
       for (file in files) {
         val mergeData = mergeProvider.loadRevisions(file)
-        if (Arrays.equals(mergeData.CURRENT, AM.MARKER_ACCEPT_MY) || Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_THEIRS)) {
+        if (Arrays.equals(mergeData.CURRENT, MARKER_ACCEPT_MY) || Arrays.equals(mergeData.LAST, MARKER_ACCEPT_THEIRS)) {
           mergeSession.conflictResolvedForFile(file, MergeSession.Resolution.AcceptedYours)
         }
-        else if (Arrays.equals(mergeData.CURRENT, AM.MARKER_ACCEPT_THEIRS) || Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_MY)) {
+        else if (Arrays.equals(mergeData.CURRENT, MARKER_ACCEPT_THEIRS) || Arrays.equals(mergeData.LAST, MARKER_ACCEPT_MY)) {
           mergeSession.conflictResolvedForFile(file, MergeSession.Resolution.AcceptedTheirs)
         }
-        else if (Arrays.equals(mergeData.LAST, AM.MARKER_ACCEPT_MY)) {
+        else if (Arrays.equals(mergeData.LAST, MARKER_ACCEPT_MY)) {
           file.setBinaryContent(mergeData.LAST)
           mergeProvider.conflictResolvedForFile(file)
         }
@@ -53,7 +54,7 @@ internal abstract class GitTestCase : IcsTestCase() {
 
   class FileInfo(val name: String, val data: ByteArray)
 
-  protected fun addAndCommit(path: String): FileInfo {
+  protected suspend fun addAndCommit(path: String): FileInfo {
     val data = """<file path="$path" />""".toByteArray()
     provider.write(path, data)
     repositoryManager.commit()
@@ -90,11 +91,11 @@ internal abstract class GitTestCase : IcsTestCase() {
     remoteRepository.resetHard()
   }
 
-  protected fun sync(syncType: SyncType) {
+  protected suspend fun sync(syncType: SyncType) {
     icsManager.sync(syncType)
   }
 
-  protected fun createLocalAndRemoteRepositories(remoteBranchName: String? = null, initialCommit: Boolean = false) {
+  protected suspend fun createLocalAndRemoteRepositories(remoteBranchName: String? = null, initialCommit: Boolean = false) {
     createRemoteRepository(remoteBranchName, true)
     configureLocalRepository(remoteBranchName)
     if (initialCommit) {

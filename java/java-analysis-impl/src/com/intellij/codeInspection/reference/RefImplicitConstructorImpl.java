@@ -14,26 +14,20 @@
  * limitations under the License.
  */
 
-/*
- * Created by IntelliJ IDEA.
- * User: max
- * Date: Nov 28, 2001
- * Time: 4:17:17 PM
- * To change template for new class use
- * Code Style | Class Templates options (Tools | IDE Options).
- */
 package com.intellij.codeInspection.reference;
 
 import com.intellij.codeInspection.InspectionsBundle;
-import com.intellij.openapi.application.ApplicationManager;
-import com.intellij.openapi.util.Computable;
+import com.intellij.openapi.application.ReadAction;
+import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiModifierListOwner;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.uast.UClass;
+
+import java.util.Objects;
 
 public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImplicitConstructor {
-
   RefImplicitConstructorImpl(@NotNull RefClass ownerClass) {
     super(InspectionsBundle.message("inspection.reference.implicit.constructor.name", ownerClass.getName()), ownerClass);
   }
@@ -61,14 +55,10 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
 
   @Override
   public boolean isValid() {
-    return ApplicationManager.getApplication().runReadAction(new Computable<Boolean>() {
-      @Override
-      public Boolean compute() {
-        return getOwnerClass().isValid();
-      }
-    }).booleanValue();
+    return ReadAction.compute(getOwnerClass()::isValid).booleanValue();
   }
 
+  @NotNull
   @Override
   public String getAccessModifier() {
     return getOwnerClass().getAccessModifier();
@@ -81,7 +71,19 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
 
   @Override
   public PsiModifierListOwner getElement() {
-    return getOwnerClass().getElement();
+    return Objects.requireNonNull(getOwnerClass()).getElement();
+  }
+
+  @Override
+  public UClass getUastElement() {
+    return (UClass)super.getUastElement();
+  }
+
+  @Nullable
+  @Override
+  public PsiElement getPsiElement() {
+    RefClass ownerClass = getOwnerClass();
+    return ownerClass == null ? null : ownerClass.getPsiElement();
   }
 
   @Override
@@ -91,7 +93,7 @@ public class RefImplicitConstructorImpl extends RefMethodImpl implements RefImpl
   }
 
   @Override
-  public RefClass getOwnerClass() {
-    return myOwnerClass;
+  protected void initialize() {
+    throw new AssertionError("Should not be called!");
   }
 }

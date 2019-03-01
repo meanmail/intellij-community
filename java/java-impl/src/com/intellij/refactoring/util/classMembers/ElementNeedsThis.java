@@ -16,7 +16,7 @@
 package com.intellij.refactoring.util.classMembers;
 
 import com.intellij.psi.*;
-import com.intellij.psi.util.PsiUtil;
+import com.intellij.psi.util.PsiTypesUtil;
 
 /**
  * @author dsl
@@ -38,6 +38,7 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
     return myResult;
   }
 
+  @Override
   protected void visitClassMemberReferenceElement(PsiMember classMember, PsiJavaCodeReferenceElement classMemberReference) {
     if (classMember == null || classMember.equals(myMember)) return;
     if (classMember.hasModifierProperty(PsiModifier.STATIC)) return;
@@ -50,10 +51,12 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
     return myMember != null;
   }
 
+  @Override
   protected void visitExplicitThis(PsiClass referencedClass, PsiThisExpression reference) {
     myResult = true;
   }
 
+  @Override
   protected void visitExplicitSuper(PsiClass referencedClass, PsiSuperExpression reference) {
     myResult = true;
   }
@@ -61,11 +64,16 @@ public class ElementNeedsThis extends ClassThisReferencesVisitor {
   @Override
   public void visitReferenceExpression(PsiReferenceExpression expression) {
     super.visitReferenceExpression(expression);
-    final PsiClass aClass = PsiUtil.resolveClassInType(expression.getType());
-    if (aClass instanceof PsiTypeParameter) {
-      final PsiTypeParameterListOwner owner = ((PsiTypeParameter)aClass).getOwner();
-      if (owner instanceof PsiClass && myClassSuperClasses.contains(owner)) {
-        myResult = true;
+    PsiType type = expression.getType();
+    if (type != null) {
+      PsiTypesUtil.TypeParameterSearcher searcher = new PsiTypesUtil.TypeParameterSearcher();
+      type.accept(searcher);
+      for (PsiTypeParameter parameter : searcher.getTypeParameters()) {
+        final PsiTypeParameterListOwner owner = parameter.getOwner();
+        if (owner instanceof PsiClass && myClassSuperClasses.contains(owner)) {
+          myResult = true;
+          break;
+        }
       }
     }
   }

@@ -1,3 +1,4 @@
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.jetbrains.python.console.pydev;
 
 import java.util.Iterator;
@@ -80,7 +81,7 @@ public final class FastStringBuffer {
         if (minimumCapacity > newCapacity) {
             newCapacity = minimumCapacity;
         }
-        char newValue[] = new char[newCapacity];
+        char[] newValue = new char[newCapacity];
         System.arraycopy(value, 0, newValue, 0, count);
         value = newValue;
     }
@@ -315,9 +316,8 @@ public final class FastStringBuffer {
                 if(matchPos == replaceLen){
                     this.replace(i-(replaceLen-1), i+1, with);
                     matchPos = 0;
-                    i = i-(replaceLen-withLen);
+                    i -= (replaceLen - withLen);
                 }
-                continue;
             }else{
                 matchPos = 0;
             }
@@ -356,24 +356,28 @@ public final class FastStringBuffer {
     public final static class BackwardCharIterator implements Iterable<Character>{
 
         private int i;
-        private FastStringBuffer fastStringBuffer;
+        private final FastStringBuffer fastStringBuffer;
 
         public BackwardCharIterator(FastStringBuffer fastStringBuffer) {
             this.fastStringBuffer = fastStringBuffer;
             i = fastStringBuffer.length();
         }
 
+        @Override
         public Iterator<Character> iterator() {
             return new Iterator<Character>(){
 
+                @Override
                 public boolean hasNext() {
                     return i > 0;
                 }
 
+                @Override
                 public Character next() {
                     return fastStringBuffer.value[--i];
                 }
 
+                @Override
                 public void remove() {
                     throw new RuntimeException("Not implemented");
                 }
@@ -433,9 +437,9 @@ public final class FastStringBuffer {
     }
 
     public boolean startsWith(String prefix, int offset) {
-        char ta[] = value;
+        char[] ta = value;
         int to = offset;
-        char pa[] = prefix.toCharArray();
+        char[] pa = prefix.toCharArray();
         int po = 0;
         int pc = pa.length;
         // Note: toffset might be near -1>>>1.

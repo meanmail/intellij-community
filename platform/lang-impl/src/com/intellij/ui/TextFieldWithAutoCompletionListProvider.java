@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2012 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ui;
 
 import com.intellij.codeInsight.completion.*;
@@ -28,7 +14,6 @@ import com.intellij.openapi.progress.EmptyProgressIndicator;
 import com.intellij.openapi.progress.ProcessCanceledException;
 import com.intellij.openapi.progress.ProgressIndicator;
 import com.intellij.openapi.progress.ProgressManager;
-import com.intellij.openapi.util.Computable;
 import com.intellij.util.textCompletion.DefaultTextCompletionValueDescriptor;
 import com.intellij.util.textCompletion.TextCompletionProvider;
 import com.intellij.util.textCompletion.TextCompletionValueDescriptor;
@@ -39,7 +24,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.Callable;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -139,7 +123,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
   }
 
   public void setItems(@Nullable final Collection<T> variants) {
-    myVariants = (variants != null) ? variants : Collections.<T>emptyList();
+    myVariants = (variants != null) ? variants : Collections.emptyList();
   }
 
   @NotNull
@@ -160,6 +144,7 @@ public abstract class TextFieldWithAutoCompletionListProvider<T> extends Default
    *
    * @return text
    */
+  @Override
   @Nullable
   public String getAdvertisement() {
     if (myCompletionAdvertisement != null) return myCompletionAdvertisement;

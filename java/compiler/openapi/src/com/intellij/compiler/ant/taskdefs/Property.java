@@ -22,17 +22,14 @@ import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Mar 19, 2004
  */
 public class Property extends Tag {
 
   public Property(@NonNls final String name, final String value) {
-    //noinspection HardCodedStringLiteral
     super("property", Couple.of("name", name), Couple.of("value", value));
   }
 
   public Property(@NonNls final String filePath) {
-    //noinspection HardCodedStringLiteral
     super("property", Couple.of("file", filePath));
   }
 

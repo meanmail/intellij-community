@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2014 JetBrains s.r.o.
+ * Copyright 2000-2017 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package com.intellij.refactoring.extractInterface;
 
 import com.intellij.history.LocalHistory;
 import com.intellij.history.LocalHistoryAction;
+import com.intellij.lang.ContextAwareActionHandler;
 import com.intellij.lang.findUsages.DescriptiveNameUtil;
 import com.intellij.openapi.actionSystem.DataContext;
 import com.intellij.openapi.application.ApplicationManager;
@@ -27,6 +28,7 @@ import com.intellij.openapi.editor.ScrollType;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
 import com.intellij.psi.codeStyle.CodeStyleManager;
+import com.intellij.psi.util.PsiUtil;
 import com.intellij.refactoring.HelpID;
 import com.intellij.refactoring.RefactoringActionHandler;
 import com.intellij.refactoring.RefactoringBundle;
@@ -37,25 +39,28 @@ import com.intellij.refactoring.memberPullUp.PullUpProcessor;
 import com.intellij.refactoring.util.CommonRefactoringUtil;
 import com.intellij.refactoring.util.DocCommentPolicy;
 import com.intellij.refactoring.util.classMembers.MemberInfo;
-import com.intellij.util.ArrayUtil;
 import com.intellij.util.IncorrectOperationException;
 import com.intellij.util.containers.MultiMap;
 import org.jetbrains.annotations.NotNull;
 
-public class ExtractInterfaceHandler implements RefactoringActionHandler, ElementsHandler {
+public class ExtractInterfaceHandler implements RefactoringActionHandler, ElementsHandler, ContextAwareActionHandler {
   private static final Logger LOG = Logger.getInstance("#com.intellij.refactoring.extractInterface.ExtractInterfaceHandler");
 
   public static final String REFACTORING_NAME = RefactoringBundle.message("extract.interface.title");
 
-
   private Project myProject;
   private PsiClass myClass;
-
   private String myInterfaceName;
   private MemberInfo[] mySelectedMembers;
   private PsiDirectory myTargetDir;
   private DocCommentPolicy myJavaDocPolicy;
 
+  @Override
+  public boolean isAvailableForQuickList(@NotNull Editor editor, @NotNull PsiFile file, @NotNull DataContext dataContext) {
+    return !PsiUtil.isModuleFile(file);
+  }
+
+  @Override
   public void invoke(@NotNull Project project, Editor editor, PsiFile file, DataContext dataContext) {
     int offset = editor.getCaretModel().getOffset();
     editor.getScrollingModel().scrollToCaret(ScrollType.MAKE_VISIBLE);
@@ -74,12 +79,12 @@ public class ExtractInterfaceHandler implements RefactoringActionHandler, Elemen
     }
   }
 
+  @Override
   public void invoke(@NotNull final Project project, @NotNull PsiElement[] elements, DataContext dataContext) {
     if (elements.length != 1) return;
 
     myProject = project;
     myClass = (PsiClass)elements[0];
-
 
     if (!CommonRefactoringUtil.checkReadOnlyStatus(project, myClass)) return;
 
@@ -87,12 +92,13 @@ public class ExtractInterfaceHandler implements RefactoringActionHandler, Elemen
     if (!dialog.showAndGet() || !dialog.isExtractSuperclass()) {
       return;
     }
+
     final MultiMap<PsiElement, String> conflicts = new MultiMap<>();
     ExtractSuperClassUtil.checkSuperAccessible(dialog.getTargetDirectory(), conflicts, myClass);
     if (!ExtractSuperClassUtil.showConflicts(dialog, conflicts, myProject)) return;
     CommandProcessor.getInstance().executeCommand(myProject, () -> ApplicationManager.getApplication().runWriteAction(() -> {
       myInterfaceName = dialog.getExtractedSuperName();
-      mySelectedMembers = ArrayUtil.toObjectArray(dialog.getSelectedMemberInfos(), MemberInfo.class);
+      mySelectedMembers = dialog.getSelectedMemberInfos().toArray(new MemberInfo[0]);
       myTargetDir = dialog.getTargetDirectory();
       myJavaDocPolicy = new DocCommentPolicy(dialog.getDocCommentPolicy());
       try {
@@ -103,7 +109,6 @@ public class ExtractInterfaceHandler implements RefactoringActionHandler, Elemen
       }
     }), REFACTORING_NAME, null);
   }
-
 
   private void doRefactoring() throws IncorrectOperationException {
     LocalHistoryAction a = LocalHistory.getInstance().startAction(getCommandName());
@@ -146,6 +151,7 @@ public class ExtractInterfaceHandler implements RefactoringActionHandler, Elemen
     return RefactoringBundle.message("extract.interface.command.name", myInterfaceName, DescriptiveNameUtil.getDescriptiveName(myClass));
   }
 
+  @Override
   public boolean isEnabledOnElements(PsiElement[] elements) {
     return elements.length == 1 && elements[0] instanceof PsiClass;
   }

@@ -20,12 +20,10 @@ import com.intellij.psi.PsiElement;
 import com.intellij.psi.PsiField;
 import com.intellij.psi.PsiLiteralExpression;
 import com.intellij.psi.PsiModifier;
-import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspection;
 import org.jetbrains.plugins.groovy.codeInspection.BaseInspectionVisitor;
-import org.jetbrains.plugins.groovy.lang.psi.api.auxiliary.GrCondition;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrBlockStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrStatement;
 import org.jetbrains.plugins.groovy.lang.psi.api.statements.GrWhileStatement;
@@ -42,19 +40,6 @@ public class GroovyWhileLoopSpinsOnFieldInspection extends BaseInspection {
 
   @SuppressWarnings({"PublicField", "WeakerAccess"})
   public boolean ignoreNonEmtpyLoops = false;
-
-  @Override
-  @Nls
-  @NotNull
-  public String getGroupDisplayName() {
-    return THREADING_ISSUES;
-  }
-
-  @Override
-  @NotNull
-  public String getDisplayName() {
-    return "While loop spins on field";
-  }
 
   @Override
   @NotNull
@@ -85,11 +70,8 @@ public class GroovyWhileLoopSpinsOnFieldInspection extends BaseInspection {
       if (ignoreNonEmtpyLoops && !statementIsEmpty(body)) {
         return;
       }
-      final GrCondition condition = statement.getCondition();
-      if (!(condition instanceof GrExpression)) {
-        return;
-      }
-      if (!isSimpleFieldComparison((GrExpression) condition)) {
+      final GrExpression condition = statement.getCondition();
+      if (condition == null || !isSimpleFieldComparison(condition)) {
         return;
       }
       registerStatementError(statement);

@@ -25,7 +25,6 @@ import java.awt.*;
  * Encapsulates logic of drawing arrows at graphics buffer (primary usage is to draw tabulation symbols representation arrows).
  *
  * @author Denis Zhdanov
- * @since Jul 2, 2010 11:35:23 AM
  */
 public class ArrowPainter {
 
@@ -51,8 +50,8 @@ public class ArrowPainter {
    *
    * @param g       target graphics buffer to use
    * @param y       defines baseline of the row where the arrow should be painted
-   * @param start   starting <code>'x'</code> position to use during drawing
-   * @param stop    ending <code>'x'</code> position to use during drawing
+   * @param start   starting {@code 'x'} position to use during drawing
+   * @param stop    ending {@code 'x'} position to use during drawing
    */
   public void paint(Graphics g, int y, int start, int stop) {
     stop -= myWidthProvider.compute() / 4;

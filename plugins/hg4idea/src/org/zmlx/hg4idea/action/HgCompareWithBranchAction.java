@@ -18,7 +18,6 @@ package org.zmlx.hg4idea.action;
 import com.google.common.collect.Iterables;
 import com.intellij.dvcs.actions.DvcsCompareWithBranchAction;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.vcs.FilePath;
 import com.intellij.openapi.vcs.VcsException;
 import com.intellij.openapi.vcs.changes.Change;
@@ -65,23 +64,13 @@ public class HgCompareWithBranchAction extends DvcsCompareWithBranchAction<HgRep
   @NotNull
   private static List<HgNameWithHashInfo> getOtherBookmarks(@NotNull HgRepository repository, @NotNull final Hash currentRevisionHash) {
     return ContainerUtil.filter(repository.getBookmarks(),
-                                new Condition<HgNameWithHashInfo>() {
-                                  @Override
-                                  public boolean value(HgNameWithHashInfo info) {
-                                    return !info.getHash().equals(currentRevisionHash);
-                                  }
-                                });
+                                info -> !info.getHash().equals(currentRevisionHash));
   }
 
   @Nullable
   private static Hash findBookmarkHashByName(@NotNull HgRepository repository, @NotNull final String bookmarkName) {
     HgNameWithHashInfo bookmarkInfo = ContainerUtil.find(repository.getBookmarks(),
-                                                         new Condition<HgNameWithHashInfo>() {
-                                                           @Override
-                                                           public boolean value(HgNameWithHashInfo info) {
-                                                             return info.getName().equals(bookmarkName);
-                                                           }
-                                                         });
+                                                         info -> info.getName().equals(bookmarkName));
     return bookmarkInfo != null ? bookmarkInfo.getHash() : null;
   }
 
@@ -131,11 +120,7 @@ public class HgCompareWithBranchAction extends DvcsCompareWithBranchAction<HgRep
     final VirtualFile repositoryRoot = repository.getRoot();
 
     final HgFile hgFile = new HgFile(repositoryRoot, filePath);
-    Hash refHashToCompare = detectActiveHashByName(repository, branchToCompare);
-    if (refHashToCompare == null) {
-      throw new VcsException(String.format("Couldn't detect commit related to %s name for %s.", branchToCompare, file));
-    }
-    final HgRevisionNumber compareWithRevisionNumber = HgRevisionNumber.getInstance(branchToCompare, refHashToCompare.toString());
+    final HgRevisionNumber compareWithRevisionNumber = getBranchRevisionNumber(repository, branchToCompare);
     List<Change> changes = HgUtil.getDiff(project, repositoryRoot, filePath, compareWithRevisionNumber, null);
     if (changes.isEmpty() && !existInBranch(repository, filePath, compareWithRevisionNumber)) {
       throw new VcsException(fileDoesntExistInBranchError(file, branchToCompare));
@@ -143,6 +128,16 @@ public class HgCompareWithBranchAction extends DvcsCompareWithBranchAction<HgRep
 
     return changes.isEmpty() && !filePath.isDirectory() ? createChangesWithCurrentContentForFile(filePath, HgContentRevision
       .create(project, hgFile, compareWithRevisionNumber)) : changes;
+  }
+
+  @NotNull
+  public static HgRevisionNumber getBranchRevisionNumber(@NotNull HgRepository repository,
+                                                         @NotNull String branchName) throws VcsException {
+    Hash refHashToCompare = detectActiveHashByName(repository, branchName);
+    if (refHashToCompare == null) {
+      throw new VcsException(String.format("Couldn't detect commit related to %s name for %s.", branchName, repository.getRoot()));
+    }
+    return HgRevisionNumber.getInstance(branchName, refHashToCompare.toString());
   }
 
   private static boolean existInBranch(@NotNull HgRepository repository,

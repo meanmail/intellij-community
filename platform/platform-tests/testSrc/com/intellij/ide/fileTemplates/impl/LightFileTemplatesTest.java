@@ -1,47 +1,37 @@
-/*
- * Copyright 2000-2015 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2019 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.fileTemplates.impl;
 
 import com.intellij.ide.fileTemplates.FileTemplate;
 import com.intellij.ide.fileTemplates.FileTemplateManager;
 import com.intellij.ide.fileTemplates.FileTemplatesScheme;
-import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.ide.util.PropertiesComponent;
 import com.intellij.openapi.components.ServiceManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
-import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.JDOMUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.testFramework.LightPlatformTestCase;
-import com.intellij.testFramework.PlatformTestCase;
 import com.intellij.testFramework.PlatformTestUtil;
 import com.intellij.util.ArrayUtil;
 import org.jdom.Element;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Dmitry Avdeev
  */
 public class LightFileTemplatesTest extends LightPlatformTestCase {
-
   private static final String TEST_TEMPLATE_TXT = "testTemplate.txt";
   private static final String HI_THERE = "hi there";
 
-  public void testSchemas() throws Exception {
+  public void testSchemas() {
     assertEquals(FileTemplatesScheme.DEFAULT, myTemplateManager.getCurrentScheme());
 
     FileTemplate template = myTemplateManager.getTemplate(TEST_TEMPLATE_TXT);
@@ -57,12 +47,12 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
     assertEquals(newText, myTemplateManager.getTemplate(TEST_TEMPLATE_TXT).getText());
   }
 
-  public void testDefaultProject() throws Exception {
+  public void testDefaultProject() {
     Project defaultProject = ProjectManager.getInstance().getDefaultProject();
     assertNull(FileTemplateManager.getInstance(defaultProject).getProjectScheme());
   }
 
-  public void testConfigurable() throws Exception {
+  public void testConfigurable() {
     AllFileTemplatesConfigurable configurable = new AllFileTemplatesConfigurable(getProject());
     try {
       configurable.createComponent();
@@ -73,12 +63,12 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
     }
   }
 
-  public void testSaveFileAsTemplate() throws Exception {
+  public void testSaveFileAsTemplate() {
     AllFileTemplatesConfigurable configurable = new AllFileTemplatesConfigurable(getProject());
     try {
       configurable.createComponent();
       configurable.reset();
-      FileTemplate template = configurable.createNewTemplate("foo", "bar", "hey");
+      FileTemplate template = configurable.createTemplate("foo", "bar", "hey");
       assertTrue(configurable.isModified());
       FileTemplate[] templates = configurable.getTabs()[0].getTemplates();
       assertTrue(ArrayUtil.contains(template, templates));
@@ -97,23 +87,24 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
     myTemplateManager.setTemplates(FileTemplateManager.DEFAULT_TEMPLATES_CATEGORY, Arrays.asList(myTemplateManager.getAllTemplates()));
     assertNotNull(myTemplateManager.getTemplate("foo.txt"));
 
-    File foo = PlatformTestCase.createTempDir("foo");
-    final Project project = ProjectManager.getInstance().createProject("foo", foo.getPath());;
+    File foo = FileUtilRt.createTempDirectory("foo", null, false);
+    final Project project = ProjectManager.getInstance().createProject("foo", foo.getPath());
     try {
       assertNotNull(project);
       assertNotNull(FileTemplateManager.getInstance(project).getTemplate("foo.txt"));
     }
     finally {
       closeProject(project);
+      FileUtilRt.delete(foo);
     }
   }
 
   public void testSurviveOnProjectReopen() throws Exception {
-    File foo = PlatformTestCase.createTempDir("foo");
+    File foo = FileUtilRt.createTempDirectory("foo", null, false);
     Project reloaded = null;
-    final Project project = ProjectManager.getInstance().createProject("foo", foo.getPath());;
+    final Project project = ProjectManager.getInstance().createProject("foo", foo.getPath());
     try {
-      assertNotNull(project);
+      assertThat(project).isNotNull();
       FileTemplateManager manager = FileTemplateManager.getInstance(project);
       manager.setCurrentScheme(manager.getProjectScheme());
       FileTemplate template = manager.getTemplate(TEST_TEMPLATE_TXT);
@@ -122,13 +113,14 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
       template.setText(newText);
       assertEquals(newText, manager.getTemplate(TEST_TEMPLATE_TXT).getText());
       manager.saveAllTemplates();
-      PlatformTestUtil.saveProject(project);
+      // closeProject will not save project since it is not opened
+      PlatformTestUtil.saveProject(project, true);
       closeProject(project);
 
       reloaded = ProjectManager.getInstance().loadAndOpenProject(foo.getPath());
       assertNotNull(reloaded);
       manager = FileTemplateManager.getInstance(reloaded);
-      assertEquals(manager.getProjectScheme(), manager.getCurrentScheme());
+      assertThat(manager.getCurrentScheme()).isEqualTo(manager.getProjectScheme());
       //manager.setCurrentScheme(FileTemplatesScheme.DEFAULT);
       //manager.setCurrentScheme(manager.getProjectScheme()); // enforce reloading
       assertEquals(newText, manager.getTemplate(TEST_TEMPLATE_TXT).getText());
@@ -136,17 +128,60 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
     finally {
       closeProject(project);
       closeProject(reloaded);
+      FileUtilRt.delete(foo);
+    }
+  }
+
+  public void testAddRemoveShared() throws Exception {
+    File foo = FileUtilRt.createTempDirectory("foo", null, false);
+    final Project project = ProjectManager.getInstance().createProject("foo", foo.getPath());
+    try {
+      assertThat(project).isNotNull();
+      FileTemplateManager manager = FileTemplateManager.getInstance(project);
+      manager.setCurrentScheme(manager.getProjectScheme());
+      manager.saveAllTemplates();
+
+      FileTemplateSettings settings = ServiceManager.getService(project, FileTemplateSettings.class);
+      FTManager ftManager = settings.getDefaultTemplatesManager();
+      Path root = ftManager.getConfigRoot();
+      Files.createDirectories(root);
+      Path file = root.resolve("Foo.java");
+      assertTrue(file.toFile().createNewFile());
+      manager.saveAllTemplates();
+      assertThat(file).isRegularFile();
+
+      /*
+      FileTemplate template = manager.addTemplate("Foo", "java");
+      // now remove it via "remove template" call
+      manager.removeTemplate(template);
+      manager.saveAllTemplates();
+      assertFalse(file.exists());
+      */
+
+      // check "setTemplates" call
+      FileTemplateBase templateBase = (FileTemplateBase)manager.addTemplate("Foo", "java");
+      List<FileTemplate> templates = new ArrayList<>(ftManager.getAllTemplates(true));
+      assertTrue(templates.contains(templateBase));
+      ftManager.saveTemplates();
+      assertThat(file).isRegularFile();
+
+      templates.remove(templateBase);
+      manager.setTemplates(FileTemplateManager.DEFAULT_TEMPLATES_CATEGORY, templates);
+      assertThat(file).doesNotExist();
+    }
+    finally {
+      closeProject(project);
+      FileUtilRt.delete(foo);
     }
   }
 
   private static void closeProject(final Project project) {
     if (project != null && !project.isDisposed()) {
-      ProjectManager.getInstance().closeProject(project);
-      ApplicationManager.getApplication().runWriteAction(() -> Disposer.dispose(project));
+      PlatformTestUtil.forceCloseProjectWithoutSaving(project);
     }
   }
 
-  public void testRemoveTemplate() throws Exception {
+  public void testRemoveTemplate() {
     FileTemplate[] before = myTemplateManager.getAllTemplates();
     try {
       FileTemplate template = myTemplateManager.getTemplate(TEST_TEMPLATE_TXT);
@@ -164,7 +199,7 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
     }
   }
 
-  public void testSaveReformatCode() throws Exception {
+  public void testSaveReformatCode() {
     FileTemplate template = myTemplateManager.getTemplate(TEST_TEMPLATE_TXT);
     assertTrue(template.isReformatCode());
     template.setReformatCode(false);
@@ -177,7 +212,7 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
       .writeElement(element));
   }
 
-  public void testDoNotSaveDefaults() throws Exception {
+  public void testDoNotSaveDefaults() {
     assertFalse(((FileTemplateBase)myTemplateManager.getTemplate(TEST_TEMPLATE_TXT)).isLiveTemplateEnabledByDefault());
     FileTemplateBase template = (FileTemplateBase)myTemplateManager.getTemplate("templateWithLiveTemplate.txt");
     assertTrue(template.isLiveTemplateEnabledByDefault());
@@ -202,7 +237,15 @@ public class LightFileTemplatesTest extends LightPlatformTestCase {
 
   @Override
   public void tearDown() throws Exception {
-    myTemplateManager.setCurrentScheme(FileTemplatesScheme.DEFAULT);
-    super.tearDown();
+    try {
+      myTemplateManager.setCurrentScheme(FileTemplatesScheme.DEFAULT);
+      PropertiesComponent.getInstance().unsetValue("FileTemplates.SelectedTemplate");
+    }
+    catch (Throwable e) {
+      addSuppressedException(e);
+    }
+    finally {
+      super.tearDown();
+    }
   }
 }

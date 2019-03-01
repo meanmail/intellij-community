@@ -16,39 +16,34 @@
 package com.intellij.openapi.diff.impl.dir;
 
 import com.intellij.ide.DataManager;
-import com.intellij.openapi.actionSystem.DataProvider;
 import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.FrameWrapper;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.util.ui.JBUI;
-import org.jetbrains.annotations.NonNls;
 
 /**
  * @author Konstantin Bulenkov
  */
 public class DirDiffFrame extends FrameWrapper {
-  private DirDiffPanel myPanel;
+  private final DirDiffPanel myPanel;
 
   public DirDiffFrame(Project project, DirDiffTableModel model) {
     super(project, "DirDiffDialog");
     setSize(JBUI.size(800, 600));
     setTitle(model.getTitle());
-    myPanel = new DirDiffPanel(model, new DirDiffWindow(this));
+    myPanel = new DirDiffPanel(model, new DirDiffWindow.Frame(this));
     Disposer.register(this, myPanel);
     setComponent(myPanel.getPanel());
     if (project != null) {
       setProject(project);
     }
     closeOnEsc();
-    DataManager.registerDataProvider(myPanel.getPanel(), new DataProvider() {
-      @Override
-      public Object getData(@NonNls String dataId) {
-        if (PlatformDataKeys.HELP_ID.is(dataId)) {
-          return "reference.dialogs.diff.folder";
-        }
-        return null;
+    DataManager.registerDataProvider(myPanel.getPanel(), dataId -> {
+      if (PlatformDataKeys.HELP_ID.is(dataId)) {
+        return "reference.dialogs.diff.folder";
       }
+      return null;
     });
   }
 

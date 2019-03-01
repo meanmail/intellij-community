@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.ide.util.projectWizard.importSources.impl;
 
 import com.intellij.icons.AllIcons;
@@ -25,10 +11,8 @@ import com.intellij.ide.util.projectWizard.ExistingModuleLoader;
 import com.intellij.ide.util.projectWizard.ModuleBuilder;
 import com.intellij.ide.util.projectWizard.WizardContext;
 import com.intellij.ide.util.projectWizard.importSources.*;
-import com.intellij.openapi.application.AccessToken;
 import com.intellij.openapi.application.WriteAction;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.extensions.Extensions;
 import com.intellij.openapi.module.*;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.project.Project;
@@ -62,7 +46,6 @@ import java.util.*;
 
 /**
  * @author Eugene Zhuravlev
- *         Date: Jul 17, 2007
  */
 public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implements ProjectFromSourcesBuilder {
   private static final Logger LOG = Logger.getInstance("#com.intellij.ide.util.projectWizard.importSources.impl.ProjectFromSourcesBuilderImpl");
@@ -179,28 +162,24 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
     final Map<LibraryDescriptor, Library> projectLibs = new HashMap<>();
     final List<Module> result = new ArrayList<>();
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         // create project-level libraries
         for (ProjectDescriptor projectDescriptor : getSelectedDescriptors()) {
           for (LibraryDescriptor lib : projectDescriptor.getLibraries()) {
-              final Collection<File> files = lib.getJars();
-              final Library projectLib = projectLibraryTable.createLibrary(lib.getName());
-              final Library.ModifiableModel libraryModel = projectLib.getModifiableModel();
-              for (File file : files) {
-                libraryModel.addRoot(VfsUtil.getUrlForLibraryRoot(file), OrderRootType.CLASSES);
-              }
-              libraryModel.commit();
-              projectLibs.put(lib, projectLib);
+            final Collection<File> files = lib.getJars();
+            final Library projectLib = projectLibraryTable.createLibrary(lib.getName());
+            final Library.ModifiableModel libraryModel = projectLib.getModifiableModel();
+            for (File file : files) {
+              libraryModel.addRoot(VfsUtil.getUrlForLibraryRoot(file), OrderRootType.CLASSES);
+            }
+            libraryModel.commit();
+            projectLibs.put(lib, projectLib);
           }
         }
         if (!fromProjectStructure) {
           projectLibraryTable.commit();
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
@@ -210,8 +189,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
     final Map<ModuleDescriptor, Module> descriptorToModuleMap = new HashMap<>();
 
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         final ModifiableModuleModel moduleModel = fromProjectStructure ? model : ModuleManager.getInstance(project).getModifiableModel();
         for (ProjectDescriptor descriptor : getSelectedDescriptors()) {
           for (final ModuleDescriptor moduleDescriptor : descriptor.getModules()) {
@@ -232,10 +210,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
         if (!fromProjectStructure) {
           moduleModel.commit();
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
@@ -244,8 +219,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
 
     // setup dependencies between modules
     try {
-      AccessToken token = WriteAction.start();
-      try {
+      WriteAction.run(() -> {
         for (ProjectDescriptor data : getSelectedDescriptors()) {
           for (final ModuleDescriptor descriptor : data.getModules()) {
             final Module module = descriptorToModuleMap.get(descriptor);
@@ -266,28 +240,19 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
             rootModel.commit();
           }
         }
-      }
-      finally {
-        token.finish();
-      }
+      });
     }
     catch (Exception e) {
       LOG.info(e);
       Messages.showErrorDialog(IdeBundle.message("error.adding.module.to.project", e.getMessage()), IdeBundle.message("title.add.module"));
     }
 
-    AccessToken token = WriteAction.start();
-    try {
+    WriteAction.run(() -> {
       ModulesProvider updatedModulesProvider = fromProjectStructure ? modulesProvider : new DefaultModulesProvider(project);
       for (ProjectConfigurationUpdater updater : myUpdaters) {
         updater.updateProject(project, modelsProvider, updatedModulesProvider);
       }
-    }
-    finally {
-      token.finish();
-    }
-
-
+    });
     return result;
   }
 
@@ -310,7 +275,7 @@ public class ProjectFromSourcesBuilderImpl extends ProjectImportBuilder implemen
 
   @Override
   public boolean hasRootsFromOtherDetectors(ProjectStructureDetector thisDetector) {
-    for (ProjectStructureDetector projectStructureDetector : Extensions.getExtensions(ProjectStructureDetector.EP_NAME)) {
+    for (ProjectStructureDetector projectStructureDetector : ProjectStructureDetector.EP_NAME.getExtensionList()) {
       if (projectStructureDetector != thisDetector && !getProjectRoots(projectStructureDetector).isEmpty()) {
         return true;
       }

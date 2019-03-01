@@ -27,6 +27,8 @@ import com.sun.jna.platform.win32.*;
 import com.sun.jna.ptr.PointerByReference;
 import com.sun.jna.win32.StdCallLibrary;
 import com.sun.jna.win32.W32APIOptions;
+import org.jetbrains.annotations.NotNull;
+import sun.awt.AWTAccessor;
 
 import java.awt.*;
 import java.awt.peer.ComponentPeer;
@@ -56,7 +58,7 @@ class Win7TaskBar {
   private static Function mySetOverlayIcon;
 
   public interface User32Ex extends StdCallLibrary {
-    User32Ex INSTANCE = (User32Ex)Native.loadLibrary("user32", User32Ex.class, W32APIOptions.DEFAULT_OPTIONS);
+    User32Ex INSTANCE = Native.loadLibrary("user32", User32Ex.class, W32APIOptions.DEFAULT_OPTIONS);
 
     int LookupIconIdFromDirectoryEx(Memory presbits, boolean fIcon, int cxDesired, int cyDesired, int Flags);
 
@@ -177,9 +179,10 @@ class Win7TaskBar {
     User32Ex.INSTANCE.FlashWindow(getHandle(frame), true);
   }
 
-  private static WinDef.HWND getHandle(IdeFrame frame) {
+  private static WinDef.HWND getHandle(@NotNull IdeFrame frame) {
+    Component component = (Component)frame;
     try {
-      ComponentPeer peer = ((Component)frame).getPeer();
+      ComponentPeer peer = AWTAccessor.getComponentAccessor().getPeer(component);
       Method getHWnd = peer.getClass().getMethod("getHWnd");
       return new WinDef.HWND(new Pointer((Long)getHWnd.invoke(peer)));
     }

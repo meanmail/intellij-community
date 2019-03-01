@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2016 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package git4idea.history;
 
 import com.intellij.openapi.actionSystem.ActionManager;
@@ -32,13 +18,12 @@ import com.intellij.util.ArrayUtil;
 import com.intellij.util.Processor;
 import com.intellij.util.ui.ColumnInfo;
 import com.intellij.vcs.history.VcsHistoryProviderEx;
+import com.intellij.vcs.log.Hash;
 import com.intellij.vcsUtil.VcsUtil;
 import git4idea.GitRevisionNumber;
 import git4idea.GitUtil;
 import git4idea.GitVcs;
 import git4idea.changes.GitChangeUtils;
-import git4idea.config.GitExecutableValidator;
-import git4idea.history.browser.SHAHash;
 import git4idea.log.GitShowCommitInLogAction;
 import git4idea.repo.GitRepository;
 import git4idea.repo.GitRepositoryManager;
@@ -48,6 +33,8 @@ import org.jetbrains.annotations.Nullable;
 import javax.swing.*;
 import java.util.Collections;
 import java.util.List;
+
+import static com.intellij.util.containers.ContainerUtil.getFirstItem;
 
 /**
  * Git history provider implementation
@@ -63,21 +50,25 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
     myProject = project;
   }
 
+  @Override
   public VcsDependentHistoryComponents getUICustomization(final VcsHistorySession session, JComponent forShortcutRegistration) {
     return VcsDependentHistoryComponents.createOnlyColumns(ColumnInfo.EMPTY_ARRAY);
   }
 
+  @Override
   public AnAction[] getAdditionalActions(Runnable refresher) {
-    return new AnAction[] {
+    return new AnAction[]{
       ShowAllAffectedGenericAction.getInstance(),
       ActionManager.getInstance().getAction(VcsActions.ACTION_COPY_REVISION_NUMBER),
-      new GitShowCommitInLogAction() };
+      new GitShowCommitInLogAction()};
   }
 
+  @Override
   public boolean isDateOmittable() {
     return false;
   }
 
+  @Override
   @Nullable
   public String getHelpId() {
     return null;
@@ -101,20 +92,17 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
     return createSession(filePath, revisions, currentRevision);
   }
 
+  @Override
   @Nullable
   public VcsAbstractHistorySession createSessionFor(final FilePath filePath) throws VcsException {
-    List<VcsFileRevision> revisions = null;
-    try {
-      revisions = GitHistoryUtils.history(myProject, filePath);
-    } catch (VcsException e) {
-      GitVcs.getInstance(myProject).getExecutableValidator().showNotificationOrThrow(e);
-    }
-    return createSession(filePath, revisions, null);
+    List<VcsFileRevision> revisions = GitFileHistory.collectHistory(myProject, filePath);
+    return createSession(filePath, revisions, revisions.isEmpty() ? null : getFirstItem(revisions).getRevisionNumber());
   }
 
-  private VcsAbstractHistorySession createSession(final FilePath filePath, final List<VcsFileRevision> revisions,
+  private VcsAbstractHistorySession createSession(final FilePath filePath, final List<? extends VcsFileRevision> revisions,
                                                   @Nullable final VcsRevisionNumber number) {
     return new VcsAbstractHistorySession(revisions, number) {
+      @Override
       @Nullable
       protected VcsRevisionNumber calcCurrentRevisionNumber() {
         try {
@@ -129,6 +117,7 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
         }
       }
 
+      @Override
       public HistoryAsTreeProvider getHistoryAsTreeProvider() {
         return null;
       }
@@ -143,60 +132,52 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
   @Nullable
   @Override
   public VcsFileRevision getLastRevision(FilePath filePath) throws VcsException {
-    List<VcsFileRevision> history = GitHistoryUtils.history(myProject, filePath, "--max-count=1");
-    if (history == null || history.isEmpty()) return null;
+    List<VcsFileRevision> history = GitFileHistory.collectHistory(myProject, filePath, "--max-count=1");
+    if (history.isEmpty()) return null;
     return history.get(0);
   }
 
   @Override
-  public boolean getBaseVersionContent(FilePath filePath,
-                                       Processor<CharSequence> processor,
-                                       final String beforeVersionId,
-                                       List<String> warnings)
-    throws VcsException {
+  public boolean getBaseVersionContent(FilePath filePath, Processor<? super String> processor, String beforeVersionId) throws VcsException {
     if (StringUtil.isEmptyOrSpaces(beforeVersionId) || filePath.getVirtualFile() == null) return false;
     // apply if base revision id matches revision
     final VirtualFile root = GitUtil.getGitRoot(filePath);
     if (root == null) return false;
 
-    final SHAHash shaHash = GitChangeUtils.commitExists(myProject, root, beforeVersionId, null, "HEAD");
-    if (shaHash == null) {
+    Hash hash = GitChangeUtils.commitExists(myProject, root, beforeVersionId, null, "HEAD");
+    if (hash == null) {
       throw new VcsException("Can not apply patch to " + filePath.getPath() + ".\nCan not find revision '" + beforeVersionId + "'.");
     }
 
     final ContentRevision content = GitVcs.getInstance(myProject).getDiffProvider()
-      .createFileContent(new GitRevisionNumber(shaHash.getValue()), filePath.getVirtualFile());
+      .createFileContent(new GitRevisionNumber(hash.asString()), filePath.getVirtualFile());
     if (content == null) {
-      throw new VcsException("Can not load content of '" + filePath.getPath() + "' for revision '" + shaHash.getValue() + "'");
+      throw new VcsException("Can not load content of '" + filePath.getPath() + "' for revision '" + hash.asString() + "'");
     }
-    return ! processor.process(content.getContent());
+    return !processor.process(content.getContent());
   }
 
-  public void reportAppendableHistory(FilePath path, VcsAppendableHistorySessionPartner partner) throws VcsException {
+  @Override
+  public void reportAppendableHistory(FilePath path, VcsAppendableHistorySessionPartner partner) {
     reportAppendableHistory(path, null, partner);
   }
 
   @Override
-  public void reportAppendableHistory(@NotNull FilePath path, 
-                                      @Nullable VcsRevisionNumber startingRevision, 
-                                      @NotNull final VcsAppendableHistorySessionPartner partner) throws VcsException {
+  public void reportAppendableHistory(@NotNull FilePath path,
+                                      @Nullable VcsRevisionNumber startingRevision,
+                                      @NotNull final VcsAppendableHistorySessionPartner partner) {
     final VcsAbstractHistorySession emptySession = createSession(path, Collections.emptyList(), null);
     partner.reportCreatedEmptySession(emptySession);
 
     VcsConfiguration vcsConfiguration = VcsConfiguration.getInstance(myProject);
     String[] additionalArgs = vcsConfiguration.LIMIT_HISTORY ?
-                              new String[] { "--max-count=" + vcsConfiguration.MAXIMUM_HISTORY_ROWS } :
+                              new String[]{"--max-count=" + vcsConfiguration.MAXIMUM_HISTORY_ROWS} :
                               ArrayUtil.EMPTY_STRING_ARRAY;
 
-    final GitExecutableValidator validator = GitVcs.getInstance(myProject).getExecutableValidator();
-    GitHistoryUtils.history(myProject, refreshPath(path), null, startingRevision == null ? GitRevisionNumber.HEAD : startingRevision,
-                            fileRevision -> partner.acceptRevision(fileRevision),
-                            exception -> {
-                              if (validator.checkExecutableAndNotifyIfNeeded()) {
-                                partner.reportException(exception);
-                              }
-                            },
-                            additionalArgs);
+    GitFileHistory.loadHistory(myProject, refreshPath(path), null, startingRevision,
+                               fileRevision -> partner.acceptRevision(fileRevision),
+                               exception -> partner.reportException(exception),
+                               additionalArgs);
   }
 
   /**
@@ -211,6 +192,7 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
     return VcsUtil.getFilePath(virtualFile);
   }
 
+  @Override
   public boolean supportsHistoryForDirectories() {
     return true;
   }
@@ -223,8 +205,7 @@ public class GitHistoryProvider implements VcsHistoryProviderEx,
   @Override
   public boolean canShowHistoryFor(@NotNull VirtualFile file) {
     GitRepositoryManager manager = GitUtil.getRepositoryManager(myProject);
-    GitRepository repository = manager.getRepositoryForFile(file);
+    GitRepository repository = manager.getRepositoryForFileQuick(file);
     return repository != null && !repository.isFresh();
   }
-
 }

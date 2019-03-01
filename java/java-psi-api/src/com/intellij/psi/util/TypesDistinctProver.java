@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2010 JetBrains s.r.o.
+ * Copyright 2000-2016 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,16 +17,13 @@ package com.intellij.psi.util;
 
 import com.intellij.openapi.util.Comparing;
 import com.intellij.psi.*;
-import com.intellij.util.containers.HashSet;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Set;
 
-/**
- * User: anna
- * Date: Aug 12, 2010
- */
 public class TypesDistinctProver {
-  public static final Set<String> ARRAY_SUPER_CLASSES = new HashSet<String>();
+  public static final Set<String> ARRAY_SUPER_CLASSES = new HashSet<>();
   static {
     ARRAY_SUPER_CLASSES.add(CommonClassNames.JAVA_IO_SERIALIZABLE);
     ARRAY_SUPER_CLASSES.add(CommonClassNames.JAVA_LANG_CLONEABLE);
@@ -89,7 +86,7 @@ public class TypesDistinctProver {
         }
 
         final PsiType bound = ((PsiWildcardType)type1).getBound();
-        return bound != null && !bound.equals(psiClass2);
+        return bound != null && !bound.equals(type2);
       }
       
       if (type2 instanceof PsiArrayType) {
@@ -111,14 +108,16 @@ public class TypesDistinctProver {
     final PsiClass boundClass2 = classResolveResult2.getElement();
 
     if (boundClass1 instanceof PsiTypeParameter && level < 2) {
-      if (!distinguishFromTypeParam((PsiTypeParameter)boundClass1, boundClass2, type1)) return false;
+      if (!distinguishFromTypeParam((PsiTypeParameter)boundClass1, type1, type2)) return false;
     }
 
     if (boundClass2 instanceof PsiTypeParameter && level < 2) {
-      if (!distinguishFromTypeParam((PsiTypeParameter)boundClass2, boundClass1, type2)) return false;
+      if (!distinguishFromTypeParam((PsiTypeParameter)boundClass2, type2, type1)) return false;
     }
 
-    if (Comparing.equal(TypeConversionUtil.erasure(type1), TypeConversionUtil.erasure(type2))) {
+    if (Comparing.equal(TypeConversionUtil.erasure(type1), TypeConversionUtil.erasure(type2)) && 
+        !(boundClass1 instanceof PsiTypeParameter) && 
+        !(boundClass2 instanceof PsiTypeParameter)) {
       final PsiSubstitutor substitutor1 = classResolveResult1.getSubstitutor();
       final PsiSubstitutor substitutor2 = classResolveResult2.getSubstitutor();
       for (PsiTypeParameter parameter : substitutor1.getSubstitutionMap().keySet()) {
@@ -140,23 +139,22 @@ public class TypesDistinctProver {
       if (level < 2) return false;
     }
 
+    if (boundClass1 == null || boundClass2 == null) {
+      return type1 != null && type2 != null && !type1.equals(type2);
+    }
+
     return type2 != null && type1 != null && !type1.equals(type2) &&
+           !(level == 0 && boundClass1.isInterface() && boundClass2.isInterface()) &&
            (!InheritanceUtil.isInheritorOrSelf(boundClass1, boundClass2, true) ||
             !InheritanceUtil.isInheritorOrSelf(boundClass2, boundClass1, true));
   }
 
-  private static boolean distinguishFromTypeParam(PsiTypeParameter typeParam, PsiClass boundClass, PsiType type1) {
+  private static boolean distinguishFromTypeParam(PsiTypeParameter typeParam,
+                                                  PsiType type1,
+                                                  PsiType type2) {
     final PsiClassType[] paramBounds = typeParam.getExtendsListTypes();
-    if (paramBounds.length == 0 && type1 instanceof PsiClassType) return false;
-    for (PsiClassType classType : paramBounds) {
-      final PsiClass paramBound = classType.resolve();
-      if (paramBound != null &&
-          (InheritanceUtil.isInheritorOrSelf(paramBound, boundClass, true) ||
-           InheritanceUtil.isInheritorOrSelf(boundClass, paramBound, true))) {
-        return false;
-      }
-    }
-    return true;
+    if (paramBounds.length == 0) return !(type1 instanceof PsiClassType);
+    return Arrays.stream(paramBounds).anyMatch(paramBound -> !TypeConversionUtil.isAssignable(paramBound.rawType(), type2));
   }
 
   public static boolean provablyDistinct(PsiWildcardType type1, PsiWildcardType type2, boolean rejectInconsistentRaw, int level) {

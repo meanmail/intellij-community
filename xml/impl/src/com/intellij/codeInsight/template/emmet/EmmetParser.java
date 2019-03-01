@@ -1,18 +1,4 @@
-/*
- * Copyright 2000-2014 JetBrains s.r.o.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+// Copyright 2000-2018 JetBrains s.r.o. Use of this source code is governed by the Apache 2.0 license that can be found in the LICENSE file.
 package com.intellij.codeInsight.template.emmet;
 
 import com.intellij.codeInsight.template.CustomTemplateCallback;
@@ -24,18 +10,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-/**
- * User: zolotov
- * Date: 1/25/13
- */
 public abstract class EmmetParser {
-  private final List<ZenCodingToken> myTokens;
+  private final List<? extends ZenCodingToken> myTokens;
   protected final CustomTemplateCallback myCallback;
   protected final ZenCodingGenerator myGenerator;
 
   private int myIndex = 0;
 
-  public EmmetParser(List<ZenCodingToken> tokens, CustomTemplateCallback callback, ZenCodingGenerator generator) {
+  public EmmetParser(List<? extends ZenCodingToken> tokens, CustomTemplateCallback callback, ZenCodingGenerator generator) {
     myTokens = tokens;
     myCallback = callback;
     myGenerator = generator;
@@ -77,11 +59,11 @@ public abstract class EmmetParser {
 
   @Nullable
   protected ZenCodingNode parseAddOrMore() {
-    ZenCodingNode mul = parseMul();
+    ZenCodingNode mul = parseMul(parseExpression());
 
     ZenCodingToken operationToken = getToken();
     if (operationToken == ZenCodingTokens.OPENING_R_BRACKET) {
-      mul = new MoreOperationNode(notNullNode(mul), notNullNode(parseExpression()));
+      mul = parseMul(new MoreOperationNode(notNullNode(mul), notNullNode(parseExpression())));
       operationToken = getToken();
     }
     if (!(operationToken instanceof OperationToken)) {
@@ -106,24 +88,24 @@ public abstract class EmmetParser {
     return null;
   }
 
+  @Nullable
   protected ZenCodingNode parseClimbUpOperation(@Nullable ZenCodingNode leftPart) {
     advance();
-    leftPart = notNullNode(leftPart);
     ZenCodingNode rightPart = parseAddOrMore();
     if (rightPart == null) {
       return leftPart;
     }
-    return new ClimbUpOperationNode(leftPart, rightPart);
+    return new ClimbUpOperationNode(notNullNode(leftPart), rightPart);
   }
 
+  @Nullable
   protected ZenCodingNode parseMoreOperation(@Nullable ZenCodingNode leftPart) {
     advance();
-    leftPart = notNullNode(leftPart);
     ZenCodingNode rightPart = parseAddOrMore();
     if (rightPart == null) {
       return leftPart;
     }
-    return new MoreOperationNode(leftPart, rightPart);
+    return new MoreOperationNode(notNullNode(leftPart), rightPart);
   }
 
   private static ZenCodingNode notNullNode(ZenCodingNode node) {
@@ -135,25 +117,18 @@ public abstract class EmmetParser {
   }
 
   @Nullable
-  private ZenCodingNode parseMul() {
-    ZenCodingNode exp = parseExpression();
-    if (exp == null) {
-      return null;
-    }
+  private ZenCodingNode parseMul(@Nullable ZenCodingNode expression) {
     ZenCodingToken operationToken = getToken();
-    if (!(operationToken instanceof OperationToken)) {
-      return exp;
-    }
-    if (((OperationToken)operationToken).getSign() != '*') {
-      return exp;
-    }
-    advance();
-    ZenCodingToken numberToken = getToken();
-    if (numberToken instanceof NumberToken) {
+    if (expression != null && operationToken instanceof OperationToken && ((OperationToken)operationToken).getSign() == '*') {
       advance();
-      return new MulOperationNode(exp, ((NumberToken)numberToken).getNumber());
+      ZenCodingToken numberToken = getToken();
+      if (numberToken instanceof NumberToken) {
+        advance();
+        return new MulOperationNode(expression, ((NumberToken)numberToken).getNumber());
+      }
+      return new UnaryMulOperationNode(expression);
     }
-    return new UnaryMulOperationNode(exp);
+    return expression;
   }
 
   @Nullable
@@ -213,12 +188,13 @@ public abstract class EmmetParser {
 
   protected boolean setTemplate(final TemplateToken token, TemplateImpl template) {
     if (template == null) {
-      template = myGenerator.createTemplateByKey(token.getKey());
+      template = myGenerator.createTemplateByKey(token.getKey(), token.isForceSingleTag());
     }
     if (template == null) {
       return false;
     }
-    return token.setTemplate(template, myCallback);
+    token.setTemplate(template, myCallback);
+    return true;
   }
 
   @Nullable
